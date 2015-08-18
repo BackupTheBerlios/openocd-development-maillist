@@ -1,0 +1,691 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] ETM: don't be ARM7/ARM9-specific
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20ETM%3A%20don%27t%20be%20ARM7/ARM9-specific&In-Reply-To=%3C200911111248.23677.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012258.html">
+   <LINK REL="Next"  HREF="012264.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] ETM: don't be ARM7/ARM9-specific</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20ETM%3A%20don%27t%20be%20ARM7/ARM9-specific&In-Reply-To=%3C200911111248.23677.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] ETM: don't be ARM7/ARM9-specific">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Nov 11 21:48:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012258.html">[Openocd-development] [PUSHED 5/5] improve command help
+</A></li>
+        <LI>Next message: <A HREF="012264.html">[Openocd-development] [patch/rfc] ETM: don't be	ARM7/ARM9-specific
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12242">[ date ]</a>
+              <a href="thread.html#12242">[ thread ]</a>
+              <a href="subject.html#12242">[ subject ]</a>
+              <a href="author.html#12242">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Framework updates to provide ETM access on ARM cores other
+than the current set of just ARM7 and ARM9 based cores:
+
+ - Rename &quot;struct armv4_5_common_s&quot; as &quot;struct arm&quot;.  It
+   needs a bit more work to be properly generic, but it's
+   the best start we have at that today.
+
+ - In &quot;struct arm&quot; provide an optional ETM pointer.
+
+ - Make ETM use &quot;struct arm&quot; that way not &quot;struct arm7_9&quot;.
+   Ditto ETB, which is the main way OpenOCD can support
+   trace functionality (vs. giving fancy debug triggers).
+
+The intent being:  all ARMs should eventually derive from
+this newish &quot;struct arm&quot;, so they can reuse the current ETM 
+logic.  Currently the ARM cores that *don't* so derive are
+only ARMv7-M (and thus Cortex-M3) and ARM11.
+
+ARM11 should be able to support standard ETM (and ETB) access
+as soon as it derives from &quot;struct arm&quot; ... its scanchain 6 is
+used access the ETM, just like ARM7 and ARM9.
+
+The Cortex parts (both M3 and A8) will need modified access
+methods, so they can go through the DAP.  Our main A8 target
+(OMAP3) needs that for both ETM and ETB.  The M3 ETM isn't
+useful without trace support though, so that support won't
+be worth adding for a while.
+---
+NOTE: the rename to &quot;struct arm&quot; could be split out into
+a patch of its own, but that wouldn't shrink this much
+since most of the work involved just uplevels the support
+one level in the ARM hierarchy.  A larger patch would
+stop using the old &quot;armv4_5&quot; type, possibly relocating
+it to the arm_jtag.h header.
+
+ src/target/arm7_9_common.h |    6 --
+ src/target/arm7tdmi.c      |    9 +--
+ src/target/arm9tdmi.c      |    9 +--
+ src/target/armv4_5.h       |   41 +++++++++++++--
+ src/target/etb.c           |   14 ++---
+ src/target/etm.c           |  114 +++++++++++++++++++------------------------
+ src/target/etm.h           |    3 -
+ src/target/etm_dummy.c     |   14 ++---
+ 8 files changed, 116 insertions(+), 94 deletions(-)
+
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -30,7 +30,7 @@
+ #define ARM7_9_COMMON_H
+ 
+ #include &quot;breakpoints.h&quot;
+-#include &quot;etm.h&quot;
++#include &quot;armv4_5.h&quot;
+ 
+ #define	ARM7_9_COMMON_MAGIC 0x0a790a79 /**&lt; */
+ 
+@@ -39,7 +39,7 @@
+  */
+ typedef struct arm7_9_common_s
+ {
+-	armv4_5_common_t armv4_5_common;
++	struct arm armv4_5_common;
+ 	uint32_t common_magic;
+ 
+ 	arm_jtag_t jtag_info; /**&lt; JTAG information for target */
+@@ -69,8 +69,6 @@ typedef struct arm7_9_common_s
+ 	bool fast_memory_access;
+ 	bool dcc_downloads;
+ 
+-	etm_context_t *etm_ctx;
+-
+ 	struct working_area_s *dcc_working_area;
+ 
+ 	int (*examine_debug_reason)(target_t *target); /**&lt; Function for determining why debug state was entered */
+--- a/src/target/arm7tdmi.c
++++ b/src/target/arm7tdmi.c
+@@ -663,11 +663,12 @@ int arm7tdmi_examine(struct target_s *ta
+ 		(*cache_p) = t;
+ 		arm7_9-&gt;eice_cache = (*cache_p);
+ 
+-		if (arm7_9-&gt;etm_ctx)
++		if (arm7_9-&gt;armv4_5_common.etm)
+ 		{
+ 			arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+-			(*cache_p)-&gt;next = etm_build_reg_cache(target, jtag_info, arm7_9-&gt;etm_ctx);
+-			arm7_9-&gt;etm_ctx-&gt;reg_cache = (*cache_p)-&gt;next;
++			(*cache_p)-&gt;next = etm_build_reg_cache(target,
++					jtag_info, arm7_9-&gt;armv4_5_common.etm);
++			arm7_9-&gt;armv4_5_common.etm-&gt;reg_cache = (*cache_p)-&gt;next;
+ 		}
+ 		target_set_examined(target);
+ 	}
+@@ -675,7 +676,7 @@ int arm7tdmi_examine(struct target_s *ta
+ 		return retval;
+ 	if ((retval = arm7_9_setup(target)) != ERROR_OK)
+ 		return retval;
+-	if (arm7_9-&gt;etm_ctx)
++	if (arm7_9-&gt;armv4_5_common.etm)
+ 	{
+ 		if ((retval = etm_setup(target)) != ERROR_OK)
+ 			return retval;
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -758,11 +758,12 @@ int arm9tdmi_examine(struct target_s *ta
+ 		(*cache_p) = t;
+ 		arm7_9-&gt;eice_cache = (*cache_p);
+ 
+-		if (arm7_9-&gt;etm_ctx)
++		if (arm7_9-&gt;armv4_5_common.etm)
+ 		{
+ 			arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+-			(*cache_p)-&gt;next = etm_build_reg_cache(target, jtag_info, arm7_9-&gt;etm_ctx);
+-			arm7_9-&gt;etm_ctx-&gt;reg_cache = (*cache_p)-&gt;next;
++			(*cache_p)-&gt;next = etm_build_reg_cache(target,
++					jtag_info, arm7_9-&gt;armv4_5_common.etm);
++			arm7_9-&gt;armv4_5_common.etm-&gt;reg_cache = (*cache_p)-&gt;next;
+ 		}
+ 		target_set_examined(target);
+ 	}
+@@ -770,7 +771,7 @@ int arm9tdmi_examine(struct target_s *ta
+ 		return retval;
+ 	if ((retval = arm7_9_setup(target)) != ERROR_OK)
+ 		return retval;
+-	if (arm7_9-&gt;etm_ctx)
++	if (arm7_9-&gt;armv4_5_common.etm)
+ 	{
+ 		if ((retval = etm_setup(target)) != ERROR_OK)
+ 			return retval;
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -29,6 +29,7 @@
+ #include &quot;register.h&quot;
+ #include &quot;target.h&quot;
+ #include &quot;log.h&quot;
++#include &quot;etm.h&quot;
+ 
+ typedef enum armv4_5_mode
+ {
+@@ -73,25 +74,55 @@ enum
+ 
+ #define ARMV4_5_COMMON_MAGIC 0x0A450A45
+ 
+-typedef struct armv4_5_common_s
++/*
++ * NOTE:  this is going to be morphed into &quot;struct arm&quot;, a generic toplevel
++ * holder for ARM cores.  Note that cores like the Cortex-M series do not
++ * support the same core states and do not have many shadowed registers.
++ */
++#define armv4_5_common_s arm
++
++/**
++ * Represents a generic ARM core, with standard application registers.
++ *
++ * There are sixteen application registers (including PC, SP, LR) and a PSR.
++ * Cortex-M series cores do not support as many core states or shadowed
++ * registers as traditional ARM cores, and only support Thumb2 instructions.
++ */
++typedef struct arm
+ {
+ 	int common_magic;
+ 	reg_cache_t *core_cache;
++
+ 	int /* armv4_5_mode */ core_mode;
+ 	enum armv4_5_state core_state;
++
++	/** Flag reporting unavailability of the BKPT instruction. */
+ 	bool is_armv4;
++
++	/** Handle for the Embedded Trace Module, if one is present. */
++	struct etm *etm;
++
+ 	int (*full_context)(struct target_s *target);
+-	int (*read_core_reg)(struct target_s *target, int num, enum armv4_5_mode mode);
+-	int (*write_core_reg)(struct target_s *target, int num, enum armv4_5_mode mode, uint32_t value);
++	int (*read_core_reg)(struct target_s *target,
++			int num, enum armv4_5_mode mode);
++	int (*write_core_reg)(struct target_s *target,
++			int num, enum armv4_5_mode mode, uint32_t value);
+ 	void *arch_info;
+ } armv4_5_common_t;
+ 
+-static inline struct armv4_5_common_s *
+-target_to_armv4_5(struct target_s *target)
++#define target_to_armv4_5 target_to_arm
++
++/** Convert target handle to generic ARM target state handle. */
++static inline struct arm *target_to_arm(struct target_s *target)
+ {
+ 	return target-&gt;arch_info;
+ }
+ 
++static inline bool is_arm(struct arm *arm)
++{
++	return arm &amp;&amp; arm-&gt;common_magic == ARMV4_5_COMMON_MAGIC;
++}
++
+ typedef struct armv4_5_algorithm_s
+ {
+ 	int common_magic;
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -21,7 +21,7 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#include &quot;arm7_9_common.h&quot;
++#include &quot;armv4_5.h&quot;
+ #include &quot;etb.h&quot;
+ 
+ 
+@@ -353,8 +353,7 @@ static int handle_etb_config_command(str
+ {
+ 	target_t *target;
+ 	jtag_tap_t *tap;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 
+ 	if (argc != 2)
+ 	{
+@@ -369,9 +368,10 @@ static int handle_etb_config_command(str
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+-		command_print(cmd_ctx, &quot;ETB: current target isn't an ARM7/ARM9 target&quot;);
++		command_print(cmd_ctx, &quot;ETB: '%s' isn't an ARM&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -382,11 +382,11 @@ static int handle_etb_config_command(str
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (arm7_9-&gt;etm_ctx)
++	if (arm-&gt;etm)
+ 	{
+ 		etb_t *etb = malloc(sizeof(etb_t));
+ 
+-		arm7_9-&gt;etm_ctx-&gt;capture_driver_priv = etb;
++		arm-&gt;etm-&gt;capture_driver_priv = etb;
+ 
+ 		etb-&gt;tap  = tap;
+ 		etb-&gt;cur_scan_chain = 0xffffffff;
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -21,10 +21,9 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#include &quot;etm.h&quot;
++#include &quot;armv4_5.h&quot;
+ #include &quot;etb.h&quot;
+ #include &quot;image.h&quot;
+-#include &quot;arm7_9_common.h&quot;
+ #include &quot;arm_disassembler.h&quot;
+ 
+ 
+@@ -410,8 +409,8 @@ int etm_setup(target_t *target)
+ {
+ 	int retval;
+ 	uint32_t etm_ctrl_value;
+-	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+-	etm_context_t *etm_ctx = arm7_9-&gt;etm_ctx;
++	struct arm *arm = target_to_arm(target);
++	etm_context_t *etm_ctx = arm-&gt;etm;
+ 	reg_t *etm_ctrl_reg;
+ 
+ 	etm_ctrl_reg = etm_reg_lookup(etm_ctx, ETM_CTRL);
+@@ -1229,17 +1228,15 @@ static int handle_etm_tracemode_command(
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm = target_to_arm(target);
+ 	struct etm *etm;
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
+-	{
++	if (!is_arm(arm)) {
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	etm = arm7_9-&gt;etm_ctx;
++	etm = arm-&gt;etm;
+ 	if (!etm) {
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+@@ -1354,8 +1351,7 @@ static int handle_etm_config_command(str
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_portmode_t portmode = 0x0;
+ 	struct etm *etm_ctx;
+ 	int i;
+@@ -1370,8 +1366,8 @@ static int handle_etm_config_command(str
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
+-	{
++	arm = target_to_arm(target);
++	if (!is_arm(arm)) {
+ 		command_print(cmd_ctx, &quot;target '%s' is '%s'; not an ARM&quot;,
+ 				target-&gt;cmd_name, target_get_name(target));
+ 		return ERROR_FAIL;
+@@ -1476,7 +1472,7 @@ static int handle_etm_config_command(str
+ 	etm_ctx-&gt;ptr_ok = 0x0;
+ 	etm_ctx-&gt;last_instruction = 0;
+ 
+-	arm7_9-&gt;etm_ctx = etm_ctx;
++	arm-&gt;etm = etm_ctx;
+ 
+ 	return etm_register_user_commands(cmd_ctx);
+ }
+@@ -1485,22 +1481,20 @@ static int handle_etm_info_command(struc
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm;
+ 	reg_t *etm_sys_config_reg;
+-
+ 	int max_port_size;
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	etm = arm7_9-&gt;etm_ctx;
++	etm = arm-&gt;etm;
+ 	if (!etm)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+@@ -1579,25 +1573,24 @@ static int handle_etm_status_command(str
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm;
+ 	trace_status_t trace_status;
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (!arm7_9-&gt;etm_ctx)
++	etm = arm-&gt;etm;
++	if (!etm)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+ 	}
+-	etm = arm7_9-&gt;etm_ctx;
+ 
+ 	/* ETM status */
+ 	if (etm-&gt;bcd_vers &gt;= 0x11) {
+@@ -1657,8 +1650,7 @@ static int handle_etm_image_command(stru
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm_ctx;
+ 
+ 	if (argc &lt; 1)
+@@ -1668,14 +1660,15 @@ static int handle_etm_image_command(stru
+ 	}
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (!(etm_ctx = arm7_9-&gt;etm_ctx))
++	etm_ctx = arm-&gt;etm;
++	if (!etm_ctx)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+@@ -1718,8 +1711,7 @@ static int handle_etm_dump_command(struc
+ {
+ 	fileio_t file;
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm_ctx;
+ 	uint32_t i;
+ 
+@@ -1730,14 +1722,15 @@ static int handle_etm_dump_command(struc
+ 	}
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (!(etm_ctx = arm7_9-&gt;etm_ctx))
++	etm_ctx = arm-&gt;etm;
++	if (!etm_ctx)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+@@ -1787,8 +1780,7 @@ static int handle_etm_load_command(struc
+ {
+ 	fileio_t file;
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm_ctx;
+ 	uint32_t i;
+ 
+@@ -1799,14 +1791,15 @@ static int handle_etm_load_command(struc
+ 	}
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (!(etm_ctx = arm7_9-&gt;etm_ctx))
++	etm_ctx = arm-&gt;etm;
++	if (!etm_ctx)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+@@ -1871,19 +1864,19 @@ static int handle_etm_trigger_percent_co
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm_ctx;
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (!(etm_ctx = arm7_9-&gt;etm_ctx))
++	etm_ctx = arm-&gt;etm;
++	if (!etm_ctx)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+@@ -1913,20 +1906,19 @@ static int handle_etm_start_command(stru
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm_ctx;
+ 	reg_t *etm_ctrl_reg;
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	etm_ctx = arm7_9-&gt;etm_ctx;
++	etm_ctx = arm-&gt;etm;
+ 	if (!etm_ctx)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+@@ -1963,20 +1955,20 @@ static int handle_etm_stop_command(struc
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm_ctx;
+ 	reg_t *etm_ctrl_reg;
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (!(etm_ctx = arm7_9-&gt;etm_ctx))
++	etm_ctx = arm-&gt;etm;
++	if (!etm_ctx)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+@@ -2003,20 +1995,20 @@ static int handle_etm_analyze_command(st
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 	etm_context_t *etm_ctx;
+ 	int retval;
+ 
+ 	target = get_current_target(cmd_ctx);
+-
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+ 		command_print(cmd_ctx, &quot;ETM: current target isn't an ARM&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (!(etm_ctx = arm7_9-&gt;etm_ctx))
++	etm_ctx = arm-&gt;etm;
++	if (!etm_ctx)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_FAIL;
+--- a/src/target/etm.h
++++ b/src/target/etm.h
+@@ -25,7 +25,6 @@
+ 
+ #include &quot;trace.h&quot;
+ #include &quot;arm_jtag.h&quot;
+-#include &quot;armv4_5.h&quot;
+ 
+ struct image_s;
+ 
+@@ -158,7 +157,7 @@ typedef struct etm
+ 	uint32_t trace_depth;		/* number of cycles to be analyzed, 0 if no data available */
+ 	etm_portmode_t portmode;	/* normal, multiplexed or demultiplexed */
+ 	etmv1_tracemode_t tracemode;	/* type of info trace contains */
+-	armv4_5_state_t core_state;	/* current core state */
++	int /*armv4_5_state_t*/ core_state;	/* current core state */
+ 	struct image_s *image;		/* source for target opcodes */
+ 	uint32_t pipe_index;		/* current trace cycle */
+ 	uint32_t data_index;		/* cycle holding next data packet */
+--- a/src/target/etm_dummy.c
++++ b/src/target/etm_dummy.c
+@@ -21,15 +21,14 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
++#include &quot;armv4_5.h&quot;
+ #include &quot;etm_dummy.h&quot;
+-#include &quot;arm7_9_common.h&quot;
+ 
+ 
+ static int handle_etm_dummy_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	target_t *target;
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
++	struct arm *arm;
+ 
+ 	target = get_target(args[0]);
+ 
+@@ -39,15 +38,16 @@ static int handle_etm_dummy_config_comma
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
+ 	{
+-		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
++		command_print(cmd_ctx, &quot;target '%s' isn't an ARM&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	if (arm7_9-&gt;etm_ctx)
++	if (arm-&gt;etm)
+ 	{
+-		arm7_9-&gt;etm_ctx-&gt;capture_driver_priv = NULL;
++		arm-&gt;etm-&gt;capture_driver_priv = NULL;
+ 	}
+ 	else
+ 	{
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012258.html">[Openocd-development] [PUSHED 5/5] improve command help
+</A></li>
+	<LI>Next message: <A HREF="012264.html">[Openocd-development] [patch/rfc] ETM: don't be	ARM7/ARM9-specific
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12242">[ date ]</a>
+              <a href="thread.html#12242">[ thread ]</a>
+              <a href="subject.html#12242">[ subject ]</a>
+              <a href="author.html#12242">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

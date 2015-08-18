@@ -1,0 +1,379 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] ARMv7-M: start using &quot;struct arm&quot;
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARMv7-M%3A%20start%20using%20%22struct%20arm%22&In-Reply-To=%3C201002021606.43982.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014583.html">
+   <LINK REL="Next"  HREF="014590.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] ARMv7-M: start using &quot;struct arm&quot;</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARMv7-M%3A%20start%20using%20%22struct%20arm%22&In-Reply-To=%3C201002021606.43982.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] ARMv7-M: start using &quot;struct arm&quot;">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Feb  3 01:06:43 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014583.html">[Openocd-development] [PATCH 1/2] ARM semihosting: add armv7m	support
+</A></li>
+        <LI>Next message: <A HREF="014590.html">[Openocd-development] For JLink Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14584">[ date ]</a>
+              <a href="thread.html#14584">[ thread ]</a>
+              <a href="subject.html#14584">[ subject ]</a>
+              <a href="author.html#14584">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This sets up a few of the core &quot;struct arm&quot; data structures so they
+can be used with ARMv7-M cores.  Specifically, it:
+
+ - defines new ARM core_modes to match the microcontroller modes
+   (e.g. HANDLER not IRQ, and two types of thread mode);
+
+ - Establishes a new microcontroller &quot;core_type&quot;, which can be
+   used to make sure v7-M (and v6-M) cores are handled right;
+
+ - adds &quot;struct arm&quot; to &quot;struct armv7m&quot; and arranges for the
+   target_to_armv7m() converter to use it;
+
+ - sets up the armv7m magic number; adds and uses is_armv7() method,
+   preventing v7m DAP commands from coredumping for non-v7m targets.
+
+ - sets up the arm.core_cache and arm.cpsr values
+
+ - makes the Cortex-M3 code maintain arm.map and arm.core_mode.
+
+This is currently set up as a parallel data structure, primarily to
+minimize special cases for the semihosting support with microcontroller
+profile cores.
+
+Later patches can rip out the duplicative ARMv7-M support and start
+reusing more of that core ARM code.
+---
+It might be worth splitting out the armv7m magic number stuff in
+a separate patch -- possibly even for 0.4, as cleanup/bugfix even
+though nobody's tripped over those cordumps yet.  Otherwise, this
+is not 0.4 material.
+
+This is the guts of that approach I mentioned a while back.  It's
+only been sanity tested so far.
+
+ src/target/arm.h       |   17 ++++++++++++++++-
+ src/target/armv4_5.c   |    6 ++++--
+ src/target/armv7m.c    |   46 ++++++++++++++++++++++++++++++++++++++++------
+ src/target/armv7m.h    |    9 ++++++++-
+ src/target/cortex_m3.c |   39 +++++++++++++++++++++++++++++++++++++--
+ 5 files changed, 105 insertions(+), 12 deletions(-)
+
+--- a/src/target/arm.h
++++ b/src/target/arm.h
+@@ -40,9 +40,17 @@
+  */
+ 
+ /**
+- * These numbers match the five low bits of the *PSR registers on
++ * Represent state of an ARM core.
++ *
++ * Most numbers match the five low bits of the *PSR registers on
+  * &quot;classic ARM&quot; processors, which build on the ARMv4 processor
+  * modes and register set.
++ *
++ * ARM_MODE_ANY is a magic value, often used as a wildcard.
++ *
++ * Only the microcontroller cores (ARMv6-M, ARMv7-M) support ARM_MODE_THREAD,
++ * ARM_MODE_USER_THREAD, and ARM_MODE_HANDLER.  Those are the only modes
++ * they support.
+  */
+ enum arm_mode {
+ 	ARM_MODE_USR = 16,
+@@ -53,6 +61,11 @@ enum arm_mode {
+ 	ARM_MODE_MON = 26,
+ 	ARM_MODE_UND = 27,
+ 	ARM_MODE_SYS = 31,
++
++	ARM_MODE_THREAD,
++	ARM_MODE_USER_THREAD,
++	ARM_MODE_HANDLER,
++
+ 	ARM_MODE_ANY = -1
+ };
+ 
+@@ -96,6 +109,8 @@ struct arm {
+ 	 * ARM_MODE_ANY indicates the standard set of 37 registers,
+ 	 * seen on for example ARM7TDMI cores.  ARM_MODE_MON indicates three
+ 	 * more registers are shadowed, for &quot;Secure Monitor&quot; mode.
++	 * ARM_MODE_THREAD indicates a microcontroller profile core,
++	 * which only shadows SP.
+ 	 */
+ 	enum arm_mode core_type;
+ 
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -1426,10 +1426,12 @@ int arm_init_arch_info(struct target *ta
+ 	armv4_5-&gt;target = target;
+ 
+ 	armv4_5-&gt;common_magic = ARM_COMMON_MAGIC;
+-	arm_set_cpsr(armv4_5, ARM_MODE_USR);
+ 
+ 	/* core_type may be overridden by subtype logic */
+-	armv4_5-&gt;core_type = ARM_MODE_ANY;
++	if (armv4_5-&gt;core_type != ARM_MODE_THREAD) {
++		armv4_5-&gt;core_type = ARM_MODE_ANY;
++		arm_set_cpsr(armv4_5, ARM_MODE_USR);
++	}
+ 
+ 	/* default full_context() has no core-specific optimizations */
+ 	if (!armv4_5-&gt;full_context &amp;&amp; armv4_5-&gt;read_core_reg)
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -473,6 +473,7 @@ int armv7m_run_algorithm(struct target *
+ int armv7m_arch_state(struct target *target)
+ {
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
++	struct arm *arm = &amp;armv7m-&gt;arm;
+ 	uint32_t ctrl, sp;
+ 
+ 	ctrl = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].value, 0, 32);
+@@ -483,7 +484,7 @@ int armv7m_arch_state(struct target *tar
+ 		debug_reason_name(target),
+ 		armv7m_mode_strings[armv7m-&gt;core_mode],
+ 		armv7m_exception_string(armv7m-&gt;exception_number),
+-		buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32),
++		buf_get_u32(arm-&gt;cpsr-&gt;value, 0, 32),
+ 		buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PC].value, 0, 32),
+ 		(ctrl &amp; 0x02) ? 'p' : 'm',
+ 		sp);
+@@ -499,6 +500,7 @@ static const struct reg_arch_type armv7m
+ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+ {
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
++	struct arm *arm = &amp;armv7m-&gt;arm;
+ 	int num_regs = ARMV7M_NUM_REGS;
+ 	struct reg_cache **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
+ 	struct reg_cache *cache = malloc(sizeof(struct reg_cache));
+@@ -532,19 +534,28 @@ struct reg_cache *armv7m_build_reg_cache
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 	}
+ 
++	arm-&gt;cpsr = reg_list + ARMV7M_xPSR;
++	arm-&gt;core_cache = cache;
+ 	return cache;
+ }
+ 
+ /** Sets up target as a generic ARMv7-M core */
+ int armv7m_init_arch_info(struct target *target, struct armv7m_common *armv7m)
+ {
+-	/* register arch-specific functions */
++	struct arm *arm = &amp;armv7m-&gt;arm;
+ 
+-	target-&gt;arch_info = armv7m;
++	armv7m-&gt;common_magic = ARMV7M_COMMON_MAGIC;
++
++	arm-&gt;core_type = ARM_MODE_THREAD;
++	arm-&gt;arch_info = armv7m;
++
++	/* FIXME remove v7m-specific r/w core_reg functions;
++	 * use the generic ARM core support..
++	 */
+ 	armv7m-&gt;read_core_reg = armv7m_read_core_reg;
+ 	armv7m-&gt;write_core_reg = armv7m_write_core_reg;
+ 
+-	return ERROR_OK;
++	return arm_init_arch_info(target, arm);
+ }
+ 
+ /** Generates a CRC32 checksum of a memory region. */
+@@ -737,8 +748,6 @@ int armv7m_maybe_skip_bkpt_inst(struct t
+ /*
+  * Only stuff below this line should need to verify that its target
+  * is an ARMv7-M node.
+- *
+- * FIXME yet none of it _does_ verify target types yet!
+  */
+ 
+ 
+@@ -752,6 +761,11 @@ COMMAND_HANDLER(handle_dap_baseaddr_comm
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_baseaddr_command, swjdp);
+ }
+ 
+@@ -765,6 +779,11 @@ COMMAND_HANDLER(handle_dap_apid_command)
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_apid_command, swjdp);
+ }
+ 
+@@ -774,6 +793,11 @@ COMMAND_HANDLER(handle_dap_apsel_command
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_apsel_command, swjdp);
+ }
+ 
+@@ -783,6 +807,11 @@ COMMAND_HANDLER(handle_dap_memaccess_com
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_memaccess_command, swjdp);
+ }
+ 
+@@ -794,6 +823,11 @@ COMMAND_HANDLER(handle_dap_info_command)
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	uint32_t apsel;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	switch (CMD_ARGC) {
+ 	case 0:
+ 		apsel = swjdp-&gt;apsel;
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -100,6 +100,8 @@ enum
+ 
+ struct armv7m_common
+ {
++	struct arm	arm;
++
+ 	int common_magic;
+ 	struct reg_cache *core_cache;
+ 	enum armv7m_mode core_mode;
+@@ -128,7 +130,12 @@ struct armv7m_common
+ static inline struct armv7m_common *
+ target_to_armv7m(struct target *target)
+ {
+-	return target-&gt;arch_info;
++	return container_of(target-&gt;arch_info, struct armv7m_common, arm);
++}
++
++static inline bool is_armv7m(struct armv7m_common *armv7m)
++{
++	return armv7m-&gt;common_magic == ARMV7M_COMMON_MAGIC;
+ }
+ 
+ struct armv7m_algorithm
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -323,6 +323,24 @@ static int cortex_m3_examine_exception_r
+ 	return ERROR_OK;
+ }
+ 
++/* PSP is used in some thread modes */
++static const int armv7m_psp_reg_map[17] = {
++	ARMV7M_R0, ARMV7M_R1, ARMV7M_R2, ARMV7M_R3,
++	ARMV7M_R4, ARMV7M_R5, ARMV7M_R6, ARMV7M_R7,
++	ARMV7M_R8, ARMV7M_R9, ARMV7M_R10, ARMV7M_R11,
++	ARMV7M_R12, ARMV7M_PSP, ARMV7M_R14, ARMV7M_PC,
++	ARMV7M_xPSR,
++};
++
++/* MSP is used in handler and some thread modes */
++static const int armv7m_msp_reg_map[17] = {
++	ARMV7M_R0, ARMV7M_R1, ARMV7M_R2, ARMV7M_R3,
++	ARMV7M_R4, ARMV7M_R5, ARMV7M_R6, ARMV7M_R7,
++	ARMV7M_R8, ARMV7M_R9, ARMV7M_R10, ARMV7M_R11,
++	ARMV7M_R12, ARMV7M_MSP, ARMV7M_R14, ARMV7M_PC,
++	ARMV7M_xPSR,
++};
++
+ static int cortex_m3_debug_entry(struct target *target)
+ {
+ 	int i;
+@@ -330,6 +348,7 @@ static int cortex_m3_debug_entry(struct 
+ 	int retval;
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
++	struct arm *arm = &amp;armv7m-&gt;arm;
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	struct reg *r;
+ 
+@@ -377,11 +396,27 @@ static int cortex_m3_debug_entry(struct 
+ 	{
+ 		armv7m-&gt;core_mode = ARMV7M_MODE_HANDLER;
+ 		armv7m-&gt;exception_number = (xPSR &amp; 0x1FF);
++
++		arm-&gt;core_mode = ARM_MODE_HANDLER;
++		arm-&gt;map = armv7m_msp_reg_map;
+ 	}
+ 	else
+ 	{
+-		armv7m-&gt;core_mode = buf_get_u32(armv7m-&gt;core_cache
+-				-&gt;reg_list[ARMV7M_CONTROL].value, 0, 1);
++		unsigned control = buf_get_u32(armv7m-&gt;core_cache
++				-&gt;reg_list[ARMV7M_CONTROL].value, 0, 2);
++
++		/* is this thread privileged? */
++		armv7m-&gt;core_mode = control &amp; 1;
++		arm-&gt;core_mode = armv7m-&gt;core_mode
++				? ARM_MODE_USER_THREAD
++				: ARM_MODE_THREAD;
++
++		/* which stack is it using? */
++		if (control &amp; 2)
++			arm-&gt;map = armv7m_psp_reg_map;
++		else
++			arm-&gt;map = armv7m_msp_reg_map;
++
+ 		armv7m-&gt;exception_number = 0;
+ 	}
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014583.html">[Openocd-development] [PATCH 1/2] ARM semihosting: add armv7m	support
+</A></li>
+	<LI>Next message: <A HREF="014590.html">[Openocd-development] For JLink Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14584">[ date ]</a>
+              <a href="thread.html#14584">[ thread ]</a>
+              <a href="subject.html#14584">[ subject ]</a>
+              <a href="author.html#14584">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

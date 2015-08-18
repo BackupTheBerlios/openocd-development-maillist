@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] ft2232 jtag mips performance
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ft2232%20jtag%20mips%20performance&In-Reply-To=%3CAANLkTin5R7G7NuCEs%3Dt1Bz1DcuEmd2pmqhGVqrBdN-ep%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018485.html">
+   <LINK REL="Next"  HREF="018532.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] ft2232 jtag mips performance</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ft2232%20jtag%20mips%20performance&In-Reply-To=%3CAANLkTin5R7G7NuCEs%3Dt1Bz1DcuEmd2pmqhGVqrBdN-ep%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] ft2232 jtag mips performance">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Wed Mar 30 17:37:18 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018485.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+        <LI>Next message: <A HREF="018532.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18529">[ date ]</a>
+              <a href="thread.html#18529">[ thread ]</a>
+              <a href="subject.html#18529">[ subject ]</a>
+              <a href="author.html#18529">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+I would like to ask again for the problems noted below.
+
+If it seems reasonable from the maintainers point of view, I'll
+prepare the patch.
+
+Otherwise I'll keep the implementation just for me, as the existing
+solution seems to be working for the resto of people (but for me is
+wrong).
+
+BTW. Andy, what core are you using ? M4K or something else ? I am
+using M14Kc, but I believe that EJTAG implementation should be exactly
+the same...
+
+Best regards,
+Drasko
+
+On Tue, Mar 29, 2011 at 2:35 PM, Drasko DRASKOVIC
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+&gt;<i> On Fri, Mar 25, 2011 at 4:29 PM, Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>&gt; wrote:
+</I>&gt;&gt;<i> On 25/03/2011 10:37, Drasko DRASKOVIC wrote:
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Obviausly, there is an inconsistency of mips_ejtag_fastdata_scan() in
+</I>&gt;&gt;&gt;<i> the loop comparing to previous references - it is not preceded by
+</I>&gt;&gt;&gt;<i> mips_ejtag_set_instr().
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This should not matter. The second call can be removed as the fastdata
+</I>&gt;&gt;<i> instruction is already selected in the tap.
+</I>&gt;<i>
+</I>&gt;<i> I agree with you. But for some reason it meters for me. If I do not
+</I>&gt;<i> put mips_ejtag_set_instr(ejtag_info, EJTAG_INST_FASTDATA) inside the
+</I>&gt;<i> loop function fails with error :
+</I>&gt;<i> mini program did not return to start.
+</I>&gt;<i>
+</I>&gt;<i> And not only that. I also had to assure that PrAcc is &quot;1&quot; by putting
+</I>&gt;<i> these lines inside the loop &#160;:
+</I>&gt;<i> /* wait PrAcc pending bit for FASTDATA write */
+</I>&gt;<i> if ((retval = wait_for_pracc_rw(ejtag_info, &amp;ejtag_ctrl)) != ERROR_OK)
+</I>&gt;<i> &#160; return retval
+</I>&gt;<i>
+</I>&gt;<i> But this sounds more or less logical, because EJATG spec says explicitly :
+</I>&gt;<i>
+</I>&gt;<i> As noted above, two conditions must be true for the Fastdata access to
+</I>&gt;<i> succeed. These are:
+</I>&gt;<i> &#8226; PrAcc must be 1, i.e., there must be a pending processor access.
+</I>&gt;<i> &#8226; The Fastdata operation must use a valid Fastdata area address in the
+</I>&gt;<i> dmseg segment (0xF..F20.0000 to
+</I>&gt;<i> 0xF..F20.000F).
+</I>&gt;<i>
+</I>&gt;<i> But for this to work, wait_for_pracc_rw() had to be modified before,
+</I>&gt;<i> as it contains useless and wrong while(1) loop, as we discussed
+</I>&gt;<i> before.
+</I>&gt;<i>
+</I>&gt;<i> So, when you take all of this into account, I am really surprised that
+</I>&gt;<i> current implementation works for some people.
+</I>&gt;<i>
+</I>&gt;<i> I think that FASTDATA loop in mips32_pracc_fastdata_xfer() :
+</I>&gt;<i> for (i = 0; i &lt; count; i++)
+</I>&gt;<i> {
+</I>&gt;<i> &#160; &#160; &#160; &#160;/* Send the data out using fastdata (clears the access pending bit) */
+</I>&gt;<i> &#160; &#160; &#160; &#160;if ((retval = mips_ejtag_fastdata_scan(ejtag_info, write_t,
+</I>&gt;<i> buf++)) != ERROR_OK)
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return retval;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> should actually look like this :
+</I>&gt;<i>
+</I>&gt;<i> for (i = 0; i &lt; count; i++)
+</I>&gt;<i> &#160; &#160; &#160; &#160;{
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;/* wait PrAcc pending bit for FASTDATA write */
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;if ((retval = wait_for_pracc_rw(ejtag_info, &amp;ejtag_ctrl)) != ERROR_OK)
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return retval;
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;/* Send the data out using fastdata (clears the access pending bit) */
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;mips_ejtag_set_instr(ejtag_info, EJTAG_INST_FASTDATA);
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;if ((retval = mips_ejtag_fastdata_scan(ejtag_info, write_t, buf++))
+</I>&gt;<i> != ERROR_OK)
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return retval;
+</I>&gt;<i> &#160; &#160; &#160; &#160;}
+</I>&gt;<i>
+</I>&gt;<i> and that sending of both start and end addresses before should be
+</I>&gt;<i> preceded with corrected wait_for_pracc_rw(), as requested by the EJTAG
+</I>&gt;<i> spec.
+</I>&gt;<i>
+</I>&gt;<i> I am very concerned to submit the patch, having in mind that Andrew
+</I>&gt;<i> and you confirm that the mips32_pracc_fastdata_xfer() works as it is
+</I>&gt;<i> now in the git repo.
+</I>&gt;<i>
+</I>&gt;<i> BR,
+</I>&gt;<i> Drasko
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018485.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+	<LI>Next message: <A HREF="018532.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18529">[ date ]</a>
+              <a href="thread.html#18529">[ thread ]</a>
+              <a href="subject.html#18529">[ subject ]</a>
+              <a href="author.html#18529">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

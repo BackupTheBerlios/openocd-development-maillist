@@ -1,0 +1,305 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/FYI 4/5] stellaris: probe() cleanups
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/FYI%204/5%5D%20stellaris%3A%20probe%28%29%20cleanups&In-Reply-To=%3C200912161254.59086.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013630.html">
+   <LINK REL="Next"  HREF="013629.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/FYI 4/5] stellaris: probe() cleanups</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/FYI%204/5%5D%20stellaris%3A%20probe%28%29%20cleanups&In-Reply-To=%3C200912161254.59086.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/FYI 4/5] stellaris: probe() cleanups">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Dec 16 21:54:59 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013630.html">[Openocd-development] [patch/FYI 3/5] stellaris: remove needless	code
+</A></li>
+        <LI>Next message: <A HREF="013629.html">[Openocd-development] [patch/FYI 5/5] stellaris: comments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13628">[ date ]</a>
+              <a href="thread.html#13628">[ thread ]</a>
+              <a href="subject.html#13628">[ subject ]</a>
+              <a href="author.html#13628">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Fix potential memory leak:  make sure the per-bank data
+structures are only allocated in probe(), and that calling
+probe() multiple times is a NOP.  Use it for auto_probe().
+
+Require probe() to have done its thing:  don't make access
+routines cope with it not having been called.  Shrink a
+bunch of failure paths; and in some cases, correct them.
+
+Don't needlessly insist on a halted target for probe().
+---
+ src/flash/nor/stellaris.c |  128 ++++++++++++++------------------------------
+ 1 file changed, 42 insertions(+), 86 deletions(-)
+
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -36,8 +36,7 @@
+ 
+ #define DID0_VER(did0) ((did0 &gt;&gt; 28)&amp;0x07)
+ 
+-static int stellaris_read_part_info(struct flash_bank *bank);
+-
++static void stellaris_read_clock_info(struct flash_bank *bank);
+ static int stellaris_mass_erase(struct flash_bank *bank);
+ 
+ static struct {
+@@ -261,15 +260,11 @@ static int stellaris_info(struct flash_b
+ 	int printed, device_class;
+ 	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
+ 
+-	stellaris_read_part_info(bank);
+-
+ 	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		printed = snprintf(buf, buf_size, &quot;Cannot identify target as a Stellaris\n&quot;);
+-		buf += printed;
+-		buf_size -= printed;
+-		return ERROR_FLASH_OPERATION_FAILED;
+-	}
++		return ERROR_FLASH_BANK_NOT_PROBED;
++
++	/* Read main and master clock freqency register */
++	stellaris_read_clock_info(bank);
+ 
+ 	if (DID0_VER(stellaris_info-&gt;did0) &gt; 0)
+ 	{
+@@ -495,7 +490,8 @@ static int stellaris_read_part_info(stru
+ 	fam = (did1 &gt;&gt; 24) &amp; 0xF;
+ 	if (((ver != 0) &amp;&amp; (ver != 1)) || (fam != 0))
+ 	{
+-		LOG_WARNING(&quot;Unknown did1 version/family, cannot positively identify target as a Stellaris&quot;);
++		LOG_WARNING(&quot;Unknown did1 version/family.&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+ 
+ 	/* For Sandstorm, Fury, DustDevil:  current data sheets say IOSC
+@@ -535,9 +531,10 @@ static int stellaris_read_part_info(stru
+ 		default:
+ 			LOG_WARNING(&quot;Unknown did0 class&quot;);
+ 		}
+-	default:
+ 		break;
++	default:
+ 		LOG_WARNING(&quot;Unknown did0 version&quot;);
++		break;
+ 	}
+ 
+ 	for (i = 0; StellarisParts[i].partno; i++)
+@@ -554,23 +551,8 @@ static int stellaris_read_part_info(stru
+ 	stellaris_info-&gt;num_lockbits = 1 + (stellaris_info-&gt;dc0 &amp; 0xFFFF);
+ 	stellaris_info-&gt;num_pages = 2 *(1 + (stellaris_info-&gt;dc0 &amp; 0xFFFF));
+ 	stellaris_info-&gt;pagesize = 1024;
+-	bank-&gt;size = 1024 * stellaris_info-&gt;num_pages;
+ 	stellaris_info-&gt;pages_in_lockregion = 2;
+ 
+-	/* provide this for the benefit of the higher flash driver layers */
+-	bank-&gt;num_sectors = stellaris_info-&gt;num_pages;
+-	bank-&gt;sectors = malloc(sizeof(struct flash_sector) * bank-&gt;num_sectors);
+-	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+-	{
+-		bank-&gt;sectors[i].offset = i * stellaris_info-&gt;pagesize;
+-		bank-&gt;sectors[i].size = stellaris_info-&gt;pagesize;
+-		bank-&gt;sectors[i].is_erased = -1;
+-		bank-&gt;sectors[i].is_protected = -1;
+-	}
+-
+-	/* Read main and master clock freqency register */
+-	stellaris_read_clock_info(bank);
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -586,11 +568,7 @@ static int stellaris_protect_check(struc
+ 	unsigned page;
+ 
+ 	if (stellaris-&gt;did1 == 0)
+-	{
+-		status = stellaris_read_part_info(bank);
+-		if (status &lt; 0)
+-			return status;
+-	}
++		return ERROR_FLASH_BANK_NOT_PROBED;
+ 
+ 	for (i = 0; i &lt; (unsigned) bank-&gt;num_sectors; i++)
+ 		bank-&gt;sectors[i].is_protected = -1;
+@@ -642,15 +620,7 @@ static int stellaris_erase(struct flash_
+ 	}
+ 
+ 	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		stellaris_read_part_info(bank);
+-	}
+-
+-	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		LOG_WARNING(&quot;Cannot identify target as Stellaris&quot;);
+-		return ERROR_FLASH_OPERATION_FAILED;
+-	}
++		return ERROR_FLASH_BANK_NOT_PROBED;
+ 
+ 	if ((first &lt; 0) || (last &lt; first) || (last &gt;= (int)stellaris_info-&gt;num_pages))
+ 	{
+@@ -719,6 +689,9 @@ static int stellaris_protect(struct flas
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+ 
++	if (stellaris_info-&gt;did1 == 0)
++		return ERROR_FLASH_BANK_NOT_PROBED;
++
+ 	/* lockregions are 2 pages ... must protect [even..odd] */
+ 	if ((first &lt; 0) || (first &amp; 1)
+ 			|| (last &lt; first) || !(last &amp; 1)
+@@ -728,17 +701,6 @@ static int stellaris_protect(struct flas
+ 		return ERROR_FLASH_SECTOR_INVALID;
+ 	}
+ 
+-	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		stellaris_read_part_info(bank);
+-	}
+-
+-	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		LOG_WARNING(&quot;Cannot identify target as an Stellaris MCU&quot;);
+-		return ERROR_FLASH_OPERATION_FAILED;
+-	}
+-
+ 	/* Refresh flash controller timing */
+ 	stellaris_read_clock_info(bank);
+ 	stellaris_set_flash_timing(bank);
+@@ -940,15 +902,7 @@ static int stellaris_write(struct flash_
+ 			bank, buffer, offset, count);
+ 
+ 	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		stellaris_read_part_info(bank);
+-	}
+-
+-	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		LOG_WARNING(&quot;Cannot identify target as a Stellaris processor&quot;);
+-		return ERROR_FLASH_OPERATION_FAILED;
+-	}
++		return ERROR_FLASH_BANK_NOT_PROBED;
+ 
+ 	if (offset &amp; 0x3)
+ 	{
+@@ -1056,26 +1010,36 @@ static int stellaris_write(struct flash_
+ 
+ static int stellaris_probe(struct flash_bank *bank)
+ {
+-	/* we can't probe on an stellaris
+-	 * if this is an stellaris, it has the configured flash
++	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
++	int retval;
++
++	/* If this is a stellaris chip, it has flash; probe() is just
++	 * to figure out how much is present.  Only do it once.
+ 	 */
++	if (stellaris_info-&gt;did1 != 0)
++		return ERROR_OK;
+ 
+-	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	/* stellaris_read_part_info() already handled error checking and
++	 * reporting.  Note that it doesn't write, so we don't care about
++	 * whether the target is halted or not.
++	 */
++	retval = stellaris_read_part_info(bank);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* provide this for the benefit of the NOR flash framework */
++	bank-&gt;size = 1024 * stellaris_info-&gt;num_pages;
++	bank-&gt;num_sectors = stellaris_info-&gt;num_pages;
++	bank-&gt;sectors = calloc(bank-&gt;num_sectors, sizeof(struct flash_sector));
++	for (int i = 0; i &lt; bank-&gt;num_sectors; i++)
+ 	{
+-		LOG_ERROR(&quot;Target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
++		bank-&gt;sectors[i].offset = i * stellaris_info-&gt;pagesize;
++		bank-&gt;sectors[i].size = stellaris_info-&gt;pagesize;
++		bank-&gt;sectors[i].is_erased = -1;
++		bank-&gt;sectors[i].is_protected = -1;
+ 	}
+ 
+-	/* stellaris_read_part_info() already takes care about error checking and reporting */
+-	return stellaris_read_part_info(bank);
+-}
+-
+-static int stellaris_auto_probe(struct flash_bank *bank)
+-{
+-	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
+-	if (stellaris_info-&gt;did1)
+-		return ERROR_OK;
+-	return stellaris_probe(bank);
++	return retval;
+ }
+ 
+ static int stellaris_mass_erase(struct flash_bank *bank)
+@@ -1094,15 +1058,7 @@ static int stellaris_mass_erase(struct f
+ 	}
+ 
+ 	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		stellaris_read_part_info(bank);
+-	}
+-
+-	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		LOG_WARNING(&quot;Cannot identify target as Stellaris&quot;);
+-		return ERROR_FLASH_OPERATION_FAILED;
+-	}
++		return ERROR_FLASH_BANK_NOT_PROBED;
+ 
+ 	/* Refresh flash controller timing */
+ 	stellaris_read_clock_info(bank);
+@@ -1198,7 +1154,7 @@ struct flash_driver stellaris_flash = {
+ 	.protect = stellaris_protect,
+ 	.write = stellaris_write,
+ 	.probe = stellaris_probe,
+-	.auto_probe = stellaris_auto_probe,
++	.auto_probe = stellaris_probe,
+ 	.erase_check = default_flash_mem_blank_check,
+ 	.protect_check = stellaris_protect_check,
+ 	.info = stellaris_info,
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013630.html">[Openocd-development] [patch/FYI 3/5] stellaris: remove needless	code
+</A></li>
+	<LI>Next message: <A HREF="013629.html">[Openocd-development] [patch/FYI 5/5] stellaris: comments
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13628">[ date ]</a>
+              <a href="thread.html#13628">[ thread ]</a>
+              <a href="subject.html#13628">[ subject ]</a>
+              <a href="author.html#13628">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

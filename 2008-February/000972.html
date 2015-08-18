@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Add auto-read of flash geometry
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20auto-read%20of%20flash%20geometry&In-Reply-To=%3C20080219234936.GA18531%40fluff.org.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000983.html">
+   <LINK REL="Next"  HREF="001029.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Add auto-read of flash geometry</H1>
+    <B>Ben Dooks</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20auto-read%20of%20flash%20geometry&In-Reply-To=%3C20080219234936.GA18531%40fluff.org.uk%3E"
+       TITLE="[Openocd-development] [PATCH] Add auto-read of flash geometry">ben-openocd at fluff.org
+       </A><BR>
+    <I>Wed Feb 20 00:49:36 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000983.html">[Openocd-development] [COMMIT] path open: fallback to try the	filenameif nothing found on path
+</A></li>
+        <LI>Next message: <A HREF="001029.html">[Openocd-development] [PATCH] Add auto-read of flash geometry
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#972">[ date ]</a>
+              <a href="thread.html#972">[ thread ]</a>
+              <a href="subject.html#972">[ subject ]</a>
+              <a href="author.html#972">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Newer NAND flashes have extended geometry information
+after the ID bytes. Read this if the table indicates
+to do so, which gives us a much larger range of flash.
+
+Tested on an 1Gbit Samsung flash, ID EC,F1.
+
+Index: src/flash/nand.c
+===================================================================
+--- src/flash/nand.c	(revision 313)
++++ src/flash/nand.c	(working copy)
+@@ -3,7 +3,7 @@
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+  *   partially based on                                                    *
+- * 	 drivers/mtd/nand_ids.c                                                *
++ * 	 drivers/mtd/nand_ids.c                                            *
+  *                                                                         *
+  *   Copyright (C) 2002 Thomas Gleixner (<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">tglx at linutronix.de</A>)               *
+  *                                                                         *
+@@ -377,6 +377,7 @@
+ int nand_probe(struct nand_device_s *device)
+ {
+ 	u8 manufacturer_id, device_id;
++	u8 id_buff[5];
+ 	int retval;
+ 	int i;
+ 
+@@ -467,12 +468,36 @@
+ 		device-&gt;bus_width = 16;
+ 	else
+ 		device-&gt;bus_width = 8;
++
++	/* Do we need extended device probe information? */
++	if (device-&gt;device-&gt;page_size == 0 ||
++	    device-&gt;device-&gt;erase_size == 0)
++	{
++		if (device-&gt;bus_width == 8)
++		{
++			device-&gt;controller-&gt;read_data(device, id_buff+3);
++			device-&gt;controller-&gt;read_data(device, id_buff+4);
++			device-&gt;controller-&gt;read_data(device, id_buff+5);
++		}
++		else
++		{
++			u16 data_buf;
++
++			device-&gt;controller-&gt;read_data(device, &amp;data_buf);
++			id_buff[3] = data_buf;
++
++			device-&gt;controller-&gt;read_data(device, &amp;data_buf);
++			id_buff[4] = data_buf;
++
++			device-&gt;controller-&gt;read_data(device, &amp;data_buf);
++			id_buff[5] = data_buf &gt;&gt; 8;
++		}
++	}
+ 		
+ 	/* page size */
+ 	if (device-&gt;device-&gt;page_size == 0)
+ 	{
+-		/* TODO: support reading extended chip id to determine page size */
+-		return ERROR_NAND_OPERATION_FAILED;
++		device-&gt;page_size = 1 &lt;&lt; (10 + (id_buff[4] &amp; 3));
+ 	}
+ 	else if (device-&gt;device-&gt;page_size == 256)
+ 	{
+@@ -515,7 +540,20 @@
+ 	/* erase size */
+ 	if (device-&gt;device-&gt;erase_size == 0)
+ 	{
+-		/* TODO: support reading extended chip id to determine erase size */
++		switch ((id_buff[4] &gt;&gt; 4) &amp; 3) {
++		case 0:
++			device-&gt;erase_size = 64 &lt;&lt; 10;
++			break;
++		case 1:
++			device-&gt;erase_size = 128 &lt;&lt; 10;
++			break;
++		case 2:
++			device-&gt;erase_size = 256 &lt;&lt; 10;
++			break;
++		case 3:
++			device-&gt;erase_size =512 &lt;&lt; 10;
++			break;
++		}
+ 	}
+ 	else
+ 	{
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: openocd-add-auto-flashid.patch
+Type: text/x-diff
+Size: 2383 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080219/dfc7cc13/attachment.patch">https://lists.berlios.de/pipermail/openocd-development/attachments/20080219/dfc7cc13/attachment.patch</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000983.html">[Openocd-development] [COMMIT] path open: fallback to try the	filenameif nothing found on path
+</A></li>
+	<LI>Next message: <A HREF="001029.html">[Openocd-development] [PATCH] Add auto-read of flash geometry
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#972">[ date ]</a>
+              <a href="thread.html#972">[ thread ]</a>
+              <a href="subject.html#972">[ subject ]</a>
+              <a href="author.html#972">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

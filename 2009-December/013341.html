@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/2] ARM: semihosting entry cleanup
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20ARM%3A%20semihosting%20entry%20cleanup&In-Reply-To=%3C200912041124.02219.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013340.html">
+   <LINK REL="Next"  HREF="013342.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/2] ARM: semihosting entry cleanup</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20ARM%3A%20semihosting%20entry%20cleanup&In-Reply-To=%3C200912041124.02219.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/2] ARM: semihosting entry cleanup">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Dec  4 20:24:02 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013340.html">[Openocd-development] [patch 1/2] ARM: remove semihosting globals
+</A></li>
+        <LI>Next message: <A HREF="013342.html">[Openocd-development] [patch 2/2] ARM: semihosting entry cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13341">[ date ]</a>
+              <a href="thread.html#13341">[ thread ]</a>
+              <a href="subject.html#13341">[ subject ]</a>
+              <a href="author.html#13341">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Clean up arm_semihosting() entry a bit, comment some issues and just
+which SVC opcodes are getting intercepted.  Microcontroller profile
+cores will need a new entry, since they don't use SVC there (or even
+have an SVC mode).
+---
+Compile tested.
+
+ src/target/arm_semihosting.c |   44 +++++++++++++++++++++++++++++++++--------
+ 1 file changed, 36 insertions(+), 8 deletions(-)
+
+--- a/src/target/arm_semihosting.c
++++ b/src/target/arm_semihosting.c
+@@ -56,6 +56,9 @@ static int do_semihosting(struct target 
+ 	 * - no validation on target provided file descriptors
+ 	 * - no safety checks on opened/deleted/renamed file paths
+ 	 * Beware the target app you use this support with.
++	 *
++	 * TODO: explore mapping requests to GDB's &quot;File-I/O Remote
++	 * Protocol Extension&quot; ... when GDB is active.
+ 	 */
+ 	switch (r0) {
+ 	case 0x01:	/* SYS_OPEN */
+@@ -396,42 +399,67 @@ static int do_semihosting(struct target 
+  * or an error was encountered, in which case the caller must return
+  * immediately.
+  *
+- * @param target Pointer to the ARM target to process
++ * @param target Pointer to the ARM target to process.  This target must
++ *	not represent an ARMv6-M or ARMv7-M processor.
+  * @param retval Pointer to a location where the return code will be stored
+  * @return non-zero value if a request was processed or an error encountered
+  */
+ int arm_semihosting(struct target *target, int *retval)
+ {
+-	struct arm *armv4_5 = target_to_armv4_5(target);
++	struct arm *arm = target_to_armv4_5(target);
+ 	uint32_t lr, spsr;
++	struct reg *r;
+ 
+-	if (!armv4_5-&gt;is_semihosting ||
+-	    armv4_5-&gt;core_mode != ARMV4_5_MODE_SVC ||
+-	    buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32) != 0x08)
++	if (!arm-&gt;is_semihosting || arm-&gt;core_mode != ARMV4_5_MODE_SVC)
+ 		return 0;
+ 
+-	lr = buf_get_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, ARMV4_5_MODE_SVC, 14).value, 0, 32);
+-	spsr = buf_get_u32(armv4_5-&gt;spsr-&gt;value, 0, 32);
++	/* Check for PC == 8:  Supervisor Call vector
++	 * REVISIT:  assumes low exception vectors, not hivecs...
++	 * safer to test &quot;was this entry from a vector catch&quot;.
++	 */
++	r = arm-&gt;core_cache-&gt;reg_list + 15;
++	if (buf_get_u32(r-&gt;value, 0, 32) != 0x08)
++		return 0;
++
++	r = arm_reg_current(arm, 14);
++	lr = buf_get_u32(r-&gt;value, 0, 32);
++
++	/* Core-specific code should make sure SPSR is retrieved
++	 * when the above checks pass...
++	 */
++	if (!arm-&gt;spsr-&gt;valid)
++		LOG_WARNING(&quot;SPSR not valid!&quot;);
++
++	spsr = buf_get_u32(arm-&gt;spsr-&gt;value, 0, 32);
+ 
+ 	/* check instruction that triggered this trap */
+ 	if (spsr &amp; (1 &lt;&lt; 5)) {
+-		/* was in Thumb mode */
++		/* was in Thumb (or ThumbEE) mode */
+ 		uint8_t insn_buf[2];
+ 		uint16_t insn;
++
+ 		*retval = target_read_memory(target, lr-2, 2, 1, insn_buf);
+ 		if (*retval != ERROR_OK)
+ 			return 1;
+ 		insn = target_buffer_get_u16(target, insn_buf);
++
++		/* SVC 0xab */
+ 		if (insn != 0xDFAB)
+ 			return 0;
++	} else if (spsr &amp; (1 &lt;&lt; 24)) {
++		/* was in Jazelle mode */
++		return 0;
+ 	} else {
+ 		/* was in ARM mode */
+ 		uint8_t insn_buf[4];
+ 		uint32_t insn;
++
+ 		*retval = target_read_memory(target, lr-4, 4, 1, insn_buf);
+ 		if (*retval != ERROR_OK)
+ 			return 1;
+ 		insn = target_buffer_get_u32(target, insn_buf);
++
++		/* SVC 0x123456 */
+ 		if (insn != 0xEF123456)
+ 			return 0;
+ 	}
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013340.html">[Openocd-development] [patch 1/2] ARM: remove semihosting globals
+</A></li>
+	<LI>Next message: <A HREF="013342.html">[Openocd-development] [patch 2/2] ARM: semihosting entry cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13341">[ date ]</a>
+              <a href="thread.html#13341">[ thread ]</a>
+              <a href="subject.html#13341">[ subject ]</a>
+              <a href="author.html#13341">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

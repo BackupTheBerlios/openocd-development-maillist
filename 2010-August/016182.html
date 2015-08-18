@@ -1,0 +1,308 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] avr: Add 2 commands for reading AVR	Bits/Byte.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20avr%3A%20Add%202%20commands%20for%20reading%20AVR%0A%09Bits/Byte.&In-Reply-To=%3C1280829680-2474-1-git-send-email-zealcook%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016196.html">
+   <LINK REL="Next"  HREF="016189.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] avr: Add 2 commands for reading AVR	Bits/Byte.</H1>
+    <B>zeal</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20avr%3A%20Add%202%20commands%20for%20reading%20AVR%0A%09Bits/Byte.&In-Reply-To=%3C1280829680-2474-1-git-send-email-zealcook%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] avr: Add 2 commands for reading AVR	Bits/Byte.">zealcook at gmail.com
+       </A><BR>
+    <I>Tue Aug  3 12:01:20 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016196.html">[Openocd-development] lpc1768 low clock rate
+</A></li>
+        <LI>Next message: <A HREF="016189.html">[Openocd-development] [PATCH] avr: Add 2 commands for reading AVR	Bits/Byte.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16182">[ date ]</a>
+              <a href="thread.html#16182">[ thread ]</a>
+              <a href="subject.html#16182">[ subject ]</a>
+              <a href="author.html#16182">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE> This patch add the below commands (just for determining stuff).
+
+ 1. read_bits for reading Fuse/Lock bits.
+ 2. read_byte for reading Signature/Calibration byte.
+
+ Usage as below:
+ 1. avrf read_bits &lt;bank&gt;
+ 2. avrf read_byte &lt;bank&gt; &lt;type&gt; &lt;addr&gt;
+    &lt;type&gt; is the type of byte you want to read.
+    &lt;addr&gt; is the location of that byte.
+
+ If succeed, it will show you the bits/byte on terminal.
+ Tested in at90scr100.
+
+ No write function as it's too *dangerous*.
+
+ Regards.
+
+
+Signed-off-by: zeal &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zealcook at gmail.com</A>&gt;
+---
+ src/flash/nor/avrf.c |  188 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 188 insertions(+), 0 deletions(-)
+
+diff --git a/src/flash/nor/avrf.c b/src/flash/nor/avrf.c
+index 4dc7c23..ab2c6ed 100644
+--- a/src/flash/nor/avrf.c
++++ b/src/flash/nor/avrf.c
+@@ -57,6 +57,7 @@ static struct avrf_type avft_chips_info[] =
+  */
+ 	{&quot;atmega128&quot;,	0x9702, 256, 512, 8, 512},
+ 	{&quot;at90can128&quot;,	0x9781, 256, 512, 8, 512},
++	{&quot;at90scr100&quot;,	0x96C1, 256, 256, 32, 128},
+ };
+ 
+ /* avr program functions */
+@@ -123,6 +124,7 @@ static int avr_jtagprg_chiperase(struct avr_common *avr)
+ 	return ERROR_OK;
+ }
+ 
++
+ static int avr_jtagprg_writeflashpage(struct avr_common *avr, uint8_t *page_buf, uint32_t buf_size, uint32_t addr, uint32_t page_size)
+ {
+ 	uint32_t i, poll_value;
+@@ -464,6 +466,180 @@ COMMAND_HANDLER(avrf_handle_mass_erase_command)
+ 	return ERROR_OK;
+ }
+ 
++static int avr_jtagprg_readbits(struct avr_common *avr)
++{
++	uint32_t ext = 0, hi = 0, lo = 0, lock = 0;
++
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
++	// Enter Fuse/Lock Bit Read
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2304, AVR_JTAG_REG_ProgrammingCommand_Len);
++	// Read Fuses and Lock Bits
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3A00, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;ext, 0x3E00, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;hi, 0x3200, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;lo, 0x3600, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;lock, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
++
++	if (ERROR_OK != mcu_execute_queue())
++	{
++		LOG_INFO(&quot;failure&quot;);
++		return ERROR_FAIL;
++	}
++
++	LOG_INFO(&quot;Fuse Ext byte  = 0x%02&quot; PRIx32 &quot;&quot;, (uint8_t)ext);
++	LOG_INFO(&quot;Fuse High byte = 0x%02&quot; PRIx32 &quot;&quot;, (uint8_t)hi);
++	LOG_INFO(&quot;Fuse Low byte  = 0x%02&quot; PRIx32 &quot;&quot;, (uint8_t)lo);
++	LOG_INFO(&quot;Lock bits      = 0x%02&quot; PRIx32 &quot;&quot;, (uint8_t)lock);
++	return ERROR_OK;
++}
++
++static int avrf_read_bits(struct flash_bank *bank)
++{
++	struct target *target = bank-&gt;target;
++	struct avr_common *avr = target-&gt;arch_info;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	if ((ERROR_OK != avr_jtagprg_enterprogmode(avr))
++		|| (ERROR_OK != avr_jtagprg_readbits(avr))
++		|| (ERROR_OK != avr_jtagprg_leaveprogmode(avr)))
++	{
++		return ERROR_FAIL;
++	}
++
++	return ERROR_OK;
++}
++
++/* XXX: Check your actually 'read_bits' commands before using it. */
++COMMAND_HANDLER(avrf_handle_read_bits_command)
++{
++	if (CMD_ARGC &lt; 1)
++	{
++		command_print(CMD_CTX, &quot;avr read_bits &lt;bank&gt;&quot;);
++		return ERROR_OK;
++	}
++
++	struct flash_bank *bank;
++	int retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &amp;bank);
++	if (ERROR_OK != retval)
++		return retval;
++
++	if (avrf_read_bits(bank) == ERROR_OK)
++	{
++		command_print(CMD_CTX, &quot;avr read bits success&quot;);
++	}
++	else
++	{
++		command_print(CMD_CTX, &quot;avr read bits failure&quot;);
++	}
++
++	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
++	return ERROR_OK;
++}
++
++/* avrf read_byte &lt;bank&gt; &lt;type&gt; &lt;addr&gt; */
++#define AVR_READ_BYTE_TYPE_SIGN	0x00	/* for Signature byte */
++#define AVR_READ_BYTE_TYPE_CALI	0x01	/* for Calibration byte */
++#define AVR_READ_BYTE_TYPE_UNKNOWN	0x02	/* unknown type */
++
++static int avr_jtagprg_readbyte(struct avr_common *avr, uint8_t type, uint8_t addr)
++{
++	uint32_t res;
++
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
++	// Enter XXX Byte Read
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2308, AVR_JTAG_REG_ProgrammingCommand_Len);
++	// Load Address Byte
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x0300 | addr, AVR_JTAG_REG_ProgrammingCommand_Len);
++	// Read XXX Byte
++	if (type != AVR_READ_BYTE_TYPE_SIGN &amp;&amp; type != AVR_READ_BYTE_TYPE_UNKNOWN)
++		return ERROR_FAIL;
++
++	if (type == AVR_READ_BYTE_TYPE_SIGN) {
++		avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3200, AVR_JTAG_REG_ProgrammingCommand_Len);
++		avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;res, 0x3300, AVR_JTAG_REG_ProgrammingCommand_Len);
++	} else if (type == AVR_READ_BYTE_TYPE_CALI) {
++		avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3600, AVR_JTAG_REG_ProgrammingCommand_Len);
++		avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;res, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
++	}
++
++	if (ERROR_OK != mcu_execute_queue())
++	{
++		LOG_INFO(&quot;failure&quot;);
++		return ERROR_FAIL;
++	}
++	LOG_INFO(&quot;%s byte[0x%04&quot; PRIx32 &quot;]&quot; &quot; = 0x%02&quot; PRIx32 &quot;&quot;,
++		 type == AVR_READ_BYTE_TYPE_SIGN ? &quot;Sign&quot; : &quot;Cali&quot;,
++		 addr, (uint8_t)res);
++
++	return ERROR_OK;
++}
++
++static int avrf_read_byte(struct flash_bank *bank, uint8_t type, uint8_t addr)
++{
++	struct target *target = bank-&gt;target;
++	struct avr_common *avr = target-&gt;arch_info;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	if ((ERROR_OK != avr_jtagprg_enterprogmode(avr))
++		|| (ERROR_OK != avr_jtagprg_readbyte(avr, type, addr))
++		|| (ERROR_OK != avr_jtagprg_leaveprogmode(avr)))
++	{
++		return ERROR_FAIL;
++	}
++
++	return ERROR_OK;
++}
++
++/* XXX: Check your actually 'read_byte' commands before using it. */
++COMMAND_HANDLER(avrf_handle_read_byte_command)
++{
++	int retval;
++	struct flash_bank *bank;
++	uint8_t addr, type;
++
++	if (CMD_ARGC &lt; 3)
++	{
++		command_print(CMD_CTX, &quot;avr read_byte &lt;bank&gt; &lt;type&gt; &lt;addr&gt;&quot;);
++		return ERROR_OK;
++	}
++
++	retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &amp;bank);
++	if (ERROR_OK != retval)
++		return retval;
++
++	if (0 == strncmp(CMD_ARGV[1], &quot;sign&quot;, 4))
++		type = AVR_READ_BYTE_TYPE_SIGN;
++	else if (0 == strncmp(CMD_ARGV[1], &quot;cali&quot;, 4))
++		type = AVR_READ_BYTE_TYPE_CALI;
++	else
++		type = AVR_READ_BYTE_TYPE_UNKNOWN;
++	if (type == AVR_READ_BYTE_TYPE_UNKNOWN)
++		return ERROR_INVALID_ARGUMENTS;
++
++	COMMAND_PARSE_NUMBER(u8, CMD_ARGV[2], addr);
++
++	if (avrf_read_byte(bank, type, addr) == ERROR_OK)
++	{
++		command_print(CMD_CTX, &quot;avr read_byte success&quot;);
++	}
++	else
++	{
++		command_print(CMD_CTX, &quot;avr read_byte failure&quot;);
++	}
++
++	return ERROR_OK;
++}
++
+ static const struct command_registration avrf_exec_command_handlers[] = {
+ 	{
+ 		.name = &quot;mass_erase&quot;,
+@@ -471,6 +647,18 @@ static const struct command_registration avrf_exec_command_handlers[] = {
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;erase entire device&quot;,
+ 	},
++	{
++		.name = &quot;read_bits&quot;,
++		.handler = avrf_handle_read_bits_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;read FUSE/Lock bits&quot;,
++	},
++	{
++		.name = &quot;read_byte&quot;,
++		.handler = avrf_handle_read_byte_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;read Sign/Cali Byte&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ static const struct command_registration avrf_command_handlers[] = {
+-- 
+1.5.6.5
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016196.html">[Openocd-development] lpc1768 low clock rate
+</A></li>
+	<LI>Next message: <A HREF="016189.html">[Openocd-development] [PATCH] avr: Add 2 commands for reading AVR	Bits/Byte.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16182">[ date ]</a>
+              <a href="thread.html#16182">[ thread ]</a>
+              <a href="subject.html#16182">[ subject ]</a>
+              <a href="author.html#16182">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%20FLASH%3A%20only%20erase/unlock%0A%09whole%20sectors&In-Reply-To=%3Cf69abfc30912220647j4ac055b4v147adcd8428b9cd0%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013679.html">
+   <LINK REL="Next"  HREF="013788.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors</H1>
+    <B>Yegor Yefremov</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%20FLASH%3A%20only%20erase/unlock%0A%09whole%20sectors&In-Reply-To=%3Cf69abfc30912220647j4ac055b4v147adcd8428b9cd0%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors">yegorslists at googlemail.com
+       </A><BR>
+    <I>Tue Dec 22 15:47:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013679.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+        <LI>Next message: <A HREF="013788.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13787">[ date ]</a>
+              <a href="thread.html#13787">[ thread ]</a>
+              <a href="subject.html#13787">[ subject ]</a>
+              <a href="author.html#13787">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, Dec 18, 2009 at 12:49 AM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+&gt;<i> Much to my surprise, I observed a &quot;flash erase_address ...&quot;
+</I>&gt;<i> command erasing data which I didn't say should be erased.
+</I>&gt;<i>
+</I>&gt;<i> The issue turns out to be generic NOR flash code which was
+</I>&gt;<i> silently, and rather dangerously, morphing partial-sector
+</I>&gt;<i> references into unrequested whole-sector ones.
+</I>&gt;<i>
+</I>&gt;<i> This patch removes that low-level morphing. &#160;If desired, it
+</I>&gt;<i> can and should be done in higher level code.
+</I>&gt;<i> ---
+</I>&gt;<i> I suspect there's one GDB server path which should do that
+</I>&gt;<i> morphing, but it looks like a later one already handles it.
+</I>&gt;<i> Other than that, does anyone object to fixing this?
+</I>&gt;<i>
+</I>&gt;<i> &#160;NEWS &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; | &#160; &#160;2 ++
+</I>&gt;<i> &#160;src/flash/nor/core.c | &#160; 44 ++++++++++++++++++++++++++++++++++++--------
+</I>&gt;<i> &#160;2 files changed, 38 insertions(+), 8 deletions(-)
+</I>&gt;<i>
+</I>&gt;<i> --- a/NEWS
+</I>&gt;<i> +++ b/NEWS
+</I>&gt;<i> @@ -39,6 +39,8 @@ Flash Layer:
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;- &lt;bank_name&gt;: reference the bank with its defined name
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;- &lt;driver_name&gt;[.N]: reference the driver's Nth bank
+</I>&gt;<i> &#160; &#160; &#160; &#160;New 'nand verify' command to check bank against an image file.
+</I>&gt;<i> + &#160; &#160; &#160; The &quot;flash erase_address&quot; command now rejects partial sectors;
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; previously it would silently erase data you did not request.
+</I>&gt;<i>
+</I>&gt;<i> &#160;Board, Target, and Interface Configuration Scripts:
+</I>&gt;<i> &#160; &#160; &#160; &#160;ARM9
+</I>&gt;<i> --- a/src/flash/nor/core.c
+</I>&gt;<i> +++ b/src/flash/nor/core.c
+</I>&gt;<i> @@ -279,11 +279,13 @@ int default_flash_blank_check(struct fla
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160;return ERROR_OK;
+</I>&gt;<i> &#160;}
+</I>&gt;<i> +
+</I>&gt;<i> &#160;/* erase given flash region, selects proper bank according to target and address */
+</I>&gt;<i> &#160;static int flash_iterate_address_range(struct target *target, uint32_t addr, uint32_t length,
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;int (*callback)(struct flash_bank *bank, int first, int last))
+</I>&gt;<i> &#160;{
+</I>&gt;<i> &#160; &#160; &#160; &#160;struct flash_bank *c;
+</I>&gt;<i> + &#160; &#160; &#160; uint32_t last_addr = addr + length; &#160; &#160; /* first address AFTER end */
+</I>&gt;<i> &#160; &#160; &#160; &#160;int first = -1;
+</I>&gt;<i> &#160; &#160; &#160; &#160;int last = -1;
+</I>&gt;<i> &#160; &#160; &#160; &#160;int i;
+</I>&gt;<i> @@ -306,26 +308,52 @@ static int flash_iterate_address_range(s
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return callback(c, 0, c-&gt;num_sectors - 1);
+</I>&gt;<i> &#160; &#160; &#160; &#160;}
+</I>&gt;<i>
+</I>&gt;<i> - &#160; &#160; &#160; /* check whether it fits */
+</I>&gt;<i> + &#160; &#160; &#160; /* check whether it all fits in this bank */
+</I>&gt;<i> &#160; &#160; &#160; &#160;if (addr + length - 1 &gt; c-&gt;base + c-&gt;size - 1)
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+</I>&gt;<i>
+</I>&gt;<i> + &#160; &#160; &#160; /** @todo: handle erasures that cross into adjacent banks */
+</I>&gt;<i> +
+</I>&gt;<i> &#160; &#160; &#160; &#160;addr -= c-&gt;base;
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160;for (i = 0; i &lt; c-&gt;num_sectors; i++)
+</I>&gt;<i> &#160; &#160; &#160; &#160;{
+</I>&gt;<i> - &#160; &#160; &#160; &#160; &#160; &#160; &#160; /* check whether sector overlaps with the given range and is not yet erased */
+</I>&gt;<i> - &#160; &#160; &#160; &#160; &#160; &#160; &#160; if (addr &lt; c-&gt;sectors[i].offset + c-&gt;sectors[i].size &amp;&amp; addr + length &gt; c-&gt;sectors[i].offset &amp;&amp; c-&gt;sectors[i].is_erased != 1) {
+</I>&gt;<i> - &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; /* if first is not set yet then this is the first sector */
+</I>&gt;<i> - &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; if (first == -1)
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; struct flash_sector *f = c-&gt;sectors + i;
+</I>&gt;<i> +
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; /* start only on a sector boundary */
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; if (first &lt; 0) {
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; /* is this the first sector? */
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; if (addr == f-&gt;offset)
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;first = i;
+</I>&gt;<i> - &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; last = i; /* and it is the last one so far in any case */
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; else if (addr &lt; f-&gt;offset)
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; break;
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; }
+</I>&gt;<i> +
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; /* is this (also?) the last sector? */
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; if (last_addr == f-&gt;offset + f-&gt;size) {
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; last = i;
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; break;
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;}
+</I>&gt;<i> +
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; /* MUST finish on a sector boundary */
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; if (last_addr &lt;= f-&gt;offset)
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; break;
+</I>&gt;<i> &#160; &#160; &#160; &#160;}
+</I>&gt;<i>
+</I>&gt;<i> - &#160; &#160; &#160; if (first == -1 || last == -1)
+</I>&gt;<i> - &#160; &#160; &#160; &#160; &#160; &#160; &#160; return ERROR_OK;
+</I>&gt;<i> + &#160; &#160; &#160; /* invalid start or end address? */
+</I>&gt;<i> + &#160; &#160; &#160; if (first == -1 || last == -1) {
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; LOG_ERROR(&quot;address range 0x%8.8x .. 0x%8.8x &quot;
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &quot;is not sector-aligned&quot;,
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; (unsigned) c-&gt;base + addr,
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; (unsigned) last_addr - 1);
+</I>&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+</I>&gt;<i> + &#160; &#160; &#160; }
+</I>&gt;<i>
+</I>&gt;<i> + &#160; &#160; &#160; /* The NOR driver may trim this range down, based on
+</I>&gt;<i> + &#160; &#160; &#160; &#160;* whether or not a given sector is already erased.
+</I>&gt;<i> + &#160; &#160; &#160; &#160;*
+</I>&gt;<i> + &#160; &#160; &#160; &#160;* REVISIT should *we* trim it... ?
+</I>&gt;<i> + &#160; &#160; &#160; &#160;*/
+</I>&gt;<i> &#160; &#160; &#160; &#160;return callback(c, first, last);
+</I>&gt;<i> &#160;}
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+After applying the latest patches 0.4-rc1 I encountered the following error:
+
+halt
+flash write_image erase image.bin 0x1000 bin
+auto erase enabled
+address range 0x00001000 .. 0x000135d3 is not sector-aligned
+Command handler execution failed
+in procedure 'flash' called at file &quot;command.c&quot;, line 637
+called at file &quot;command.c&quot;, line 352
+
+my image has 75220 bytes. According to your patch
+3f18900b19f49a84ba9df56f2e089c255e610011, only whole sectors are
+allowed. As far as I understand if my image has only one section, it
+will not be padded (see flash_write_unlock) or in general the last
+section will not be padded. Due to the new constraint of whole sectors
+the last section will be rejected if it has the &quot;wrong&quot; size. Do I see
+it right?
+
+Yegor
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013679.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+	<LI>Next message: <A HREF="013788.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13787">[ date ]</a>
+              <a href="thread.html#13787">[ thread ]</a>
+              <a href="subject.html#13787">[ subject ]</a>
+              <a href="author.html#13787">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

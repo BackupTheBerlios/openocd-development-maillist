@@ -1,0 +1,123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Flash auto erase patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20auto%20erase%20patch&In-Reply-To=%3C46F2D93F.2000909%40asix.cz%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000349.html">
+   <LINK REL="Next"  HREF="000355.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Flash auto erase patch</H1>
+    <B>Pavel Chromy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20auto%20erase%20patch&In-Reply-To=%3C46F2D93F.2000909%40asix.cz%3E"
+       TITLE="[Openocd-development] Flash auto erase patch">chromy at asix.cz
+       </A><BR>
+    <I>Thu Sep 20 22:34:08 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000349.html">[Openocd-development] Flash auto erase patch
+</A></li>
+        <LI>Next message: <A HREF="000355.html">[Openocd-development] Flash auto erase patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#354">[ date ]</a>
+              <a href="thread.html#354">[ thread ]</a>
+              <a href="subject.html#354">[ subject ]</a>
+              <a href="author.html#354">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Dear Spen,
+
+&gt;<i> By default this option is enabled, if the user performs a erase by
+</I>&gt;<i> the normal flash erase command then the auto erase is switched off.
+</I>&gt;<i> Also auto erase is disabled for gdbserver flash writing. New
+</I>&gt;<i> command: flash auto_erase &lt;on|off&gt;
+</I>
+I believe, there is a good reason to have autoerase disabled by default.
+There are MCUs which feature automatic erase on their own wired on the
+chip, e.g. AT91SAM71. In such case it does not make sense to use
+&quot;debugger assisted&quot; autoerase.
+If there are multiple flash banks, each of the banks may behave
+different in this.
+
+Also if autoerase is disabled by default, there is no need for the hack
+in handle_flash_erase() function (disabling autoerase when once this
+function is called).
+
+Concerning flash_erase() function - it is certainly very good idea to
+support different sized flash sectors, however in the posted patch,
+there is probably a bug. The following piece of code seems to me not
+doing the right thing, especially if some sectors are already erased and
+some not. It may erase no sector even if there are some to be erased
+(first may not get set at all if sectors up to addr are already erased).
+Or even worse, it may erase sectors which are not supposed to be erased
+(this is because first and last is set if there is any not erased sector below addr,
+disregarding whether it really overlaps with the area defined by addr and length).
+
+	for (i = 0; i &lt; c-&gt;num_sectors; i++)
+	{
+		if (addr &gt;= c-&gt;sectors[i].offset &amp;&amp; c-&gt;sectors[i].is_erased != 1 ) {
+			first = i;
+			last = i;
+		}
+		
+		if (addr + length &gt;= c-&gt;sectors[i].offset &amp;&amp; c-&gt;sectors[i].is_erased != 1 ) {
+			last = i;
+		}
+	}
+
+
+It shall rather be something like this:
+
+	for (i = 0; i &lt; c-&gt;num_sectors; i++)
+	{
+		/* check whether sector overlaps with the given range and is not yet erased */
+		if (addr &lt; c-&gt;sectors[i].offset + c-&gt;sectors[i].size &amp;&amp; addr + length &gt; c-&gt;sectors[i].offset &amp;&amp; c-&gt;sectors[i].is_erased != 1) {
+			/* if first is not set yet then this is the first sector */
+			if (first == -1)
+				first = i;
+			last = i; /* and it is the last one so far in any case */
+		}		
+	}
+
+
+
+Please revise this piece of code,
+
+Thanks,
+   Pavel
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000349.html">[Openocd-development] Flash auto erase patch
+</A></li>
+	<LI>Next message: <A HREF="000355.html">[Openocd-development] Flash auto erase patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#354">[ date ]</a>
+              <a href="thread.html#354">[ thread ]</a>
+              <a href="subject.html#354">[ subject ]</a>
+              <a href="author.html#354">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

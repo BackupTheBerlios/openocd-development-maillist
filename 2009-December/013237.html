@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out() to be inlined into inner loops
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20minidriver%3A%20allow%0A%20jtag_add_dr_out%28%29%20to%20be%20inlined%20into%20inner%20loops&In-Reply-To=%3C1259796519.28401.817.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013233.html">
+   <LINK REL="Next"  HREF="013270.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out() to be inlined into inner loops</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20minidriver%3A%20allow%0A%20jtag_add_dr_out%28%29%20to%20be%20inlined%20into%20inner%20loops&In-Reply-To=%3C1259796519.28401.817.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out() to be inlined into inner loops">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Dec  3 00:28:39 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013233.html">[Openocd-development] [PATCH] minidriver: allow	jtag_add_dr_out() to be inlined into inner loops
+</A></li>
+        <LI>Next message: <A HREF="013270.html">[Openocd-development] [PATCH] minidriver: allow	jtag_add_dr_out() to be inlined into inner loops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13237">[ date ]</a>
+              <a href="thread.html#13237">[ thread ]</a>
+              <a href="subject.html#13237">[ subject ]</a>
+              <a href="author.html#13237">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, 2009-12-02 at 23:50 +0100, &#216;yvind Harboe wrote:
+&gt;<i> I was thinking about splitting this patch into at least a few:
+</I>&gt;<i> 
+</I>&gt;<i> The first would be to get rid of some -I's.
+</I>
+Ummm... hold off on this.
+
+&gt;<i> The second would clarify that the &quot;classic&quot; JTAG driver
+</I>&gt;<i> is just another minidriver.
+</I>&gt;<i> 
+</I>&gt;<i> The third would then allow a minidriver to grab the
+</I>&gt;<i> JTAG stack from jtag_xxx() and down to the metal.
+</I>
+The driver should be exposed via jtag/interface.h, so only code that
+needs to define portions of the interface drivers can ever see it.
+That header is also part of our public API.  However, the regular driver
+and the minidrivers and mutually exclusive.
+
+&gt;<i> The performance gain potential here is, over time with
+</I>&gt;<i> a few more fixes like it, ca. 10-25%. I currently get 550kBytes/s
+</I>&gt;<i> @ 16MHz w/arm7/9 for gdb load, so say up to 600-700kBytes/s
+</I>&gt;<i> somewhere eventually due to this. Performance is a long
+</I>&gt;<i> term &amp; fun project for me :-)
+</I>&gt;<i> 
+</I>&gt;<i> I actually saw that jtag_add_dr_out() was no longer inlined
+</I>&gt;<i> because it is creeping up on the gprof list for gdb load...
+</I>
+Okay.  The solution that I have tried to propose will get this back,
+without exposing anything during a normal non-minidriver installation.
+
+At the point, I would prefer you wait to work on this until I push two
+of my pending clean-up series, both of which I have nearly done:
+- Split flash/ into flash/nor/ and flash/nand/.
+- Change headers from &quot;foo.h&quot; to &lt;module/foo.h&gt;
+
+The last is fully done, on my mirror in the 'hdr' branch.  The first is
+half-done, with the nand changes on my mirror master branch.  That part
+took an hour, so I expect to finish the nor and push it all soonish. 
+Likewise, the JTAG changes are trivial to accomplish.  The 'hdr' branch
+can then follow shortly.  So, get a good night's sleep and expect the
+landscape to have changed a little bit while you dream....  
+
+The changes will require using full path names in the public header
+files, so you cannot use &quot;minidriver.h&quot;.  Thinking about this, we can:
+
+     1. move the drivers into jtag/drivers and create the empty
+        minidriver.h in that location, 
+     2. Copy jtag/{drivers,minidriver}/minidriver.h to jtag/minidriver.h
+        using a Makefile magic.
+     3. jtag.h can include &lt;jtag/minidriver.h&gt;
+
+When the &quot;minidriver/minidriver.h&quot; file is used, it can include
+&quot;jtag_minidriver.h&quot; -- as you have already done, but with the -I set via
+Makefile magic to remove confusing #if logic.  The downside of this is
+that it forces us to include &lt;jtag/minidriver.h&gt; in the installed
+headers, and it will always be empty.  Okay, so this turns out to suck.
+
+Another possible solution is to add &lt;jtag/imp.h&gt;, which #includes
+&lt;jtag/jtag.h&gt; (the public API) and does not get installed.  This file is
+#included in the tree and can #include &quot;minidriver.h&quot;.  This is probably
+the simplest idea, yeah?  The public API _must_ be a non-inline version
+of the API that calls the inline version.  Period.  But the public API
+will never use a minidriver; such builds will always be monolithic. Yah?
+
+Inline functions may not be used in public APIs, because they prevent
+upgrading shared libraries.  They are included in application, so
+changes to their implementation will not be updated if the library is.
+While real backwards compatibility will not be an issue until 1.0, these
+kinds of issues need to be considered as we move toward that milestone,
+or it will be impossible to fix bugs _and_ remain ABI compatible.
+
+Honestly, I am more convinced that this reflects fundamental design
+flaws in the system.  It really feels like we are polishing a turd.
+
+Cheers,
+
+Zach
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013233.html">[Openocd-development] [PATCH] minidriver: allow	jtag_add_dr_out() to be inlined into inner loops
+</A></li>
+	<LI>Next message: <A HREF="013270.html">[Openocd-development] [PATCH] minidriver: allow	jtag_add_dr_out() to be inlined into inner loops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13237">[ date ]</a>
+              <a href="thread.html#13237">[ thread ]</a>
+              <a href="subject.html#13237">[ subject ]</a>
+              <a href="author.html#13237">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

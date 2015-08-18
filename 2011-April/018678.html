@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3C4D9C5F98.2060700%40amontec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018677.html">
+   <LINK REL="Next"  HREF="018679.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)</H1>
+    <B>Laurent Gauch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3C4D9C5F98.2060700%40amontec.com%3E"
+       TITLE="[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)">laurent.gauch at amontec.com
+       </A><BR>
+    <I>Wed Apr  6 14:42:00 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018677.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+        <LI>Next message: <A HREF="018679.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18678">[ date ]</a>
+              <a href="thread.html#18678">[ thread ]</a>
+              <a href="subject.html#18678">[ subject ]</a>
+              <a href="author.html#18678">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Drasko DRASKOVIC wrote:
+&gt;<i> Hi all,
+</I>&gt;<i> based on EJTAG spec, can somebody explain the difference between
+</I>&gt;<i> FASTDATA competition and not competition modes :
+</I>&gt;<i>
+</I>&gt;<i> During a Fastdata access, the Fastdata register value shifted in
+</I>&gt;<i> specifies whether the Fastdata
+</I>&gt;<i> access should be completed or not. The value shifted out is a flag
+</I>&gt;<i> that indicates whether the Fastdata access was
+</I>&gt;<i> successful or not (if completion was requested).
+</I>&gt;<i>
+</I>&gt;<i> Shifting in a zero value requests completion of the
+</I>&gt;<i> Fastdata access. The PrAcc bit in the EJTAG Control
+</I>&gt;<i> register is overwritten with zero when the access
+</I>&gt;<i> succeeds. (The access succeeds if PrAcc is one and
+</I>&gt;<i> the operation address is in the legal dmseg segment
+</I>&gt;<i> Fastdata area.) When successful, a one is shifted out.
+</I>&gt;<i> Shifting out a zero indicates a Fastdata access failure.
+</I>&gt;<i> Shifting in a one does not complete the Fastdata
+</I>&gt;<i> access and the PrAcc bit is unchanged. Shifting out a
+</I>&gt;<i> one indicates that the access would have been
+</I>&gt;<i> successful if allowed to complete and a zero indicates
+</I>&gt;<i> the access would not have successfully completed.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> So my questions are :
+</I>&gt;<i> 1) If we demand completion, when do we do shift-out of the SPrAcc bit
+</I>&gt;<i> to check status :
+</I>&gt;<i>   
+</I>First, you have to be sure to be in FASTDATA MODE (set the MODE in the 
+TAP instruction REGISTER)
+see Table 6-1 TAP Instruction Overview
+
+Second, do not confuse PrAcc CONTROL register bit and sPrAcc FLAG added 
+in the shift registers
+
+In FASTDATA mode:
+-----------------------
+For a processor MIPS 32-bits DATA register becomes 33bits in FASTDATA mode.
+from EJTAG spec., see Figure 6-6 TDI to TDO Path when in Shift-DR State 
+and FASTDATA Instruction is Selected
+The LSB (bit 32) is your sPRAcc.
+
+Are you sure you are shiffting in and shifting out 33bits and not 32bits 
+before coming back to the IDLE TAP STATE ?
+&gt;<i> a) We shift in SPrAcc, we shift it out, we check it if it is &quot;1&quot; -
+</I>&gt;<i> that would say &quot;You can send in data it will pass OK&quot;, and then
+</I>&gt;<i> we shift in data or
+</I>see Table 6-11 Fastdata Register Field Description
+Every thing is here
+
+1.make sure to shift-in 1 in SPrAcc
+2. check the shit-out of SPrAcc -&gt; must be one
+3. check the PrAcc CONTROL regsiter -&gt; must be one
+if SPrAcc shifted-out value is one and PrAcc is one
+  then the FASTDATA acccess succeeds
+  else failure
+
+For me that's all !
+ 
+&gt;<i> b) We shift in SPrAcc, we shift in data, we shift out SPrAcc and check
+</I>&gt;<i> if if it is &quot;1&quot; - in this case check comes after data shift-in and it
+</I>&gt;<i> would say something like &quot;Data shifted in were well written&quot; ?
+</I>&gt;<i>   
+</I>&gt;<i> Based on this :
+</I>&gt;<i>
+</I>&gt;<i> During Fastdata uploads and downloads, the processor will stall on
+</I>&gt;<i> accesses to the Fastdata area. The PrAcc (processor
+</I>&gt;<i> access pending bit) will be 1 indicating the probe is required to
+</I>&gt;<i> complete the access. Both upload and download accesses
+</I>&gt;<i> are attempted by shifting in a zero SPrAcc value (to request access
+</I>&gt;<i> completion) and shifting out SPrAcc to see if the
+</I>&gt;<i> attempt will be successful (i.e., there was an access pending and a
+</I>&gt;<i> legal Fastdata area address was used). Downloads will
+</I>&gt;<i> also shift in the data to be used to satisfy the load from the dmseg
+</I>&gt;<i> segment Fastdata area, while uploads will shift out the
+</I>&gt;<i> data being stored to the dmseg segment Fastdata area.
+</I>&gt;<i>
+</I>&gt;<i> I would say that it is case b) - pre-check SPrAcc and then shift-in
+</I>&gt;<i> data... But I am not sure. I do not know at which point to check.
+</I>&gt;<i>   
+</I>No sense, since your SPrAcc is in the shift regsiter itself !
+For me, you are misunderstanding the SPrAcc flag and PrAcc bit.
+
+Hoping to help.
+
+Regards,
+ Laurent Gauch
+ <A HREF="http://www.amontec.com">http://www.amontec.com</A>
+ <A HREF="http://www.amontec.com/jtagkey.shtml">http://www.amontec.com/jtagkey.shtml</A>
+ Amontec USB JTAG Cable solutions Amontec JTAGkey Amontec JTAGkey-2 
+Amontec JTAGkey-2P
+&gt;<i> BR,
+</I>&gt;<i> Drasko
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018677.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+	<LI>Next message: <A HREF="018679.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18678">[ date ]</a>
+              <a href="thread.html#18678">[ thread ]</a>
+              <a href="subject.html#18678">[ subject ]</a>
+              <a href="author.html#18678">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

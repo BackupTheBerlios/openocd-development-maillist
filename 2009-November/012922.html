@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3C200911251213.44178.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012921.html">
+   <LINK REL="Next"  HREF="012929.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3C200911251213.44178.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Nov 25 21:13:44 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012921.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+        <LI>Next message: <A HREF="012929.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12922">[ date ]</a>
+              <a href="thread.html#12922">[ thread ]</a>
+              <a href="subject.html#12922">[ subject ]</a>
+              <a href="author.html#12922">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Just to clarify the whole issue once more, my proposal was actually
+</I>&gt;<i> three different things:
+</I>
+These seem like good directions to explore.
+
+I'll suggest the post-0.4.0 development cycle (January++) as a
+good time to have mergeable code that starts reworking any of
+this stuff.  I don't think 0.4.0 is appropriate for this type
+of changes, since the relevant issues aren't fully understood
+and I can't see having those discussions backed by stable code
+before the expected RC1 code freeze (in under a month).
+
+
+&gt;<i> 1. Making the use of scan_field safer by providing standard handlers
+</I>&gt;<i> for the most common cases.
+</I>&gt;<i> 
+</I>&gt;<i> This not only helps with the readability and reduces trivial
+</I>&gt;<i> copy&amp;paste errors. It also makes it much simpler to rewire the
+</I>&gt;<i> underlying scan_field in a later step.
+</I>
+... this part might, however, be a thing that could start
+phasing in sooner.
+ 
+ 
+&gt;<i> 2. Eliminating the global variable jtag_command_queue.
+</I>&gt;<i> 
+</I>&gt;<i> The existing jtag_add_... commands would remain similar but would
+</I>&gt;<i> operate on a local copy of the queue. jtag_execute_queue then receives
+</I>&gt;<i> the pointer to that local copy as parameter instead of using
+</I>&gt;<i> jtag_command_queue. The last user then disposes of the command queue.
+</I>&gt;<i> 
+</I>&gt;<i> The advantage here is a cleaner modular approach. For example this
+</I>&gt;<i> makes scripting complex JTAG sequences possible without worrying about
+</I>&gt;<i> interference from polling. In theory this also allows for the use of
+</I>&gt;<i> multiple JTAG interfaces. With this approach it is also possible to
+</I>&gt;<i> offer an asynchronous jtag execution mode (if someone needs such a
+</I>&gt;<i> nightmare).
+</I>
+This calls for a kind of flag day.  If it's agreed to be a good
+thing, having that ready to merge once the next merge window opens
+seems like it'd be a good strategy:  there's enough time between
+now and then to develop and stabilize most of that code.
+
+&#216;yvind would for example want to make sure he can create queues
+that are optimized for his the Zylin hardware...
+
+Re asynch ...  we're in userspace, so the model should be &quot;threads&quot;.
+And the background polling might better be modeled as threads than
+through a timer interrupt.  But that brings in portability problems.
+
+- Dave
+
+
+&gt;<i> 3. Break up jtag_add_dr_scan etc.
+</I>&gt;<i> 
+</I>&gt;<i> This works best in tandem with (2). The general idea is not to pass
+</I>&gt;<i> one array of scan fields but to pass them in separate function calls
+</I>&gt;<i> (which would mimic, but replace the ones in (1)). To output a 7 bit
+</I>&gt;<i> field the caller just hands the value to the function and doesn't
+</I>&gt;<i> bother about allocating space. To turn jtag_add_?r_scan inside out
+</I>&gt;<i> like this requires its states to be kept somewhere so that
+</I>&gt;<i> plausibility checks and bypassing can be done. The local copy of the
+</I>&gt;<i> jtag_command_queue would be ideal for that (although it would also
+</I>&gt;<i> work by adding even more global variables). The caller then does
+</I>&gt;<i> something like this:
+</I>&gt;<i> 
+</I>&gt;<i> jtag_queue_t * q = jq_alloc_queue();
+</I>&gt;<i> 
+</I>&gt;<i> jq_statemove(q, TAP_IDLE); /* This is just a placeholder for a good
+</I>&gt;<i> solution to deal with the fact that the initial TAP state is not known
+</I>&gt;<i> until jq_execute().  */
+</I>&gt;<i> 
+</I>&gt;<i> jq_set_tap(q, my_tap); /* set the tap to be implied by the following
+</I>&gt;<i> functions, until the next jq_set_tap() */
+</I>&gt;<i> 
+</I>&gt;<i> jq_ir_scan_start(q);
+</I>&gt;<i> 
+</I>&gt;<i> jq_field_u32_out(q, 5, some_instruction);
+</I>&gt;<i> 
+</I>&gt;<i> jq_dr_scan_start(q);
+</I>&gt;<i> 
+</I>&gt;<i> jq_field_u32_out(q, 7, my_value);
+</I>&gt;<i> jq_field_u32_outin(q, 3, another_value, &amp;return_value);
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> jq_execute(q); /* callee frees q and associated data */
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Michael
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012921.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+	<LI>Next message: <A HREF="012929.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12922">[ date ]</a>
+              <a href="thread.html#12922">[ thread ]</a>
+              <a href="subject.html#12922">[ subject ]</a>
+              <a href="author.html#12922">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

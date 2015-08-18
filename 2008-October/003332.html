@@ -1,0 +1,178 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH] Add cfi_spansion_write_words() function to speed up programming.   - uses Unlock Bypass programming mode for a 45-50% speedup   - hacks buffered write buffersize for spansion to allow 1024 byte buffers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20Add%20cfi_spansion_write_words%28%29%20function%20to%20speed%20up%20programming.%0A%20%20%20-%20uses%20Unlock%20Bypass%20programming%20mode%20for%20a%2045-50%25%20speedup%0A%20%20%20-%20hacks%20buffered%20write%20buffersize%20for%20spansion%20to%20allow%201024%20byte%20buffers&In-Reply-To=%3Cmailman.11.1331735841.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003270.html">
+   <LINK REL="Next"  HREF="003334.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH] Add cfi_spansion_write_words() function to speed up programming.   - uses Unlock Bypass programming mode for a 45-50% speedup   - hacks buffered write buffersize for spansion to allow 1024 byte buffers</H1>
+    <B>John McCarthy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20Add%20cfi_spansion_write_words%28%29%20function%20to%20speed%20up%20programming.%0A%20%20%20-%20uses%20Unlock%20Bypass%20programming%20mode%20for%20a%2045-50%25%20speedup%0A%20%20%20-%20hacks%20buffered%20write%20buffersize%20for%20spansion%20to%20allow%201024%20byte%20buffers&In-Reply-To=%3Cmailman.11.1331735841.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH] Add cfi_spansion_write_words() function to speed up programming.   - uses Unlock Bypass programming mode for a 45-50% speedup   - hacks buffered write buffersize for spansion to allow 1024 byte buffers">jgmcc at magma.ca
+       </A><BR>
+    <I>Mon Oct  6 03:24:56 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003270.html">[Openocd-development] external flash support &amp; algorithms.
+</A></li>
+        <LI>Next message: <A HREF="003334.html">[PATCH] Fix return status so errors are reported.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3332">[ date ]</a>
+              <a href="thread.html#3332">[ thread ]</a>
+              <a href="subject.html#3332">[ subject ]</a>
+              <a href="author.html#3332">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: John McCarthy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jgmcc at magma.ca</A>&gt;
+---
+ src/flash/cfi.c |   72 ++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 files changed, 71 insertions(+), 1 deletions(-)
+
+diff --git src/flash/cfi.c src/flash/cfi.c
+index 5801109..4f87463 100644
+--- src/flash/cfi.c
++++ src/flash/cfi.c
+@@ -1595,7 +1595,7 @@ int cfi_spansion_write_word(struct flash_bank_s *bank, u8 *word, u32 address)
+ 	return ERROR_OK;
+ }
+ 
+-int cfi_spansion_write_words(struct flash_bank_s *bank, u8 *word, u32 wordcount, u32 address)
++int cfi_spansion_write_words_Buffered(struct flash_bank_s *bank, u8 *word, u32 wordcount, u32 address)
+ {
+ 	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
+ 	target_t *target = bank-&gt;target;
+@@ -1663,6 +1663,66 @@ int cfi_spansion_write_words(struct flash_bank_s *bank, u8 *word, u32 wordcount,
+ 	return ERROR_OK;
+ }
+ 
++int cfi_spansion_write_words_UnlockBypass(struct flash_bank_s *bank, u8 *word, u32 wordcount, u32 address)
++{
++	u32 i;
++	int retval = ERROR_OK;
++	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
++	cfi_spansion_pri_ext_t *pri_ext = cfi_info-&gt;pri_ext;
++	target_t *target = bank-&gt;target;
++	u8 command[8];
++
++	/* Enter Unlock Bypass mode */
++	cfi_command(bank, 0xaa, command);
++	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command);
++
++	cfi_command(bank, 0x55, command);
++	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command);
++
++	cfi_command(bank, 0x20, command);
++	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0), bank-&gt;bus_width, 1, command);
++
++	for (i=0; i&lt;wordcount; i++) {
++		cfi_command(bank, 0xA0, command);
++		target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0), bank-&gt;bus_width, 1, command);
++
++		target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, word);
++
++		if (cfi_spansion_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != ERROR_OK)
++		{
++			LOG_ERROR(&quot;couldn't write word at base 0x%x, address %x&quot;, bank-&gt;base, address);
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++
++		word    += bank-&gt;bus_width;
++		address += bank-&gt;bus_width;
++	}
++
++	/* Exit Unlock Bypass mode */
++	cfi_command(bank, 0x90, command);
++	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0), bank-&gt;bus_width, 1, command);
++
++	cfi_command(bank, 0x00, command);
++	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0), bank-&gt;bus_width, 1, command);
++
++	return retval;
++}
++
++int cfi_spansion_write_words(struct flash_bank_s *bank, u8 *word, u32 wordcount, u32 address)
++{
++	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
++
++	/*
++	 * TODO: detect flash parts with support for neither Buffered
++	 * nor UnlockBypass and return ERROR_FLASH_OPERATION_FAILED.
++	 */
++	if(cfi_info-&gt;max_buf_write_size == 0)
++		return cif_spansion_write_words_UnlockBypass(bank, word, wordcount, address);
++	else
++		return cif_spansion_write_words_Buffered(bank, word, wordcount, address);
++}
++
+ int cfi_write_word(struct flash_bank_s *bank, u8 *word, u32 address)
+ {
+ 	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
+@@ -1801,6 +1861,15 @@ int cfi_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
+ 			u32 buffermask = buffersize-1;
+ 			u32 bufferwsize;
+ 
++			if(cfi_info-&gt;max_buf_write_size == 0 &amp;&amp; cfi_info-&gt;pri_id == 2) {
++				/*
++ 				 * Spansion hack to allow Unlock Bypass writes on chips
++  				 * that don't support buffered writes
++  				 */
++				buffersize = 1UL &lt;&lt; 10;
++				buffermask = buffersize-1;
++			}
++
+ 			switch(bank-&gt;chip_width)
+ 			{
+ 			case 4 : bufferwsize = buffersize / 4; break;
+@@ -1810,6 +1879,7 @@ int cfi_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
+ 				LOG_ERROR(&quot;Unsupported chip width %d&quot;, bank-&gt;chip_width);
+ 				return ERROR_FLASH_OPERATION_FAILED;
+ 			}
++			LOG_INFO(&quot;Using cfi_write_words with buffer size %u words (%u bytes)&quot;, bufferwsize, buffersize);
+ 
+ 			/* fall back to memory writes */
+ 			while (count &gt;= bank-&gt;bus_width)
+-- 
+1.5.4.3
+
+
+--=-uPA0ZKWhAY2SZc0vwnSX
+Content-Disposition: attachment; filename=0007-Fix-typo-in-cfi_spansion_write_words-wrapper.patch
+Content-Type: application/mbox; name=0007-Fix-typo-in-cfi_spansion_write_words-wrapper.patch
+Content-Transfer-Encoding: 7bit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003270.html">[Openocd-development] external flash support &amp; algorithms.
+</A></li>
+	<LI>Next message: <A HREF="003334.html">[PATCH] Fix return status so errors are reported.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3332">[ date ]</a>
+              <a href="thread.html#3332">[ thread ]</a>
+              <a href="subject.html#3332">[ subject ]</a>
+              <a href="author.html#3332">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

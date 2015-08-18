@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [RFC] massive command restructuring!!!
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20massive%20command%20restructuring%21%21%21&In-Reply-To=%3C1259530303.5314.6537.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013049.html">
+   <LINK REL="Next"  HREF="013025.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [RFC] massive command restructuring!!!</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20massive%20command%20restructuring%21%21%21&In-Reply-To=%3C1259530303.5314.6537.camel%40localhost%3E"
+       TITLE="[Openocd-development] [RFC] massive command restructuring!!!">zw at superlucidity.net
+       </A><BR>
+    <I>Sun Nov 29 22:31:43 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013049.html">[Openocd-development] [RFC] massive command restructuring!!!
+</A></li>
+        <LI>Next message: <A HREF="013025.html">[Openocd-development] [s3c24xx_nand fix ]
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13052">[ date ]</a>
+              <a href="thread.html#13052">[ thread ]</a>
+              <a href="subject.html#13052">[ subject ]</a>
+              <a href="author.html#13052">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, 2009-11-29 at 21:01 +0100, &#216;yvind Harboe wrote:
+&gt;<i> &gt; I disagree.  You can't use flash without a target.  We should never
+</I>&gt;<i> &gt; offer that command without a target for it to be used with.  The user
+</I>&gt;<i> &gt; should not need to pull the two together on their own.
+</I>&gt;<i> 
+</I>&gt;<i> Sure you can!  I even believe that there is some support
+</I>&gt;<i> for this in OpenOCD. The flash chip would then be directly
+</I>&gt;<i> connected to the JTAG chain.
+</I>
+You cannot define a NOR flash bank without defining a target first.
+IIRC, a target name is a required parameter for the 'flash bank'
+command.  To be clear, I am not talking about NAND devices here, because
+- yes - those have different rules.
+
+&gt;<i> I don't understand the win for end-users to be required to specify,
+</I>&gt;<i> target or flash chip when there is only one in the system.
+</I>
+There's nothing stopping a user interface script from setting $CHIPNAME
+to avoid this problem.  If our scripts are written consistently, this
+trick would generate the same base command names for all systems. Right?
+
+Indeed, we might decide to enable this as the default in a UI layer.
+It would result in a more regularized command set than we have today,
+even without any changes.  However, this is a policy decision that
+should lie above the core mechanisms.  Users should be able to override
+this decision without rebuilding OpenOCD; see below on how to do that.
+
+&gt;<i> On a technical level I see the problem of having e.g. cortex commands
+</I>&gt;<i> passed to a mips target.
+</I>
+That's exactly the kind of problem that I am trying to eliminate.
+With subcommands nested in the context which they can be used, each
+target or flash would provide only the commands that work for it.
+
+&gt;<i> &gt; You just said it: they operate on a target.  Thus, it seems logical to
+</I>&gt;<i> &gt; say that they are target commands; conversely, they should not be part
+</I>&gt;<i> &gt; of the 'flash' command.  They seem improperly categorized at present.
+</I>&gt;<i> 
+</I>&gt;<i> I think it is important to distinguish between user interface commands
+</I>&gt;<i> and implementation commands.
+</I>
+This discussion is showing the need for this distinction, yes.
+In these respects, Git provides a good example: lots of C programs are
+tied together in bash scripts for usability.  Metaphorically, many of
+our commands are like those bash scripts, and we need more C programs.
+More concretely, our built-in commands should provide mechanisms that
+are used by TCL scripts to provide a user interface.
+
+&gt;<i> I view the flash write_image as high level utility command, not something that
+</I>&gt;<i> the target offers.
+</I>
+Sure.  It seems we agree that anything like this could be done as a TCL
+wrapper around the type of low-level commands that I am proposing.
+
+&gt;<i> 
+</I>&gt;<i> &gt;&gt; I don't think that it is an improvement to the user experience to
+</I>&gt;<i> &gt;&gt; require a prefix to the flash command(current target or sole
+</I>&gt;<i> &gt;&gt; flash in system), even if the tcl programming model is crisper.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Ummm.. it's not requiring anything more than it already does.  All of
+</I>&gt;<i> &gt; the flash commands (except those you note above) require the flash bank
+</I>&gt;<i> &gt; or its name as the first parameter.  These changes would _replace_ the
+</I>&gt;<i> &gt; 'flash' verb with the bank name.  As such, this step will remove the
+</I>&gt;<i> &gt; bank parameter, in the same way a target's commands do not require one.
+</I>&gt;<i> 
+</I>&gt;<i> I'm positive this would be viewed as a regression in user experience.
+</I>&gt;<i> 
+</I>&gt;<i> You have to know/keep in mind the name of the target. Especially
+</I>&gt;<i> when switching  between targets this can be annoying.
+</I>
+Again, this can be avoided for the &quot;90%-98% of the cases&quot;, but the code
+would be better off this way.
+
+&gt;<i> I don't think that the current &quot;flash erase_address&quot; syntax is something
+</I>&gt;<i> 'bad' that we should support for backwards compatibility. I believe it is an
+</I>&gt;<i> effective user interface to the underlying functionality. It's flawed in
+</I>&gt;<i> several ways from a technical point of view, but that doesn't
+</I>&gt;<i> make it less useful or effective.
+</I>
+Okay, I am glad that you have admitted it's flawed technically.  At this
+point, we seem to agree that there are problems that need to be fixed,
+and my plan should cover all of these bases.
+
+&gt;<i> &gt;From your mail I saw that you're thinking along the lines of distinguishing
+</I>&gt;<i> between a consistent and supportable representation in terms of
+</I>&gt;<i> implementation and a tcl proc's that are the user interface. The user
+</I>&gt;<i> interface will be less stringent and more &quot;messy&quot;, but highly effective.
+</I>
+Again, I think that we're agreeing overall.  I want a low-level command
+language that solves the technical problems that we have identified, but
+you are concerned mosts users will probably want it to be wrapped up for
+them in a high-level TCL language.  Any lingering issues will revolve in
+how to get from Here to There, but the grass should be greener for
+everyone if we can get There.  Right?
+ 
+Anyway, the notion of this high-level UI begins to speak of a &quot;startup&quot;
+directory of TCL scripts to hold this code.  Unlike the built-in scripts
+(which defines core commands used to build a high-level UIs), these
+scripts could be updated by users that want to work on more complicated
+systems than the high-level commands support.
+
+Heck, we could someday provide a set of default UIs.  Beyond the &quot;single
+system&quot; profile (for 1-1 system to interface mapping, discussed above),
+there are also the gang-programming (1-N system to interface mapping),
+and multi-system debugging (N-1 system to interface mapping), and
+multi-head debugging (N-N system to interface mapping) profiles to
+consider as viable scenarios.  Each of these requires a single scripting
+environment to control multiple interfaces or systems, and these are
+entirely within the scope of OpenOCD's domain.
+
+Personally, I expect OpenOCD to support all of these modes of operation,
+and I could discuss scenarios in my past where it would have been great
+to have a tool with such flexibility.  Each profile would have been
+exercised during my career, were such a tool available at the time.
+
+Cheers,
+
+Zach
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013049.html">[Openocd-development] [RFC] massive command restructuring!!!
+</A></li>
+	<LI>Next message: <A HREF="013025.html">[Openocd-development] [s3c24xx_nand fix ]
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13052">[ date ]</a>
+              <a href="thread.html#13052">[ thread ]</a>
+              <a href="subject.html#13052">[ subject ]</a>
+              <a href="author.html#13052">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

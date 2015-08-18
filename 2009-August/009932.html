@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtag_rclk fallback	inconfiguration	scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag_rclk%20fallback%0A%09inconfiguration%09scripts&In-Reply-To=%3CE1MbKRu-0007EP-KE%40localhost.plus.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009928.html">
+   <LINK REL="Next"  HREF="009974.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtag_rclk fallback	inconfiguration	scripts</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag_rclk%20fallback%0A%09inconfiguration%09scripts&In-Reply-To=%3CE1MbKRu-0007EP-KE%40localhost.plus.net%3E"
+       TITLE="[Openocd-development] [PATCH] jtag_rclk fallback	inconfiguration	scripts">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Wed Aug 12 22:29:38 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009928.html">[Openocd-development] [PATCH] jtag_rclk fallback in	configuration	scripts
+</A></li>
+        <LI>Next message: <A HREF="009974.html">[Openocd-development] [PATCH] jtag_rclk fallback	inconfiguration	scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9932">[ date ]</a>
+              <a href="thread.html#9932">[ thread ]</a>
+              <a href="subject.html#9932">[ subject ]</a>
+              <a href="author.html#9932">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> 
+</I>&gt;<i> Jonas H&#246;rberg wrote on 2009-08-10 13:28:27:
+</I>&gt;<i> 
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Hi,
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; The jtag_rclk command should fallback to a fixed frequency for 
+</I>&gt;<i> &gt; interfaces without support for RCLK.
+</I>&gt;<i> &gt; This is not the present behavior when the command is called in the 
+</I>&gt;<i> &gt; configuration stage (running board config files).
+</I>&gt;<i> &gt; The reason is that the interface can not be checked for 
+</I>&gt;<i> RCLK support 
+</I>&gt;<i> &gt; before it is initialized.
+</I>&gt;<i> &gt; The kHz to speed value calculation is also done before the 
+</I>&gt;<i> interface 
+</I>&gt;<i> &gt; is initialized. This will result in the wrong speed setting 
+</I>&gt;<i> when the 
+</I>&gt;<i> &gt; calculation is dependent on data initialized by the init 
+</I>&gt;<i> function of 
+</I>&gt;<i> &gt; the interface.
+</I>&gt;<i> &gt; Example: ft2232_max_tck for  FT2232H and FT4232H based interfaces. 
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; The attached patch contains an attempt to fix these issues 
+</I>&gt;<i> by placing 
+</I>&gt;<i> &gt; the config state speed setting after the initialization of the 
+</I>&gt;<i> &gt; interface.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Best regards
+</I>&gt;<i> &gt; Jonas H&#246;rberg
+</I>&gt;<i> &gt; _______________________________________________
+</I>&gt;<i> &gt; Openocd-development mailing list
+</I>&gt;<i> &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i> 
+</I>&gt;<i> Attached is an new patch that replace the previous one that 
+</I>&gt;<i> had some problems. 
+</I>&gt;<i> * I was not aware of that some interfaces operate on the JTAG
+</I>&gt;<i>   bus in the initialization routine (the j-link issue a TLR). 
+</I>&gt;<i>   The clock must be configured by the initialization routine
+</I>&gt;<i>   before the operation in this case. 
+</I>&gt;<i> * The interface initialization functions is expected to configure
+</I>&gt;<i>   the clock speed by using the return value from a call to the
+</I>&gt;<i>   jtag_get_speed function (although this convention is not followed
+</I>&gt;<i>   by some of the interfaces, examples: arm-jtag-ew.c and vsllink.c). 
+</I>&gt;<i> 
+</I>&gt;<i> This patch changes the jtag_get_speed function. Previously it 
+</I>&gt;<i> only returned the value set by the latest call to jtag_set_speed. 
+</I>&gt;<i> Now it calculate the speed value based on the latest speed, 
+</I>&gt;<i> khz or rclk setting. The correct value will now be returned 
+</I>&gt;<i> when it is called from the interface initialization function. 
+</I>&gt;<i> 
+</I>&gt;<i> The name of the jtag_set_speed function is changed to 
+</I>&gt;<i> jtag_config_speed to be aligned with jtag_config_khz and 
+</I>&gt;<i> jtag_config_rclk. 
+</I>&gt;<i> 
+</I>&gt;<i> The global jtag_set_khz function is merged into 
+</I>&gt;<i> jtag_khz_to_speed because external access do not seem to be sane. 
+</I>&gt;<i> 
+</I>
+This looks good to me, have only tested the ftdi interface however.
+No objections/comments before i commit?
+
+Cheers
+Spen
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009928.html">[Openocd-development] [PATCH] jtag_rclk fallback in	configuration	scripts
+</A></li>
+	<LI>Next message: <A HREF="009974.html">[Openocd-development] [PATCH] jtag_rclk fallback	inconfiguration	scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9932">[ date ]</a>
+              <a href="thread.html#9932">[ thread ]</a>
+              <a href="subject.html#9932">[ subject ]</a>
+              <a href="author.html#9932">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

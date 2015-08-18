@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] JTAG minidriver concept
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20minidriver%20concept&In-Reply-To=%3C200802252235.44343.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001120.html">
+   <LINK REL="Next"  HREF="001085.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] JTAG minidriver concept</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20minidriver%20concept&In-Reply-To=%3C200802252235.44343.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] JTAG minidriver concept">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Mon Feb 25 22:35:44 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001120.html">[Openocd-development] JTAG minidriver concept
+</A></li>
+        <LI>Next message: <A HREF="001085.html">[Openocd-development] openocd docs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1124">[ date ]</a>
+              <a href="thread.html#1124">[ thread ]</a>
+              <a href="subject.html#1124">[ subject ]</a>
+              <a href="author.html#1124">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 25 February 2008 21:38:22 you wrote:
+&gt;<i> The ultimate goal is to be able to execute the commands immediately
+</I>&gt;<i> with no memory allocation or structure copy involved. Just plonk
+</I>&gt;<i> them directly into the hw fifo queue.
+</I>&gt;<i>
+</I>&gt;<i> Ultimately I'd like to do away with the u8 * buffers for the common(call
+</I>&gt;<i> frequency) case.
+</I>&gt;<i>
+</I>&gt;<i> The jtag_xxx() layer effectively adds a *lot* of overhead in percentage
+</I>&gt;<i> terms. A statemove boils down to a single poke with any niffy
+</I>&gt;<i> hw implementation. DR shift out of 32 bits boils down to 2 pokes.
+</I>&gt;<i>
+</I>&gt;<i> As long as the hw fifo is kept full, then the remaining overhead doesn't
+</I>&gt;<i> matter, but at 32MHz JTAG clk and a sub-100MHz CPU, keeping
+</I>&gt;<i> the hw fifo full is a full-time job for the CPU :-)
+</I>&gt;<i>
+</I>&gt;<i> I'm also thinking that some code can call the minidriver fn's directly
+</I>&gt;<i> in certain cases, such as from inner loop of dcc memory bulk
+</I>&gt;<i> writes for ARM7/9. This is what we do in our code, but it is hairy
+</I>&gt;<i> and I wouldn't recommend it for the faint of heart, which is why
+</I>&gt;<i> I'm gauging the interest in sorting this out in OpenOCD trunk
+</I>&gt;<i> in a cleaner way.
+</I>&gt;<i>
+</I>&gt;<i> &gt;  It seems your goal is an alternative set of jtag_xxx functions that
+</I>&gt;<i> &gt; doesn't use the jtag_command_queue, but I'm not completely sure about
+</I>&gt;<i> &gt; that.
+</I>&gt;<i>
+</I>&gt;<i> Why do you care how the lower levels are implemented?
+</I>&gt;<i>
+</I>&gt;<i> Why not just let hw + sw innovate?
+</I>&gt;<i>
+</I>&gt;<i> There is nothing wrong with the sw fifo for GHz hosted OpenOCDs.
+</I>&gt;<i>
+</I>&gt;<i> &gt; Is it  really problematic to start executing JTAG commands when
+</I>&gt;<i> &gt; jtag_execute_queue() is called?
+</I>&gt;<i>
+</I>&gt;<i> Yes. It completely destroys performance on small embedded CPUs.
+</I>&gt;<i>
+</I>&gt;<i> It's a non-starter for our purposes.
+</I>&gt;<i>
+</I>&gt;<i> Why would you want to hold off execution?
+</I>&gt;<i>
+</I>&gt;<i> &gt; I always thought that the time spent enqueing the commands is
+</I>&gt;<i> &gt;  rather small compared to the execution time (num TCKs required *
+</I>&gt;<i> &gt;  1/jtag_clock).
+</I>&gt;<i>
+</I>&gt;<i> Our CPU is running on 64MHz and the JTAG clock as fast as 32MHz +
+</I>&gt;<i> there are wait states on the RAM for the CPU.
+</I>&gt;<i>
+</I>&gt;<i> OpenOCD running on GHz CPUs with memory bandwidth coming
+</I>&gt;<i> out of their ears and wicked megabyte large caches
+</I>&gt;<i> don't run into these problems obviously. :-)
+</I>
+I'll try to explain my concerns a bit more. It's certainly not my intention to 
+hold off innovation.
+
+You're trying to optimize the JTAG layer for your case:
+- small embedded CPU
+- tightly coupled FPGA
+
+This is all fine, but not necessarily the only possible solution.
+
+My view has always been that the developer is ultimately using a multi-GHz 
+desktop machine. Resource constraints shouldn't matter, which is why the JTAG 
+layer carries as much infomation as possible, even if that means to store a 
+multiple of the actual data transfered via JTAG.
+
+The ideal JTAG interface I thought about wouldn't need close coupling of the 
+serializer to the controlling logic. Latency shouldn't matter to the maximum 
+extend possible, which means that the JTAG interface needs to be able to 
+interpret the data to/from the serializer. The latency-sensitive control 
+logic usually comes down to &quot;wait for bit A to go high/low&quot; or something like 
+that, which can be expressed in STAPL, a language simple enough to implement 
+in hardware (not necessarily STAPL itself, but a binary representation of 
+similar complexity). The PC would download descriptions of the necessary 
+control flows to the JTAG interface to store them for later use. At that 
+point, only data would have to flow through the interface, referencing the 
+control flows that know how to handle the data.
+
+The advantage of such an approach would be a universal JTAG interface that 
+could implement all kinds of target protocols using only PC software. No 
+firmware upgrades required, just a software update on your PC. No limitations 
+like &quot;you can only have support for one architecture at a time&quot; or something 
+like that.
+
+These are two very different approaches. I admit that the solution I 
+envisioned is rather complex, and could prove to be unrealistic to implement, 
+which is why I accepted your prior changes to the JTAG layer.
+
+Another solution could use a more potent uC coupled with a FPGA. ARM9 + lots 
+of RAM isn't that expensive anymore, and much closer to a PC than your ARM7 
+board. I just don't want to remove existing flexibility of the JTAG layer to 
+optimize for one particular solution.
+
+Feel free to move along on your path, as long as it doesn't change fundamental 
+parts of the existing JTAG interface. The minidriver patch itself is fine 
+with me.
+
+Best regards,
+
+Dominic
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001120.html">[Openocd-development] JTAG minidriver concept
+</A></li>
+	<LI>Next message: <A HREF="001085.html">[Openocd-development] openocd docs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1124">[ date ]</a>
+              <a href="thread.html#1124">[ thread ]</a>
+              <a href="subject.html#1124">[ subject ]</a>
+              <a href="author.html#1124">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

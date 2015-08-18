@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] SRST TRST have to be buffered?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SRST%20TRST%20have%20to%20be%20buffered%3F&In-Reply-To=%3CCACGfw7Qq0ePewOjbeGE0PUDPp_m1TD-WxUT0iLwyw2DProuSsA%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020113.html">
+   <LINK REL="Next"  HREF="020366.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] SRST TRST have to be buffered?</H1>
+    <B>Rodrigo Rosa</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SRST%20TRST%20have%20to%20be%20buffered%3F&In-Reply-To=%3CCACGfw7Qq0ePewOjbeGE0PUDPp_m1TD-WxUT0iLwyw2DProuSsA%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] SRST TRST have to be buffered?">rodrigorosa.lg at gmail.com
+       </A><BR>
+    <I>Sat Jul  9 02:28:56 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020113.html">[Openocd-development] SRST TRST have to be buffered?
+</A></li>
+        <LI>Next message: <A HREF="020366.html">[Openocd-development] SRST TRST have to be buffered?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20125">[ date ]</a>
+              <a href="thread.html#20125">[ thread ]</a>
+              <a href="subject.html#20125">[ subject ]</a>
+              <a href="author.html#20125">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>the srst line will be held high or low according to the interface you're using.
+the ADBUS on the minimodule is like the flyswatter: X X SRST X TMS TDO
+TDI TCK    (AD7 to AD0)
+the minimodule inits the srst line high. srst line is ADBUS5, so
+that's nSRST = 0x20
+if only srst is used during reset, then the minimodule_reset function
+is called first with trst==0 and srst==1 to assert a reset, and then
+with trst==0 and srst==0 to de-assert it.
+so it goes:
+normally: 0x20
+during reset: 0x00
+after reset: 0x20
+
+srst is pulled low and then back up, and it stays there.
+the other gpio pins are tri-stated unless you do something with them.
+
+if you do not want the other gpio pins (ACBUS and ADBUS 7 and 6) to be
+tristated, then you can use tomek's bitbang stuff.
+it allows you to handle the other gpio pins and set them hi or low.
+i've been trying it and it works fine.
+it's not merged yet, but i hope it will be soon :)
+
+On Fri, Jul 8, 2011 at 10:07 AM, Matthew Lai &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">cyberfish at wecheer.com</A>&gt; wrote:
+&gt;<i> Ah! I see.
+</I>&gt;<i>
+</I>&gt;<i> I guess it's fine as long as OpenOCD either tristates or drive high the
+</I>&gt;<i> reset lines when it's not doing anything.
+</I>&gt;<i>
+</I>&gt;<i> Is that the case?
+</I>&gt;<i>
+</I>&gt;<i> Thanks!
+</I>&gt;<i> Matthew
+</I>&gt;<i>
+</I>&gt;<i> On 7/8/2011 9:51 AM, Phil Fong wrote:
+</I>&gt;<i>
+</I>&gt;<i> ________________________________
+</I>&gt;<i> I'm trying to embed a FT2232D based programmer into my board with a STM32
+</I>&gt;<i> (Cortex-M3 MCU).
+</I>&gt;<i>
+</I>&gt;<i> I want the programmer to be compatible with jtagkey, so I looked at
+</I>&gt;<i> schematics of compaible designs.
+</I>&gt;<i>
+</I>&gt;<i> I noticed that while the JTAG signals (TCK, TDI, TDO, TMS) are only buffered
+</I>&gt;<i> when translation is necessary, the SRST and TRST signals are always
+</I>&gt;<i> tri-state buffered, with OE going into the FTDI chip.
+</I>&gt;<i>
+</I>&gt;<i> Is there a reason for that? Can I omit the buffers?
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Since you are embedding the JTAG interface with the target, you can tell if
+</I>&gt;<i> buffering is needed.&#160; We just went through a similar exercise and you can
+</I>&gt;<i> pretty much hook everything up directly and use the FTDI MiniModule layout
+</I>&gt;<i> (see commit from Rodrigo Rosa) if you target circuit is right.
+</I>&gt;<i>
+</I>&gt;<i> Also, I heard it's possible to omit the TRST signal and only keep the SRST
+</I>&gt;<i> signal, because system reset will also reset the TAP controller. Is that
+</I>&gt;<i> true? Are there problems with that?
+</I>&gt;<i>
+</I>&gt;<i> TRST is optional since you can reset the JTAG TAP state machine with
+</I>&gt;<i> clocking TCK which TMS=1.
+</I>&gt;<i> SRST might be needed for other reasons.&#160; For example some chips need it as
+</I>&gt;<i> part of some kind of flash / code protection enable/disable.
+</I>&gt;<i>
+</I>&gt;<i> Phil
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>
+
+
+-- 
+Rodrigo.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020113.html">[Openocd-development] SRST TRST have to be buffered?
+</A></li>
+	<LI>Next message: <A HREF="020366.html">[Openocd-development] SRST TRST have to be buffered?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20125">[ date ]</a>
+              <a href="thread.html#20125">[ thread ]</a>
+              <a href="subject.html#20125">[ subject ]</a>
+              <a href="author.html#20125">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

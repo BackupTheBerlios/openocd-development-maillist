@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3C4DEDF0B4.70206%40amontec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019367.html">
+   <LINK REL="Next"  HREF="019386.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred</H1>
+    <B>Laurent Gauch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3C4DEDF0B4.70206%40amontec.com%3E"
+       TITLE="[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred">laurent.gauch at amontec.com
+       </A><BR>
+    <I>Tue Jun  7 11:34:44 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019367.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+        <LI>Next message: <A HREF="019386.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19380">[ date ]</a>
+              <a href="thread.html#19380">[ thread ]</a>
+              <a href="subject.html#19380">[ subject ]</a>
+              <a href="author.html#19380">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Hi Tomek,
+
+First, thank you for giving objective comments on the patch. Much 
+appreciated from you.
+(Much better than the &quot;Student code galore&quot; from Peter)
+&gt;<i> Hello Laurent,
+</I>&gt;<i>
+</I>&gt;<i> Sorry if my comment seems not meritoric, I am not mentioning about
+</I>&gt;<i> coding style because this leaves a lot to tell in case of all program
+</I>&gt;<i> source tree. I am not advanced OpenOCD developer, I am learning code
+</I>&gt;<i> internals for some time and I have some grasp on it already (enough to
+</I>&gt;<i> recognize the function we are talking about without looking at the
+</I>&gt;<i> code because I have already worked on it). Please take a look at my
+</I>&gt;<i> explanation why I think this patch is not that good ant try to
+</I>&gt;<i> convince me (maybe others?) that I am wrong :-)
+</I>&gt;<i>   
+</I>
+I reply on your text, maybe I can convince you.
+&gt;<i> 1. The reason to propose this patch was improper error handling.
+</I>&gt;<i> OpenOCD works in a manner where functions return ERROR_OK or
+</I>&gt;<i> ERROR_FAIL, all additional/verbose information are provided by LOG_*
+</I>&gt;<i> messages. This is also the case in ft2232_init(), so no need to
+</I>&gt;<i> change. If you change this all other interfaces will behave different,
+</I>&gt;<i> so the code gets dirty and unpredictable. This is a standard behavior
+</I>&gt;<i> for all of the code.
+</I>&gt;<i>   
+</I>Yes, right. But the patch do not touch the error mechanism, which one is 
+good enough.
+&gt;<i> 2. The malloc() problem can be solved in a simple way as demonstrated
+</I>&gt;<i> by my patch. No need to complicate things, no need to add other
+</I>&gt;<i> functions that makes code less readable.
+</I>&gt;<i>   
+</I>The patch resolve it.
+&gt;<i> 3. All interfaces have init() and quit() functions. If you change this
+</I>&gt;<i> for one type of driver the code will get dirty as one drivers will
+</I>&gt;<i> behave other than another interfaces. This should be avoided.
+</I>&gt;<i>   
+</I>Yes, the patch do not touch the API. We still have the init and quit for 
+the high layer acceding the ft2232 interface.
+&gt;<i> 4. What is the real benefit of implementing/splitting open() and
+</I>&gt;<i> init() for interface? Interface is a platform for further program
+</I>&gt;<i> operation. Without interface program cannot work properly, so what
+</I>&gt;<i> would you like to do with interface that is opened but
+</I>&gt;<i> unusable/uninitialized? The current behavior is simple - interface
+</I>&gt;<i> initialization failed, so will other things, retry or quit, don't go
+</I>&gt;<i> futher. Interface init() checks if interface is connected and sets up
+</I>&gt;<i> its state, this is enough for one function, why you want to split it?
+</I>&gt;<i>   
+</I>Again the goal is to have INSIDE the ft2232.c  something like :
+open(open the ft2232 handle)
+  init(init the ft2232 device)
+  deinit(deinit the ft2232 device)
+close(close the ft2232 handle)
+
+ From the JTAG INTERFACE API (higher layer point of view) we still have 
+the only two functions
+init (init the interface)
+quit (quit the interface)
+
+Globally we have:
+init (init the interface)
+  open(open the ft2232 handle)
+    init(init the ft2232 device)
+    deinit(deinit the ft2232 device)
+   close(close the ft2232 handle)
+quit (quit the interface)
+
+The objective is to provide at middle term a better code and more 
+comprehensible code for the FT2232.c.
+
+ From the higher level, you still init and quit the interface. But in 
+the ft2232 interface, we separate open / close the handle and the  init 
+/ deinit the device.
+
+In the open and close we should only process the ft2232 handle
+In the init and deinit, we initialize and deinitialize the ft2232 device 
+( the MPSSE mode and the specific layout with specific function (as 
+jtagkey_init) )
+
+Actually the deinit is not implemented and it should be done quickly. 
+The deinit should first deinitialize the specific layout (as a 
+jtagkey_deinit), then disable the MPSSE / bitbang mode for any USB JTAG 
+based ft2232. Objective is to let see the ft2232 device as if it was 
+just plugged (after a power-off -&gt; power-on). After the deinit of the 
+ft2232 device is done, we can close the ft2232 handle ...
+
+Without doing something within deinit, we still have strange openocd 
+inter-session phenomena (as TRST still driven instead to be TRISTATE ... 
+really important for debugging TI OMAP ! )
+If you have a Amontec JTAGkey-2 you can see the yellow LED stays active 
+ON after a shutdown of openocd. The yellow LED on Amontec JTAGkey-2 let 
+know the users that one of the TRST_OE_N SRST_OE_N JTAG_OE_N are/is 
+still asserted. This mean, actually, the openOCD did not correctly 
+deinit the jtagkey layout nor the MPSSE nor the bitbang mode, before 
+closing the handle ... in other term :
+We do not deinit the device before closing the handle ... That's make 
+troubles in inter-session of openocd ...
+
+So the deinit is really important, but was never implemented. The patch 
+will help to quickly integrate the deinit of a specific layout and 
+deinit of the MPSSE mode.
+(Sebastien is ready to send patch concerning the deinit)
+
+Also, you can see the importance of decoupling the :
+open / close of the FT2232 handle
+init / deinit of the FT2232 device
+
+&gt;<i> 5. There is a transport layer above interface, transport has select()
+</I>&gt;<i> and init() - maybe this is the place you should place your code?
+</I>&gt;<i> Transport select() function sets up interface and memory/registers for
+</I>&gt;<i> transport internals, while transport init() can interrogate connected
+</I>&gt;<i> targets (as the interface and transport are ready). Transport is
+</I>&gt;<i> initialized automatically just after interface is initialized.
+</I>&gt;<i>   
+</I>Again the patch do not touch the interface see reply on 4.)
+The transport layer is at a higher level than the interface layer !
+I do not want to talk about how the higher layer access the lower layer 
+. That's not the subject of the patch.
+&gt;<i> Long story short - there is already presented open/init mechanism at
+</I>&gt;<i> transport layer, interface is only a platform for this to happen.
+</I>&gt;<i> There is not much use of interface that is opened but unusable - this
+</I>&gt;<i> is common for all interfaces, not only ft2232 - it is simply ready for
+</I>&gt;<i> use or not.
+</I>&gt;<i>   
+</I>Yes right.
+
+But when we will come with new SWD transport support, the interface 
+layer ( ft2232.c ) will have to be modified to accept new hardware as 
+the Amontec JTAGkey-3 coming with the SWD support.
+
+&gt;<i> There are more things to be fixed and changes in the OpenOCD internal
+</I>&gt;<i> organization (i.e. program flow, global variables rewrite into common
+</I>&gt;<i> context passed as function parameter, etc), but this should be done in
+</I>&gt;<i> non-invasive, clean and rational manner. If we want to change
+</I>&gt;<i> interface behavior, this change should apply to all interfaces. We
+</I>&gt;<i> cannot allow one interface behave in other way than the others because
+</I>&gt;<i> this will only bring confusion. The program flow is unclear enough to
+</I>&gt;<i> complicate it even more right now. This is why I would freeze the
+</I>&gt;<i> changes for a moment where general interface architecture will change
+</I>&gt;<i> to become non-jtag-specific. Again please specify the benefits of
+</I>&gt;<i> open() and init() for interface, and why it cannot happen in transport
+</I>&gt;<i> layer as it is done right now.
+</I>&gt;<i>   
+</I>NO NO NO Again, we do not change the init / quit for the higher level 
+access. But we split the how-to open close the FT2232 handle and how-to 
+init deinit the FT2232 device + specific layout ...
+
+Sure, there are a lot to do in the openocd structure itself.. But the 
+patch is for ft2232.c only. Nothing to do yet with transport layer.
+&gt;<i> About the (c) in the header fields I think that those should be
+</I>&gt;<i> reserved for people that bring more than patching/rewrite but this is
+</I>&gt;<i> a minor issue :-)
+</I>&gt;<i>   
+</I>Right, but the patch corrects an important memory trouble in the 
+FT2232.c, and prepare the FT2232.c for a better open -&gt; init -&gt; deinit 
+-&gt; close ! The patch is not only a rewrite, it is a correction.
+&gt;<i> Best regards,
+</I>&gt;<i> Tomek
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>THE PATCH DO NOT TOUCH THE JTAG INTERFACE API !
+
+convinced ?
+
+Best regards,
+Laurent
+ <A HREF="http://www.amontec.com">http://www.amontec.com</A>
+ <A HREF="http://www.amontec.com/jtagkey.shtml">http://www.amontec.com/jtagkey.shtml</A>
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019367.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+	<LI>Next message: <A HREF="019386.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19380">[ date ]</a>
+              <a href="thread.html#19380">[ thread ]</a>
+              <a href="subject.html#19380">[ subject ]</a>
+              <a href="author.html#19380">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

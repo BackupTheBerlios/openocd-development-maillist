@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] committed - printf() warning fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20committed%20-%20printf%28%29%20warning%20fixes&In-Reply-To=%3C8C1F709B-C825-43FC-A881-CC3557B40152%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008250.html">
+   <LINK REL="Next"  HREF="008272.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] committed - printf() warning fixes</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20committed%20-%20printf%28%29%20warning%20fixes&In-Reply-To=%3C8C1F709B-C825-43FC-A881-CC3557B40152%40kc8apf.net%3E"
+       TITLE="[Openocd-development] committed - printf() warning fixes">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Sat Jun 20 08:35:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008250.html">[Openocd-development] committed - printf() warning fixes
+</A></li>
+        <LI>Next message: <A HREF="008272.html">[Openocd-development] committed - printf() warning fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8257">[ date ]</a>
+              <a href="thread.html#8257">[ thread ]</a>
+              <a href="subject.html#8257">[ subject ]</a>
+              <a href="author.html#8257">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+&gt;<i>
+</I>&gt;<i> You miss an important point, it is *NOT* the possible range of values
+</I>&gt;<i> the *TYPE* may take on.
+</I>&gt;<i>
+</I>&gt;<i> It is the range of values the **ACTUAL*DATA** might take on that is
+</I>&gt;<i> important here.
+</I>
+It's much easier to make sure bugs are not introduced in the future to  
+make sure that things like printf respect the range of the type.   
+Besides, it also avoids the problems of types shifting widths on  
+different architectures.  For example, in your case:
+
+&gt;<i>
+</I>&gt;<i>    uint32_t x;
+</I>&gt;<i>    void funny_function( uint32_t );
+</I>&gt;<i>
+</I>&gt;<i>    for( x = 0 ; x &lt; 10 ; x++ ){
+</I>&gt;<i>          printf(&quot; X = %d, Calling funny function\n&quot;, (int)(x));
+</I>&gt;<i>          funny_function( x ) ;
+</I>&gt;<i>    }
+</I>
+
+Casting to int is fine as long as int is 32-bits or greater.  When  
+compiling for a smaller device though, int _could_ be 16-bit and  
+suddenly you have truncation issues.  If you care about the range of  
+values, you should use the appropriately sized C99 type and then use  
+the appropriate C99 printf macro to print it.  Otherwise you won't  
+know what you end up with since many of the intrinsic types in C are  
+platform defined size.
+
+&gt;<i> In the above, I have several choices, (a) I could have used an &quot;int&quot;
+</I>&gt;<i> variable - then *cast* it to a uint32_t at the function call (note  
+</I>&gt;<i> here:
+</I>&gt;<i> I am partial to x as a loop control variable, others like i/j/k) or -
+</I>&gt;<i> because (b) the value will never be negative, I just choose 'uint32_t'
+</I>&gt;<i> because it was convient.
+</I>
+If you know that &quot;int&quot; has an appropriate data range for the task,  
+then (a) works.  But you would need to verify that.  You should also  
+leave a comment stating that such a verification was done (and the  
+date).  If you chose uint32_t just for convenience, then it doesn't  
+matter much, but you are guaranteed that using the C99 printf macro  
+will avoid any potential truncation issues.
+
+
+&gt;<i> Here, under OpenOCD we generally:
+</I>&gt;<i>
+</I>&gt;<i> (1) assume that all embedded openocd targets are *32bit* at most...
+</I>
+This is a bad assumption since it limits us from supporting various  
+DSPs.
+
+&gt;<i> (2) assume all host platforms are at least 32bit host platforms
+</I>
+Limits us from using 16-bit processors.  Not necessarily a problem,  
+but a potentially unnecessary limitation.
+
+&gt;<i> (3) and thus, target addresses are generally equal to - or smaller  
+</I>&gt;<i> then
+</I>&gt;<i> the host &quot;unsigned integers&quot;
+</I>
+This is a really bad assumption.  Instead we should define a new type  
+that is the guaranteed size to hold a target address.
+
+&gt;<i> (4) In most, if not all of the &quot;u32&quot; cases, the format string  
+</I>&gt;<i> specifies
+</I>&gt;<i> &quot;%08x&quot; or equal.
+</I>
+And that is horribly wrong for &quot;u32&quot;.  %x will change size between 32- 
+bit and 64-bit windows versions since &quot;int&quot; changes size.  Since int  
+is only guaranteed to be a native machine size, it could be anything.   
+Assuming it is 32-bit or capable of holding at least 32-bits is  
+wrong.  If you are using 32-bit types, use the 32-bit printf macro.
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>    LOG_INFO( &quot;device id = 0x%08x (manuf 0x%03x dev 0x%02x, ver 0x 
+</I>&gt;<i> %03x)&quot;,
+</I>&gt;<i>    device_id, (device_id&gt;&gt;1)&amp;0x7ff, (device_id&gt;&gt;12)&amp;0xff,
+</I>&gt;<i> (device_id&gt;&gt;20)&amp;0xfff );
+</I>&gt;<i>
+</I>&gt;<i> The format strings alone tell me that a 32bit unsigned *INTEGER* is
+</I>&gt;<i> sufficient.
+</I>&gt;<i> As does the math operators.
+</I>&gt;<i>
+</I>
+Actually they don't.  The %08x indicates that you want &quot;0&quot; padding to  
+ensure at least 8 hexits are printed from the int.  It says very  
+little else.  Further, it isn't clear that the manufacturer, device,  
+and version portions of the device_id are the only portions.  Strictly  
+from the code, device_id is an unknown number of bits of which 32 are  
+known to be useful.  On 32-bit systems, there are no additional bits,  
+but on a 64-bit windows system, there are 32 additional bits that may  
+have meaning (why else would we have printed them with %x?).  In fact,  
+this points to either an int being used where uint32_t should be used  
+or a bug on non-32-bit systems.
+
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090619/7cd22516/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20090619/7cd22516/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008250.html">[Openocd-development] committed - printf() warning fixes
+</A></li>
+	<LI>Next message: <A HREF="008272.html">[Openocd-development] committed - printf() warning fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8257">[ date ]</a>
+              <a href="thread.html#8257">[ thread ]</a>
+              <a href="subject.html#8257">[ subject ]</a>
+              <a href="author.html#8257">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

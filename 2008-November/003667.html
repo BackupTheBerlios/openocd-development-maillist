@@ -1,0 +1,2205 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] More error handling fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20More%20error%20handling%20fixes&In-Reply-To=%3Cc09652430811190022v2d3eeca4g59e8f267ba42262a%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003695.html">
+   <LINK REL="Next"  HREF="003684.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] More error handling fixes</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20More%20error%20handling%20fixes&In-Reply-To=%3Cc09652430811190022v2d3eeca4g59e8f267ba42262a%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] More error handling fixes">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Nov 19 09:22:33 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003695.html">[Openocd-development] ARM926ej-s (MagicEyes POLLUX) Problem
+</A></li>
+        <LI>Next message: <A HREF="003684.html">[Openocd-development] LM3s8962 &amp; Working Area
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3667">[ date ]</a>
+              <a href="thread.html#3667">[ thread ]</a>
+              <a href="subject.html#3667">[ subject ]</a>
+              <a href="author.html#3667">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+jtag_get_device() now propagates an error instead of invoking exit()
+
+
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/mips_ejtag.c
+===================================================================
+--- src/target/mips_ejtag.c	(revision 1173)
++++ src/target/mips_ejtag.c	(working copy)
+@@ -35,12 +35,14 @@
+ int mips_ejtag_set_instr(mips_ejtag_t *ejtag_info, int new_instr,
+in_handler_t handler)
+ {
+ 	jtag_device_t *device = jtag_get_device(ejtag_info-&gt;chain_pos);
+-	
++	if (device==NULL)
++		return ERROR_FAIL;
++
+ 	if (buf_get_u32(device-&gt;cur_instr, 0, device-&gt;ir_length) != new_instr)
+ 	{
+ 		scan_field_t field;
+ 		u8 t[4];
+-		
++
+ 		field.device = ejtag_info-&gt;chain_pos;
+ 		field.num_bits = device-&gt;ir_length;
+ 		field.out_value = t;
+@@ -53,18 +55,18 @@
+ 		field.in_handler_priv = NULL;
+ 		jtag_add_ir_scan(1, &amp;field, -1);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int mips_ejtag_get_idcode(mips_ejtag_t *ejtag_info, u32 *idcode,
+in_handler_t handler)
+ {
+ 	scan_field_t field;
+-	
++
+ 	jtag_add_end_state(TAP_RTI);
+-	
++
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_IDCODE, NULL);
+-	
++
+ 	field.device = ejtag_info-&gt;chain_pos;
+ 	field.num_bits = 32;
+ 	field.out_value = NULL;
+@@ -75,23 +77,23 @@
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+ 	jtag_add_dr_scan(1, &amp;field, -1);
+-	
++
+ 	if (jtag_execute_queue() != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;register read failed&quot;);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int mips_ejtag_get_impcode(mips_ejtag_t *ejtag_info, u32 *impcode,
+in_handler_t handler)
+ {
+ 	scan_field_t field;
+-	
++
+ 	jtag_add_end_state(TAP_RTI);
+-	
++
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_IMPCODE, NULL);
+-	
++
+ 	field.device = ejtag_info-&gt;chain_pos;
+ 	field.num_bits = 32;
+ 	field.out_value = NULL;
+@@ -102,12 +104,12 @@
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+ 	jtag_add_dr_scan(1, &amp;field, -1);
+-	
++
+ 	if (jtag_execute_queue() != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;register read failed&quot;);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -115,10 +117,13 @@
+ {
+ 	jtag_device_t *device;
+ 	device = jtag_get_device(ejtag_info-&gt;chain_pos);
++
++	if (device==NULL)
++		return ERROR_FAIL;
+ 	scan_field_t field;
+ 	u8 t[4];
+ 	int retval;
+-	
++
+ 	field.device = ejtag_info-&gt;chain_pos;
+ 	field.num_bits = 32;
+ 	field.out_value = t;
+@@ -130,18 +135,18 @@
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+ 	jtag_add_dr_scan(1, &amp;field, -1);
+-	
++
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;register read failed&quot;);
+ 		return retval;
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int mips_ejtag_step_enable(mips_ejtag_t *ejtag_info)
+-{	
++{
+ 	u32 code[] = {
+ 			MIPS32_MTC0(1,31,0),			/* move $1 to COP0 DeSave */
+ 			MIPS32_MFC0(1,23,0),			/* move COP0 Debug to $1 */
+@@ -152,10 +157,10 @@
+ 			MIPS32_B(NEG16(7)),
+ 			MIPS32_NOP,
+ 	};
+-	
++
+ 	mips32_pracc_exec(ejtag_info, sizeof(code)/sizeof(code[0]), code, \
+ 		0, NULL, 0, NULL, 1);
+-	
++
+ 	return ERROR_OK;
+ }
+ int mips_ejtag_step_disable(mips_ejtag_t *ejtag_info)
+@@ -178,17 +183,17 @@
+ 			MIPS32_B(NEG16(15)),
+ 			MIPS32_NOP,
+ 	};
+-	
++
+ 	mips32_pracc_exec(ejtag_info, sizeof(code)/sizeof(code[0]), code, \
+ 		0, NULL, 0, NULL, 1);
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int mips_ejtag_config_step(mips_ejtag_t *ejtag_info, int enable_step)
+-{	
++{
+ 	if (enable_step)
+-		return mips_ejtag_step_enable(ejtag_info);	
++		return mips_ejtag_step_enable(ejtag_info);
+ 	return mips_ejtag_step_disable(ejtag_info);
+ }
+
+@@ -197,18 +202,18 @@
+ 	u32 ejtag_ctrl;
+ 	jtag_add_end_state(TAP_RTI);
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	
++
+ 	/* set debug break bit */
+ 	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl | EJTAG_CTRL_JTAGBRK;
+ 	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+-	
++
+ 	/* break bit will be cleared by hardware */
+ 	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
+ 	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 	LOG_DEBUG(&quot;ejtag_ctrl: 0x%8.8x&quot;, ejtag_ctrl);
+ 	if((ejtag_ctrl &amp; EJTAG_CTRL_BRKST) == 0)
+ 		LOG_DEBUG(&quot;Failed to enter Debug Mode!&quot;);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -216,12 +221,12 @@
+ {
+ 	u32 inst;
+ 	inst = MIPS32_DRET;
+-	
++
+ 	/* TODO : enable/disable interrrupts */
+-	
++
+ 	/* execute our dret instruction */
+ 	mips32_pracc_exec(ejtag_info, 1, &amp;inst, 0, NULL, 0, NULL, 0);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -245,23 +250,23 @@
+ 			MIPS32_B(NEG16(14)),
+ 			MIPS32_NOP,
+ 	};
+-	
++
+ 	mips32_pracc_exec(ejtag_info, sizeof(code)/sizeof(code[0]), code, \
+ 		0, NULL, 1, debug_reg, 1);
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int mips_ejtag_init(mips_ejtag_t *ejtag_info)
+ {
+ 	u32 ejtag_version;
+-	
++
+ 	mips_ejtag_get_impcode(ejtag_info, &amp;ejtag_info-&gt;impcode, NULL);
+ 	LOG_DEBUG(&quot;impcode: 0x%8.8x&quot;, ejtag_info-&gt;impcode);
+-	
++
+ 	/* get ejtag version */
+ 	ejtag_version = ((ejtag_info-&gt;impcode &gt;&gt; 29) &amp; 0x07);
+-	
++
+ 	switch (ejtag_version)
+ 	{
+ 		case 0:
+@@ -289,12 +294,12 @@
+ 		ejtag_info-&gt;impcode &amp; (1&lt;&lt;14) ? &quot; noDMA&quot;:  &quot; DMA&quot;,
+ 		ejtag_info-&gt;impcode &amp; (1&lt;&lt;0)  ? &quot; MIPS64&quot;: &quot; MIPS32&quot;
+ 	);
+-	
++
+ 	if((ejtag_info-&gt;impcode &amp; (1&lt;&lt;14)) == 0)
+ 		LOG_DEBUG(&quot;EJTAG: DMA Access Mode Support Enabled&quot;);
+-	
++
+ 	/* set initial state for ejtag control reg */
+ 	ejtag_info-&gt;ejtag_ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PRACC |
+EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
+-	
++
+ 	return ERROR_OK;
+ }
+Index: src/flash/str9xpec.c
+===================================================================
+--- src/flash/str9xpec.c	(revision 1145)
++++ src/flash/str9xpec.c	(working copy)
+@@ -84,7 +84,7 @@
+ int str9xpec_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	command_t *str9xpec_cmd = register_command(cmd_ctx, NULL,
+&quot;str9xpec&quot;, NULL, COMMAND_ANY, &quot;str9xpec flash specific commands&quot;);
+-	
++
+ 	register_command(cmd_ctx, str9xpec_cmd, &quot;enable_turbo&quot;,
+str9xpec_handle_flash_enable_turbo_command, COMMAND_EXEC,
+ 					 &quot;enable str9xpec turbo mode&quot;);
+ 	register_command(cmd_ctx, str9xpec_cmd, &quot;disable_turbo&quot;,
+str9xpec_handle_flash_disable_turbo_command, COMMAND_EXEC,
+@@ -107,24 +107,22 @@
+ 					 &quot;unlock str9xpec device&quot;);
+ 	register_command(cmd_ctx, str9xpec_cmd, &quot;part_id&quot;,
+str9xpec_handle_part_id_command, COMMAND_EXEC,
+ 					 &quot;print part id of str9xpec flash bank &lt;num&gt;&quot;);
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int str9xpec_set_instr(int chain_pos, u32 new_instr, enum tap_state end_state)
+ {
+ 	jtag_device_t *device = jtag_get_device(chain_pos);
+-	
+ 	if (device == NULL)
+ 	{
+-		LOG_DEBUG(&quot;Invalid Target&quot;);
+ 		return ERROR_TARGET_INVALID;
+ 	}
+-		
++
+ 	if (buf_get_u32(device-&gt;cur_instr, 0, device-&gt;ir_length) != new_instr)
+ 	{
+ 		scan_field_t field;
+-				
++
+ 		field.device = chain_pos;
+ 		field.num_bits = device-&gt;ir_length;
+ 		field.out_value = calloc(CEIL(field.num_bits, 8), 1);
+@@ -135,12 +133,12 @@
+ 		field.in_check_mask = NULL;
+ 		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+-		
++
+ 		jtag_add_ir_scan(1, &amp;field, end_state);
+-		
++
+ 		free(field.out_value);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -148,10 +146,10 @@
+ {
+ 	scan_field_t field;
+ 	u8 status;
+-	
++
+ 	if (str9xpec_set_instr(chain_pos, ISC_NOOP, TAP_PI) != ERROR_OK)
+ 		return ISC_STATUS_ERROR;
+-	
++
+ 	field.device = chain_pos;
+ 	field.num_bits = 8;
+ 	field.out_value = NULL;
+@@ -161,15 +159,15 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+ 	jtag_execute_queue();
+-	
++
+ 	LOG_DEBUG(&quot;status: 0x%2.2x&quot;, status);
+-	
++
+ 	if (status &amp; ISC_STATUS_SECURITY)
+ 		LOG_INFO(&quot;Device Security Bit Set&quot;);
+-	
++
+ 	return status;
+ }
+
+@@ -178,16 +176,16 @@
+ 	u8 status;
+ 	u32 chain_pos;
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	if (str9xpec_info-&gt;isc_enable)
+ 		return ERROR_OK;
+-	
++
+ 	/* enter isc mode */
+ 	if (str9xpec_set_instr(chain_pos, ISC_ENABLE, TAP_RTI) != ERROR_OK)
+ 		return ERROR_TARGET_INVALID;
+-	
++
+ 	/* check ISC status */
+ 	status = str9xpec_isc_status(chain_pos);
+ 	if (status &amp; ISC_STATUS_MODE)
+@@ -196,7 +194,7 @@
+ 		str9xpec_info-&gt;isc_enable = 1;
+ 		LOG_DEBUG(&quot;ISC_MODE Enabled&quot;);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -205,18 +203,18 @@
+ 	u8 status;
+ 	u32 chain_pos;
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable)
+ 		return ERROR_OK;
+-	
++
+ 	if (str9xpec_set_instr(chain_pos, ISC_DISABLE, TAP_RTI) != ERROR_OK)
+ 		return ERROR_TARGET_INVALID;
+-	
++
+ 	/* delay to handle aborts */
+ 	jtag_add_sleep(50);
+-	
++
+ 	/* check ISC status */
+ 	status = str9xpec_isc_status(chain_pos);
+ 	if (!(status &amp; ISC_STATUS_MODE))
+@@ -225,7 +223,7 @@
+ 		str9xpec_info-&gt;isc_enable = 0;
+ 		LOG_DEBUG(&quot;ISC_MODE Disabled&quot;);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -234,16 +232,16 @@
+ 	scan_field_t field;
+ 	u8 status;
+ 	u32 chain_pos;
+-		
++
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	LOG_DEBUG(&quot;ISC_CONFIGURATION&quot;);
+-	
++
+ 	/* execute ISC_CONFIGURATION command */
+ 	str9xpec_set_instr(chain_pos, ISC_CONFIGURATION, TAP_PI);
+-	
++
+ 	field.device = chain_pos;
+ 	field.num_bits = 64;
+ 	field.out_value = NULL;
+@@ -253,25 +251,25 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+ 	jtag_execute_queue();
+-	
++
+ 	status = str9xpec_isc_status(chain_pos);
+-	
++
+ 	return status;
+ }
+
+ int str9xpec_build_block_list(struct flash_bank_s *bank)
+ {
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	int i;
+ 	int num_sectors;
+ 	int b0_sectors = 0, b1_sectors = 0;
+ 	u32 offset = 0;
+ 	int b1_size = 0x2000;
+-	
++
+ 	switch (bank-&gt;size)
+ 	{
+ 		case (256 * 1024):
+@@ -297,15 +295,15 @@
+ 			LOG_ERROR(&quot;BUG: unknown bank-&gt;size encountered&quot;);
+ 			exit(-1);
+ 	}
+-	
++
+ 	num_sectors = b0_sectors + b1_sectors;
+-	
++
+ 	bank-&gt;num_sectors = num_sectors;
+ 	bank-&gt;sectors = malloc(sizeof(flash_sector_t) * num_sectors);
+ 	str9xpec_info-&gt;sector_bits = malloc(sizeof(u32) * num_sectors);
+-	
++
+ 	num_sectors = 0;
+-	
++
+ 	for (i = 0; i &lt; b0_sectors; i++)
+ 	{
+ 		bank-&gt;sectors[num_sectors].offset = offset;
+@@ -325,7 +323,7 @@
+ 		bank-&gt;sectors[num_sectors].is_protected = 1;
+ 		str9xpec_info-&gt;sector_bits[num_sectors++] = i + 32;
+ 	}
+-		
++
+ 	return ERROR_OK;
+ }
+
+@@ -337,32 +335,32 @@
+ 	armv4_5_common_t *armv4_5 = NULL;
+ 	arm7_9_common_t *arm7_9 = NULL;
+ 	arm_jtag_t *jtag_info = NULL;
+-	
++
+ 	if (argc &lt; 6)
+ 	{
+ 		LOG_WARNING(&quot;incomplete flash_bank str9x configuration&quot;);
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+-	
++
+ 	str9xpec_info = malloc(sizeof(str9xpec_flash_controller_t));
+ 	bank-&gt;driver_priv = str9xpec_info;
+-	
++
+ 	/* find out jtag position of flash controller
+ 	 * it is always after the arm966 core */
+-	
++
+ 	armv4_5 = bank-&gt;target-&gt;arch_info;
+ 	arm7_9 = armv4_5-&gt;arch_info;
+ 	jtag_info = &amp;arm7_9-&gt;jtag_info;
+-	
++
+ 	str9xpec_info-&gt;chain_pos = (jtag_info-&gt;chain_pos - 1);
+ 	str9xpec_info-&gt;isc_enable = 0;
+ 	str9xpec_info-&gt;devarm = NULL;
+-	
++
+ 	str9xpec_build_block_list(bank);
+-	
++
+ 	/* clear option byte register */
+ 	buf_set_u32(str9xpec_info-&gt;options, 0, 64, 0);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -373,30 +371,30 @@
+ 	u32 chain_pos;
+ 	int i;
+ 	u8 *buffer = NULL;
+-		
++
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		str9xpec_isc_enable( bank );
+ 	}
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+-	
++
+ 	buffer = calloc(CEIL(64, 8), 1);
+
+ 	LOG_DEBUG(&quot;blank check: first_bank: %i, last_bank: %i&quot;, first, last);
+-	
++
+ 	for (i = first; i &lt;= last; i++) {
+ 		buf_set_u32(buffer, str9xpec_info-&gt;sector_bits[i], 1, 1);
+ 	}
+-	
++
+ 	/* execute ISC_BLANK_CHECK command */
+ 	str9xpec_set_instr(chain_pos, ISC_BLANK_CHECK, TAP_PI);
+-	
++
+ 	field.device = chain_pos;
+ 	field.num_bits = 64;
+ 	field.out_value = buffer;
+@@ -406,10 +404,10 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+ 	jtag_add_sleep(40000);
+-	
++
+ 	/* read blank check result */
+ 	field.device = chain_pos;
+ 	field.num_bits = 64;
+@@ -420,12 +418,12 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, TAP_PI);
+ 	jtag_execute_queue();
+-	
++
+ 	status = str9xpec_isc_status(chain_pos);
+-	
++
+ 	for (i = first; i &lt;= last; i++)
+ 	{
+ 		if (buf_get_u32(buffer, str9xpec_info-&gt;sector_bits[i], 1))
+@@ -433,13 +431,13 @@
+ 		else
+ 			bank-&gt;sectors[i].is_erased = 1;
+ 	}
+-	
++
+ 	free(buffer);
+-	
++
+ 	str9xpec_isc_disable(bank);
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+-		return ERROR_FLASH_OPERATION_FAILED;
++		return ERROR_FLASH_OPERATION_FAILED;
+ 	return ERROR_OK;
+ }
+
+@@ -447,11 +445,11 @@
+ {
+ 	u8 status;
+ 	int i;
+-		
++
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	status = str9xpec_read_config(bank);
+-	
++
+ 	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+ 	{
+ 		if (buf_get_u32(str9xpec_info-&gt;options, str9xpec_info-&gt;sector_bits[i], 1))
+@@ -459,7 +457,7 @@
+ 		else
+ 			bank-&gt;sectors[i].is_protected = 0;
+ 	}
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	return ERROR_OK;
+@@ -472,47 +470,47 @@
+ 	u32 chain_pos;
+ 	int i;
+ 	u8 *buffer = NULL;
+-	
++
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		str9xpec_isc_enable( bank );
+ 	}
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		return ISC_STATUS_ERROR;
+ 	}
+-	
++
+ 	buffer = calloc(CEIL(64, 8), 1);
+-	
++
+ 	LOG_DEBUG(&quot;erase: first_bank: %i, last_bank: %i&quot;, first, last);
+-	
++
+ 	/* last bank: 0xFF signals a full erase (unlock complete device) */
+ 	/* last bank: 0xFE signals a option byte erase */
+ 	if (last == 0xFF)
+ 	{
+ 		for (i = 0; i &lt; 64; i++) {
+ 			buf_set_u32(buffer, i, 1, 1);
+-		}	
++		}
+ 	}
+ 	else if (last == 0xFE)
+ 	{
+ 		buf_set_u32(buffer, 49, 1, 1);
+ 	}
+ 	else
+-	{	
++	{
+ 		for (i = first; i &lt;= last; i++) {
+ 			buf_set_u32(buffer, str9xpec_info-&gt;sector_bits[i], 1, 1);
+ 		}
+ 	}
+-	
++
+ 	LOG_DEBUG(&quot;ISC_ERASE&quot;);
+-	
++
+ 	/* execute ISC_ERASE command */
+ 	str9xpec_set_instr(chain_pos, ISC_ERASE, TAP_PI);
+-	
++
+ 	field.device = chain_pos;
+ 	field.num_bits = 64;
+ 	field.out_value = buffer;
+@@ -522,33 +520,33 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+ 	jtag_execute_queue();
+-	
++
+ 	jtag_add_sleep(10);
+-	
++
+ 	/* wait for erase completion */
+ 	while (!((status = str9xpec_isc_status(chain_pos)) &amp; ISC_STATUS_BUSY)) {
+ 		alive_sleep(1);
+ 	}
+-	
++
+ 	free(buffer);
+-	
++
+ 	str9xpec_isc_disable(bank);
+-	
++
+ 	return status;
+ }
+
+ int str9xpec_erase(struct flash_bank_s *bank, int first, int last)
+ {
+ 	int status;
+-	
++
+ 	status = str9xpec_erase_area(bank, first, last);
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -558,26 +556,26 @@
+ 	u8 status;
+ 	u32 chain_pos;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		str9xpec_isc_enable( bank );
+ 	}
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		return ISC_STATUS_ERROR;
+ 	}
+-	
++
+ 	/* set security address */
+ 	str9xpec_set_address(bank, 0x80);
+-	
++
+ 	/* execute ISC_PROGRAM command */
+ 	str9xpec_set_instr(chain_pos, ISC_PROGRAM_SECURITY, TAP_RTI);
+-	
++
+ 	str9xpec_set_instr(chain_pos, ISC_NOOP, TAP_PI);
+-	
++
+ 	do {
+ 		field.device = chain_pos;
+ 		field.num_bits = 8;
+@@ -588,23 +586,23 @@
+ 		field.in_check_mask = NULL;
+ 		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+-		
++
+ 		jtag_add_dr_scan(1, &amp;field, -1);
+ 		jtag_execute_queue();
+-		
++
+ 	} while(!(status &amp; ISC_STATUS_BUSY));
+-	
++
+ 	str9xpec_isc_disable(bank);
+-	
++
+ 	return status;
+ }
+
+ int str9xpec_unlock_device(struct flash_bank_s *bank)
+ {
+ 	u8 status;
+-	
++
+ 	status = str9xpec_erase_area(bank, 0, 255);
+-	
++
+ 	return status;
+ }
+
+@@ -612,16 +610,16 @@
+ {
+ 	u8 status;
+ 	int i;
+-	
++
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	status = str9xpec_read_config(bank);
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+
+ 	LOG_DEBUG(&quot;protect: first_bank: %i, last_bank: %i&quot;, first, last);
+-	
++
+ 	/* last bank: 0xFF signals a full device protect */
+ 	if (last == 0xFF)
+ 	{
+@@ -636,7 +634,7 @@
+ 		}
+ 	}
+ 	else
+-	{	
++	{
+ 		for (i = first; i &lt;= last; i++)
+ 		{
+ 			if( set )
+@@ -644,13 +642,13 @@
+ 			else
+ 				buf_set_u32(str9xpec_info-&gt;options, str9xpec_info-&gt;sector_bits[i], 1, 0);
+ 		}
+-		
++
+ 		status = str9xpec_write_options(bank);
+ 	}
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -659,12 +657,12 @@
+ 	u32 chain_pos;
+ 	scan_field_t field;
+ 	str9xpec_flash_controller_t *str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	/* set flash controller address */
+ 	str9xpec_set_instr(chain_pos, ISC_ADDRESS_SHIFT, TAP_PI);
+-	
++
+ 	field.device = chain_pos;
+ 	field.num_bits = 8;
+ 	field.out_value = &sector;
+@@ -674,9 +672,9 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, -1);
+-		
++
+ 	return ERROR_OK;
+ }
+
+@@ -694,28 +692,28 @@
+ 	int i;
+ 	u32 first_sector = 0;
+ 	u32 last_sector = 0;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		str9xpec_isc_enable(bank);
+ 	}
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+-	
++
+ 	if (offset &amp; 0x7)
+ 	{
+ 		LOG_WARNING(&quot;offset 0x%x breaks required 8-byte alignment&quot;, offset);
+ 		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+ 	}
+-	
++
+ 	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+ 	{
+ 		u32 sec_start = bank-&gt;sectors[i].offset;
+ 		u32 sec_end = sec_start + bank-&gt;sectors[i].size;
+-		
++
+ 		/* check if destination falls within the current sector */
+ 		if ((check_address &gt;= sec_start) &amp;&amp; (check_address &lt; sec_end))
+ 		{
+@@ -725,35 +723,35 @@
+ 			else
+ 				check_address = sec_end;
+ 		}
+-		
++
+ 		if ((offset &gt;= sec_start) &amp;&amp; (offset &lt; sec_end)){
+ 			first_sector = i;
+ 		}
+-		
++
+ 		if ((offset + count &gt;= sec_start) &amp;&amp; (offset + count &lt; sec_end)){
+ 			last_sector = i;
+ 		}
+ 	}
+-	
++
+ 	if (check_address != offset + count)
+ 		return ERROR_FLASH_DST_OUT_OF_BANK;
+
+ 	LOG_DEBUG(&quot;first_sector: %i, last_sector: %i&quot;, first_sector, last_sector);
+-	
++
+ 	scanbuf = calloc(CEIL(64, 8), 1);
+-	
++
+ 	LOG_DEBUG(&quot;ISC_PROGRAM&quot;);
+-	
++
+ 	for (i = first_sector; i &lt;= last_sector; i++)
+ 	{
+ 		str9xpec_set_address(bank, str9xpec_info-&gt;sector_bits[i]);
+-		
++
+ 		dwords_remaining = dwords_remaining &lt; (bank-&gt;sectors[i].size/8) ?
+dwords_remaining : (bank-&gt;sectors[i].size/8);
+
+ 		while (dwords_remaining &gt; 0)
+-		{	
++		{
+ 			str9xpec_set_instr(chain_pos, ISC_PROGRAM, TAP_PI);
+-			
++
+ 			field.device = chain_pos;
+ 			field.num_bits = 64;
+ 			field.out_value = (buffer + bytes_written);
+@@ -763,14 +761,14 @@
+ 			field.in_check_mask = NULL;
+ 			field.in_handler = NULL;
+ 			field.in_handler_priv = NULL;
+-			
++
+ 			jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+-			
++
+ 			/* small delay before polling */
+ 			jtag_add_sleep(50);
+-			
++
+ 			str9xpec_set_instr(chain_pos, ISC_NOOP, TAP_PI);
+-			
++
+ 			do {
+ 				field.device = chain_pos;
+ 				field.num_bits = 8;
+@@ -781,39 +779,39 @@
+ 				field.in_check_mask = NULL;
+ 				field.in_handler = NULL;
+ 				field.in_handler_priv = NULL;
+-				
++
+ 				jtag_add_dr_scan(1, &amp;field, -1);
+ 				jtag_execute_queue();
+-				
++
+ 				status = buf_get_u32(scanbuf, 0, 8);
+-				
++
+ 			} while(!(status &amp; ISC_STATUS_BUSY));
+-			
++
+ 			if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 				return ERROR_FLASH_OPERATION_FAILED;
+-			
++
+ 			/* if ((status &amp; ISC_STATUS_INT_ERROR) != STR9XPEC_ISC_INTFAIL)
+ 				return ERROR_FLASH_OPERATION_FAILED; */
+-		
++
+ 			dwords_remaining--;
+ 			bytes_written += 8;
+ 		}
+ 	}
+-	
++
+ 	if (bytes_remaining)
+ 	{
+ 		u8 last_dword[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+ 		int i = 0;
+-				
++
+ 		while(bytes_remaining &gt; 0)
+ 		{
+-			last_dword[i++] = *(buffer + bytes_written);
++			last_dword[i++] = *(buffer + bytes_written);
+ 			bytes_remaining--;
+ 			bytes_written++;
+ 		}
+-		
++
+ 		str9xpec_set_instr(chain_pos, ISC_PROGRAM, TAP_PI);
+-		
++
+ 		field.device = chain_pos;
+ 		field.num_bits = 64;
+ 		field.out_value = last_dword;
+@@ -823,14 +821,14 @@
+ 		field.in_check_mask = NULL;
+ 		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+-		
++
+ 		jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+-		
++
+ 		/* small delay before polling */
+ 		jtag_add_sleep(50);
+-		
++
+ 		str9xpec_set_instr(chain_pos, ISC_NOOP, TAP_PI);
+-		
++
+ 		do {
+ 			field.device = chain_pos;
+ 			field.num_bits = 8;
+@@ -841,17 +839,17 @@
+ 			field.in_check_mask = NULL;
+ 			field.in_handler = NULL;
+ 			field.in_handler_priv = NULL;
+-			
++
+ 			jtag_add_dr_scan(1, &amp;field, -1);
+ 			jtag_execute_queue();
+-			
++
+ 			status = buf_get_u32(scanbuf, 0, 8);
+-			
++
+ 		} while(!(status &amp; ISC_STATUS_BUSY));
+-		
++
+ 		if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 			return ERROR_FLASH_OPERATION_FAILED;
+-		
++
+ 		/* if ((status &amp; ISC_STATUS_INT_ERROR) != STR9XPEC_ISC_INTFAIL)
+ 			return ERROR_FLASH_OPERATION_FAILED; */
+ 	}
+@@ -859,7 +857,7 @@
+ 	free(scanbuf);
+
+ 	str9xpec_isc_disable(bank);
+-				
++
+ 	return ERROR_OK;
+ }
+
+@@ -881,21 +879,21 @@
+ 	{
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	buffer = calloc(CEIL(32, 8), 1);
+-	
++
+ 	str9xpec_set_instr(chain_pos, ISC_IDCODE, TAP_PI);
+-	
++
+ 	field.device = chain_pos;
+ 	field.num_bits = 32;
+ 	field.out_value = NULL;
+@@ -905,16 +903,16 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+ 	jtag_execute_queue();
+-	
++
+ 	idcode = buf_get_u32(buffer, 0, 32);
+-	
++
+ 	command_print(cmd_ctx, &quot;str9xpec part id: 0x%8.8x&quot;, idcode);
+-	
++
+ 	free(buffer);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -934,57 +932,57 @@
+ 	flash_bank_t *bank;
+ 	u8 status;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	if (argc &lt; 1)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec options_read &lt;bank&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	status = str9xpec_read_config(bank);
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+-	
++
+ 	/* boot bank */
+ 	if (buf_get_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_CSMAPBIT, 1))
+ 		command_print(cmd_ctx, &quot;CS Map: bank1&quot;);
+ 	else
+ 		command_print(cmd_ctx, &quot;CS Map: bank0&quot;);
+-	
++
+ 	/* OTP lock */
+ 	if (buf_get_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_OTPBIT, 1))
+ 		command_print(cmd_ctx, &quot;OTP Lock: OTP Locked&quot;);
+ 	else
+ 		command_print(cmd_ctx, &quot;OTP Lock: OTP Unlocked&quot;);
+-	
++
+ 	/* LVD Threshold */
+ 	if (buf_get_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDTHRESBIT, 1))
+ 		command_print(cmd_ctx, &quot;LVD Threshold: 2.7v&quot;);
+ 	else
+ 		command_print(cmd_ctx, &quot;LVD Threshold: 2.4v&quot;);
+-	
++
+ 	/* LVD reset warning */
+ 	if (buf_get_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDWARNBIT, 1))
+ 		command_print(cmd_ctx, &quot;LVD Reset Warning: VDD or VDDQ Inputs&quot;);
+ 	else
+ 		command_print(cmd_ctx, &quot;LVD Reset Warning: VDD Input Only&quot;);
+-	
++
+ 	/* LVD reset select */
+ 	if (buf_get_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDSELBIT, 1))
+ 		command_print(cmd_ctx, &quot;LVD Reset Selection: VDD or VDDQ Inputs&quot;);
+ 	else
+ 		command_print(cmd_ctx, &quot;LVD Reset Selection: VDD Input Only&quot;);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -994,33 +992,33 @@
+ 	u8 status;
+ 	u32 chain_pos;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	/* erase config options first */
+ 	status = str9xpec_erase_area( bank, 0xFE, 0xFE );
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+-		return status;
+-	
++		return status;
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		str9xpec_isc_enable( bank );
+ 	}
+-	
++
+ 	if (!str9xpec_info-&gt;isc_enable) {
+ 		return ISC_STATUS_ERROR;
+ 	}
+-	
++
+ 	/* according to data 64th bit has to be set */
+ 	buf_set_u32(str9xpec_info-&gt;options, 63, 1, 1);
+-	
++
+ 	/* set option byte address */
+ 	str9xpec_set_address(bank, 0x50);
+-	
++
+ 	/* execute ISC_PROGRAM command */
+ 	str9xpec_set_instr(chain_pos, ISC_PROGRAM, TAP_PI);
+-		
++
+ 	field.device = chain_pos;
+ 	field.num_bits = 64;
+ 	field.out_value = str9xpec_info-&gt;options;
+@@ -1030,14 +1028,14 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(1, &amp;field, TAP_RTI);
+-	
++
+ 	/* small delay before polling */
+ 	jtag_add_sleep(50);
+-	
++
+ 	str9xpec_set_instr(chain_pos, ISC_NOOP, TAP_PI);
+-	
++
+ 	do {
+ 		field.device = chain_pos;
+ 		field.num_bits = 8;
+@@ -1048,14 +1046,14 @@
+ 		field.in_check_mask = NULL;
+ 		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+-		
++
+ 		jtag_add_dr_scan(1, &amp;field, -1);
+ 		jtag_execute_queue();
+-		
++
+ 	} while(!(status &amp; ISC_STATUS_BUSY));
+-	
++
+ 	str9xpec_isc_disable(bank);
+-	
++
+ 	return status;
+ }
+
+@@ -1063,25 +1061,25 @@
+ {
+ 	flash_bank_t *bank;
+ 	u8 status;
+-	
++
+ 	if (argc &lt; 1)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec options_write &lt;bank&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	status = str9xpec_write_options(bank);
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -1089,22 +1087,22 @@
+ {
+ 	flash_bank_t *bank;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	if (argc &lt; 2)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec options_cmap &lt;bank&gt; &lt;bank0|bank1&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	if (strcmp(args[1], &quot;bank1&quot;) == 0)
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_CSMAPBIT, 1, 1);
+@@ -1113,7 +1111,7 @@
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_CSMAPBIT, 1, 0);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -1121,22 +1119,22 @@
+ {
+ 	flash_bank_t *bank;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	if (argc &lt; 2)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec options_lvdthd &lt;bank&gt; &lt;2.4v|2.7v&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	if (strcmp(args[1], &quot;2.7v&quot;) == 0)
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDTHRESBIT, 1, 1);
+@@ -1145,7 +1143,7 @@
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDTHRESBIT, 1, 0);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -1153,22 +1151,22 @@
+ {
+ 	flash_bank_t *bank;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	if (argc &lt; 2)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec options_lvdsel &lt;bank&gt; &lt;vdd|vdd_vddq&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	if (strcmp(args[1], &quot;vdd_vddq&quot;) == 0)
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDSELBIT, 1, 1);
+@@ -1177,7 +1175,7 @@
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDSELBIT, 1, 0);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -1185,22 +1183,22 @@
+ {
+ 	flash_bank_t *bank;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	if (argc &lt; 2)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec options_lvdwarn &lt;bank&gt; &lt;vdd|vdd_vddq&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	if (strcmp(args[1], &quot;vdd_vddq&quot;) == 0)
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDWARNBIT, 1, 1);
+@@ -1209,7 +1207,7 @@
+ 	{
+ 		buf_set_u32(str9xpec_info-&gt;options, STR9XPEC_OPT_LVDWARNBIT, 1, 0);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -1217,25 +1215,25 @@
+ {
+ 	u8 status;
+ 	flash_bank_t *bank;
+-	
++
+ 	if (argc &lt; 1)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec lock &lt;bank&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	status = str9xpec_lock_device(bank);
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -1243,65 +1241,71 @@
+ {
+ 	u8 status;
+ 	flash_bank_t *bank;
+-	
++
+ 	if (argc &lt; 1)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec unlock &lt;bank&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	status = str9xpec_unlock_device(bank);
+-	
++
+ 	if ((status &amp; ISC_STATUS_ERROR) != STR9XPEC_ISC_SUCCESS)
+ 		return ERROR_FLASH_OPERATION_FAILED;
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int str9xpec_handle_flash_enable_turbo_command(struct
+command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
++	int retval;
+ 	flash_bank_t *bank;
+ 	u32 chain_pos;
+ 	jtag_device_t* dev0;
+ 	jtag_device_t* dev2;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	if (argc &lt; 1)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec enable_turbo &lt;bank&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	/* remove arm core from chain - enter turbo mode */
+-	
++
+ 	str9xpec_set_instr(chain_pos+2, 0xD, TAP_RTI);
+-	jtag_execute_queue();
+-	
++	if ((retval=jtag_execute_queue())!=ERROR_OK)
++		return retval;
++
+ 	/* modify scan chain - str9 core has been removed */
+ 	dev0 = jtag_get_device(chain_pos);
++	if (dev0 == NULL)
++		return ERROR_FAIL;
+ 	str9xpec_info-&gt;devarm = jtag_get_device(chain_pos+1);
+ 	dev2 = jtag_get_device(chain_pos+2);
++	if (dev2 == NULL)
++		return ERROR_FAIL;
+ 	dev0-&gt;next = dev2;
+ 	jtag_num_devices--;
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -1311,36 +1315,39 @@
+ 	u32 chain_pos;
+ 	jtag_device_t* dev0;
+ 	str9xpec_flash_controller_t *str9xpec_info = NULL;
+-	
++
+ 	if (argc &lt; 1)
+ 	{
+ 		command_print(cmd_ctx, &quot;str9xpec disable_turbo &lt;bank&gt;&quot;);
+-		return ERROR_OK;	
++		return ERROR_OK;
+ 	}
+-	
++
+ 	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+ 	if (!bank)
+ 	{
+ 		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	str9xpec_info = bank-&gt;driver_priv;
+-	
++
+ 	chain_pos = str9xpec_info-&gt;chain_pos;
+-	
++
+ 	dev0 = jtag_get_device(chain_pos);
+-	
++	if (dev0 == NULL)
++		return ERROR_FAIL;
++
++
+ 	/* exit turbo mode via TLR */
+ 	str9xpec_set_instr(chain_pos, ISC_NOOP, TAP_TLR);
+ 	jtag_execute_queue();
+-	
++
+ 	/* restore previous scan chain */
+ 	if( str9xpec_info-&gt;devarm ) {
+ 		dev0-&gt;next = str9xpec_info-&gt;devarm;
+ 		jtag_num_devices++;
+ 		str9xpec_info-&gt;devarm = NULL;
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+Index: src/pld/virtex2.c
+===================================================================
+--- src/pld/virtex2.c	(revision 1145)
++++ src/pld/virtex2.c	(working copy)
+@@ -46,11 +46,13 @@
+ int virtex2_set_instr(int chain_pos, u32 new_instr)
+ {
+ 	jtag_device_t *device = jtag_get_device(chain_pos);
+-	
++	if (device==NULL)
++		return ERROR_FAIL;
++
+ 	if (buf_get_u32(device-&gt;cur_instr, 0, device-&gt;ir_length) != new_instr)
+ 	{
+ 		scan_field_t field;
+-	
++
+ 		field.device = chain_pos;
+ 		field.num_bits = device-&gt;ir_length;
+ 		field.out_value = calloc(CEIL(field.num_bits, 8), 1);
+@@ -61,12 +63,12 @@
+ 		field.in_check_mask = NULL;
+ 		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+-		
++
+ 		jtag_add_ir_scan(1, &amp;field, TAP_RTI);
+-		
++
+ 		free(field.out_value);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -76,7 +78,7 @@
+ 	scan_field_t scan_field;
+ 	u8 *values;
+ 	int i;
+-	
++
+ 	values = malloc(num_words * 4);
+
+ 	scan_field.device = virtex2_info-&gt;chain_pos;
+@@ -88,16 +90,16 @@
+ 	scan_field.in_check_mask = NULL;
+ 	scan_field.in_handler = NULL;
+ 	scan_field.in_handler_priv = NULL;
+-	
++
+ 	for (i = 0; i &lt; num_words; i++)
+ 		buf_set_u32(values + 4 * i, 0, 32, flip_u32(*words++, 32));
+-	
++
+ 	virtex2_set_instr(virtex2_info-&gt;chain_pos, 0x5); /* CFG_IN */
+-	
++
+ 	jtag_add_dr_scan(1, &amp;scan_field, TAP_PD);
+-	
++
+ 	free(values);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -112,7 +114,7 @@
+ {
+ 	virtex2_pld_device_t *virtex2_info = pld_device-&gt;driver_priv;
+ 	scan_field_t scan_field;
+-	
++
+ 	scan_field.device = virtex2_info-&gt;chain_pos;
+ 	scan_field.num_bits = 32;
+ 	scan_field.out_value = NULL;
+@@ -121,37 +123,37 @@
+ 	scan_field.in_check_value = NULL;
+ 	scan_field.in_check_mask = NULL;
+ 	scan_field.in_handler = virtex2_jtag_buf_to_u32;
+-	
++
+ 	virtex2_set_instr(virtex2_info-&gt;chain_pos, 0x4); /* CFG_OUT */
+-	
++
+ 	while (num_words--)
+ 	{
+ 		scan_field.in_handler_priv = words++;
+ 		jtag_add_dr_scan(1, &amp;scan_field, TAP_PD);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int virtex2_read_stat(struct pld_device_s *pld_device, u32 *status)
+ {
+ 	u32 data[5];
+-	
++
+ 	jtag_add_tlr();
+-	
++
+ 	data[0] = 0xaa995566; /* synch word */
+ 	data[1] = 0x2800E001; /* Type 1, read, address 7, 1 word */
+ 	data[2] = 0x20000000; /* NOOP (Type 1, read, address 0, 0 words */
+ 	data[3] = 0x20000000; /* NOOP */
+ 	data[4] = 0x20000000; /* NOOP */
+ 	virtex2_send_32(pld_device, 5, data);
+-	
++
+ 	virtex2_receive_32(pld_device, 1, status);
+-	
++
+ 	jtag_execute_queue();
+-	
++
+ 	LOG_DEBUG(&quot;status: 0x%8.8x&quot;, *status);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -171,29 +173,29 @@
+ 	field.in_check_mask = NULL;
+ 	field.in_handler = NULL;
+ 	field.in_handler_priv = NULL;
+-	
++
+ 	if ((retval = xilinx_read_bit_file(&amp;bit_file, filename)) != ERROR_OK)
+ 		return retval;
+-	
++
+ 	jtag_add_end_state(TAP_RTI);
+ 	virtex2_set_instr(virtex2_info-&gt;chain_pos, 0xb); /* JPROG_B */
+ 	jtag_execute_queue();
+ 	jtag_add_sleep(1000);
+-	
++
+ 	virtex2_set_instr(virtex2_info-&gt;chain_pos, 0x5); /* CFG_IN */
+ 	jtag_execute_queue();
+-	
++
+ 	for (i = 0; i &lt; bit_file.length; i++)
+ 		bit_file.data[i] = flip_u32(bit_file.data[i], 8);
+-	
++
+ 	field.num_bits = bit_file.length * 8;
+ 	field.out_value = bit_file.data;
+
+ 	jtag_add_dr_scan(1, &amp;field, TAP_PD);
+ 	jtag_execute_queue();
+-	
++
+ 	jtag_add_tlr();
+-	
++
+ 	jtag_add_end_state(TAP_RTI);
+ 	virtex2_set_instr(virtex2_info-&gt;chain_pos, 0xc); /* JSTART */
+ 	jtag_add_runtest(13, TAP_RTI);
+@@ -212,13 +214,13 @@
+ 	pld_device_t *device;
+ 	virtex2_pld_device_t *virtex2_info;
+ 	u32 status;
+-	
++
+ 	if (argc &lt; 1)
+ 	{
+ 		command_print(cmd_ctx, &quot;usage: virtex2 read_stat &lt;num&gt;&quot;);
+ 		return ERROR_OK;
+ 	}
+-	
++
+ 	device = get_pld_device_by_num(strtoul(args[0], NULL, 0));
+ 	if (!device)
+ 	{
+@@ -227,11 +229,11 @@
+ 	}
+
+ 	virtex2_info = device-&gt;driver_priv;
+-	
++
+ 	virtex2_read_stat(device, &amp;status);
+-	
++
+ 	command_print(cmd_ctx, &quot;virtex2 status register: 0x%8.8x&quot;, status);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -248,17 +250,17 @@
+ int virtex2_pld_device_command(struct command_context_s *cmd_ctx,
+char *cmd, char **args, int argc, struct pld_device_s *pld_device)
+ {
+ 	virtex2_pld_device_t *virtex2_info;
+-	
++
+ 	if (argc &lt; 2)
+ 	{
+ 		LOG_WARNING(&quot;incomplete pld device 'virtex2' configuration&quot;);
+ 		return ERROR_PLD_DEVICE_INVALID;
+ 	}
+-	
++
+ 	virtex2_info = malloc(sizeof(virtex2_pld_device_t));
+ 	pld_device-&gt;driver_priv = virtex2_info;
+-	
++
+ 	virtex2_info-&gt;chain_pos = strtoul(args[1], NULL, 0);
+-	
++
+ 	return ERROR_OK;
+ }
+Index: src/target/xscale.c
+===================================================================
+--- src/target/xscale.c	(revision 1175)
++++ src/target/xscale.c	(working copy)
+@@ -215,6 +215,8 @@
+ int xscale_jtag_set_instr(int chain_pos, u32 new_instr)
+ {
+ 	jtag_device_t *device = jtag_get_device(chain_pos);
++	if (device==NULL)
++		return ERROR_FAIL;
+
+ 	if (buf_get_u32(device-&gt;cur_instr, 0, device-&gt;ir_length) != new_instr)
+ 	{
+Index: src/target/etb.c
+===================================================================
+--- src/target/etb.c	(revision 1175)
++++ src/target/etb.c	(working copy)
+@@ -63,6 +63,8 @@
+ int etb_set_instr(etb_t *etb, u32 new_instr)
+ {
+ 	jtag_device_t *device = jtag_get_device(etb-&gt;chain_pos);
++	if (device==NULL)
++		return ERROR_FAIL;
+
+ 	if (buf_get_u32(device-&gt;cur_instr, 0, device-&gt;ir_length) != new_instr)
+ 	{
+@@ -440,7 +442,6 @@
+
+ 	if (!jtag_device)
+ 	{
+-		LOG_ERROR(&quot;jtag device number '%s' not defined&quot;, args[1]);
+ 		return ERROR_FAIL;
+ 	}
+
+Index: src/target/arm11_dbgtap.c
+===================================================================
+--- src/target/arm11_dbgtap.c	(revision 1167)
++++ src/target/arm11_dbgtap.c	(working copy)
+@@ -102,6 +102,10 @@
+ void arm11_add_IR(arm11_common_t * arm11, u8 instr, enum tap_state state)
+ {
+     jtag_device_t *device = jtag_get_device(arm11-&gt;jtag_info.chain_pos);
++    if (device==NULL)
++    {
++    	/* FIX!!!! error is logged, but not propagated back up the call
+stack... */
++    }
+
+     if (buf_get_u32(device-&gt;cur_instr, 0, 5) == instr)
+     {
+@@ -139,7 +143,7 @@
+ }
+
+ /** Select and write to Scan Chain Register (SCREG)
+- *
++ *
+  * This function sets the instruction register to SCAN_N and writes
+  * the data register with the selected chain number.
+  *
+@@ -178,11 +182,11 @@
+ }
+
+ /** Write an instruction into the ITR register
+- *
++ *
+  * \param arm11	Target state variable.
+  * \param inst	An ARM11 processor instruction/opcode.
+  * \param flag	Optional parameter to retrieve the InstCompl flag
+- *		(this will be written when the JTAG chain is executed).
++ *		(this will be written when the JTAG chain is executed).
+  * \param state	Pass the final TAP state or -1 for the default
+  *		value (Run-Test/Idle).
+  *
+@@ -212,7 +216,7 @@
+  *
+  * \param arm11 Target state variable.
+  * \return DSCR content
+- *
++ *
+  * \remarks This is a stand-alone function that executes the JTAG
+command queue.
+  */
+ u32 arm11_read_DSCR(arm11_common_t * arm11)
+@@ -244,7 +248,7 @@
+  *
+  * \param arm11 Target state variable.
+  * \param dscr DSCR content
+- *
++ *
+  * \remarks This is a stand-alone function that executes the JTAG
+command queue.
+  */
+ void arm11_write_DSCR(arm11_common_t * arm11, u32 dscr)
+@@ -272,7 +276,7 @@
+  *
+  * \param dscr DSCR value to analyze
+  * \return Debug reason
+- *
++ *
+  */
+ enum target_debug_reason arm11_get_DSCR_debug_reason(u32 dscr)
+ {
+@@ -514,7 +518,7 @@
+ 	{
+ 	    jtag_add_dr_scan(asizeof(chain5_fields), chain5_fields, TAP_PD);
+ 	    jtag_add_pathmove(asizeof(arm11_MOVE_PD_RTI_PD_with_delay),
+-		arm11_MOVE_PD_RTI_PD_with_delay);
++		arm11_MOVE_PD_RTI_PD_with_delay);
+ 	}
+ 	else
+ 	{
+Index: src/jtag/zy1000.c
+===================================================================
+--- src/jtag/zy1000.c	(revision 1165)
++++ src/jtag/zy1000.c	(working copy)
+@@ -501,6 +501,11 @@
+ 		int pause=i==(jtag_num_devices-1);
+ 		int found = 0;
+ 		device = jtag_get_device(i);
++		if (device==NULL)
++		{
++			return ERROR_FAIL;
++		}
++
+ 		scan_size = device-&gt;ir_length;
+
+ 		/* search the list */
+@@ -521,7 +526,7 @@
+
+ 				scanFields(1, fields+j, TAP_SI, pause);
+ 				/* update device information */
+-				buf_cpy(fields[j].out_value, jtag_get_device(i)-&gt;cur_instr, scan_size);
++				buf_cpy(fields[j].out_value, device-&gt;cur_instr, scan_size);
+
+ 				device-&gt;bypass = 0;
+ 				break;
+@@ -539,7 +544,7 @@
+ 			tmp.num_bits = scan_size;
+ 			scanFields(1, &amp;tmp, TAP_SI, pause);
+ 			/* update device information */
+-			buf_cpy(tmp.out_value, jtag_get_device(i)-&gt;cur_instr, scan_size);
++			buf_cpy(tmp.out_value, device-&gt;cur_instr, scan_size);
+ 			device-&gt;bypass = 1;
+ 		}
+ 	}
+Index: src/jtag/jtag.c
+===================================================================
+--- src/jtag/jtag.c	(revision 1145)
++++ src/jtag/jtag.c	(working copy)
+@@ -369,7 +369,7 @@
+ 	}
+
+ 	LOG_ERROR(&quot;jtag device number %d not defined&quot;, num);
+-	exit(-1);
++	return NULL;
+ }
+
+ void* cmd_queue_alloc(size_t size)
+@@ -477,6 +477,10 @@
+ 	{
+ 		int found = 0;
+ 		device = jtag_get_device(i);
++		if (device == NULL)
++		{
++			exit(-1);
++		}
+ 		scan_size = device-&gt;ir_length;
+ 		(*last_cmd)-&gt;cmd.scan-&gt;fields[i].device = i;
+ 		(*last_cmd)-&gt;cmd.scan-&gt;fields[i].num_bits = scan_size;
+@@ -2120,7 +2124,12 @@
+ 	for (i = 0; i &lt; argc / 2; i++)
+ 	{
+ 		int device = strtoul(args[i*2], NULL, 0);
+-		int field_size = jtag_get_device(device)-&gt;ir_length;
++		jtag_device_t *device_ptr=jtag_get_device(device);
++		if (device==NULL)
++		{
++			return ERROR_FAIL;
++		}
++		int field_size = device_ptr-&gt;ir_length;
+ 		fields[i].device = device;
+ 		fields[i].out_value = malloc(CEIL(field_size, 8));
+ 		buf_set_u32(fields[i].out_value, 0, field_size,
+strtoul(args[i*2+1], NULL, 0));
+Index: src/target/arm_jtag.c
+===================================================================
+--- src/target/arm_jtag.c	(revision 1167)
++++ src/target/arm_jtag.c	(working copy)
+@@ -39,12 +39,14 @@
+ int arm_jtag_set_instr(arm_jtag_t *jtag_info, u32 new_instr,
+in_handler_t handler)
+ {
+ 	jtag_device_t *device = jtag_get_device(jtag_info-&gt;chain_pos);
+-	
++	if (device==NULL)
++		return ERROR_FAIL;
++
+ 	if (buf_get_u32(device-&gt;cur_instr, 0, device-&gt;ir_length) != new_instr)
+ 	{
+ 		scan_field_t field;
+ 		u8 t[4];
+-	
++
+ 		field.device = jtag_info-&gt;chain_pos;
+ 		field.num_bits = device-&gt;ir_length;
+ 		field.out_value = t;
+@@ -57,7 +59,7 @@
+ 		field.in_handler_priv = NULL;
+ 		jtag_add_ir_scan(1, &amp;field, -1);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -68,7 +70,7 @@
+ 	{
+ 		u32 values[1];
+ 		int num_bits[1];
+-		
++
+ 		values[0]=new_scan_chain;
+ 		num_bits[0]=jtag_info-&gt;scann_size;
+
+@@ -82,7 +84,7 @@
+ 				num_bits,
+ 				values,
+ 				-1);
+-		
++
+ 		jtag_info-&gt;cur_scan_chain = new_scan_chain;
+ 	}
+
+@@ -92,12 +94,12 @@
+ int arm_jtag_reset_callback(enum jtag_event event, void *priv)
+ {
+ 	arm_jtag_t *jtag_info = priv;
+-	
++
+ 	if (event == JTAG_TRST_ASSERTED)
+ 	{
+ 		jtag_info-&gt;cur_scan_chain = 0;
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+Index: src/target/target.c
+===================================================================
+--- src/target/target.c	(revision 1167)
++++ src/target/target.c	(working copy)
+@@ -3400,6 +3400,9 @@
+ 				if( e != JIM_OK ){
+ 					return e;
+ 				}
++				if (jtag_get_device(w)==NULL)
++					return JIM_ERR;
++
+ 				/* make this exactly 1 or 0 */
+ 				target-&gt;chain_position = w;
+ 			} else {
+Index: src/target/arm11.c
+===================================================================
+--- src/target/arm11.c	(revision 1167)
++++ src/target/arm11.c	(working copy)
+@@ -710,7 +710,7 @@
+ int arm11_halt(struct target_s *target)
+ {
+ 	int retval = ERROR_OK;
+-	
++
+ 	FNC_INFO;
+
+ 	arm11_common_t * arm11 = target-&gt;arch_info;
+@@ -1535,6 +1535,8 @@
+ 	}
+
+ 	jtag_device_t *device = jtag_get_device(target-&gt;chain_position);
++	if (device==NULL)
++		return ERROR_FAIL;
+
+ 	if (device-&gt;ir_length != 5)
+ 	{
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003695.html">[Openocd-development] ARM926ej-s (MagicEyes POLLUX) Problem
+</A></li>
+	<LI>Next message: <A HREF="003684.html">[Openocd-development] LM3s8962 &amp; Working Area
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3667">[ date ]</a>
+              <a href="thread.html#3667">[ thread ]</a>
+              <a href="subject.html#3667">[ subject ]</a>
+              <a href="author.html#3667">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,210 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [Re: arm11 seems to be broken again]
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRe%3A%20arm11%20seems%20to%20be%20broken%20again%5D&In-Reply-To=%3C1271908372.3249.36.camel%40mws.home.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015565.html">
+   <LINK REL="Next"  HREF="015548.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [Re: arm11 seems to be broken again]</H1>
+    <B>michal smulski</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRe%3A%20arm11%20seems%20to%20be%20broken%20again%5D&In-Reply-To=%3C1271908372.3249.36.camel%40mws.home.org%3E"
+       TITLE="[Openocd-development] [Re: arm11 seems to be broken again]">michal.smulski at ooma.com
+       </A><BR>
+    <I>Thu Apr 22 05:52:52 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015565.html">[Openocd-development] [PATCH] xscale: add support for length	arg to wp command
+</A></li>
+        <LI>Next message: <A HREF="015548.html">[Openocd-development] arm11 seems to be broken again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15547">[ date ]</a>
+              <a href="thread.html#15547">[ thread ]</a>
+              <a href="subject.html#15547">[ subject ]</a>
+              <a href="author.html#15547">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+I spent a fair amount of time tracking down my problems.
+
+1. mrc/mcr.
+This turned out to be a syntax change:
+ old&gt; arm11 mrc c100.cpu 15 0 1 0 0
+ new&gt; arm mrc 15 0 1 0 0
+  
+2. memwrite 
+a. This was harder. The problem only appears to show up running openocd
+in script mode (-c command). I could not reproduce this with telnet
+console. 
+b. The same problem occurs in the old build as well (that I thought was
+ok) so I could not git-bisect this issue.
+c. This problem is related to the initial state of the CPU. If I erase
+u-boot from the first sector so that chip cannot boot, I cannot
+reproduce this problem. Also, if I power cycle between flashes, I cannot
+reproduce it either. However the script generates a reset via watchdog
+after the flash write is complete but this is apparently not sufficient.
+Note that there is no way to stop the chip at address 0x0 after system
+reset or watchdog reset. 
+d. I solved this problem by adding a watchdog reset right before
+flashing. 
+This command works every time:
+./openocd -f olimex-arm-usb-ocd.cfg -f telo.cfg -c &quot;init&quot; -c &quot;halt&quot; -c
+&quot;reboot&quot; -c &quot;halt&quot; -c &quot;setupTelo&quot; -c &quot;flashUBOOT u-boot.bin&quot; -c &quot;exit&quot;
+This does not:
+./openocd -f olimex-arm-usb-ocd.cfg -f telo.cfg -c &quot;init&quot; -c &quot;halt&quot; -c
+&quot;setupTelo&quot; -c &quot;flashUBOOT u-boot.bin&quot; -c &quot;exit&quot;
+
+'reboot' is a watchdog reset script (btw. watchdog timer works during
+halt state as well).
+'flashUBOOT' does flash erase/write and then it calls 'reboot'.
+'setupTelo' sets up PLLs, SDRAM, uart, mmu, cache, irqs etc. This
+basically is 'reset init' but without actually touching system reset.
+
+The extra watchdog/halt probably stops the chip before the u-boot code
+[that causes later the data fault when flash write] executes.
+
+One possibility is that 'flash write+memwrite code' leaves some state
+altered and that somehow interacts with u-boot and causes the problem
+described below. Unfortunately, I don't know enough about the
+co-processor to dig deeper but I will help with testing if anyone has
+ideas here.
+
+--Michal
+
+
+On Tue, 2010-04-13 at 12:13 -0700, michal smulski wrote:
+&gt;<i> It seems that arm11 in openocd is broken.
+</I>&gt;<i> 
+</I>&gt;<i> 1. mrc/mcr are not working (try executing mcr/mrc commands in
+</I>&gt;<i> c100helper.tcl).
+</I>&gt;<i> 
+</I>&gt;<i> 2. memwrite burst is not working, see log below. Looks like a data fault
+</I>&gt;<i> during execution. When memwrite burst works it gives DSCR=6006, when it
+</I>&gt;<i> is broken DSCR=605a. This bug is intermittent but it does not seem to be
+</I>&gt;<i> dependent on jtag_khz. 
+</I>&gt;<i> I use it for flash write_image command. This command either fails on the
+</I>&gt;<i> very first burst write or never fails (so it never fails on 2nd and
+</I>&gt;<i> later burst writes). So it looks like the problem is on the download of
+</I>&gt;<i> the code to the ram. 
+</I>&gt;<i> 
+</I>&gt;<i> I looked at arm11_dbgtap.c to if I can pinpoint the changes that broke
+</I>&gt;<i> this but just way too much has changed since my working version (about a
+</I>&gt;<i> year ago). 
+</I>&gt;<i> 
+</I>&gt;<i> Debug: 874 11683 command.c:133 script_debug(): command - ocd_command
+</I>&gt;<i> ocd_command type ocd_arm11 memwrite burst enable
+</I>&gt;<i> Debug: 875 11683 command.c:133 script_debug(): command - ocd_arm11
+</I>&gt;<i> ocd_arm11 memwrite burst enable
+</I>&gt;<i> Info : 877 11687 command.c:1556 handle_command_parse_bool(): memory
+</I>&gt;<i> write burst mode is enabled
+</I>&gt;<i> Debug: 878 11687 command.c:133 script_debug(): command - ocd_command
+</I>&gt;<i> ocd_command type ocd_debug_level 3
+</I>&gt;<i> Debug: 879 11687 command.c:133 script_debug(): command - debug_level
+</I>&gt;<i> ocd_debug_level 3
+</I>&gt;<i> User : 881 11689 command.c:539 command_print(): debug_level: 3
+</I>&gt;<i> Debug: 882 11689 command.c:133 script_debug(): command - ocd_command
+</I>&gt;<i> ocd_command type ocd_flash write_image ./images/u-boot.bin 0x20000000
+</I>&gt;<i> Debug: 883 11689 command.c:133 script_debug(): command - ocd_flash
+</I>&gt;<i> ocd_flash write_image ./images/u-boot.bin 0x20000000
+</I>&gt;<i> Debug: 885 11691 configuration.c:87 find_file():
+</I>&gt;<i> found ./images/u-boot.bin
+</I>&gt;<i> Debug: 886 11691 configuration.c:87 find_file():
+</I>&gt;<i> found ./images/u-boot.bin
+</I>&gt;<i> Debug: 887 11692 target.c:1135 target_alloc_working_area(): MMU
+</I>&gt;<i> disabled, using physical address for working memory 0x0a000000
+</I>&gt;<i> Debug: 888 11692 target.c:1197 target_alloc_working_area(): allocated
+</I>&gt;<i> new working area at address 0x0a000000
+</I>&gt;<i> Debug: 889 11692 target.c:1314 target_write_buffer(): writing buffer of
+</I>&gt;<i> 96 byte at 0x0a000000
+</I>&gt;<i> Debug: 890 11692 arm11.c:939 arm11_write_memory_inner(): ADDR 0a000000
+</I>&gt;<i> SIZE 00000004  COUNT 00000018
+</I>&gt;<i> Debug: 891 11717 target.c:1197 target_alloc_working_area(): allocated
+</I>&gt;<i> new working area at address 0x0a000060
+</I>&gt;<i> Debug: 892 11717 target.c:1314 target_write_buffer(): writing buffer of
+</I>&gt;<i> 32768 byte at 0x0a000060
+</I>&gt;<i> Debug: 893 11717 arm11.c:939 arm11_write_memory_inner(): ADDR 0a000060
+</I>&gt;<i> SIZE 00000004  COUNT 00002000
+</I>&gt;<i> Debug: 894 15810 armv4_5.c:1117 armv4_5_run_algorithm_inner(): Running
+</I>&gt;<i> algorithm
+</I>&gt;<i> Debug: 895 15822 arm_dpm.c:184 dpm_read_reg(): READ: spsr_svc, 00000010
+</I>&gt;<i> Debug: 896 15830 armv4_5.c:1200 armv4_5_run_algorithm_inner(): setting
+</I>&gt;<i> core_mode: 0x13
+</I>&gt;<i> Debug: 897 15830 breakpoints.c:102 breakpoint_add(): added hardware
+</I>&gt;<i> breakpoint at 0x0a00005c of length 0x00000004, (BPID: 0)
+</I>&gt;<i> Debug: 898 15830 arm11.c:473 arm11_resume(): target-&gt;state: halted
+</I>&gt;<i> Debug: 899 15830 arm11.c:484 arm11_resume(): RESUME PC 0a000000!
+</I>&gt;<i> Debug: 900 15854 arm11.c:526 arm11_resume(): Add BP 0 at 0a00005c
+</I>&gt;<i> Debug: 901 15864 arm_dpm.c:223 dpm_write_reg(): WRITE: r1, 20000000
+</I>&gt;<i> Debug: 902 15868 arm_dpm.c:223 dpm_write_reg(): WRITE: r2, 00004000
+</I>&gt;<i> Debug: 903 15872 arm_dpm.c:223 dpm_write_reg(): WRITE: r3, 000000a0
+</I>&gt;<i> Debug: 904 15876 arm_dpm.c:223 dpm_write_reg(): WRITE: r4, 00000080
+</I>&gt;<i> Debug: 905 15880 arm_dpm.c:223 dpm_write_reg(): WRITE: r5, 002523d8
+</I>&gt;<i> Debug: 906 15884 arm_dpm.c:223 dpm_write_reg(): WRITE: r8, 20000aaa
+</I>&gt;<i> Debug: 907 15888 arm_dpm.c:223 dpm_write_reg(): WRITE: r9, aaaaaaaa
+</I>&gt;<i> Debug: 908 15892 arm_dpm.c:223 dpm_write_reg(): WRITE: r10, 20000554
+</I>&gt;<i> Debug: 909 15896 arm_dpm.c:223 dpm_write_reg(): WRITE: r11, 55555555
+</I>&gt;<i> Debug: 910 15908 arm_dpm.c:223 dpm_write_reg(): WRITE: pc, 0a000000
+</I>&gt;<i> Debug: 911 15912 arm_dpm.c:223 dpm_write_reg(): WRITE: r0, 0a000060
+</I>&gt;<i> Debug: 912 15918 core.c:570 jtag_add_statemove(): cur_state=RUN/IDLE
+</I>&gt;<i> goal_state=DRPAUSE
+</I>&gt;<i> Debug: 913 15921 arm11.c:547 arm11_resume(): DSCR 0000605a
+</I>&gt;<i> Debug: 914 15921 target.c:1031 target_call_event_callbacks(): target
+</I>&gt;<i> event 4 (resumed)
+</I>&gt;<i> Debug: 915 15924 target.c:2110 target_wait_state(): waiting for target
+</I>&gt;<i> halted...
+</I>&gt;<i> Debug: 916 16426 log.c:458 keep_alive(): keep_alive() was not invoked in
+</I>&gt;<i> the 1000ms timelimit (4805). This may cause trouble with GDB
+</I>&gt;<i> connections.
+</I>&gt;<i> Error: 936 25926 target.c:2121 target_wait_state(): timed out while
+</I>&gt;<i> waiting for target halted
+</I>&gt;<i> Debug: 937 25926 breakpoints.c:127 breakpoint_free(): free BPID: 0 --&gt; 0
+</I>&gt;<i> Debug: 938 25926 cfi.c:1501 cfi_spansion_write_block(): status: 0x2523d8
+</I>&gt;<i> Error: 939 25926 core.c:133 flash_driver_write(): error writing to flash
+</I>&gt;<i> at address 0x20000000 at offset 0x00000000 (-902)
+</I>&gt;<i> Debug: 940 25926 command.c:620 run_command(): Command failed with error
+</I>&gt;<i> code -902
+</I>&gt;<i> User : 941 25926 command.c:824 openocd_jim_vfprintf(): Command handler
+</I>&gt;<i> execution failed
+</I>&gt;<i> User : 944 25926 command.c:824 openocd_jim_vfprintf(): 
+</I>&gt;<i> User : 947 25927 command.c:824 openocd_jim_vfprintf(): 
+</I>&gt;<i> User : 949 25927 command.c:824 openocd_jim_vfprintf(): 
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">eda at mws</A>:/tools/p4/sw/hub/openocd$ 
+</I>&gt;<i> 
+</I>
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015565.html">[Openocd-development] [PATCH] xscale: add support for length	arg to wp command
+</A></li>
+	<LI>Next message: <A HREF="015548.html">[Openocd-development] arm11 seems to be broken again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15547">[ date ]</a>
+              <a href="thread.html#15547">[ thread ]</a>
+              <a href="subject.html#15547">[ subject ]</a>
+              <a href="author.html#15547">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

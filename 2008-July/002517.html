@@ -1,0 +1,223 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] openocd &amp; tcl function return values.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd%20%26%20tcl%20function%20return%20values.&In-Reply-To=%3C4878E150.2030007%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002516.html">
+   <LINK REL="Next"  HREF="002538.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] openocd &amp; tcl function return values.</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd%20%26%20tcl%20function%20return%20values.&In-Reply-To=%3C4878E150.2030007%40duaneellis.com%3E"
+       TITLE="[Openocd-development] openocd &amp; tcl function return values.">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Jul 12 18:52:32 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002516.html">[Openocd-development] [PATCH] remove file2c.tcl
+</A></li>
+        <LI>Next message: <A HREF="002538.html">[Openocd-development] openocd &amp; tcl function return values.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2517">[ date ]</a>
+              <a href="thread.html#2517">[ thread ]</a>
+              <a href="subject.html#2517">[ subject ]</a>
+              <a href="author.html#2517">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&#216;yvind,
+
+I have a suggestion about the return values of 
+certain functions implemented in OpenOCD/Jim/TCL, 
+it is as follows, and it would remove my entire
+objection ...
+
+Simply use associative arrays for return values where appropriate.
+
+See below for details of what I mean.
+
+-Duane.
+
+The rules are:
+
+Rule #1
+
+	If the return value is a single item, 
+	return that item.
+
+Rule #2
+	
+	If the return value is *MULTIPLE* items 
+	then a &quot;result array&quot; must be given as 
+	a parameter.
+
+Rule #2(a)
+
+	If the result array values are meaningfully 
+	identical - for example an array of memory bytes.
+	The array indexes are numbered numerically 0...N
+
+	Examples
+		the &quot;mem2array&quot; command
+		And the &quot;array2mem&quot; commands.
+
+	The &quot;NTH plus ONE&quot; is the same thing..
+	Just another &quot;THING&quot; ...
+
+	Other examples of &quot;meaningfully identical&quot;
+
+	head words in an (printed) dictionary.
+	jtag/tap targets in the tap chain
+	List of flash chips present on board.
+	list of email addresses on this mailing list.
+
+	They all have the property that Nth and
+	Nth Plus one is are meaningfully identical.
+	
+	Alternatively in this specific case, 
+	a &quot;LIST&quot; of items may be returned.
+
+Rule #2(b)
+
+	If the result array values are *NOT* meaningfully
+	identical - for example - a command like &quot;box_info&quot;
+	where the return values (today) are H, W, and L
+
+	Or for example the result would better represent
+	a &quot;C&quot; style structure... 
+
+	The index values of the array are thus named.
+
+	The distinction is:
+ 
+	With a narrow view, the values of H, W, and L, are
+	all numbers - however ... Their position is also 
+	meaningful - it is not simply the &quot;NTH plus ONE&quot;.
+
+	This would allow - future additions that are
+	easily ignored - for example, these could be added.
+
+		set boxinfo(kilograms) 100
+		set boxinfo(type) cardboard
+
+=============
+
+For example the &quot;flash_info&quot; command you have created.
+
+Today - it returns a LIST,ie: like this:
+
+	 {ecosflash 16777216 2097152 2 2}
+
+That example is a major source of my objections.
+
+Step 1.
+
+Instead, it would change roughly something like this:
+
+	proc flash_info { res_arr } {
+		upvar $res_array results
+
+		set $results(name) &quot;ecosflash&quot;
+		set $results(base) 16777216
+		set $results(size) 2097152
+		set $results(bus_width) 2
+		set $results(chip_width) 2
+	}
+
+Step 2 - this is optional.
+
+Today, Jim does not support the &quot;array&quot; command.
+We could implement at least the &quot;array names&quot; 
+and command (perhaps others)
+
+So that one could do this:
+
+    # print elements of an array
+    proc show_array arrayName {
+        upvar $arrayName myArray
+
+        foreach element [array names myArray] {
+           puts stdout &quot;${arrayName}($element) =  $myArray($element)&quot;
+        }
+    }
+
+    set arval(0) zero
+    set arval(1) one
+    show_array arval
+
+=====
+
+What I do not like and strongly object to is magic hard coded 
+array index numbers for example - 'startup.tcl' 
+See: &quot;flash_banks_pretty&quot;
+
+For the size result, you do this today:
+
+    puts [format &quot;Size: %d&quot; [lindex $a 4]]
+
+This would change to:
+
+    puts [format &quot;Size: %d&quot; $a(size) ]
+
+In fact, by creating a &quot;pretty_print_array&quot; it would
+automatically adapt to new features!
+
+=============
+
+By taking this approach - one could...
+
+1) Create a command to list the targets present on the JTAG chain.
+
+2) Another command to iterate through that list of targets.
+	Asking - &quot;get info about that specific target&quot;.
+
+Likewise - 
+   One could define a &quot;flash&quot; command that probes 
+   all flashes and returns a list of &quot;flash chip names&quot; 
+   it finds.
+
+   And another that returns &quot;info&quot; about a specific chip.
+
+=============
+
+This would also greatly simplify the wireline protocol side of the situation.
+
+**END**
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002516.html">[Openocd-development] [PATCH] remove file2c.tcl
+</A></li>
+	<LI>Next message: <A HREF="002538.html">[Openocd-development] openocd &amp; tcl function return values.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2517">[ date ]</a>
+              <a href="thread.html#2517">[ thread ]</a>
+              <a href="subject.html#2517">[ subject ]</a>
+              <a href="author.html#2517">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

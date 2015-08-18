@@ -1,0 +1,315 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/3] ARM DPM: make DSCR bit defs	sharable
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM%20DPM%3A%20make%20DSCR%20bit%20defs%0A%09sharable&In-Reply-To=%3C200912031453.22502.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013306.html">
+   <LINK REL="Next"  HREF="013298.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/3] ARM DPM: make DSCR bit defs	sharable</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM%20DPM%3A%20make%20DSCR%20bit%20defs%0A%09sharable&In-Reply-To=%3C200912031453.22502.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/3] ARM DPM: make DSCR bit defs	sharable">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Dec  3 23:53:22 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013306.html">[Openocd-development] [PATCH v2] basic ARM semihosting support
+</A></li>
+        <LI>Next message: <A HREF="013298.html">[Openocd-development] [patch 2/3] ARM11: use shared DSCR bit names
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13299">[ date ]</a>
+              <a href="thread.html#13299">[ thread ]</a>
+              <a href="subject.html#13299">[ subject ]</a>
+              <a href="author.html#13299">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Move the symbols for these bits from &quot;armv7a.h&quot; to &quot;arm_dpm.h&quot;,
+where they can be seen and used not just by Cortex-A but also
+by the ARM11 (armv6) code.
+
+Change them from bit numbers to bit masks ... this matches the
+usage in ARM11 code, and also makes it easier to read.
+
+Rename DSCR_EXT_INT_EN as DSCR_ITR_EN to match the docs; it's
+enabling ITR functionality, not external interrupts, so this
+changes the name to be a bit less misleading (there *IS* a bit
+affecting interrupts and this isn't it).
+---
+ src/target/arm_dpm.h   |   14 ++++++++++++
+ src/target/armv7a.h    |   10 ---------
+ src/target/cortex_a8.c |   52 ++++++++++++++++++++++++++---------------------
+ 3 files changed, 43 insertions(+), 33 deletions(-)
+
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -136,4 +136,18 @@ int arm_dpm_write_dirty_registers(struct
+ 
+ void arm_dpm_report_wfar(struct arm_dpm *, uint32_t wfar);
+ 
++/* Subset of DSCR bits; see ARMv7a arch spec section C10.3.1.
++ * Not all v7 bits are valid in v6.
++ */
++#define DSCR_CORE_HALTED	(1 &lt;&lt; 0)
++#define DSCR_CORE_RESTARTED	(1 &lt;&lt; 1)
++#define DSCR_ITR_EN		(1 &lt;&lt; 13)
++#define DSCR_HALT_DBG_MODE	(1 &lt;&lt; 14)
++#define DSCR_MON_DBG_MODE	(1 &lt;&lt; 15)
++#define DSCR_INSTR_COMP		(1 &lt;&lt; 24)
++#define DSCR_DTR_TX_FULL	(1 &lt;&lt; 29)
++#define DSCR_DTR_RX_FULL	(1 &lt;&lt; 30)
++
++#define DSCR_ENTRY(dscr) (((dscr) &gt;&gt; 2) &amp; 0xf)
++
+ #endif /* __ARM_DPM_H */
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -114,16 +114,6 @@ target_to_armv7a(struct target *target)
+ /* See ARMv7a arch spec section C10.8 */
+ #define CPUDBG_AUTHSTATUS	0xFB8
+ 
+-/* DSCR bit numbers (See ARMv7a arch spec section 12.4.5) */
+-#define DSCR_CORE_HALTED	0
+-#define DSCR_CORE_RESTARTED	1
+-#define DSCR_EXT_INT_EN		13
+-#define DSCR_HALT_DBG_MODE	14
+-#define DSCR_MON_DBG_MODE	15
+-#define DSCR_INSTR_COMP		24
+-#define DSCR_DTR_TX_FULL	29
+-#define DSCR_DTR_RX_FULL	30
+-
+ struct armv7a_algorithm
+ {
+ 	int common_magic;
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -91,8 +91,8 @@ static int cortex_a8_init_debug_access(s
+ 
+ /* To reduce needless round-trips, pass in a pointer to the current
+  * DSCR value.  Initialize it to zero if you just need to know the
+- * value on return from this function; or (1 &lt;&lt; DSCR_INSTR_COMP) if
+- * you happen to know that no instruction is pending.
++ * value on return from this function; or DSCR_INSTR_COMP if you
++ * happen to know that no instruction is pending.
+  */
+ static int cortex_a8_exec_opcode(struct target *target,
+ 		uint32_t opcode, uint32_t *dscr_p)
+@@ -107,7 +107,7 @@ static int cortex_a8_exec_opcode(struct 
+ 	LOG_DEBUG(&quot;exec opcode 0x%08&quot; PRIx32, opcode);
+ 
+ 	/* Wait for InstrCompl bit to be set */
+-	while ((dscr &amp; (1 &lt;&lt; DSCR_INSTR_COMP)) == 0)
++	while ((dscr &amp; DSCR_INSTR_COMP) == 0)
+ 	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+@@ -130,7 +130,7 @@ static int cortex_a8_exec_opcode(struct 
+ 			return retval;
+ 		}
+ 	}
+-	while ((dscr &amp; (1 &lt;&lt; DSCR_INSTR_COMP)) == 0); /* Wait for InstrCompl bit to be set */
++	while ((dscr &amp; DSCR_INSTR_COMP) == 0); /* Wait for InstrCompl bit to be set */
+ 
+ 	if (dscr_p)
+ 		*dscr_p = dscr;
+@@ -198,7 +198,7 @@ static int cortex_a8_dap_read_coreregist
+ 	}
+ 
+ 	/* Wait for DTRRXfull then read DTRRTX */
+-	while ((dscr &amp; (1 &lt;&lt; DSCR_DTR_TX_FULL)) == 0)
++	while ((dscr &amp; DSCR_DTR_TX_FULL) == 0)
+ 	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+@@ -225,7 +225,7 @@ static int cortex_a8_dap_write_coreregis
+ 	/* Check that DCCRX is not full */
+ 	retval = mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+-	if (dscr &amp; (1 &lt;&lt; DSCR_DTR_RX_FULL))
++	if (dscr &amp; DSCR_DTR_RX_FULL)
+ 	{
+ 		LOG_ERROR(&quot;DSCR_DTR_RX_FULL, dscr 0x%08&quot; PRIx32, dscr);
+ 		/* Clear DCCRX with MCR(p14, 0, Rd, c0, c5, 0), opcode  0xEE000E15 */
+@@ -315,14 +315,14 @@ static int cortex_a8_read_dcc(struct cor
+ 		uint32_t *dscr_p)
+ {
+ 	struct swjdp_common *swjdp = &amp;a8-&gt;armv7a_common.swjdp_info;
+-	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
++	uint32_t dscr = DSCR_INSTR_COMP;
+ 	int retval;
+ 
+ 	if (dscr_p)
+ 		dscr = *dscr_p;
+ 
+ 	/* Wait for DTRRXfull */
+-	while ((dscr &amp; (1 &lt;&lt; DSCR_DTR_TX_FULL)) == 0) {
++	while ((dscr &amp; DSCR_DTR_TX_FULL) == 0) {
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				a8-&gt;armv7a_common.debug_base + CPUDBG_DSCR,
+ 				&amp;dscr);
+@@ -350,10 +350,10 @@ static int cortex_a8_dpm_prepare(struct 
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				a8-&gt;armv7a_common.debug_base + CPUDBG_DSCR,
+ 				&amp;dscr);
+-	} while ((dscr &amp; (1 &lt;&lt; DSCR_INSTR_COMP)) == 0);
++	} while ((dscr &amp; DSCR_INSTR_COMP) == 0);
+ 
+ 	/* this &quot;should never happen&quot; ... */
+-	if (dscr &amp; (1 &lt;&lt; DSCR_DTR_RX_FULL)) {
++	if (dscr &amp; DSCR_DTR_RX_FULL) {
+ 		LOG_ERROR(&quot;DSCR_DTR_RX_FULL, dscr 0x%08&quot; PRIx32, dscr);
+ 		/* Clear DCCRX */
+ 		retval = cortex_a8_exec_opcode(
+@@ -376,7 +376,7 @@ static int cortex_a8_instr_write_data_dc
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+ 	int retval;
+-	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
++	uint32_t dscr = DSCR_INSTR_COMP;
+ 
+ 	retval = cortex_a8_write_dcc(a8, data);
+ 
+@@ -390,7 +390,7 @@ static int cortex_a8_instr_write_data_r0
+ 		uint32_t opcode, uint32_t data)
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+-	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
++	uint32_t dscr = DSCR_INSTR_COMP;
+ 	int retval;
+ 
+ 	retval = cortex_a8_write_dcc(a8, data);
+@@ -413,7 +413,7 @@ static int cortex_a8_instr_write_data_r0
+ static int cortex_a8_instr_cpsr_sync(struct arm_dpm *dpm)
+ {
+ 	struct target *target = dpm-&gt;arm-&gt;target;
+-	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
++	uint32_t dscr = DSCR_INSTR_COMP;
+ 
+ 	/* &quot;Prefetch flush&quot; after modifying execution status in CPSR */
+ 	return cortex_a8_exec_opcode(target,
+@@ -426,7 +426,7 @@ static int cortex_a8_instr_read_data_dcc
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+ 	int retval;
+-	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
++	uint32_t dscr = DSCR_INSTR_COMP;
+ 
+ 	/* the opcode, writing data to DCC */
+ 	retval = cortex_a8_exec_opcode(
+@@ -442,7 +442,7 @@ static int cortex_a8_instr_read_data_r0(
+ 		uint32_t opcode, uint32_t *data)
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+-	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
++	uint32_t dscr = DSCR_INSTR_COMP;
+ 	int retval;
+ 
+ 	/* the opcode, writing data to R0 */
+@@ -639,7 +639,7 @@ static int cortex_a8_halt(struct target 
+ 	 */
+ 	mem_ap_read_atomic_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+ 	retval = mem_ap_write_atomic_u32(swjdp,
+-		armv7a-&gt;debug_base + CPUDBG_DSCR, dscr | (1 &lt;&lt; DSCR_HALT_DBG_MODE));
++		armv7a-&gt;debug_base + CPUDBG_DSCR, dscr | DSCR_HALT_DBG_MODE);
+ 
+ 	if (retval != ERROR_OK)
+ 		goto out;
+@@ -647,7 +647,7 @@ static int cortex_a8_halt(struct target 
+ 	do {
+ 		mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+-	} while ((dscr &amp; (1 &lt;&lt; DSCR_CORE_HALTED)) == 0);
++	} while ((dscr &amp; DSCR_CORE_HALTED) == 0);
+ 
+ 	target-&gt;debug_reason = DBG_REASON_DBGRQ;
+ 
+@@ -742,13 +742,18 @@ static int cortex_a8_resume(struct targe
+ 	}
+ 
+ #endif
+-	/* Restart core and wait for it to be started */
++	/* Restart core and wait for it to be started
++	 * NOTE: this clears DSCR_ITR_EN and other bits.
++	 *
++	 * REVISIT: for single stepping, we probably want to
++	 * disable IRQs by default, with optional override...
++	 */
+ 	mem_ap_write_atomic_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_DRCR, 0x2);
+ 
+ 	do {
+ 		mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+-	} while ((dscr &amp; (1 &lt;&lt; DSCR_CORE_RESTARTED)) == 0);
++	} while ((dscr &amp; DSCR_CORE_RESTARTED) == 0);
+ 
+ 	target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+ 	target-&gt;state = TARGET_RUNNING;
+@@ -788,7 +793,6 @@ static int cortex_a8_debug_entry(struct 
+ 
+ 	LOG_DEBUG(&quot;dscr = 0x%08&quot; PRIx32, cortex_a8-&gt;cpudbg_dscr);
+ 
+-	/* Enable the ITR execution once we are in debug mode */
+ 	mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+ 
+@@ -797,12 +801,13 @@ static int cortex_a8_debug_entry(struct 
+ 	 * Synchronization Barrier:  ARMV4_5_MCR(15, 0, 0, 7, 10, 4).
+ 	 */
+ 
+-	dscr |= (1 &lt;&lt; DSCR_EXT_INT_EN);
++	/* Enable the ITR execution once we are in debug mode */
++	dscr |= DSCR_ITR_EN;
+ 	retval = mem_ap_write_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DSCR, dscr);
+ 
+ 	/* Examine debug reason */
+-	switch ((cortex_a8-&gt;cpudbg_dscr &gt;&gt; 2)&amp;0xF)
++	switch (DSCR_ENTRY(cortex_a8-&gt;cpudbg_dscr))
+ 	{
+ 		case 0:		/* DRCR[0] write */
+ 		case 4:		/* EDBGRQ */
+@@ -1005,7 +1010,8 @@ static int cortex_a8_step(struct target 
+ 	}
+ 
+ 	cortex_a8_unset_breakpoint(target, &amp;stepbreakpoint);
+-	if (timeout &gt; 0) target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
++	if (timeout &gt; 0)
++		target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
+ 
+ 	if (breakpoint)
+ 		cortex_a8_set_breakpoint(target, breakpoint, 0);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013306.html">[Openocd-development] [PATCH v2] basic ARM semihosting support
+</A></li>
+	<LI>Next message: <A HREF="013298.html">[Openocd-development] [patch 2/3] ARM11: use shared DSCR bit names
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13299">[ date ]</a>
+              <a href="thread.html#13299">[ thread ]</a>
+              <a href="subject.html#13299">[ subject ]</a>
+              <a href="author.html#13299">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

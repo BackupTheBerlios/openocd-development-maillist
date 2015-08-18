@@ -1,0 +1,237 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/2] target: target_get_name() --&gt;	target_type_name()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/2%5D%20target%3A%20target_get_name%28%29%20--%3E%0A%09target_type_name%28%29&In-Reply-To=%3C200911251630.53392.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012916.html">
+   <LINK REL="Next"  HREF="012936.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/2] target: target_get_name() --&gt;	target_type_name()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/2%5D%20target%3A%20target_get_name%28%29%20--%3E%0A%09target_type_name%28%29&In-Reply-To=%3C200911251630.53392.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/2] target: target_get_name() --&gt;	target_type_name()">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov 26 01:30:53 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012916.html">[Openocd-development] [PATCH] styleguide: add some embedded style	rules.
+</A></li>
+        <LI>Next message: <A HREF="012936.html">[Openocd-development] [patch 2/2] target: create and use	target_name()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12937">[ date ]</a>
+              <a href="thread.html#12937">[ thread ]</a>
+              <a href="subject.html#12937">[ subject ]</a>
+              <a href="author.html#12937">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There are two names that may matter on a per-target basis.
+One is a per-instance name (for example, &quot;at91sam7s.cpu&quot;).
+The other is the name of its type (for example, &quot;arm7tdmi&quot;),
+which is shared among multiple targets.
+
+Currently target_get_name() returns the type name, which is
+misleading and is rarely appropriate for target diagnostics.
+Rename that as target_type_name().
+---
+ src/server/gdb_server.c  |    4 ++--
+ src/target/breakpoints.c |    8 ++++++--
+ src/target/embeddedice.c |    4 ++--
+ src/target/etm.c         |    2 +-
+ src/target/target.c      |   18 +++++++++++-------
+ src/target/target.h      |    5 +++--
+ src/target/target_type.h |    2 +-
+ 7 files changed, 26 insertions(+), 17 deletions(-)
+
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2216,7 +2216,7 @@ int gdb_init(void)
+ 		add_service(&quot;gdb&quot;, CONNECTION_PIPE, 0, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
+ 
+ 		LOG_DEBUG(&quot;gdb service for target %s using pipes&quot;,
+-				target_get_name(target));
++				target_type_name(target));
+ 	}
+ 	else
+ 	{
+@@ -2233,7 +2233,7 @@ int gdb_init(void)
+ 					gdb_connection_closed, gdb_service);
+ 
+ 			LOG_DEBUG(&quot;gdb service for target %s at TCP port %i&quot;,
+-					target_get_name(target),
++					target_type_name(target),
+ 					port);
+ 			target = target-&gt;next;
+ 			port++;
+--- a/src/target/breakpoints.c
++++ b/src/target/breakpoints.c
+@@ -155,7 +155,9 @@ void breakpoint_remove(struct target *ta
+ void breakpoint_clear_target(struct target *target)
+ {
+ 	struct breakpoint *breakpoint;
+-	LOG_DEBUG(&quot;Delete all breakpoints for target: %s&quot;, target_get_name( target ));
++
++	LOG_DEBUG(&quot;Delete all breakpoints for target: %s&quot;,
++			target_type_name(target));
+ 	while ((breakpoint = target-&gt;breakpoints) != NULL)
+ 	{
+ 		breakpoint_free(target, breakpoint);
+@@ -290,7 +292,9 @@ void watchpoint_remove(struct target *ta
+ void watchpoint_clear_target(struct target *target)
+ {
+ 	struct watchpoint *watchpoint;
+-	LOG_DEBUG(&quot;Delete all watchpoints for target: %s&quot;, target_get_name( target ));
++
++	LOG_DEBUG(&quot;Delete all watchpoints for target: %s&quot;,
++			target_type_name(target));
+ 	while ((watchpoint = target-&gt;watchpoints) != NULL)
+ 	{
+ 		watchpoint_free(target, watchpoint);
+--- a/src/target/embeddedice.c
++++ b/src/target/embeddedice.c
+@@ -281,8 +281,8 @@ embeddedice_build_reg_cache(struct targe
+ 			 * in some unusual bits.  Let feroceon.c validate it
+ 			 * and do the appropriate setup itself.
+ 			 */
+-			if (strcmp(target_get_name(target), &quot;feroceon&quot;) == 0 ||
+-			    strcmp(target_get_name(target), &quot;dragonite&quot;) == 0)
++			if (strcmp(target_type_name(target), &quot;feroceon&quot;) == 0 ||
++			    strcmp(target_type_name(target), &quot;dragonite&quot;) == 0)
+ 				break;
+ 			LOG_ERROR(&quot;unknown EmbeddedICE version &quot;
+ 				&quot;(comms ctrl: 0x%8.8&quot; PRIx32 &quot;)&quot;,
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1374,7 +1374,7 @@ COMMAND_HANDLER(handle_etm_config_comman
+ 	arm = target_to_arm(target);
+ 	if (!is_arm(arm)) {
+ 		command_print(CMD_CTX, &quot;target '%s' is '%s'; not an ARM&quot;,
+-				target-&gt;cmd_name, target_get_name(target));
++				target-&gt;cmd_name, target_type_name(target));
+ 		return ERROR_FAIL;
+ 	}
+ 
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -522,7 +522,7 @@ int target_examine(void)
+ 	}
+ 	return retval;
+ }
+-const char *target_get_name(struct target *target)
++const char *target_type_name(struct target *target)
+ {
+ 	return target-&gt;type-&gt;name;
+ }
+@@ -766,7 +766,7 @@ int target_init(struct command_context *
+ 
+ 		if ((retval = target-&gt;type-&gt;init_target(cmd_ctx, target)) != ERROR_OK)
+ 		{
+-			LOG_ERROR(&quot;target '%s' init failed&quot;, target_get_name(target));
++			LOG_ERROR(&quot;target '%s' init failed&quot;, target_type_name(target));
+ 			return retval;
+ 		}
+ 
+@@ -1698,7 +1698,7 @@ DumpTargets:
+ 					  target-&gt;target_number,
+ 					  marker,
+ 					  target-&gt;cmd_name,
+-					  target_get_name(target),
++					  target_type_name(target),
+ 					  Jim_Nvp_value2name_simple(nvp_target_endian,
+ 								target-&gt;endianness)-&gt;name,
+ 					  target-&gt;tap-&gt;dotted_name,
+@@ -3511,7 +3511,7 @@ void target_handle_event(struct target *
+ 			LOG_DEBUG(&quot;target: (%d) %s (%s) event: %d (%s) action: %s&quot;,
+ 					   target-&gt;target_number,
+ 					   target-&gt;cmd_name,
+-					   target_get_name(target),
++					   target_type_name(target),
+ 					   e,
+ 					   Jim_Nvp_value2name_simple(nvp_target_event, e)-&gt;name,
+ 					   Jim_GetString(teap-&gt;body, NULL));
+@@ -3585,16 +3585,20 @@ static int target_configure(Jim_GetOptIn
+ 		case TCFG_TYPE:
+ 			/* not setable */
+ 			if (goi-&gt;isconfigure) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;not setable: %s&quot;, n-&gt;name);
++				Jim_SetResult_sprintf(goi-&gt;interp,
++						&quot;not settable: %s&quot;, n-&gt;name);
+ 				return JIM_ERR;
+ 			} else {
+ 			no_params:
+ 				if (goi-&gt;argc != 0) {
+-					Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;NO PARAMS&quot;);
++					Jim_WrongNumArgs(goi-&gt;interp,
++							goi-&gt;argc, goi-&gt;argv,
++							&quot;NO PARAMS&quot;);
+ 					return JIM_ERR;
+ 				}
+ 			}
+-			Jim_SetResultString(goi-&gt;interp, target_get_name(target), -1);
++			Jim_SetResultString(goi-&gt;interp,
++					target_type_name(target), -1);
+ 			/* loop for more */
+ 			break;
+ 		case TCFG_EVENT:
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -280,11 +280,12 @@ struct target* get_current_target(struct
+ struct target *get_target(const char *id);
+ 
+ /**
+- * Get the target name.
++ * Get the target type name.
+  *
+  * This routine is a wrapper for the target-&gt;type-&gt;name field.
++ * Note that this is not an instance-specific name for his target.
+  */
+-const char *target_get_name(struct target *target);
++const char *target_type_name(struct target *target);
+ 
+ /**
+  * Examine the specified @a target, letting it perform any
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -39,7 +39,7 @@ struct target_type
+ {
+ 	/**
+ 	 * Name of this type of target.  Do @b not access this
+-	 * field directly, use target_get_name() instead.
++	 * field directly, use target_type_name() instead.
+ 	 */
+ 	char *name;
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012916.html">[Openocd-development] [PATCH] styleguide: add some embedded style	rules.
+</A></li>
+	<LI>Next message: <A HREF="012936.html">[Openocd-development] [patch 2/2] target: create and use	target_name()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12937">[ date ]</a>
+              <a href="thread.html#12937">[ thread ]</a>
+              <a href="subject.html#12937">[ subject ]</a>
+              <a href="author.html#12937">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

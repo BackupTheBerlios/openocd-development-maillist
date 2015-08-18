@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] SYS_WRITE0 PATCH 2 (was Re: SYS_WRITE0 in do_semihosting in arm_semihosting.c broken)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SYS_WRITE0%20PATCH%202%20%28was%20Re%3A%20SYS_WRITE0%20in%0A%20do_semihosting%20in%20arm_semihosting.c%20broken%29&In-Reply-To=%3CAANLkTi%3Dwi8VAbRfJ0-orr4Adjk1Sfdvuk6U0GQG98gD9%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018364.html">
+   <LINK REL="Next"  HREF="018365.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] SYS_WRITE0 PATCH 2 (was Re: SYS_WRITE0 in do_semihosting in arm_semihosting.c broken)</H1>
+    <B>John and Tina Peterson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SYS_WRITE0%20PATCH%202%20%28was%20Re%3A%20SYS_WRITE0%20in%0A%20do_semihosting%20in%20arm_semihosting.c%20broken%29&In-Reply-To=%3CAANLkTi%3Dwi8VAbRfJ0-orr4Adjk1Sfdvuk6U0GQG98gD9%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] SYS_WRITE0 PATCH 2 (was Re: SYS_WRITE0 in do_semihosting in arm_semihosting.c broken)">jpfp at byu.edu
+       </A><BR>
+    <I>Wed Mar 16 21:50:58 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018364.html">[Openocd-development] SYS_WRITE0 PATCH 1 (was Re: SYS_WRITE0 in do_semihosting in arm_semihosting.c broken)
+</A></li>
+        <LI>Next message: <A HREF="018365.html">[Openocd-development] SYS_WRITE0 PATCH 2 (was Re: SYS_WRITE0 in do_semihosting in arm_semihosting.c broken)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18357">[ date ]</a>
+              <a href="thread.html#18357">[ thread ]</a>
+              <a href="subject.html#18357">[ subject ]</a>
+              <a href="author.html#18357">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>...and here's the prefetch version (fixed one little mistake...):
+
+diff --git a/src/target/arm_semihosting.c b/src/target/arm_semihosting.c
+index a247cc8..ef13f68 100644
+--- a/src/target/arm_semihosting.c
++++ b/src/target/arm_semihosting.c
+@@ -136,18 +136,26 @@ static int do_semihosting(struct target *target)
+                }
+                break;
+
+-       case 0x04:      /* SYS_WRITE0 */
+-               do {
+-                       unsigned char c;
+-                       retval = target_read_memory(target, r1, 1, 1, &amp;c);
+-                       if (retval != ERROR_OK)
+-                               return retval;
+-                       if (!c)
+-                               break;
+-                       putchar(c);
+-               } while (1);
+-               result = 0;
+-               break;
++#define WRITE0_PREFETCH 16
++
++    case 0x04:  /* SYS_WRITE0 */
++        do {
++            unsigned char c[WRITE0_PREFETCH];
++            int i;
++            retval = target_read_memory(target, r1, 1, WRITE0_PREFETCH, c);
++            if (retval != ERROR_OK)
++                return retval;
++            r1 += WRITE0_PREFETCH;
++            for (i=0; i &lt; WRITE0_PREFETCH; i++) {
++                if (!c[i])
++                    break;
++                putchar(c[i]);
++            }
++            if (i &lt; WRITE0_PREFETCH)
++                break;
++        } while (1);
++        result = 0;
++        break;
+
+        case 0x05:      /* SYS_WRITE */
+                retval = target_read_memory(target, r1, 4, 3, params);
+
+
+
+
+On Mon, Mar 14, 2011 at 12:14 PM, John and Tina Peterson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jpfp at byu.edu</A>&gt;wrote:
+
+&gt;<i> In the latest git commit of openocd-0.5.0-dev, this is the code that
+</I>&gt;<i> handles the semihosting call SYS_WRITE0:
+</I>&gt;<i>
+</I>&gt;<i>     case 0x04:  /* SYS_WRITE0 */
+</I>&gt;<i>         do {
+</I>&gt;<i>             unsigned char c;
+</I>&gt;<i>             retval = target_read_memory(target, r1, 1, 1, &amp;c);
+</I>&gt;<i>             if (retval != ERROR_OK)
+</I>&gt;<i>                 return retval;
+</I>&gt;<i>             if (!c)
+</I>&gt;<i>                 break;
+</I>&gt;<i>             putchar(c);
+</I>&gt;<i>         } while (1);
+</I>&gt;<i>         result = 0;
+</I>&gt;<i>         break;
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Problem is, trying to print &quot;Hello, world!\n&quot; just prints endless H's,
+</I>&gt;<i> because r1 is never incremented.
+</I>&gt;<i>
+</I>&gt;<i> One way to fix it would be to add a &quot;++&quot; after &quot;r1&quot;.
+</I>&gt;<i>
+</I>&gt;<i> Additionally, it would be much more efficient to amortize the USB/JTAG
+</I>&gt;<i> round trip times by grabbing more than one byte at a time.  Something like
+</I>&gt;<i> this:
+</I>&gt;<i>
+</I>&gt;<i> #define WRITE0_PREFETCH 16
+</I>&gt;<i>
+</I>&gt;<i>     case 0x04:  /* SYS_WRITE0 */
+</I>&gt;<i>         do {
+</I>&gt;<i>             unsigned char c[WRITE0_PREFETCH];
+</I>&gt;<i>             int i;
+</I>&gt;<i>             retval = target_read_memory(target, r1, 1, WRITE0_PREFETCH,
+</I>&gt;<i> &amp;c);
+</I>&gt;<i>             if (retval != ERROR_OK)
+</I>&gt;<i>                 return retval;
+</I>&gt;<i>             r1 += WRITE0_PREFETCH;
+</I>&gt;<i>             for (i=0; i &lt; WRITE0_PREFETCH; i++) {
+</I>&gt;<i>                 if (!c[i])
+</I>&gt;<i>                     break;
+</I>&gt;<i>                 putchar(c[i]);
+</I>&gt;<i>             }
+</I>&gt;<i>             if (i &lt; WRITE0_PREFETCH)
+</I>&gt;<i>                 break;
+</I>&gt;<i>         } while (1);
+</I>&gt;<i>         result = 0;
+</I>&gt;<i>         break;
+</I>&gt;<i>
+</I>&gt;<i> ...with the caveat that this would error out if the end of the string is
+</I>&gt;<i> within 16 bytes of the end of memory. Probably a reasonable risk or some
+</I>&gt;<i> code could detect that.
+</I>&gt;<i>
+</I>&gt;<i> John K Peterson
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110316/b08afcab/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110316/b08afcab/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018364.html">[Openocd-development] SYS_WRITE0 PATCH 1 (was Re: SYS_WRITE0 in do_semihosting in arm_semihosting.c broken)
+</A></li>
+	<LI>Next message: <A HREF="018365.html">[Openocd-development] SYS_WRITE0 PATCH 2 (was Re: SYS_WRITE0 in do_semihosting in arm_semihosting.c broken)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18357">[ date ]</a>
+              <a href="thread.html#18357">[ thread ]</a>
+              <a href="subject.html#18357">[ subject ]</a>
+              <a href="author.html#18357">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,117 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] str9xpec: Find flash controller from	the chain.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20str9xpec%3A%20Find%20flash%20controller%20from%0A%09the%20chain.&In-Reply-To=%3C1294924866-6178-1-git-send-email-santeri.salko%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017936.html">
+   <LINK REL="Next"  HREF="017940.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] str9xpec: Find flash controller from	the chain.</H1>
+    <B>Santeri Salko</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20str9xpec%3A%20Find%20flash%20controller%20from%0A%09the%20chain.&In-Reply-To=%3C1294924866-6178-1-git-send-email-santeri.salko%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] str9xpec: Find flash controller from	the chain.">santeri.salko at gmail.com
+       </A><BR>
+    <I>Thu Jan 13 14:21:06 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017936.html">[Openocd-development] include interface configuration first or target configuration first?
+</A></li>
+        <LI>Next message: <A HREF="017940.html">[Openocd-development] [PATCH] str9xpec: Find flash controller from the chain.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17939">[ date ]</a>
+              <a href="thread.html#17939">[ thread ]</a>
+              <a href="subject.html#17939">[ subject ]</a>
+              <a href="author.html#17939">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Find the flash controller by position since it is before the core,
+not after it.
+
+This fixes the problem that str9xpec enable_turbo (or any other 
+str9xpec command) did not work. (See my post in 
+<A HREF="http://forum.sparkfun.com/viewtopic.php?f=18&amp;t=25542">http://forum.sparkfun.com/viewtopic.php?f=18&amp;t=25542</A>)
+
+Signed-off-by: Santeri Salko &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">santeri.salko at gmail.com</A>&gt;
+---
+ src/flash/nor/str9xpec.c |    3 ++-
+ src/jtag/core.c          |    2 +-
+ src/jtag/jtag.h          |    1 +
+ 3 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/flash/nor/str9xpec.c b/src/flash/nor/str9xpec.c
+index 18761c2..c06e6d1 100644
+--- a/src/flash/nor/str9xpec.c
++++ b/src/flash/nor/str9xpec.c
+@@ -306,7 +306,8 @@ FLASH_BANK_COMMAND_HANDLER(str9xpec_flash_bank_command)
+ 	arm7_9 = armv4_5-&gt;arch_info;
+ 	jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+-	str9xpec_info-&gt;tap = bank-&gt;target-&gt;tap;
++	/* The core is the next tap after the flash controller in the chain */
++	str9xpec_info-&gt;tap = jtag_tap_by_position(jtag_info-&gt;tap-&gt;abs_chain_position - 1);
+ 	str9xpec_info-&gt;isc_enable = 0;
+ 
+ 	str9xpec_build_block_list(bank);
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 0c222db..d7e1cce 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -216,7 +216,7 @@ void jtag_tap_add(struct jtag_tap *t)
+ }
+ 
+ /* returns a pointer to the n-th device in the scan chain */
+-static inline struct jtag_tap *jtag_tap_by_position(unsigned n)
++struct jtag_tap *jtag_tap_by_position(unsigned n)
+ {
+ 	struct jtag_tap *t = jtag_all_taps();
+ 
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index df01537..6709cf7 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -173,6 +173,7 @@ struct jtag_tap* jtag_all_taps(void);
+ const char *jtag_tap_name(const struct jtag_tap *tap);
+ struct jtag_tap* jtag_tap_by_string(const char* dotted_name);
+ struct jtag_tap* jtag_tap_by_jim_obj(Jim_Interp* interp, Jim_Obj* obj);
++struct jtag_tap* jtag_tap_by_position(unsigned abs_position);
+ struct jtag_tap* jtag_tap_next_enabled(struct jtag_tap* p);
+ unsigned jtag_tap_count_enabled(void);
+ unsigned jtag_tap_count(void);
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017936.html">[Openocd-development] include interface configuration first or target configuration first?
+</A></li>
+	<LI>Next message: <A HREF="017940.html">[Openocd-development] [PATCH] str9xpec: Find flash controller from the chain.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17939">[ date ]</a>
+              <a href="thread.html#17939">[ thread ]</a>
+              <a href="subject.html#17939">[ subject ]</a>
+              <a href="author.html#17939">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

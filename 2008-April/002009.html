@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] fast enable/disable command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fast%20enable/disable%20command&In-Reply-To=%3C481059AB.90109%40kpatents.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002008.html">
+   <LINK REL="Next"  HREF="001973.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] fast enable/disable command</H1>
+    <B>Ville Voipio</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fast%20enable/disable%20command&In-Reply-To=%3C481059AB.90109%40kpatents.com%3E"
+       TITLE="[Openocd-development] fast enable/disable command">ville.voipio at kpatents.com
+       </A><BR>
+    <I>Thu Apr 24 11:58:03 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002008.html">[Openocd-development] fast enable/disable command
+</A></li>
+        <LI>Next message: <A HREF="001973.html">[Openocd-development] fast enable/disable command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2009">[ date ]</a>
+              <a href="thread.html#2009">[ thread ]</a>
+              <a href="subject.html#2009">[ subject ]</a>
+              <a href="author.html#2009">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> The development RAM may go wrong if any single bit in the JTAG 
+</I>&gt;<i> communication
+</I>&gt;<i> is flipped and there are no means to catch them all.
+</I>
+With any real communication channel (BER &gt; 0), there is a non-zero 
+possibility for an error, no matter what error detection or correction 
+is used. However, if you think of the chain I suggested, the possibility 
+can be pressed very low. (BER is already low with JTAG, and with a 
+decent hash several well-placed errors are required.)
+
+If we think of the possible failure modes:
+
+Error in backing up the memory:
+- no way to catch! (reread helps against random errors)
+
+Error in running JTAG TAP:
+- OpenOCD catches
+
+Error uploading the DCC upload program:
+- Hash catches
+
+DCC comms failure:
+- length check + hash catches
+
+Error in uploading the hash calculation code:
+- Hash is not calculated correctly (hash catches)
+
+Error in setting the watchpoint:
+- Hash checking gets stuck (timeout catch)
+- Hash checking exits early (hash value catches)
+
+Error in restoring the memory:
+- no way to catch (readback helps against random errors)
+
+
+But as you can see, it is extremely unlikely that any JTAG communication 
+error would result in the file to end up in the RAM with any errors of 
+any sort. Almost any random (or non-random) JTAG transfer error will be 
+caught at some point.
+
+If done this way, the DCC transfer will become far more secure than the 
+non-DCC transfer. The only weak points are related to backing up and 
+restoring the scratchpad memory (which isn't always needed).
+
+The price to pay is that the process will take some extra milliseconds 
+for loading things (program code, registers) and around 10 clock cycles 
+per octet to check (if not inlined). Inlining makes the code faster but 
+requires more power from the target and takes some dozens of words space.
+
+And, yes, the same four-word code can be used to check the flash 
+contents (or was there some limitation with watchpoints in flash?).
+
+---
+
+But I do agree that the length check is something that must be done 
+after each and every DCC transfer. Hash calculation and checking should 
+be optional, and it might be beneficial to include that option to 
+&quot;traditional&quot; transfers, as well. They are not prone to missing bytes, 
+but they are at least as prone to single-bit errors in transfer.
+
+Also, the question of inlined hash calculation is a bit tricky. If we
+assume that it takes 50 extra clock cycles per word, that means there 
+has to be at least 60 clocks between DCC transfers. As the highest 
+reasonable DCC speed is below 50 kW/s (10 MHz JTAG), this means the core 
+speed has to be at least 3 MHz. Below that only the rotating sum may 
+succeed.
+
+I'll see if I have the time to write the four words of code, so that the 
+FNV can be checked. Implementing it as an option to the DCC transfer 
+should not be a big deal, but it should ensure that the data is correct 
+in the RAM to a very high degree of reliability.
+
+- Ville
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002008.html">[Openocd-development] fast enable/disable command
+</A></li>
+	<LI>Next message: <A HREF="001973.html">[Openocd-development] fast enable/disable command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2009">[ date ]</a>
+              <a href="thread.html#2009">[ thread ]</a>
+              <a href="subject.html#2009">[ subject ]</a>
+              <a href="author.html#2009">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

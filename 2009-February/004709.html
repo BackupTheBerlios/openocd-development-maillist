@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] reduce compiler warnings
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20reduce%20compiler%20warnings&In-Reply-To=%3C200902171448.51551.hs4233%40mail.mn-solutions.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004708.html">
+   <LINK REL="Next"  HREF="004710.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] reduce compiler warnings</H1>
+    <B>Holger Schurig</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20reduce%20compiler%20warnings&In-Reply-To=%3C200902171448.51551.hs4233%40mail.mn-solutions.de%3E"
+       TITLE="[Openocd-development] [PATCH] reduce compiler warnings">hs4233 at mail.mn-solutions.de
+       </A><BR>
+    <I>Tue Feb 17 14:48:51 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004708.html">[Openocd-development] make &quot;svn st&quot; silent
+</A></li>
+        <LI>Next message: <A HREF="004710.html">[Openocd-development] [PATCH] reduce compiler warnings
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4709">[ date ]</a>
+              <a href="thread.html#4709">[ thread ]</a>
+              <a href="subject.html#4709">[ subject ]</a>
+              <a href="author.html#4709">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This fixes some of the obvious warnings while compiling.
+
+Even after this patch, some warnings stay. I think they
+reveal programming errors:
+
+xscale.c: In function 'xscale_step':
+xscale.c:1464: warning: 'current_pc' is used uninitialized in this function
+
+at91sam7.c: In function 'at91sam7_read_part_info':
+at91sam7.c:327: warning: 'page_size' may be used uninitialized in this function
+at91sam7.c:326: warning: 'pages_per_sector' may be used uninitialized in this function
+at91sam7.c:325: warning: 'sectors_num' may be used uninitialized in this function
+at91sam7.c:324: warning: 'num_nvmbits' may be used uninitialized in this function
+at91sam7.c:323: warning: 'banks_num' may be used uninitialized in this function
+
+If then FLASH_SIZE_8KB case they are uninitialized.
+
+
+str9x.c: In function 'str9x_protect_check':
+str9x.c:214: warning: dereferencing type-punned pointer will break strict-aliasing rules
+str9x.c:239: warning: dereferencing type-punned pointer will break strict-aliasing rules
+
+I don't really know what to make with that warning. Does someone
+actually use the status?  If not, then &quot;u16 status2&quot; and
+&quot;target_read_u16(target, adr, &amp;status))&quot; would help.
+
+
+
+--- openocd.orig/src/flash/pic32mx.c
++++ openocd/src/flash/pic32mx.c
+@@ -268,10 +268,12 @@
+ {
+ 	pic32mx_flash_bank_t *pic32mx_info = NULL;
+ 	target_t *target = bank-&gt;target;
++#if 0
+ 	u16 prot_reg[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+ 	int i, reg, bit;
+ 	int status;
+ 	u32 protection;
++#endif
+ 
+ 	pic32mx_info = bank-&gt;driver_priv;
+ 
+@@ -824,7 +826,9 @@
+ int pic32mx_chip_erase(struct flash_bank_s *bank)
+ {
+ 	target_t *target = bank-&gt;target;
++#if 0
+ 	u32 status;
++#endif
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -865,10 +869,10 @@
+ 
+ int pic32mx_handle_chip_erase_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
++#if 0
+ 	flash_bank_t *bank;
+ 	int i;
+ 
+-#if 0
+ 	if (argc != 0)
+ 	{
+ 		command_print(cmd_ctx, &quot;pic32mx chip_erase&quot;);
+--- openocd.orig/src/helper/jim-eventloop.h
++++ openocd/src/helper/jim-eventloop.h
+@@ -95,17 +95,6 @@
+ #define JIM_GET_API(name) \
+     Jim_GetApi(interp, &quot;Jim_&quot; #name, ((void *)&amp;Jim_ ## name))
+ 
+-#if defined(JIM_EXTENSION) || defined(JIM_EMBEDDED)
+-/* This must be included &quot;inline&quot; inside the extension */
+-static void Jim_ImportEventloopAPI(Jim_Interp *interp)
+-{
+-  JIM_GET_API(CreateFileHandler);
+-  JIM_GET_API(DeleteFileHandler);
+-  JIM_GET_API(CreateTimeHandler);
+-  JIM_GET_API(DeleteTimeHandler);
+-  JIM_GET_API(ProcessEvents);
+-}
+-#endif /* defined JIM_EXTENSION || defined JIM_EMBEDDED */
+ #undef JIM_GET_API
+ #endif /* __JIM_EVENTLOOP_CORE__ */
+ 
+--- openocd.orig/src/server/gdb_server.c
++++ openocd/src/server/gdb_server.c
+@@ -600,7 +600,7 @@
+ 
+ 
+ 
+-		int checksum_ok;
++		int checksum_ok = 0;
+ 		/* explicit code expansion here to get faster inlined code in -O3 by not
+ 		 * calculating checksum
+ 		 */
+--- openocd.orig/src/flash/mflash.c
++++ openocd/src/flash/mflash.c
+@@ -206,31 +206,6 @@
+ 	return mflash_bank-&gt;gpio_drv-&gt;set_gpio_output_val(mflash_bank-&gt;rst_pin, level);
+ }
+ 
+-static int mg_dump_task_reg (void)
+-{
+-	target_t *target = mflash_bank-&gt;target;
+-	u32 address = mflash_bank-&gt;base + MG_REG_OFFSET + MG_REG_ERROR;
+-	u8 value, i;
+-	char *reg_name[9] = {
+-		&quot;error                  &quot;,
+-		&quot;sector count           &quot;,
+-		&quot;sector num (LBA  7- 0) &quot;,
+-		&quot;cyl. low   (LBA 15- 8) &quot;,
+-		&quot;cyl. high  (LBA 23-16) &quot;,
+-		&quot;drv/head               &quot;,
+-		&quot;status                 &quot;,
+-		&quot;dev control            &quot;,
+-		&quot;burst control          &quot;
+-	};
+-
+-	for (i = 0; i &lt; 9; i++) {
+-		target_read_u8(target, address + i * 2, &amp;value);
+-		LOG_INFO(&quot;%s : 0x%2.2x&quot;, reg_name[i], value);
+-	}
+-
+-	return ERROR_OK;
+-
+-}
+ static int mflash_init_gpio (void)
+ {
+ 	mflash_gpio_drv_t *gpio_drv = mflash_bank-&gt;gpio_drv;
+--- openocd.orig/src/target/mips_m4k.c
++++ openocd/src/target/mips_m4k.c
+@@ -93,7 +93,7 @@
+ 
+ int mips_m4k_examine_debug_reason(target_t *target)
+ {
+-	int break_status;
++	u32 break_status;
+ 	int retval;
+ 
+ 	if ((target-&gt;debug_reason != DBG_REASON_DBGRQ)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004708.html">[Openocd-development] make &quot;svn st&quot; silent
+</A></li>
+	<LI>Next message: <A HREF="004710.html">[Openocd-development] [PATCH] reduce compiler warnings
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4709">[ date ]</a>
+              <a href="thread.html#4709">[ thread ]</a>
+              <a href="subject.html#4709">[ subject ]</a>
+              <a href="author.html#4709">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] stm32 primer rlink under ubuntu 8.04
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20stm32%20primer%20rlink%20under%20ubuntu%208.04&In-Reply-To=%3C20090111191354.GJ14266%40gumby.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004369.html">
+   <LINK REL="Next"  HREF="004372.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] stm32 primer rlink under ubuntu 8.04</H1>
+    <B>lou.openocd012 at fixit.nospammail.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20stm32%20primer%20rlink%20under%20ubuntu%208.04&In-Reply-To=%3C20090111191354.GJ14266%40gumby.local%3E"
+       TITLE="[Openocd-development] stm32 primer rlink under ubuntu 8.04">lou.openocd012 at fixit.nospammail.net
+       </A><BR>
+    <I>Sun Jan 11 20:13:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004369.html">[Openocd-development] stm32 primer rlink under ubuntu 8.04
+</A></li>
+        <LI>Next message: <A HREF="004372.html">[Openocd-development] stm32 primer rlink under ubuntu 8.04
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4370">[ date ]</a>
+              <a href="thread.html#4370">[ thread ]</a>
+              <a href="subject.html#4370">[ subject ]</a>
+              <a href="author.html#4370">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, Jan 11, 2009 at 06:31:30PM +0100, J&#246;rg Krein wrote:
+&gt;<i> Hi,
+</I>&gt;<i> yes you were right.
+</I>&gt;<i> I gave it a try with sudo.
+</I>&gt;<i> Emitting a reset command via telnet results in:
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; reset
+</I>&gt;<i> JTAG tap: stm32.cpu tap/device found: 0x3ba00477 (Manufacturer: 0x23b, 
+</I>&gt;<i> Part: 0xba00, Version: 0x3)
+</I>&gt;<i> JTAG Tap/device matched
+</I>&gt;<i> JTAG tap: stm32.bs tap/device found: 0x16410041 (Manufacturer: 0x020, 
+</I>&gt;<i> Part: 0x6410, Version: 0x1)
+</I>&gt;<i> JTAG Tap/device matched
+</I>&gt;<i> rlink/rlink.c, 535: too many retries waiting for DTC status
+</I>
+Odd. That message means that the rlink chip (in the Primer) got set up
+and even ran some DTC command buffers (the scan uses them, and we see
+proper scan results there).  The message, itself, means that a DTC
+command was issued, and the polling for completion even worked, but the
+status never became complete after 5 polls.
+
+DTC commands are how the rlink is told to do something with the JTAG
+lines.  A command packet is written to a USB endpoint, and commands are
+issued on another endpoint pair to query completion status.
+
+Does this happen every time you run it?  If so, in the same place (after
+the reset)?  The answer to this predicates everything below to some
+extent.  I've seen this error during development, and running it again has
+always cleared it up, except when it was due to buggy DTC code.  I haven't
+seen it in a long time.
+
+If it does happen every time;
+what if you look at src/jtag/rlink/rlink.c at around line 511 where it
+says &quot;for(i = 5;;)&quot; and change the 5 to a larger number?  You should be
+able to make it arbitrarily large, as doing so just means that it will
+take longer to get this timeout error.  If setting it to, say, 10 (or
+100 or whatever), clears up your problem, we can change it in svn.  I
+put 5 there, as I never seemed to need more than 3 on my (Ububntu) system.
+
+That test just wonders whether your kernel or USB host driver is
+managing to cram more bulk packet reads into a 1ms frame than mine is.
+Though how it could do that, I don't know, since it has to get a result
+before it issues the next poll.
+That polling loop assumes there'll be a millisecond or so between polls,
+so it doesn't insert its own delay.  Usually, the poll will indicate
+completion pretty darn soon.
+
+Are you running through any hubs?  I am running through an unpowered USB
+1 hub just fine.
+
+&gt;<i> 
+</I>&gt;<i> Maybe I used the wrong board config?
+</I>&gt;<i> I started with:
+</I>&gt;<i> openocd -f interface/rlink.cfg -f 
+</I>&gt;<i> /usr/local/lib/openocd/board/stm32f10x_128k_eval.cfg
+</I>
+I tested with that exact command line and got the following.
+
+JTAG tap: stm32.cpu tap/device found: 0x3ba00477 (Manufacturer: 0x23b,
+Part: 0xba00, Version: 0x3)
+JTAG Tap/device matched
+JTAG tap: stm32.bs tap/device found: 0x16410041 (Manufacturer: 0x020,
+Part: 0x6410, Version: 0x1)
+JTAG Tap/device matched
+target state: halted
+target halted due to undefined, current mode: Handler HardFault
+xPSR: 0x01000003 pc: 0xfffffffe
+
+Now what I don't know is whether that is the desired result (my target
+is not running actual code).  But it is certainly different from yours.
+
+&gt;<i> Is there a special config for the Primer 1?
+</I>&gt;<i> I not yet used with the new config system.
+</I>
+I've been using something very similar.
+In fact, if you remove the &quot;/usr/local/lib/openocd/&quot; from the second
+config file path in your example, it is identical.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004369.html">[Openocd-development] stm32 primer rlink under ubuntu 8.04
+</A></li>
+	<LI>Next message: <A HREF="004372.html">[Openocd-development] stm32 primer rlink under ubuntu 8.04
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4370">[ date ]</a>
+              <a href="thread.html#4370">[ thread ]</a>
+              <a href="subject.html#4370">[ subject ]</a>
+              <a href="author.html#4370">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

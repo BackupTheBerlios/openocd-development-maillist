@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Improving flash error handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Improving%20flash%20error%20handling&In-Reply-To=%3Cc09652430802250400j5c002f12rfde06a4583cada0a%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001090.html">
+   <LINK REL="Next"  HREF="001095.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Improving flash error handling</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Improving%20flash%20error%20handling&In-Reply-To=%3Cc09652430802250400j5c002f12rfde06a4583cada0a%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Improving flash error handling">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Feb 25 13:00:57 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001090.html">[Openocd-development] Improving flash error handling
+</A></li>
+        <LI>Next message: <A HREF="001095.html">[Openocd-development] Improving flash error handling - comments needed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1092">[ date ]</a>
+              <a href="thread.html#1092">[ thread ]</a>
+              <a href="subject.html#1092">[ subject ]</a>
+              <a href="author.html#1092">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, Feb 25, 2008 at 12:41 PM, Pavel Chromy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chromy at asix.cz</A>&gt; wrote:
+&gt;<i>
+</I>&gt;<i>  Hello &#216;yvind,
+</I>&gt;<i>
+</I>&gt;<i>  &#216;yvind Harboe napsal(a):
+</I>&gt;<i>
+</I>&gt;<i> &gt;&gt;  The wafer layer is good in that it makes flash drivers more consistent,
+</I>&gt;<i>  &gt;&gt;  however, it weakens polymorphism and I don't think it is good idea to
+</I>&gt;<i>  &gt;&gt;  &quot;solve&quot; this by adding another polymorphic functions - what benefit
+</I>&gt;<i>  &gt;&gt; would this bring?
+</I>&gt;<i>  &gt;
+</I>&gt;<i>  &gt; Having two such layers and allowing the flash driver to override as
+</I>&gt;<i>  &gt; high up as it needs, is perfectly straighftforward polymorphism. In
+</I>&gt;<i>  &gt; fact it's precisely how polymorphism is intended to be used. I
+</I>&gt;<i>  &gt; don't see an issue.
+</I>&gt;<i>  &gt;
+</I>&gt;<i>  &gt;&gt;  Would not it be better if flash driver functions include a single line something like
+</I>&gt;<i>  &gt;&gt;  if (flash_check_halted(...)!=ERROR_OK) return ...;
+</I>&gt;<i>  &gt;&gt;  when desired? No extra polymorphism needed, just make the &quot;halted check&quot; centralized.
+</I>&gt;<i>  &gt;
+</I>&gt;<i>  &gt; Why are you trying to get rid of the polymorphism?
+</I>&gt;<i>
+</I>&gt;<i>  Because I believe that it is generally not a good idea to use polymorphism more than really
+</I>&gt;<i>  needed - just because of a single check for target halted. This makes flash driver API
+</I>&gt;<i>  more complex than necessary, combined with weak documentation and quick development,
+</I>&gt;<i>  this is a way to hell.
+</I>
+I don't see it that way. Adding this layer of polymorphism addresses the issues
+raised and it doesn't add any overwhelming complexity. In fact it makes the
+interface and code straightforward while allowing for the driver to do things
+it's way.
+
+OpenOCD doesn't use C/C++ w/virtual methods, purely abstract
+classes(interfaces),
+exceptions, etc. So things that *need* the same concepts,
+do look a bit odd when expressed in OpenOCD C speak.
+
+&gt;<i>  Moreover the things which belong together shall stay together, that is, if the operation
+</I>&gt;<i>  desires certain conditions which might not be always satisfied it shall check about that itself
+</I>&gt;<i>  so that it is clear what it does. Call to subroutine is more clear here rather that hiding this in the upper layer.
+</I>
+You're trying to avoid polymorphism as if it was a bad thing. This
+adds complexity
+for no tangible benefit that I've seen.
+
+&gt;<i>  Yes, but at cost of unnecessarily more complex API, just for 5 lines of common code.
+</I>&gt;<i>  Counterargument - what benefits brings it over the lightweight approach of calling subroutine in this particular case?
+</I>&gt;<i>  Will it be good for anything different than &quot;target halted&quot; check?
+</I>
+Yes. Today all the drivers are implemented correctly w/the flash_driver_xxx()
+frontend.
+
+There is *one* driver so far(not yet committed ;-), that needs a different
+solution than the others. I suggest adding flash_driver_xxx() to the
+polymorphism to allow the odd drivers to do things differently if they need to.
+
+None of the existing drivers are affected, nor is code outside flash.c
+
+&gt;<i>  The discussion is about whether we do (call graph):
+</I>&gt;<i>  1) driver_write =&gt; write =&gt; write_bottom (actual write done in &quot;write_bottom&quot;)
+</I>&gt;<i>  2) driver_write =&gt; write =&gt; check_halted_or_whatever_first (actual write done in &quot;write&quot;)
+</I>&gt;<i>
+</I>&gt;<i>  In fact, only a single function will be useful as public - that is &quot;write&quot;
+</I>&gt;<i>  It is all hidden in the driver private layer anyway, so why shall we dictate the driver to use
+</I>&gt;<i>  one more function pointer to do it's stuff?
+</I>
+In any normal polymorphism implementation, this would be handled by defining an
+interface and then one or more base classes that implement that
+interface which drivers
+can subclass to implement the flash driver interface.
+
+However, OpenOCD isn't C/C++ and of the top of my head,  I don't have any
+better alternative to emulating interface+base class than what's
+described above.
+
+&gt;<i>  Sorry I am still not convinced - I don't like the idea at all.
+</I>&gt;<i>  This is not object oriented programming, we are using C, which is about structured programming.
+</I>&gt;<i>  Trying to use OOP implementation techniques (build program skeleton by object hierarchy
+</I>&gt;<i>  instead of soubroutines) is not good, despite it could technically be done.
+</I>
+My thinking is that OpenOCD is in agony over not having object
+oriented programming w/interfaces, exceptions, etc. in a number of
+places besides flash drivers. For now we have to make do without
+and OpenOCD *already* has lots of code that more or less successfully
+emulates oo concepts.
+
+Perhaps OpenOCD *should* switch to *sensible* use of C/C++,
+or perhaps staying in C is better w.r.t. the embedded audience.
+
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA  developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001090.html">[Openocd-development] Improving flash error handling
+</A></li>
+	<LI>Next message: <A HREF="001095.html">[Openocd-development] Improving flash error handling - comments needed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1092">[ date ]</a>
+              <a href="thread.html#1092">[ thread ]</a>
+              <a href="subject.html#1092">[ subject ]</a>
+              <a href="author.html#1092">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

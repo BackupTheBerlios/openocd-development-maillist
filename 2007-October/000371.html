@@ -1,0 +1,247 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Verify patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Verify%20patch&In-Reply-To=%3C470BD9E1.6030608%40m4x.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000370.html">
+   <LINK REL="Next"  HREF="000372.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Verify patch</H1>
+    <B>Vincent Palatin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Verify%20patch&In-Reply-To=%3C470BD9E1.6030608%40m4x.org%3E"
+       TITLE="[Openocd-development] Verify patch">vincent.palatin_openocd at m4x.org
+       </A><BR>
+    <I>Tue Oct  9 21:43:29 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000370.html">[Openocd-development] Verify patch
+</A></li>
+        <LI>Next message: <A HREF="000372.html">[Openocd-development] Verify patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#371">[ date ]</a>
+              <a href="thread.html#371">[ thread ]</a>
+              <a href="subject.html#371">[ subject ]</a>
+              <a href="author.html#371">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE> &gt; Find attached a verify patch for review.
+ &gt; Simply adds a new command verify_image that performs a crc32 on a memory
+ &gt; area and compares against a image file crc32.
+[...]
+ &gt; Let me know your thoughts?
+
+Thanks for the patch !
+A few random remarks (mainly cosmetics/details) :
+
+ &gt; +++ src/target/arm7_9_common.c	(working copy)
+[...]
+ &gt; +int arm7_9_checksum_memory(struct target_s *target, u32 address, u32 
+ &gt; count, u32* checksum)
+ &gt; +{
+ &gt; +	working_area_t *crc_algorithm;
+ &gt; +	armv4_5_algorithm_t armv4_5_info;
+ &gt; +	reg_param_t reg_params[2];
+ &gt; +	int retval;
+ &gt; +	
+ &gt; +	u32 arm7_9_crc_code[] = {
+[...]
+ &gt; +		0xE1A02000,		/* mov		r2, r0 */
+ &gt; +		0x1AFFFFF8,		/* bne		loop */
+ &gt; +		0xE12FFF1E,		/* bx		lr */
+
+at first sight, I had doubts when I saw &quot;bx lr&quot; in arm7_9_common.c.
+After deeper &quot;review&quot; , BX LR is available in all ARMv4t and v5 cores, 
+so the only ARM7 without this instruction are the first ones ( 
+ARM700,ARM7x00 ) with ARMv3 ISA  and those cores are not supported by 
+openocd (and rather deprecated), so it is probably acceptable as is.
+
+ &gt; +	u8 arm7_9_crc_code_buf[23 * 4];
+ &gt; +	
+ &gt; +	if (target_alloc_working_area(target, 23 * 4, &amp;crc_algorithm) != &gt; 
+  ERROR_OK)
+
+May be we should avoid the magic integer 23 here (else it is bug prone 
+when the next developper will modify arm code and forget to replace one 
+of the constant)
+Why not replacing &quot;2&quot;*4&quot; by &quot;sizeof(arm7_9_crc_code)&quot; ?
+
+Less important: for host systems which don't really like unaligned 
+accesses (ARM,MIPS ... everything excepted x86), we would rather avoid 
+u8 array and replace it by u32 array
+
+ &gt; +/* convert flash writing code into a buffer in target endianness */
+ &gt; +for (i = 0; i &lt; 23; i++)
+
+Same remark as above, IMHO   &quot;for (i = 0; i &lt; 
+sizeof(arm7_9_crc_code)/sizeof(u32); i++)&quot; would be better
+
+ &gt; + target_buffer_set_u32(target, arm7_9_crc_code_buf + i*4,
+ &gt;   arm7_9_crc_code[i]);
+ &gt; +			
+ &gt; +target_write_buffer(target, crc_algorithm-&gt;address, 23 * 4,
+ &gt;  arm7_9_crc_code_buf);
+
+Since the chunk of code is small (less than 128 bytes), the previous 
+code is equivalent to the simpler :
+for (i = 0; i &lt; sizeof(arm7_9_crc_code)/sizeof(u32); i++)
+   target_write_u32(target,crc_algorithm-&gt;address + i*4 , 
+arm7_9_crc_code[i] );
+
+(and we can get ride of arm7_9_crc_code_buf)
+
+But we raise a minor coherency issue in openocd API :
+  all target_write_XXX functions are endianess safe excepted 
+target_write_buffer : do we really want this behaviour ?
+
+ &gt; +	if ((retval = target-&gt;type-&gt;run_algorithm(target, 0, NULL, 2, 
+reg_params,
+ &gt; +		crc_algorithm-&gt;address, crc_algorithm-&gt;address + (10 * 4), 20000, 
+&amp;armv4_5_info)) != ERROR_OK)
+
+I don't know the rationale about timeout_ms constant, but it is probably 
+board / memory dependant (wait cycle and so on ...), we should probably 
+find a better way to express it (sthg such as &quot;count * MAGIC_CYCLE_TIMING&quot;)
+
+10*4 is a bit ugly  ...
+
+ &gt; +	
+ &gt; +	*checksum = buf_get_u32(reg_params[0].value, 0, 32);
+ &gt; +
+
+In case of endianess difference between host and target, is this really 
+safe ?
+(isn't the checksum verification going to fail ?)
+
+ &gt; +++ src/target/image.c	(working copy)
+[...]
+ &gt; +u32 crc32(u32 crc, u8 c)
+ &gt; +{
+ &gt; +	int i;
+ &gt; +	
+ &gt; +	crc ^= c;
+ &gt; +	for( i = 0;i &lt; 8;i++ )
+ &gt; +	{
+ &gt; +		if( crc &amp; 1 )
+ &gt; +			crc = ( crc &gt;&gt; 1 ) ^ 0xEDB88320L;
+ &gt; +		else
+ &gt; +			crc &gt;&gt;= 1;
+ &gt; +	}
+ &gt; +	return crc;
+ &gt; +}
+
+May be for host side, we could use a faster table-based CRC32 computation.
+(I have several OSS friendly implementation if you want)
+
+ &gt; +++ src/target/target.c	(working copy)
+[...]
+ &gt; +int handle_verify_image_command(struct command_context_s *cmd_ctx, 
+char *cmd, char **args, int argc)
+ &gt; +{
+[...]
+ &gt; +	if (argc &lt; 1)
+ &gt; +	{
+ &gt; +		command_print(cmd_ctx, &quot;usage: verify_image &lt;file&gt; [offset] [type]&quot;);
+ &gt; +		return ERROR_OK;
+ &gt; +	}
+[...]
+ &gt; +	if (image_open(&amp;image, args[0], (argc == 4) ? args[2] : NULL) != 
+ERROR_OK)
+
+AFAIK, contrary to executable arguments, in openocd argc is the actual 
+number of parameters (not plus one).
+it should probably be (argc == 3 ) instead of (argc == 4)
+
+ &gt; + /* calculate checksum of image */
+ &gt; + image_calculate_checksum( buffer, buf_cnt, &amp;checksum );
+ &gt; +		
+ &gt; + if ((retval = target-&gt;type-&gt;checksum_memory(target,
+ &gt; image.sections[i].base_address,
+ &gt; +			buf_cnt, &amp;mem_checksum)) == ERROR_TARGET_RESOURCE_NOT_AVAILABLE)
+ &gt; +		{
+ &gt; +			target_read_buffer(target, image.sections[i].base_address, 
+buf_cnt, buffer);
+ &gt; +			retval = image_calculate_checksum( buffer, buf_cnt, &amp;mem_checksum );
+ &gt; +		}
+
+In the case that we are forced to copy the whole section data to host, 
+it might be better to do a full data comparison instead of comparing the 
+CRC32 : it would be a little bit faster (even with fast CRC32 
+computation) and would allow to detect a few really tricky cases (bit 
+inversions ...). We could even let the choice to the user to do full 
+compare at the expense of speed (of course he can simply disable the 
+working_area if he knows the current implementation)
+
+Another possible enhancement would be to optionally compare only 
+read-only sections for image file with section permissions (such as 
+ELF), this allows to test code corruption after having run an embedded 
+program which updates its static variables.
+
+ &gt; +++ src/target/trace.h	(working copy)
+ &gt; @@ -21,6 +21,8 @@
+ &gt; #define TRACE_H
+ &gt;
+ &gt;  #include &quot;target.h&quot;
+ &gt; +#include &quot;command.h&quot;
+ &gt; +#include &quot;types.h&quot;
+ &gt;
+ &gt;  typedef struct trace_point_s
+ &gt;  {
+ &gt; @@ -49,6 +51,7 @@
+ &gt;  } trace_status_t;
+ &gt;
+ &gt;  extern int trace_point(struct target_s *target, int number);
+ &gt;+extern int trace_register_commands(struct command_context_s *cmd_ctx);
+
+What is the rationale of this change ?
+(probably some other patch mixed in)
+
+ &gt; +++ src/target/xscale.c	(working copy)
+ &gt; [...]
+ &gt; +int xscale_checksum_memory(struct target_s *target, u32 address, u32 
+count, u32* checksum)
+ &gt; +{
+ &gt; +	return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ &gt; +}
+
+I'm not an Xscale expert, but AFAIK PXA are compatible with the ARMv5 
+subset used in your embedded algorithm,
+may be some happy xscale owner can confirm ?
+
+--
+Vincent
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000370.html">[Openocd-development] Verify patch
+</A></li>
+	<LI>Next message: <A HREF="000372.html">[Openocd-development] Verify patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#371">[ date ]</a>
+              <a href="thread.html#371">[ thread ]</a>
+              <a href="subject.html#371">[ subject ]</a>
+              <a href="author.html#371">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

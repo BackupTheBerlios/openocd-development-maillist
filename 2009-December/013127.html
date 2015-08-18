@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/3] command: the Jim interpreter can now be provided rather than created
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20command%3A%20the%20Jim%20interpreter%0A%20can%20now%20be%20provided%20rather%20than%20created&In-Reply-To=%3C1259654853.10374.1970.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013124.html">
+   <LINK REL="Next"  HREF="013128.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/3] command: the Jim interpreter can now be provided rather than created</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20command%3A%20the%20Jim%20interpreter%0A%20can%20now%20be%20provided%20rather%20than%20created&In-Reply-To=%3C1259654853.10374.1970.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH 1/3] command: the Jim interpreter can now be provided rather than created">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Dec  1 09:07:33 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013124.html">[Openocd-development] [PATCH 1/3] command: the Jim interpreter	can now be provided rather than created
+</A></li>
+        <LI>Next message: <A HREF="013128.html">[Openocd-development] [PATCH 1/3] command: the Jim interpreter	can now be provided rather than created
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13127">[ date ]</a>
+              <a href="thread.html#13127">[ thread ]</a>
+              <a href="subject.html#13127">[ subject ]</a>
+              <a href="author.html#13127">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Only one minor suggested improvement, below.  Otherwise, these both look
+okay to me.
+
+On Tue, 2009-12-01 at 08:48 +0100, &#216;yvind Harboe wrote:
+&gt;<i> In embedded hosts, the Jim interpreter can come from the
+</I>&gt;<i> existing context rather than be created by OpenOCD.
+</I>&gt;<i> 
+</I>&gt;<i> Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+</I>&gt;<i> ---
+</I>&gt;<i>  src/helper/command.c |   18 +++++++++++-------
+</I>&gt;<i>  src/helper/command.h |    6 ++++--
+</I>&gt;<i>  src/openocd.c        |    6 +++---
+</I>&gt;<i>  3 files changed, 18 insertions(+), 12 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> diff --git a/src/helper/command.c b/src/helper/command.c
+</I>&gt;<i> index dcad6a1..d657668 100644
+</I>&gt;<i> --- a/src/helper/command.c
+</I>&gt;<i> +++ b/src/helper/command.c
+</I>&gt;<i> @@ -1272,7 +1272,7 @@ static const struct command_registration command_builtin_handlers[] = {
+</I>&gt;<i>  	COMMAND_REGISTRATION_DONE
+</I>&gt;<i>  };
+</I>&gt;<i>  
+</I>&gt;<i> -struct command_context* command_init(const char *startup_tcl)
+</I>&gt;<i> +struct command_context* command_init(const char *startup_tcl, Jim_Interp *interp)
+</I>&gt;<i>  {
+</I>&gt;<i>  	struct command_context* context = malloc(sizeof(struct command_context));
+</I>&gt;<i>  	const char *HostOs;
+</I>&gt;<i> @@ -1284,14 +1284,18 @@ struct command_context* command_init(const char *startup_tcl)
+</I>&gt;<i>  	context-&gt;output_handler_priv = NULL;
+</I>&gt;<i>  
+</I>&gt;<i>  #if !BUILD_ECOSBOARD
+</I>
+It is now safe to kill this #if logic too.  It's like a bonus prize. ;)
+
+&gt;<i> -	Jim_InitEmbedded();
+</I>&gt;<i> -	/* Create an interpreter */
+</I>&gt;<i> -	context-&gt;interp = Jim_CreateInterp();
+</I>&gt;<i> -	/* Add all the Jim core commands */
+</I>&gt;<i> -	Jim_RegisterCoreCommands(context-&gt;interp);
+</I>&gt;<i> +	/* Create a jim interpreter if we were not handed one */
+</I>&gt;<i> +	if (interp == NULL)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		Jim_InitEmbedded();
+</I>&gt;<i> +		/* Create an interpreter */
+</I>&gt;<i> +		interp = Jim_CreateInterp();
+</I>&gt;<i> +		/* Add all the Jim core commands */
+</I>&gt;<i> +		Jim_RegisterCoreCommands(interp);
+</I>&gt;<i> +	}
+</I>&gt;<i>  #endif
+</I>&gt;<i> +	context-&gt;interp = interp;
+</I>&gt;<i>  
+</I>&gt;<i> -	Jim_Interp *interp = context-&gt;interp;
+</I>&gt;<i>  #if defined(_MSC_VER)
+</I>&gt;<i>  	/* WinXX - is generic, the forward
+</I>&gt;<i>  	 * looking problem is this:
+</I>&gt;<i> diff --git a/src/helper/command.h b/src/helper/command.h
+</I>&gt;<i> index 611db87..8d68c18 100644
+</I>&gt;<i> --- a/src/helper/command.h
+</I>&gt;<i> +++ b/src/helper/command.h
+</I>&gt;<i> @@ -323,9 +323,11 @@ void command_set_output_handler(struct command_context* context,
+</I>&gt;<i>  int command_context_mode(struct command_context *context, enum command_mode mode);
+</I>&gt;<i>  
+</I>&gt;<i>  /**
+</I>&gt;<i> - * Creates a new command context using the startup TCL provided.
+</I>&gt;<i> + * Creates a new command context using the startup TCL provided and
+</I>&gt;<i> + * the existing Jim interpreter, if any. If interp == NULL, then command_init
+</I>&gt;<i> + * creates a command interpreter.
+</I>&gt;<i>   */
+</I>&gt;<i> -struct command_context* command_init(const char *startup_tcl);
+</I>&gt;<i> +struct command_context* command_init(const char *startup_tcl, Jim_Interp *interp);
+</I>&gt;<i>  /**
+</I>&gt;<i>   * Creates a copy of an existing command context.  This does not create
+</I>&gt;<i>   * a deep copy of the command list, so modifications in one context will
+</I>&gt;<i> diff --git a/src/openocd.c b/src/openocd.c
+</I>&gt;<i> index 22d4582..44e0292 100644
+</I>&gt;<i> --- a/src/openocd.c
+</I>&gt;<i> +++ b/src/openocd.c
+</I>&gt;<i> @@ -188,14 +188,14 @@ static const struct command_registration openocd_command_handlers[] = {
+</I>&gt;<i>  struct command_context *global_cmd_ctx;
+</I>&gt;<i>  
+</I>&gt;<i>  /* NB! this fn can be invoked outside this file for non PC hosted builds */
+</I>&gt;<i> -struct command_context *setup_command_handler(void)
+</I>&gt;<i> +struct command_context *setup_command_handler(Jim_Interp *interp)
+</I>&gt;<i>  {
+</I>&gt;<i>  	log_init();
+</I>&gt;<i>  	LOG_DEBUG(&quot;log_init: complete&quot;);
+</I>&gt;<i>  
+</I>&gt;<i>  	struct command_context *cmd_ctx;
+</I>&gt;<i>  
+</I>&gt;<i> -	global_cmd_ctx = cmd_ctx = command_init(openocd_startup_tcl);
+</I>&gt;<i> +	global_cmd_ctx = cmd_ctx = command_init(openocd_startup_tcl, interp);
+</I>&gt;<i>  
+</I>&gt;<i>  	register_commands(cmd_ctx, NULL, openocd_command_handlers);
+</I>&gt;<i>  	/* register subsystem commands */
+</I>&gt;<i> @@ -242,7 +242,7 @@ int openocd_main(int argc, char *argv[])
+</I>&gt;<i>  	/* initialize commandline interface */
+</I>&gt;<i>  	struct command_context *cmd_ctx;
+</I>&gt;<i>  
+</I>&gt;<i> -	cmd_ctx = setup_command_handler();
+</I>&gt;<i> +	cmd_ctx = setup_command_handler(NULL);
+</I>&gt;<i>  
+</I>&gt;<i>  #if BUILD_IOUTIL
+</I>&gt;<i>  	if (ioutil_init(cmd_ctx) != ERROR_OK)
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013124.html">[Openocd-development] [PATCH 1/3] command: the Jim interpreter	can now be provided rather than created
+</A></li>
+	<LI>Next message: <A HREF="013128.html">[Openocd-development] [PATCH 1/3] command: the Jim interpreter	can now be provided rather than created
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13127">[ date ]</a>
+              <a href="thread.html#13127">[ thread ]</a>
+              <a href="subject.html#13127">[ subject ]</a>
+              <a href="author.html#13127">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

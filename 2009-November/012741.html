@@ -1,0 +1,265 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 5/7] ARM11: use standard	run_algorithm()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%205/7%5D%20ARM11%3A%20use%20standard%0A%09run_algorithm%28%29&In-Reply-To=%3C200911231500.48246.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012740.html">
+   <LINK REL="Next"  HREF="012757.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 5/7] ARM11: use standard	run_algorithm()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%205/7%5D%20ARM11%3A%20use%20standard%0A%09run_algorithm%28%29&In-Reply-To=%3C200911231500.48246.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 5/7] ARM11: use standard	run_algorithm()">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Nov 24 00:00:48 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012740.html">[Openocd-development] [patch 4/7] ARM11: use standard single step	simulation
+</A></li>
+        <LI>Next message: <A HREF="012757.html">[Openocd-development] [patch 5/7] ARM11: use standard	run_algorithm()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12741">[ date ]</a>
+              <a href="thread.html#12741">[ thread ]</a>
+              <a href="subject.html#12741">[ subject ]</a>
+              <a href="author.html#12741">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>As with single stepping, the previous stuff was needed because
+the ARM11 code wasn't using the standard ARM base type and
+register access ... but now those mechanisms work, so we can
+switch out that special-purpose glue, in favor of the more
+thoroughly tested/capable &quot;standard&quot; code.
+
+This should resolve the &quot;FIXME&quot; comments too, for Thumb and
+processor mode support.  It also gets rid of a nasty exit()
+call; servers shouldn't only have *clean* shutdown paths.
+---
+NOTE:  this is partially broken, it seems to cause some
+other bug(s) to fire.  Not sure what's up with that, yet.
+
+ src/target/arm11.c |  172 ---------------------------------------------------
+ 1 file changed, 1 insertion(+), 171 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1372,176 +1372,6 @@ static int arm11_remove_watchpoint(struc
+ 	return ERROR_FAIL;
+ }
+ 
+-// HACKHACKHACK - FIXME mode/state
+-/* target algorithm support */
+-static int arm11_run_algorithm(struct target *target,
+-		int num_mem_params, struct mem_param *mem_params,
+-		int num_reg_params, struct reg_param *reg_params,
+-		uint32_t entry_point, uint32_t exit_point,
+-		int timeout_ms, void *arch_info)
+-{
+-	struct arm11_common *arm11 = target_to_arm11(target);
+-//	enum armv4_5_state core_state = arm11-&gt;core_state;
+-//	enum armv4_5_mode core_mode = arm11-&gt;core_mode;
+-	uint32_t context[16];
+-	uint32_t cpsr;
+-	int exit_breakpoint_size = 0;
+-	int retval = ERROR_OK;
+-		LOG_DEBUG(&quot;Running algorithm&quot;);
+-
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+-	// FIXME
+-//	if (!is_arm_mode(arm11-&gt;core_mode))
+-//		return ERROR_FAIL;
+-
+-	// Save regs
+-	for (unsigned i = 0; i &lt; 16; i++)
+-	{
+-		context[i] = buf_get_u32((uint8_t*)(&amp;arm11-&gt;reg_values[i]),0,32);
+-		LOG_DEBUG(&quot;Save %u: 0x%&quot; PRIx32 &quot;&quot;, i, context[i]);
+-	}
+-
+-	cpsr = buf_get_u32((uint8_t*)(arm11-&gt;reg_values + ARM11_RC_CPSR),0,32);
+-	LOG_DEBUG(&quot;Save CPSR: 0x%&quot; PRIx32 &quot;&quot;, cpsr);
+-
+-	for (int i = 0; i &lt; num_mem_params; i++)
+-	{
+-		target_write_buffer(target, mem_params[i].address, mem_params[i].size, mem_params[i].value);
+-	}
+-
+-	// Set register parameters
+-	for (int i = 0; i &lt; num_reg_params; i++)
+-	{
+-		struct reg *reg = register_get_by_name(arm11-&gt;core_cache, reg_params[i].reg_name, 0);
+-		if (!reg)
+-		{
+-			LOG_ERROR(&quot;BUG: register '%s' not found&quot;, reg_params[i].reg_name);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-
+-		if (reg-&gt;size != reg_params[i].size)
+-		{
+-			LOG_ERROR(&quot;BUG: register '%s' size doesn't match reg_params[i].size&quot;, reg_params[i].reg_name);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-		arm11_set_reg(reg,reg_params[i].value);
+-//		printf(&quot;%i: Set %s =%08x\n&quot;, i, reg_params[i].reg_name,val);
+-	}
+-
+-	exit_breakpoint_size = 4;
+-
+-/*	arm11-&gt;core_state = arm11_algorithm_info-&gt;core_state;
+-	if (arm11-&gt;core_state == ARMV4_5_STATE_ARM)
+-				exit_breakpoint_size = 4;
+-	else if (arm11-&gt;core_state == ARMV4_5_STATE_THUMB)
+-		exit_breakpoint_size = 2;
+-	else
+-	{
+-		LOG_ERROR(&quot;BUG: can't execute algorithms when not in ARM or Thumb state&quot;);
+-		exit(-1);
+-	}
+-*/
+-
+-
+-/* arm11 at this point only supports ARM not THUMB mode
+-   however if this test needs to be reactivated the current state can be read back
+-   from CPSR */
+-#if 0
+-	if (arm11_algorithm_info-&gt;core_mode != ARMV4_5_MODE_ANY)
+-	{
+-		LOG_DEBUG(&quot;setting core_mode: 0x%2.2x&quot;, arm11_algorithm_info-&gt;core_mode);
+-		buf_set_u32(arm11-&gt;reg_list[ARM11_RC_CPSR].value, 0, 5, arm11_algorithm_info-&gt;core_mode);
+-		arm11-&gt;reg_list[ARM11_RC_CPSR].dirty = 1;
+-		arm11-&gt;reg_list[ARM11_RC_CPSR].valid = 1;
+-	}
+-#endif
+-
+-	if ((retval = breakpoint_add(target, exit_point, exit_breakpoint_size, BKPT_HARD)) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;can't add breakpoint to finish algorithm execution&quot;);
+-		retval = ERROR_TARGET_FAILURE;
+-		goto restore;
+-	}
+-
+-	// no debug, otherwise breakpoint is not set
+-	CHECK_RETVAL(target_resume(target, 0, entry_point, 1, 0));
+-
+-	CHECK_RETVAL(target_wait_state(target, TARGET_HALTED, timeout_ms));
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		CHECK_RETVAL(target_halt(target));
+-
+-		CHECK_RETVAL(target_wait_state(target, TARGET_HALTED, 500));
+-
+-		retval = ERROR_TARGET_TIMEOUT;
+-
+-		goto del_breakpoint;
+-	}
+-
+-	if (buf_get_u32(arm11-&gt;reg_list[15].value, 0, 32) != exit_point)
+-	{
+-		LOG_WARNING(&quot;target reentered debug state, but not at the desired exit point: 0x%4.4&quot; PRIx32 &quot;&quot;,
+-			buf_get_u32(arm11-&gt;reg_list[15].value, 0, 32));
+-		retval = ERROR_TARGET_TIMEOUT;
+-		goto del_breakpoint;
+-	}
+-
+-	for (int i = 0; i &lt; num_mem_params; i++)
+-	{
+-		if (mem_params[i].direction != PARAM_OUT)
+-			target_read_buffer(target, mem_params[i].address, mem_params[i].size, mem_params[i].value);
+-	}
+-
+-	for (int i = 0; i &lt; num_reg_params; i++)
+-	{
+-		if (reg_params[i].direction != PARAM_OUT)
+-		{
+-			struct reg *reg = register_get_by_name(arm11-&gt;core_cache, reg_params[i].reg_name, 0);
+-			if (!reg)
+-			{
+-				LOG_ERROR(&quot;BUG: register '%s' not found&quot;, reg_params[i].reg_name);
+-				retval = ERROR_INVALID_ARGUMENTS;
+-				goto del_breakpoint;
+-			}
+-
+-			if (reg-&gt;size != reg_params[i].size)
+-			{
+-				LOG_ERROR(&quot;BUG: register '%s' size doesn't match reg_params[i].size&quot;, reg_params[i].reg_name);
+-				retval = ERROR_INVALID_ARGUMENTS;
+-				goto del_breakpoint;
+-			}
+-
+-			buf_set_u32(reg_params[i].value, 0, 32, buf_get_u32(reg-&gt;value, 0, 32));
+-		}
+-	}
+-
+-del_breakpoint:
+-	breakpoint_remove(target, exit_point);
+-
+-restore:
+-	// Restore context
+-	for (size_t i = 0; i &lt; 16; i++)
+-	{
+-		LOG_DEBUG(&quot;restoring register %s with value 0x%8.8&quot; PRIx32 &quot;&quot;,
+-			 arm11-&gt;reg_list[i].name, context[i]);
+-		arm11_set_reg(&amp;arm11-&gt;reg_list[i], (uint8_t*)&amp;context[i]);
+-	}
+-	LOG_DEBUG(&quot;restoring CPSR with value 0x%8.8&quot; PRIx32 &quot;&quot;, cpsr);
+-	arm11_set_reg(&amp;arm11-&gt;reg_list[ARM11_RC_CPSR], (uint8_t*)&amp;cpsr);
+-
+-//	arm11-&gt;core_state = core_state;
+-//	arm11-&gt;core_mode = core_mode;
+-
+-	return retval;
+-}
+-
+ static int arm11_target_create(struct target *target, Jim_Interp *interp)
+ {
+ 	struct arm11_common *arm11;
+@@ -1972,7 +1802,7 @@ struct target_type arm11_target = {
+ 	.add_watchpoint =	arm11_add_watchpoint,
+ 	.remove_watchpoint =	arm11_remove_watchpoint,
+ 
+-	.run_algorithm =	arm11_run_algorithm,
++	.run_algorithm =	armv4_5_run_algorithm,
+ 
+ 	.register_commands =	arm11_register_commands,
+ 	.target_create =	arm11_target_create,
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012740.html">[Openocd-development] [patch 4/7] ARM11: use standard single step	simulation
+</A></li>
+	<LI>Next message: <A HREF="012757.html">[Openocd-development] [patch 5/7] ARM11: use standard	run_algorithm()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12741">[ date ]</a>
+              <a href="thread.html#12741">[ thread ]</a>
+              <a href="subject.html#12741">[ subject ]</a>
+              <a href="author.html#12741">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

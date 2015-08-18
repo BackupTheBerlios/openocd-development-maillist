@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] questions about irscan/drscan/etc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20questions%20about%20irscan/drscan/etc&In-Reply-To=%3C200906011318.30500.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007603.html">
+   <LINK REL="Next"  HREF="007614.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] questions about irscan/drscan/etc</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20questions%20about%20irscan/drscan/etc&In-Reply-To=%3C200906011318.30500.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] questions about irscan/drscan/etc">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Jun  1 22:18:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007603.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+        <LI>Next message: <A HREF="007614.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7611">[ date ]</a>
+              <a href="thread.html#7611">[ thread ]</a>
+              <a href="subject.html#7611">[ subject ]</a>
+              <a href="author.html#7611">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 01 June 2009, &#216;yvind Harboe wrote:
+&gt;<i> On Mon, Jun 1, 2009 at 10:09 AM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+</I>&gt;<i> &gt; So I'm trying to whack the user guide into shape, and those two
+</I>&gt;<i> &gt; commands leave me a bit puzzled. &#160;Ergo, some questions and a few
+</I>&gt;<i> &gt; observations. &#160; In no particular order here:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &#160;drscan and irscan ... hmm, these seem to require numeric
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;TAP identifiers, vs the names preferred elsewhere.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;==&gt; &#160;Worth fixing at some point, yes?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &#160;drscan and irscan ... what's the final state if the caller
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;doesn't specify &quot;-endstate ...&quot;? &#160;I hope/expect IDLE.
+</I>&gt;<i> 
+</I>&gt;<i> :-) I've suggested to retire jtag_add_end_state() which defines
+</I>&gt;<i> the default end state...
+</I>
+I've followed *some* of that discussion, but that seems to be
+focussed on the innards.  For the moment I'm coming at this
+problem top-down:  what does the TCL-user see?  It should be
+reproducible and fully predictable, IMO.  Questions about how
+the C code can unconfuse itself are good, but separable.
+
+In both drscan and irscan commands we see this initialization:
+
+        endstate = cmd_queue_end_state;
+
+Which seems as likely to be garbage as anything else.  I guess
+I'm suggesting it just get initialized to TAP_IDLE.  (And will be
+submitting a patch to do that, I think.)
+ 
+
+&gt;<i> &gt; &#160; &#160; &#160; &#160;==&gt; if not specified, worth IMO doing so; random == bad.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &#160;drscan and irscan ... as noted in [1] (top of p. 3-6) there
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;are only six &quot;steady&quot; states, with TMS fixed, where TCK
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;doesn't start walking through the JTAG state machine.
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;Of those, the two SHIFT states change register contents,
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;thus presumably walking through device state machines.
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;And RESET is all kinds of special case.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;Seems to me this adds up to advice that the endstate
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;should be either IDLE, DRPAUSE, or IRPAUSE.
+</I>&gt;<i> 
+</I>&gt;<i> DRPAUSE and IRPAUSE are illegal end states for lots
+</I>&gt;<i> of good reasons...
+</I>
+The &quot;-endstate&quot; flag seems misnamed.  &quot;-nextstate&quot; would
+stop implying it's a *terminal* state.  For intermediate
+states those are perfectly valid ... and are even designed
+to be safe places to pause state machines.
+
+The whole point of that flag is to specify some of the
+key *intermediate* states.  Without specifying them, it's
+not possible to do things like &quot;load instruction, then load
+the data to which it applies&quot; ... or &quot;load one instruction
+and its data, then the next instruction and its data&quot;.
+
+At least, not without entering the Run/Idle state ... which
+can have undesirable side effects.
+
+Note that the ICEpick/JRC code must use both DRPAUSE and
+IRPAUSE in order to work.  And the limited public docs
+I've found on the topic (OMAP-L137) specify those states
+very explicitly.
+
+
+... all that said, my question stands:  does it make
+sense to support anything other than IDLE, DRPAUSE, and
+IRPAUSE for the current &quot;-endstate&quot; param value?  AFAICT
+the only way such states would make sense is if the TCL
+script somehow knew that the adapter didn't use a free
+running JTAG clock.  That seems unlikely to be a safe
+assumption in the long term.
+
+
+&gt;<i> w.r.t. irscan/drscan they should be rewritten to use the same
+</I>&gt;<i> code + fix the various and sundry headaches that you have
+</I>&gt;<i> pointed out. Perhaps post 0.2?
+</I>
+I'd like to fix the &quot;random endstate&quot; issue before 0.2, and
+maybe verify for drscan verify that only one TAP is out of
+bypass.  But for the other points, probably post-0.2 is fine.
+
+ 
+&gt;<i> &gt; &#160;tms_sequence ... we plan this to go away by 0.4 at the
+</I>&gt;<i> &gt; &#160; &#160; &#160; &#160;latest, yes? &#160;(If not 0.3 ...)
+</I>&gt;<i> 
+</I>&gt;<i> If not before 0.2?
+</I>&gt;<i> 
+</I>&gt;<i> It could be made a debug feature, i.e. if you
+</I>&gt;<i> enable JTAG_DEBUG_IO(sp?).
+</I>
+I have no objection to it vanishing completely, so long as
+nobody turns up ongoing issues with the current default (short)
+transition tables.
+
+I think what I'll do for now is just not document it.
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007603.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+	<LI>Next message: <A HREF="007614.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7611">[ date ]</a>
+              <a href="thread.html#7611">[ thread ]</a>
+              <a href="subject.html#7611">[ subject ]</a>
+              <a href="author.html#7611">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

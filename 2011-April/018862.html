@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD and 16-bit CFI flash on an 8-bit bus
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20and%2016-bit%20CFI%20flash%20on%20an%208-bit%0A%20bus&In-Reply-To=%3C4DAC94FA.4060206%40dawes.za.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018861.html">
+   <LINK REL="Next"  HREF="018863.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD and 16-bit CFI flash on an 8-bit bus</H1>
+    <B>Rogan Dawes</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20and%2016-bit%20CFI%20flash%20on%20an%208-bit%0A%20bus&In-Reply-To=%3C4DAC94FA.4060206%40dawes.za.net%3E"
+       TITLE="[Openocd-development] OpenOCD and 16-bit CFI flash on an 8-bit bus">rogan at dawes.za.net
+       </A><BR>
+    <I>Mon Apr 18 21:46:02 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018861.html">[Openocd-development] OpenOCD and 16-bit CFI flash on an 8-bit	bus
+</A></li>
+        <LI>Next message: <A HREF="018863.html">[Openocd-development] OpenOCD and 16-bit CFI flash on an 8-bit bus
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18862">[ date ]</a>
+              <a href="thread.html#18862">[ thread ]</a>
+              <a href="subject.html#18862">[ subject ]</a>
+              <a href="author.html#18862">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 2011/04/18 9:24 PM, Rogan Dawes wrote:
+&gt;<i> On 2011/04/18 8:51 PM, Alexandre Pereira da Silva wrote:
+</I>&gt;&gt;<i> I couldn't see much wrong besides:
+</I>&gt;&gt;<i> flash bank eightMB cfi 0xff800000 0x800000 1 2 feroceon.cpu
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This one is working for me:
+</I>&gt;&gt;<i> flash bank extnor cfi 0x81000000 0x100000 1 1 $_TARGETNAME x16_as_x8
+</I>&gt;&gt;<i> jedec_probe
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> You should confirm the real bus witdh. Normally you can configure
+</I>&gt;&gt;<i> either as x16 or x8. And you have to make sure your reset-init does
+</I>&gt;&gt;<i> initialize it.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> You missed the x16_as_x8 parameter too.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> If that doesn't work, you will have to debug the source code in cfi.c
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Thanks.
+</I>&gt;<i> 
+</I>&gt;<i> Hi Alexandre,
+</I>&gt;<i> 
+</I>&gt;<i> Your working cfi definition worked for me, too, after adjusting
+</I>&gt;<i> addresses and sizes. Thanks you! Now the flash is recognized, and all
+</I>&gt;<i> the sectors are properly identified.
+</I>&gt;<i> 
+</I>&gt;<i> However, I am still not able to flash a replacement firmware to the
+</I>&gt;<i> part. It seem that the unprotect command fails, and thus the file cannot
+</I>&gt;<i> be written to the flash.
+</I>&gt;<i> 
+</I>&gt;<i> I placed a debug log of the following command:
+</I>&gt;<i> 
+</I>&gt;<i> openocd -f buspirate.cfg -f dns323.cfg -d3 -l openocd.log \
+</I>&gt;<i> -c &quot;flash probe 0&quot; \
+</I>&gt;<i> -c &quot;flash info 0&quot; \
+</I>&gt;<i> -c &quot;flash erase_address pad unlock 0xfffd0000 0x30000&quot; \
+</I>&gt;<i> -c &quot;flash write_image erase unlock mtdblock4 0xfffd0000&quot; \
+</I>&gt;<i> -c &quot;shutdown&quot;
+</I>&gt;<i> 
+</I>&gt;<i> at:
+</I>&gt;<i> 
+</I>&gt;<i> <A HREF="http://dawes.za.net/rogan/openocd-20110418-211900.log.gz">http://dawes.za.net/rogan/openocd-20110418-211900.log.gz</A>
+</I>&gt;<i> 
+</I>&gt;<i> The only difference in config files is the flash definition changed to:
+</I>&gt;<i> 
+</I>&gt;<i> flash bank eightMB cfi 0xff800000 0x800000 1 1 $_TARGETNAME x16_as_x8
+</I>&gt;<i> jedec_probe
+</I>&gt;<i> 
+</I>&gt;<i> as suggested.
+</I>&gt;<i> 
+</I>&gt;<i> Any ideas why the flash unprotect might fail?
+</I>&gt;<i> 
+</I>&gt;<i> Thanks
+</I>&gt;<i> 
+</I>&gt;<i> Rogan
+</I>
+Bah, so it seems that flash unprotect is not supported/implemented for
+the AMD/Spansion command set:
+
+src/flash/nor/cfi.c:
+
+        switch (cfi_info-&gt;pri_id)
+        {
+                case 1:
+                case 3:
+                        return cfi_intel_protect(bank, set, first, last);
+                        break;
+                default:
+                        LOG_WARNING(&quot;protect: cfi primary command set %i
+unsupported&quot;, cfi_info-&gt;pri_id);
+                        return ERROR_OK;
+        }
+
+Drat!
+
+Any suggestions on how to implement this?
+
+Thanks
+
+Rogan
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018861.html">[Openocd-development] OpenOCD and 16-bit CFI flash on an 8-bit	bus
+</A></li>
+	<LI>Next message: <A HREF="018863.html">[Openocd-development] OpenOCD and 16-bit CFI flash on an 8-bit bus
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18862">[ date ]</a>
+              <a href="thread.html#18862">[ thread ]</a>
+              <a href="subject.html#18862">[ subject ]</a>
+              <a href="author.html#18862">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

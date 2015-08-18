@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [OpenOCD][MIPS32]Cache non-coherent -	sync missing
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5DCache%20non-coherent%20-%0A%09sync%20missing&In-Reply-To=%3CCAEk6gTCA%2B2M4xXgyDHfuBuMHrtXvZzoBaLeBwWBwHwm58skmkg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020372.html">
+   <LINK REL="Next"  HREF="019967.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [OpenOCD][MIPS32]Cache non-coherent -	sync missing</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5DCache%20non-coherent%20-%0A%09sync%20missing&In-Reply-To=%3CCAEk6gTCA%2B2M4xXgyDHfuBuMHrtXvZzoBaLeBwWBwHwm58skmkg%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [OpenOCD][MIPS32]Cache non-coherent -	sync missing">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Tue Jul  5 16:44:42 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020372.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+        <LI>Next message: <A HREF="019967.html">[Openocd-development] [OpenOCD][MIPS32]Cache non-coherent -	sync missing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19964">[ date ]</a>
+              <a href="thread.html#19964">[ thread ]</a>
+              <a href="subject.html#19964">[ subject ]</a>
+              <a href="author.html#19964">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, Jun 30, 2011 at 6:25 PM, Drasko DRASKOVIC
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+&gt;<i> Now, in case of EJTAG communication implementation in mips32_pracc.c
+</I>&gt;<i> this is not a simple thing to implement. I am currently adding missing
+</I>&gt;<i> opcodes and trying to craft a miniprogram based on bytecode, similar
+</I>&gt;<i> to existing stuff. It is quite a headache to debug, but I previously
+</I>&gt;<i> spent a lot of time on demistfying this implementation and wrote one
+</I>&gt;<i> draft doc to this list (more complete doc is on the way, and will be
+</I>&gt;<i> contributed as a separate patch).
+</I>
+OK, I have first draft of the patch which adds raw bytecodes and spits
+them out to CPU via EJTAG,
+implementing miniprogram that is given in the MIPS32 Architecture For
+Programmers Volume II: The MIPS32 Instruction Set (pasted below)
+
+I have debugged and tested this implementation and it seems that it
+works quite fine, even without notable performance penalty.
+
+So, the good new is that I can now debug Linux on MIPS with OpenOCD,
+because soft breakpointswork fine and caches are coherent.
+
+I will let this patch cook for a while and then send an official PULL
+reques once it is completely ready.
+I am just posting it now so that I can get some responses and
+commenets - what do you thisnk about this implementation ? Does this
+sound reasonable ?
+
+
+&gt;<i> In the MIPS official doc MD00086 &#160;(MIPS32&#8482; Architecture For
+</I>&gt;<i> Programmers Volume II: The MIPS32&#8482; Instruction Set), we can find
+</I>&gt;<i> interesting procedure to synchronize caches using synci (Synchronize
+</I>&gt;<i> Caches to Make Instruction Writes Effective) instruction. I am
+</I>&gt;<i> referencing here Programming Notes given in the chapter describing
+</I>&gt;<i> this instruction (page 287). Based on this, I re-implemented this
+</I>&gt;<i> procedure to the detail in bytecode minirpogram and I have first
+</I>&gt;<i> working draft.
+</I>
+Here is the program from the mentioned ref. manual that I implemented
+via opcodes :
+
+Programming Notes:
+When the instruction stream is written, the SYNCI instruction should
+be used in conjunction with other instructions
+to make the newly-written instructions effective. The following
+example shows a routine which can be called after
+the new instruction stream is written to make those changes effective.
+Note that the SYNCI instruction could be
+replaced with the corresponding sequence of CACHE instructions (when
+access to Coprocessor 0 is available), and
+that the JR.HB instruction could be replaced with JALR.HB, ERET, or
+DERET instructions, as appropriate.
+/*
+* This routine makes changes to the instruction stream effective to the
+* hardware. It should be called after the instruction stream is written.
+* On return, the new instructions are effective.
+*
+* Inputs:
+* a0 = Start address of new instruction stream
+* a1 = Size, in bytes, of new instruction stream
+*/
+addu a1, a0, a1 /* Calculate end address + 1 */
+rdhwr v0, HW_SYNCI_Step /* Get step size for SYNCI from new */
+/* Release 2 instruction */
+beq v0, zero, 20f /* If no caches require synchronization, */
+nop /* branch around */
+10: synci 0(a0) /* Synchronize all caches around address */
+sltu v1, a0, a1 /* Compare current with end address */
+bne v1, zero, 10b /* Branch if more to do */
+addu a0, a0, v0 /* Add step size in delay slot */
+sync /* Clear memory hazards */
+20: jr.hb ra /* Return, clearing instruction hazards */
+nop
+
+Best regards,
+Drasko
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-mips32-Synchronize-Caches-to-Make-Instruction-Writes.patch
+Type: text/x-patch
+Size: 13569 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110705/bacf710e/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20110705/bacf710e/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020372.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+	<LI>Next message: <A HREF="019967.html">[Openocd-development] [OpenOCD][MIPS32]Cache non-coherent -	sync missing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19964">[ date ]</a>
+              <a href="thread.html#19964">[ thread ]</a>
+              <a href="subject.html#19964">[ subject ]</a>
+              <a href="author.html#19964">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

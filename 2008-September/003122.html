@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] keep_alive now invokes	target_call_timer_callbacks_now
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20keep_alive%20now%20invokes%0A%09target_call_timer_callbacks_now&In-Reply-To=%3Cc09652430809080017x2ec07e84nd10e42ee10da983b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003124.html">
+   <LINK REL="Next"  HREF="003132.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] keep_alive now invokes	target_call_timer_callbacks_now</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20keep_alive%20now%20invokes%0A%09target_call_timer_callbacks_now&In-Reply-To=%3Cc09652430809080017x2ec07e84nd10e42ee10da983b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] keep_alive now invokes	target_call_timer_callbacks_now">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Sep  8 09:17:50 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003124.html">[Openocd-development] [PATCH] process reset - ready for test
+</A></li>
+        <LI>Next message: <A HREF="003132.html">[Openocd-development] Segfault in rev 983
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3122">[ date ]</a>
+              <a href="thread.html#3122">[ thread ]</a>
+              <a href="subject.html#3122">[ subject ]</a>
+              <a href="author.html#3122">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Commited.
+
+keep_alive() is basically a global kludge that wouldn't be necessary
+in ideal world.
+
+Index: C:/workspace/openocd/src/helper/log.c
+===================================================================
+--- C:/workspace/openocd/src/helper/log.c	(revision 980)
++++ C:/workspace/openocd/src/helper/log.c	(working copy)
+@@ -358,6 +358,9 @@
+  * This function will send a keep alive packet if &gt;500ms has passed
+since last time
+  * it was invoked.
+  *
++ * Note that this function can be invoked often, so it needs to be relatively
++ * fast when invoked more often than every 500ms.
++ *
+  */
+ void keep_alive()
+ {
+@@ -365,18 +368,22 @@
+ 	if (current_time-last_time&gt;1000)
+ 	{
+ 		LOG_WARNING(&quot;BUG: keep_alive() was not invoked in the 1000ms
+timelimit. GDB alive packet not sent! (%lld)&quot;,
+current_time-last_time);
+-		last_time=current_time;
+-	} else if (current_time-last_time&gt;500)
++	}
++	if (current_time-last_time&gt;500)
+ 	{
+ 		/* this will keep the GDB connection alive */
+ 		LOG_USER_N(&quot;%s&quot;, &quot;&quot;);
++
++		/* also process TCL events (we have to do this from 'log.c' since its
++		 * keep_alive() is the only routine guaranteed to be called at least
++		 * once per second :( */
++		process_jim_events ();
++
++        /* process any timer events now */		
++		target_call_timer_callbacks_now();
++		
+ 		last_time=current_time;
+ 	}
+-
+-	/* also process TCL events (we have to do this from 'log.c' since its
+-	 * keep_alive() is the only routine guaranteed to be called at least
+-	 * once per second :( */
+-	process_jim_events ();
+ }
+
+ /* reset keep alive timer without sending message */
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003124.html">[Openocd-development] [PATCH] process reset - ready for test
+</A></li>
+	<LI>Next message: <A HREF="003132.html">[Openocd-development] Segfault in rev 983
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3122">[ date ]</a>
+              <a href="thread.html#3122">[ thread ]</a>
+              <a href="subject.html#3122">[ subject ]</a>
+              <a href="author.html#3122">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

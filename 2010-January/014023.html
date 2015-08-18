@@ -1,0 +1,107 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%20FLASH%3A%20only%20erase/unlock%0A%09whole%20sectors&In-Reply-To=%3C201001081622.30045.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014024.html">
+   <LINK REL="Next"  HREF="014025.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%20FLASH%3A%20only%20erase/unlock%0A%09whole%20sectors&In-Reply-To=%3C201001081622.30045.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Jan  9 01:22:29 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014024.html">[Openocd-development] [PATCH] MIPS: update arch_info access to	match other targets
+</A></li>
+        <LI>Next message: <A HREF="014025.html">[Openocd-development] Can't build on OSX
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14023">[ date ]</a>
+              <a href="thread.html#14023">[ thread ]</a>
+              <a href="subject.html#14023">[ subject ]</a>
+              <a href="author.html#14023">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thursday 24 December 2009, David Brownell wrote:
+&gt;<i> +
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;/* REVISIT This needlessly touches sectors BETWEEN the
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; * sections it's writing. &#160;Without auto erase, it just
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; * writes ones; unlikely to destroy data.
+</I>
+For the record, some more information has come up ... there
+are cases where this CAN (or even WILL) destroy data.   For
+now I'll just update that comment.
+
+Sorry for the nasty forum URLs here:
+
+  <A HREF="http://www.luminarymicro.com/component/option,com_joomlaboard/Itemid,92/func,view/id,7594/catid,5/limit,6/limitstart,6/">http://www.luminarymicro.com/component/option,com_joomlaboard/Itemid,92/func,view/id,7594/catid,5/limit,6/limitstart,6/</A>
+  <A HREF="http://forums.freescale.com/freescale/board/message?board.id=CFCOMM&amp;thread.id=8282">http://forums.freescale.com/freescale/board/message?board.id=CFCOMM&amp;thread.id=8282</A>
+
+The &quot;clean&quot; failure is with Stellaris Tempest flash, which
+keeps ECC data for each word.  Sufficient for correcting
+single bit errors?  ECC for all-ones != ECC for other data.
+So assuming the data write checks out ... the wrong ECC is
+going to be written.  If that succeeds even in part (one
+bit changing), that data won't read correctly any more.
+
+The &quot;dirty&quot; failure is with some FreeScale parts; there's a
+URL for an HC11 manual with about ten pages of discussion on
+the issue, where issues like odd transistor biases leading
+to &quot;soft&quot; programming come up.
+
+And yes, implicit recognition that many folk seem to think
+writing ones should be OK, because often that's been true.
+
+
+So it looks like the NOR load-image code should get fixed
+to not write those data, even as all-ones.
+
+
+&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; *
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; * With auto erase enabled, data in those sectors will
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; * be needlessly destroyed; and some of the limited
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; * number of flash erase cycles will be wasted.
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; *
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; * In both cases, the extra writes slow things down.
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; */
+</I>
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014024.html">[Openocd-development] [PATCH] MIPS: update arch_info access to	match other targets
+</A></li>
+	<LI>Next message: <A HREF="014025.html">[Openocd-development] Can't build on OSX
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14023">[ date ]</a>
+              <a href="thread.html#14023">[ thread ]</a>
+              <a href="subject.html#14023">[ subject ]</a>
+              <a href="author.html#14023">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

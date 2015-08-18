@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Fix for segmentation fault	from	freed memory access in jtag_unregister_event_callback()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20for%20segmentation%20fault%0A%09from%09freed%20memory%20access%20in%20jtag_unregister_event_callback%28%29&In-Reply-To=%3C20101208072742.18637.qmail%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017545.html">
+   <LINK REL="Next"  HREF="017551.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Fix for segmentation fault	from	freed memory access in jtag_unregister_event_callback()</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20for%20segmentation%20fault%0A%09from%09freed%20memory%20access%20in%20jtag_unregister_event_callback%28%29&In-Reply-To=%3C20101208072742.18637.qmail%40stuge.se%3E"
+       TITLE="[Openocd-development] [PATCH] Fix for segmentation fault	from	freed memory access in jtag_unregister_event_callback()">peter at stuge.se
+       </A><BR>
+    <I>Wed Dec  8 08:27:42 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017545.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed	memory access in jtag_unregister_event_callback()
+</A></li>
+        <LI>Next message: <A HREF="017551.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed memory access in jtag_unregister_event_callback()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17549">[ date ]</a>
+              <a href="thread.html#17549">[ thread ]</a>
+              <a href="subject.html#17549">[ subject ]</a>
+              <a href="author.html#17549">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Paul Richards wrote:
+&gt;<i> +++ b/src/jtag/core.c
+</I>&gt;<i> @@ -296,27 +296,25 @@ int jtag_register_event_callback(jtag_event_handler_t callback, void *priv)
+</I>&gt;<i>  
+</I>&gt;<i>  int jtag_unregister_event_callback(jtag_event_handler_t callback, void *priv)
+</I>&gt;<i>  {
+</I>&gt;<i> -	struct jtag_event_callback **callbacks_p;
+</I>&gt;<i> -	struct jtag_event_callback **next;
+</I>&gt;<i> +	struct jtag_event_callback **callbacks_p = &amp;jtag_event_callbacks;
+</I>&gt;<i>  
+</I>&gt;<i>  	if (callback == NULL)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		return ERROR_INVALID_ARGUMENTS;
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i> -	for (callbacks_p = &amp;jtag_event_callbacks;
+</I>&gt;<i> -			*callbacks_p != NULL;
+</I>&gt;<i> -			callbacks_p = next)
+</I>&gt;<i> +	while (*callbacks_p != NULL)
+</I>&gt;<i>  	{
+</I>&gt;<i> -		next = &amp;((*callbacks_p)-&gt;next);
+</I>&gt;<i> -
+</I>&gt;<i> -		if ((*callbacks_p)-&gt;priv != priv)
+</I>&gt;<i> -			continue;
+</I>&gt;<i> +		if (((*callbacks_p)-&gt;priv != priv) &amp;&amp; ((*callbacks_p)-&gt;callback == callback))
+</I>
+The priv comparison logic is reversed.
+
+
+&gt;<i> +		{
+</I>&gt;<i> +			struct jtag_event_callback *free_callback = *callbacks_p;
+</I>&gt;<i>  
+</I>&gt;<i> -		if ((*callbacks_p)-&gt;callback == callback)
+</I>&gt;<i> +			*callbacks_p = (*callbacks_p)-&gt;next;
+</I>&gt;<i> +			free(free_callback);
+</I>&gt;<i> +		}
+</I>&gt;<i> +		else
+</I>&gt;<i>  		{
+</I>&gt;<i> -			free(*callbacks_p);
+</I>&gt;<i> -			*callbacks_p = *next;
+</I>&gt;<i> +			callbacks_p = &amp;((*callbacks_p)-&gt;next);
+</I>&gt;<i>  		}
+</I>&gt;<i>  	}
+</I>
+Paul Richards wrote:
+&gt;<i> I just saw your mail after submitting a patch.  I kept the double
+</I>&gt;<i> pointer usage for consistency but simplified the logic.
+</I>
+The code is horrible. (Certainly not your fault!) Sorry if that's
+offensive to the original author. The variable names do not help.
+Will this work:
+
+int jtag_unregister_event_callback(callback,priv) {
+  struct jtag_event_callback *p, *prev = NULL, *next;
+
+  if (!callback)
+    return ERROR_INVALID_ARGUMENTS;
+
+  for (p = jtag_event_callbacks; p; p = next) {
+    next = p-&gt;next;
+
+    if (p-&gt;priv != priv || p-&gt;callback != callback) {
+      prev = p;
+      continue;
+    }
+
+    if (prev)
+      prev-&gt;next = next;
+    else
+      jtag_events_callbacks = next;
+
+    free(p);
+  }
+}
+
+?
+
+
+//Peter
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017545.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed	memory access in jtag_unregister_event_callback()
+</A></li>
+	<LI>Next message: <A HREF="017551.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed memory access in jtag_unregister_event_callback()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17549">[ date ]</a>
+              <a href="thread.html#17549">[ thread ]</a>
+              <a href="subject.html#17549">[ subject ]</a>
+              <a href="author.html#17549">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Updated%20omap3530.cfg%0A%20with%09improved%20reset%20handling&In-Reply-To=%3C4AC3BB62.6000401%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010907.html">
+   <LINK REL="Next"  HREF="010912.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Updated%20omap3530.cfg%0A%20with%09improved%20reset%20handling&In-Reply-To=%3C4AC3BB62.6000401%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Wed Sep 30 22:11:14 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010907.html">[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling
+</A></li>
+        <LI>Next message: <A HREF="010912.html">[Openocd-development] srst state on init again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10911">[ date ]</a>
+              <a href="thread.html#10911">[ thread ]</a>
+              <a href="subject.html#10911">[ subject ]</a>
+              <a href="author.html#10911">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>David Brownell wrote:
+&gt;<i> I think that's not quite following the model which the code in
+</I>&gt;<i> the src/helper/startup.tcl file is expecting ... a closer match
+</I>&gt;<i> would use reset-assert-pre (or maybe &quot;post&quot;) not reset-start.
+</I>&gt;<i>   
+</I>I have done some more testing and trying to understand the reset 
+handling in OpenOCD.
+This is my understanding of the sequence
+-------------
+reset-start
+
+jtag-reset
+    Here the  omap3.dap tap is marked as disabled
+
+reset-assert-pre
+
+target reset assert
+   This is only called if the tap is enabled
+   For CortexA8 we want to set target state to reset and invalidate all 
+cached registers
+
+reset assert post
+
+reset-deassert-pre
+
+target reset deassert
+   This is only called if the tap is enabled
+   For CortexA8 we want to halt the target for reset halt, this needs  
+the tap to be enabled
+
+reset deassert post
+
+reset end
+------------------
+My interpretation is:
+
+We must write the reset command to PRM_RSTCTRL before the jtag reset stuff.
+Otherwise the tap will be marked as disabled, even if is still
+enabled, since the reset has not yet happened, and the mww is impossible.
+( It actually kills OpenOCD with
+openocd: driver.c:243: interface_jtag_add_dr_scan: Assertion `field == 
+out_fields + scan-&gt;num_fields' failed. )
+
+The omap3_debugint must be called after the jtag reset stuff and before 
+target reset assert
+Otherwise the CortexA8 reset assert will not be called since the tap is 
+disabled
+
+This gives the following reset event configurationb:
+omap3.cpu configure -event reset-start &quot;omap3.cpu mww $PRM_RSTCTRL 2&quot;
+omap3.cpu configure -event reset-assert-pre &quot;omap3_dbginit&quot;
+
+Best regards,
+Magnus
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010907.html">[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling
+</A></li>
+	<LI>Next message: <A HREF="010912.html">[Openocd-development] srst state on init again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10911">[ date ]</a>
+              <a href="thread.html#10911">[ thread ]</a>
+              <a href="subject.html#10911">[ subject ]</a>
+              <a href="author.html#10911">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Relase 0.4.0 is out ... 0.5.0-dev started
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Relase%200.4.0%20is%20out%20...%200.5.0-dev%20started&In-Reply-To=%3C63034c041002220928m2a3144a4hd2ab432f3694da04%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014929.html">
+   <LINK REL="Next"  HREF="014941.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Relase 0.4.0 is out ... 0.5.0-dev started</H1>
+    <B>simon qian</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Relase%200.4.0%20is%20out%20...%200.5.0-dev%20started&In-Reply-To=%3C63034c041002220928m2a3144a4hd2ab432f3694da04%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Relase 0.4.0 is out ... 0.5.0-dev started">simonqian.openocd at gmail.com
+       </A><BR>
+    <I>Mon Feb 22 18:28:16 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014929.html">[Openocd-development] Relase 0.4.0 is out ... 0.5.0-dev started
+</A></li>
+        <LI>Next message: <A HREF="014941.html">[Openocd-development] SWD info Was: 0.5.0-dev started
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14940">[ date ]</a>
+              <a href="thread.html#14940">[ thread ]</a>
+              <a href="subject.html#14940">[ subject ]</a>
+              <a href="author.html#14940">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I collect some of the differences in ADIv5 between JTAG and SWD:
+
+1. Clear Error Flag in Control/Statis:
+See ARM ADIv5, 6-16.
+Clearing the sticky error flags in the Control/Status Register
+In the Control/Status Register, the sticky error flags are:
+&#8226;STICKYERR, bit[5]
+&#8226;STICKCMP, bit[4]
+&#8226;STICKORUN, bit[1]
+The descriptions of these bits in Table6-7 on page6-10 indicate the
+condition that sets each bit to 1. When
+one of these bits is set to 1, a write of 0 to that bit is ignored. The
+method of clearing these bits  to 0 is different
+for the JTAG-DP and the SW-DP:
+On a JTAG-DP
+Write 1 to the appropriate bit of this register. For example, if the
+STICKYERR flag, bit[5],
+is set to 1 then you must write 1 to bit[5] to clear the flag to 0.
+On a SW-DP  Write 1 to the appropriate CLR field of the AP Abort Register,
+see The AP Abort Register,
+ABORT on page6-6:
+&#8226;to clear STICKYERR to 0, write 1 to the STKERRCLR field, bit [2]
+&#8226;to clear STICKYCMP to 0, write 1 to the STKCMPCLR field, bit [1]
+&#8226;to clear STICKYORUN to 0, write 1 to the ORUNERRCLR field, bit [4].
+2. swjdp-&gt;ack has different value
+For JTAG(See 4-14):
+ResponseACK[2:0] encodingSee:
+OK/FAULTb010 The OK/FAULT response to a DPACC or APACC access on page4-15
+WAITb001 The WAIT response to a DPACC or APACC access on page4-16
+For SWD(See 5-7):
+OK: 0b001
+WAIT: 0b010
+FAULT: 0b100
+3. different sequence should be outputed on TMS/SWDIO
+4. RDBUFF
+For JTAG(See 4-16):
+Register accesses can be pipelined, because a single DPACC or APACC scan can
+return the result of the
+previous read operation at the same time as shifting in a request for
+another register access. At the end of a
+sequence of pipelined register reads, you can read the DP RDBUFF Register to
+shift out the result of the
+final register read.
+For SWD(See 5-11):
+Read accesses to the AP are posted. This means that the result of the access
+is returned on the next transfer.
+If the next access you have to make is not another AP read then you must
+insert a read of the DP RDBUFF
+Register to obtain the posted result, see The Read Buffer, RDBUFF on
+page6-17.
+5. different way to read ID
+See 6-8
+6. driver layer API(JTAG/SWD)
+
+So ADIv5 code should know which mode it's in(JTAG or SWD) to perform
+corrently.
+
+2010/2/22 David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt;
+
+&gt;<i> Archives are in the Berlios and SourceForge &quot;files&quot; areas.
+</I>&gt;<i>
+</I>&gt;<i> Mainline git is now tagged as &quot;0.5.0-dev&quot;; the merge window
+</I>&gt;<i> is open.  If we need a bugfix release, it'll branch off from
+</I>&gt;<i> the commit with the &quot;0.4.0&quot; tag.
+</I>&gt;<i>
+</I>&gt;<i> I've committed a few patches from my pending queue, most
+</I>&gt;<i> notably:
+</I>&gt;<i>
+</I>&gt;<i>  - Making the ARMv7m stuff use &quot;struct arm&quot; so that
+</I>&gt;<i>   the Cortex-M semihosting support can use most of
+</I>&gt;<i>   the existing semihosting code (except for the small
+</I>&gt;<i>   bit which will need to know it's using a different
+</I>&gt;<i>   entry mechanism
+</I>&gt;<i>
+</I>&gt;<i>  - The &quot;cleanup&quot; portion of the ADIv5 work, which will
+</I>&gt;<i>   help with the SWD support.  (Sanity checked on both
+</I>&gt;<i>   M3 and A8 Cortex cores.)
+</I>&gt;<i>
+</I>&gt;<i> We're not sure who will be release manager for 0.5.0 ... but
+</I>&gt;<i> we do know it's someone else's turn!!  If we keep to the kind
+</I>&gt;<i> of schedule we've had so far, one might anticipate this release
+</I>&gt;<i> ships no sooner than the end of April.
+</I>&gt;<i>
+</I>&gt;<i> I'm not sure what else will be merging soon.  There are some
+</I>&gt;<i> feature patches which have been posted to the list, and held
+</I>&gt;<i> until the 0.5 window.  And Spen has a bunch of performance
+</I>&gt;<i> work upcoming too (not all for MIPS, ISTR).  Clearly we want
+</I>&gt;<i> to see major progress on SWD during this release cycle ... but
+</I>&gt;<i> it's not ready yet, and I'm not sure what other stuff will be
+</I>&gt;<i> happening.  I guess this means 0.5.0 will surprise us all!  :)
+</I>&gt;<i>
+</I>&gt;<i> - Dave
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+
+
+-- 
+Best Regards, SimonQian
+<A HREF="http://www.SimonQian.com">http://www.SimonQian.com</A>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20100223/49b0fa89/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20100223/49b0fa89/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014929.html">[Openocd-development] Relase 0.4.0 is out ... 0.5.0-dev started
+</A></li>
+	<LI>Next message: <A HREF="014941.html">[Openocd-development] SWD info Was: 0.5.0-dev started
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14940">[ date ]</a>
+              <a href="thread.html#14940">[ thread ]</a>
+              <a href="subject.html#14940">[ subject ]</a>
+              <a href="author.html#14940">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

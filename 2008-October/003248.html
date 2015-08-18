@@ -1,0 +1,231 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Centralize error handling for buggy register	handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Centralize%20error%20handling%20for%20buggy%20register%0A%09handling&In-Reply-To=%3Cc09652430810060509k3151cbdct89bb3f441c11933b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003247.html">
+   <LINK REL="Next"  HREF="003251.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Centralize error handling for buggy register	handling</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Centralize%20error%20handling%20for%20buggy%20register%0A%09handling&In-Reply-To=%3Cc09652430810060509k3151cbdct89bb3f441c11933b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Centralize error handling for buggy register	handling">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Oct  6 14:09:30 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003247.html">[Openocd-development] ARM1176 insight gdb debug failed
+</A></li>
+        <LI>Next message: <A HREF="003251.html">[Openocd-development] PLL frequency and &quot;Timeout waiting	forACK...&quot; issue
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3248">[ date ]</a>
+              <a href="thread.html#3248">[ thread ]</a>
+              <a href="subject.html#3248">[ subject ]</a>
+              <a href="author.html#3248">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Centralize error handling for buggy register handling
+
+Committed.
+
+
+
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/register.c
+===================================================================
+--- src/target/register.c	(revision 1012)
++++ src/target/register.c	(working copy)
+@@ -35,7 +35,7 @@
+ {
+ 	int i;
+ 	reg_cache_t *cache = first;
+-	
++
+ 	while (cache)
+ 	{
+ 		for (i = 0; i &lt; cache-&gt;num_regs; i++)
+@@ -43,26 +43,26 @@
+ 			if (strcmp(cache-&gt;reg_list[i].name, name) == 0)
+ 				return &amp;(cache-&gt;reg_list[i]);
+ 		}
+-		
++
+ 		if (search_all)
+ 			cache = cache-&gt;next;
+ 		else
+ 			break;
+ 	}
+-	
++
+ 	return NULL;
+ }
+
+ reg_cache_t** register_get_last_cache_p(reg_cache_t **first)
+ {
+ 	reg_cache_t **cache_p = first;
+-	
++
+ 	if (*cache_p)
+ 		while (*cache_p)
+ 			cache_p = &amp;((*cache_p)-&gt;next);
+ 	else
+ 		return first;
+-	
++
+ 	return cache_p;
+ }
+
+@@ -70,7 +70,7 @@
+ {
+ 	reg_arch_type_t** arch_type_p = &amp;reg_arch_types;
+ 	int id = 0;
+-	
++
+ 	if (*arch_type_p)
+ 	{
+ 		while (*arch_type_p)
+@@ -79,26 +79,27 @@
+ 			arch_type_p = &amp;((*arch_type_p)-&gt;next);
+ 		}
+ 	}
+-	
++
+ 	(*arch_type_p) = malloc(sizeof(reg_arch_type_t));
+ 	(*arch_type_p)-&gt;id = id + 1;
+ 	(*arch_type_p)-&gt;set = set;
+ 	(*arch_type_p)-&gt;get = get;
+ 	(*arch_type_p)-&gt;next = NULL;
+-			
++
+ 	return id + 1;
+ }
+
+ reg_arch_type_t* register_get_arch_type(int id)
+ {
+ 	reg_arch_type_t *arch_type = reg_arch_types;
+-	
++
+ 	while (arch_type)
+ 	{
+ 		if (arch_type-&gt;id == id)
+ 			return arch_type;
+ 		arch_type = arch_type-&gt;next;
+ 	}
+-	
++	LOG_ERROR(&quot;BUG: encountered unregistered arch type 0x%08x&quot;, id);
++	exit(-1);
+ 	return NULL;
+ }
+Index: src/server/gdb_server.c
+===================================================================
+--- src/server/gdb_server.c	(revision 1017)
++++ src/server/gdb_server.c	(working copy)
+@@ -936,11 +936,7 @@
+
+ 		/* get register arch_type, and call set method */
+ 		arch_type = register_get_arch_type(reg_list[i]-&gt;arch_type);
+-		if (arch_type == NULL)
+-		{
+-			LOG_ERROR(&quot;BUG: encountered unregistered arch type&quot;);
+-			exit(-1);
+-		}
++
+ 		arch_type-&gt;set(reg_list[i], bin_buf);
+
+ 		/* advance packet pointer */
+@@ -1033,11 +1029,6 @@
+
+ 	/* get register arch_type, and call set method */
+ 	arch_type = register_get_arch_type(reg_list[reg_num]-&gt;arch_type);
+-	if (arch_type == NULL)
+-	{
+-		LOG_ERROR(&quot;BUG: encountered unregistered arch type&quot;);
+-		exit(-1);
+-	}
+ 	arch_type-&gt;set(reg_list[reg_num], bin_buf);
+
+ 	gdb_put_packet(connection, &quot;OK&quot;, 2);
+Index: src/target/target.c
+===================================================================
+--- src/target/target.c	(revision 1014)
++++ src/target/target.c	(working copy)
+@@ -1212,7 +1212,7 @@
+ 	}
+
+ 	if ((retval = target-&gt;type-&gt;checksum_memory(target, address,
+-		size, &amp;checksum)) == ERROR_TARGET_RESOURCE_NOT_AVAILABLE)
++		size, &amp;checksum)) != ERROR_OK)
+ 	{
+ 		buffer = malloc(size);
+ 		if (buffer == NULL)
+@@ -1625,11 +1625,6 @@
+ 		if (reg-&gt;valid == 0)
+ 		{
+ 			reg_arch_type_t *arch_type = register_get_arch_type(reg-&gt;arch_type);
+-			if (arch_type == NULL)
+-			{
+-				LOG_ERROR(&quot;BUG: encountered unregistered arch type&quot;);
+-				return ERROR_OK;
+-			}
+ 			arch_type-&gt;get(reg);
+ 		}
+ 		value = buf_to_str(reg-&gt;value, reg-&gt;size, 16);
+@@ -1645,12 +1640,6 @@
+ 		str_to_buf(args[1], strlen(args[1]), buf, reg-&gt;size, 0);
+
+ 		reg_arch_type_t *arch_type = register_get_arch_type(reg-&gt;arch_type);
+-		if (arch_type == NULL)
+-		{
+-			LOG_ERROR(&quot;BUG: encountered unregistered arch type&quot;);
+-			return ERROR_OK;
+-		}
+-
+ 		arch_type-&gt;set(reg, buf);
+
+ 		value = buf_to_str(reg-&gt;value, reg-&gt;size, 16);
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+Free eCos workshop in Oslo October 21!
+<A HREF="http://www.zylin.com/workshop.html">http://www.zylin.com/workshop.html</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003247.html">[Openocd-development] ARM1176 insight gdb debug failed
+</A></li>
+	<LI>Next message: <A HREF="003251.html">[Openocd-development] PLL frequency and &quot;Timeout waiting	forACK...&quot; issue
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3248">[ date ]</a>
+              <a href="thread.html#3248">[ thread ]</a>
+              <a href="subject.html#3248">[ subject ]</a>
+              <a href="author.html#3248">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

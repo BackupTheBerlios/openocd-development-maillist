@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32L microcontroller support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32L%20microcontroller%20support&In-Reply-To=%3CCACELUGdi0fJe-1wQoAqqndcuhC-eCUfz55UZBvBehM7QA7aoiQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020965.html">
+   <LINK REL="Next"  HREF="020984.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32L microcontroller support</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32L%20microcontroller%20support&In-Reply-To=%3CCACELUGdi0fJe-1wQoAqqndcuhC-eCUfz55UZBvBehM7QA7aoiQ%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] STM32L microcontroller support">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Sep 16 10:12:43 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020965.html">[Openocd-development] STM32L microcontroller support
+</A></li>
+        <LI>Next message: <A HREF="020984.html">[Openocd-development] STM32L microcontroller support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20981">[ date ]</a>
+              <a href="thread.html#20981">[ thread ]</a>
+              <a href="subject.html#20981">[ subject ]</a>
+              <a href="author.html#20981">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+the code looks very good! Nit-picking below.
+
+Please address the comments below and add a commit comment.
+
+1. Make changes.
+
+2. Create commit &amp; patch
+git add .
+git commit
+# write comment
+git format-patch HEAD^
+
+=&gt; email patch w/commit comments.
+
+Read openocd/HACKING for more info.
+
+Thanks!
+
+1. Switch to LOG_ERROR
+
++    struct stm32lx_flash_bank *stm32lx_info;
++    if (CMD_ARGC &lt; 6)
++    {
++        LOG_WARNING(&quot;incomplete flash_bank stm32lx configuration&quot;);
++        return ERROR_FLASH_BANK_INVALID;
++    }
+
+2. Delete unimplemented code, leave only a comment. Mass erase is
+notoriously hard
+to test based upon feedback on the list so we want this seriously
+tested before we want
+to introduce extra code-paths.
+
++    // Mass erase does not work yet
++    if (0)
++    {
++        if ((first == 0) &amp;&amp; (last == bank-&gt;num_sectors - 1))
++        {
++            // Erase all if required
++            return stm32lx_mass_erase(bank);
++        }
++    }
++
+
+3. Return error message or at least add comment that this is a
+successful no-op always.
+
+ +static int stm32lx_protect(struct flash_bank *bank, int set, int first,
++        int last)
++{
++    return ERROR_OK;
++}
++
+
+4. Remove &quot;err:&quot;
+
++        LOG_ERROR(&quot;err: failed to unlock program memory&quot;);
++        return retval;
++    }
+
+5. add timeout
+
+stm32lx_wait_until_bsy_clear
+
+6. add memory allocation check.
+
++    // allocate a buffer to read memory
++    uint8_t *buffer = malloc(buffer_size);
+
+7. reformat to use multiple lines as is done elsewhere in the code.
+
++static const struct command_registration stm32lx_command_handlers[] =
++{
++{ .name = &quot;stm32lx&quot;, .mode = COMMAND_ANY, .help =
++&quot;stm32lx flash command group&quot;, .chain =
++stm32lx_exec_command_handlers, },
++COMMAND_REGISTRATION_DONE };
+
+8. Remove these comments, they add no information:
+
++        // auto probe command
++        .auto_probe = stm32lx_auto_probe,
+
+9. Remove or elaborate on these comments. Perhaps better write a short
+paragraph instead of these inline comments. The comments say nothing
+that the code doesn't already.
+
++// prototypes
++static int stm32lx_unlock_pecr(struct flash_bank *bank)
++{
+
++    // Write key2
++    retval = target_write_u32(target, FLASH_PEKEYR, PEKEY2);
+
++    // Then unlock the program memory, write key1
++    retval = target_write_u32(target, FLASH_PRGKEYR, PRGKEY1);
+
+9. Just for information. You are here adding two errors, first
+target_write_memory()
+reports an error, then you amend that information with a bit of
+context, which is
+OK if that's what you intended.
+
++    retval = target_read_u32(target, FLASH_OBR, &amp;reg32);
++    if (retval != ERROR_OK)
++    {
++        LOG_ERROR(&quot;stm32lx_read_rdp: failed to read FLASH_OBR&quot;);
+
+
+10. Remove this error message? Change to LOG_DEBUG()? Certainly remove
+&quot;stm32lx_write_rdp:&quot; because LOG_ERROR() adds that info already.
+
++    retval = stm32lx_unlock_option_byte(bank);
++    if (retval != ERROR_OK)
++    {
++        LOG_ERROR(&quot;stm32lx_write_rdp: failed to unlock option byte&quot;);
++        return retval;
+
+
+
+-- 
+&#216;yvind Harboe - Can Zylin Consulting help on your project?
+US toll free 1-866-980-3434
+<A HREF="http://www.zylin.com/">http://www.zylin.com/</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020965.html">[Openocd-development] STM32L microcontroller support
+</A></li>
+	<LI>Next message: <A HREF="020984.html">[Openocd-development] STM32L microcontroller support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20981">[ date ]</a>
+              <a href="thread.html#20981">[ thread ]</a>
+              <a href="subject.html#20981">[ subject ]</a>
+              <a href="author.html#20981">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

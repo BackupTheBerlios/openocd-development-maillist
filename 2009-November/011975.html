@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] BDI2000 configuration file for Stellaris	CPUs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20BDI2000%20configuration%20file%20for%20Stellaris%0A%09CPUs&In-Reply-To=%3C200911042344.19416.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011890.html">
+   <LINK REL="Next"  HREF="011900.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] BDI2000 configuration file for Stellaris	CPUs</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20BDI2000%20configuration%20file%20for%20Stellaris%0A%09CPUs&In-Reply-To=%3C200911042344.19416.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] BDI2000 configuration file for Stellaris	CPUs">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov  5 08:44:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011890.html">[Openocd-development] BDI2000 configuration file for Stellaris	CPUs
+</A></li>
+        <LI>Next message: <A HREF="011900.html">[Openocd-development] 0.3.0-rc1-dev bugs in s3c2410 nand probe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11975">[ date ]</a>
+              <a href="thread.html#11975">[ thread ]</a>
+              <a href="subject.html#11975">[ subject ]</a>
+              <a href="author.html#11975">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 02 November 2009, Yegor Yefremov wrote:
+
+&gt;<i> I've added the CPUTAPID for lm3s811. I've named the file luminary.cfg
+</I>&gt;<i> as in interfaces. Could you review the patch? And one more question:
+</I>&gt;<i> how can I override -work-area-size from my custom openocd.cfg?
+</I>
+I suggest you set that size to 4K by default, especially now that some
+newer parts aren't so spendthrift with transistors as the initial ones.  :)
+
+How to override?  No problem.  You can just set that attribute to
+another value whenever you like.  Don't need to override; just set
+a new value.
+
+- Dave
+
+
+
+&gt;<i> Regards,
+</I>&gt;<i> Yegor
+</I>&gt;<i> 
+</I>&gt;<i> Index: openocd/tcl/target/luminary.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- /dev/null	1970-01-01 00:00:00.000000000 +0000
+</I>&gt;<i> +++ openocd/tcl/target/luminary.cfg	2009-11-02 12:46:04.000000000 +0100
+</I>&gt;<i> @@ -0,0 +1,41 @@
+</I>&gt;<i> +# TI/Luminary Stellaris lm3sxxxx
+</I>&gt;<i> +
+</I>&gt;<i> +if { [info exists CHIPNAME] } {
+</I>&gt;<i> +   set  _CHIPNAME $CHIPNAME
+</I>&gt;<i> +} else {
+</I>&gt;<i> +   set  _CHIPNAME lm3sxxxx
+</I>
+How about just &quot;lm3s&quot;?  Less painful to type and read.  :)
+
+
+&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +if { [info exists CPUTAPID ] } {
+</I>&gt;<i> +   set _CPUTAPID $CPUTAPID
+</I>&gt;<i> +} else {
+</I>&gt;<i> +   set _CPUTAPID 0x3ba00477
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# jtag speed
+</I>&gt;<i> +jtag_khz 500
+</I>
+See the User's Guide for a better way to handle this.  Set it up
+here, *AND* in the relevant event handler ... so that when someone
+does a reset, they come up with a sane JTAG clock.  (And their
+reset-init event handler can then kick in the PLL, and enable a
+more aggressive JTAG clock.)
+
+
+&gt;<i> +
+</I>&gt;<i> +jtag_nsrst_delay 100
+</I>&gt;<i> +jtag_ntrst_delay 100
+</I>
+You don't have
+
+&gt;<i> +
+</I>&gt;<i> +#LM3Sxxxx Evaluation Board has only srst
+</I>&gt;<i> +reset_config srst_only
+</I>
+&quot;Boards&quot;.  But actually, don't some of the older ones have TRST too?
+And more to the point, this is a *target* config file, so don't put
+any board-specific knowledge into it.  OR ... adapter-specific.
+
+Consider:  if you use an inexpensive lm3s811 eval board ($50 at
+DigiKey, cheaper than the Olimex &quot;Tiny&quot; adapters!) in &quot;JTAG adapter
+mode&quot;, it won't even have SRST.  The Cortex-M3 is held in reset,
+and the FT2232 signals go to the &quot;real&quot; target and 20-pin header.
+
+So strike that entirely.
+
+
+&gt;<i> +
+</I>&gt;<i> +#jtag scan chain
+</I>&gt;<i> +# CPU TAP ID 0x2ba00477 for lm3s811 Rev C2 added
+</I>&gt;<i> +jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 1 -irmask 0xf -expected-id 0x2ba00477 -expected-id $_CPUTAPID
+</I>
+Are you sure Luminary only ever shipped those two revisions?
+
+
+&gt;<i> +
+</I>&gt;<i> +# the luminary variant causes a software reset rather than asserting SRST
+</I>&gt;<i> +# this stops the debug registers from being cleared
+</I>&gt;<i> +# this will be fixed in later revisions of silicon
+</I>&gt;<i> +set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> +target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu -variant lm3s
+</I>&gt;<i> +
+</I>&gt;<i> +# 8k working area at base of ram, not backed up
+</I>&gt;<i> +$_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size 0x2000
+</I>&gt;<i> +
+</I>&gt;<i> +#flash configuration
+</I>&gt;<i> +flash bank stellaris 0 0 0 0 $_TARGETNAME
+</I>&gt;<i> 
+</I>
+That looks fair enough.
+
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011890.html">[Openocd-development] BDI2000 configuration file for Stellaris	CPUs
+</A></li>
+	<LI>Next message: <A HREF="011900.html">[Openocd-development] 0.3.0-rc1-dev bugs in s3c2410 nand probe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11975">[ date ]</a>
+              <a href="thread.html#11975">[ thread ]</a>
+              <a href="subject.html#11975">[ subject ]</a>
+              <a href="author.html#11975">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

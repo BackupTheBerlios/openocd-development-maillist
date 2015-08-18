@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 7/8] add add_help_text command handler
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/8%5D%20add%20add_help_text%20command%20handler&In-Reply-To=%3C1258742030-30859-8-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012611.html">
+   <LINK REL="Next"  HREF="012614.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 7/8] add add_help_text command handler</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/8%5D%20add%20add_help_text%20command%20handler&In-Reply-To=%3C1258742030-30859-8-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 7/8] add add_help_text command handler">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Nov 20 19:33:49 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012611.html">[Openocd-development] [PATCH 6/8] provide command context during	cmd_init
+</A></li>
+        <LI>Next message: <A HREF="012614.html">[Openocd-development] [PATCH 8/8] maintain command lists in sorted	order
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12613">[ date ]</a>
+              <a href="thread.html#12613">[ thread ]</a>
+              <a href="subject.html#12613">[ subject ]</a>
+              <a href="author.html#12613">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Rewrite means for scripts to register help text for commands.  These
+cause the new commands to be stored in the command heirarchy, with
+built-in commands; however, they will never be invoked there because
+they do not receive a command handler.  The same trick is used for
+the Jim commands.
+
+Remove the old helpers that were used to register commands.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c   |   94 +++++++++++++++++++++++++++++++++---------------
+ src/helper/startup.tcl |   16 +--------
+ 2 files changed, 66 insertions(+), 44 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 0958147..9b65249 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -172,32 +172,6 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return (retval == ERROR_OK)?JIM_OK:JIM_ERR;
+ }
+ 
+-static Jim_Obj *command_name_list(struct command *c)
+-{
+-	Jim_Obj *cmd_list = c-&gt;parent ?
+-			command_name_list(c-&gt;parent) :
+-			Jim_NewListObj(interp, NULL, 0);
+-	Jim_ListAppendElement(interp, cmd_list,
+-			Jim_NewStringObj(interp, c-&gt;name, -1));
+-
+-	return cmd_list;
+-}
+-
+-static void command_helptext_add(Jim_Obj *cmd_list, const char *help)
+-{
+-	Jim_Obj *cmd_entry = Jim_NewListObj(interp, NULL, 0);
+-	Jim_ListAppendElement(interp, cmd_entry, cmd_list);
+-	Jim_ListAppendElement(interp, cmd_entry,
+-			Jim_NewStringObj(interp, help ? : &quot;&quot;, -1));
+-
+-	/* accumulate help text in Tcl helptext list.  */
+-	Jim_Obj *helptext = Jim_GetGlobalVariableStr(interp,
+-			&quot;ocd_helptext&quot;, JIM_ERRMSG);
+-	if (Jim_IsShared(helptext))
+-		helptext = Jim_DuplicateObj(interp, helptext);
+-	Jim_ListAppendElement(interp, helptext, cmd_entry);
+-}
+-
+ /* nice short description of source file */
+ #define __THIS__FILE__ &quot;command.c&quot;
+ 
+@@ -258,8 +232,6 @@ static struct command *command_new(struct command_context *cmd_ctx,
+ 
+ 	command_add_child(command_list_for_parent(cmd_ctx, parent), c);
+ 
+-	command_helptext_add(command_name_list(c), help);
+-
+ 	return c;
+ }
+ static void command_free(struct command *c)
+@@ -771,6 +743,65 @@ COMMAND_HANDLER(handle_help_command)
+ 	return CALL_COMMAND_HANDLER(command_help_show, c, 0);
+ }
+ 
++
++int help_add_command(struct command_context *cmd_ctx, struct command *parent,
++		const char *cmd_name, const char *help_text)
++{
++	struct command *nc = command_find(parent, cmd_name);
++	if (NULL == nc)
++	{
++		// add a new command with help text
++		nc = register_command(cmd_ctx, parent, cmd_name,
++				NULL, COMMAND_ANY, help_text);
++		if (NULL == nc)
++		{
++			LOG_INFO(&quot;failed to add '%s' help text&quot;, cmd_name);
++			return ERROR_FAIL;
++		}
++		LOG_INFO(&quot;added '%s' help text&quot;, cmd_name);
++	}
++	else
++	{
++		bool replaced = false;
++		if (nc-&gt;help)
++		{
++			free((void *)nc-&gt;help);
++			replaced = true;
++		}
++		nc-&gt;help = strdup(help_text);
++
++		if (replaced)
++			LOG_WARNING(&quot;replaced existing '%s' help&quot;, cmd_name);
++		else
++			LOG_INFO(&quot;added '%s' help text&quot;, cmd_name);
++	}
++	return ERROR_OK;
++}
++
++COMMAND_HANDLER(handle_help_add_command)
++{
++	if (CMD_ARGC &lt; 2)
++	{
++		LOG_ERROR(&quot;%s: insufficient arguments&quot;, CMD_NAME);
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	// save help text and remove it from argument list
++	const char *help_text = CMD_ARGV[--CMD_ARGC];
++	// likewise for the leaf command name
++	const char *cmd_name = CMD_ARGV[--CMD_ARGC];
++
++	struct command *c = NULL;
++	if (CMD_ARGC &gt; 0)
++	{
++		c = CMD_CTX-&gt;commands;
++		int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
++		if (ERROR_OK != retval)
++			return retval;
++	}
++	return help_add_command(CMD_CTX, c, cmd_name, help_text);
++}
++
+ /* sleep command sleeps for &lt;n&gt; miliseconds
+  * this is useful in target startup scripts
+  */
+@@ -866,6 +897,11 @@ struct command_context* command_init(const char *startup_tcl)
+ 	interp-&gt;cb_fflush = openocd_jim_fflush;
+ 	interp-&gt;cb_fgets = openocd_jim_fgets;
+ 
++	register_command(context, NULL, &quot;add_help_text&quot;,
++			handle_help_add_command, COMMAND_ANY,
++			&quot;&lt;command&gt; [...] &lt;help_text&gt;] - &quot;
++			&quot;add new command help text&quot;);
++
+ #if !BUILD_ECOSBOARD
+ 	Jim_EventLoopOnLoad(interp);
+ #endif
+@@ -922,7 +958,7 @@ void register_jim(struct command_context *cmd_ctx, const char *name,
+ 	Jim_ListAppendElement(interp, cmd_list,
+ 			Jim_NewStringObj(interp, name, -1));
+ 
+-	command_helptext_add(cmd_list, help);
++	help_add_command(cmd_ctx, NULL, name, help);
+ }
+ 
+ #define DEFINE_PARSE_NUM_TYPE(name, type, func, min, max) \
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index ddfef1d..fc84943 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -3,21 +3,6 @@
+ # Embedded into OpenOCD executable
+ #
+ 
+-# Help text list. A list of command + help text pairs.
+-#
+-# Commands can be more than one word and they are stored
+-# as &quot;flash banks&quot; &quot;help text x x x&quot;
+-
+-proc add_help_text {cmd cmd_help} {
+-	global ocd_helptext
+-	lappend ocd_helptext [list $cmd $cmd_help]
+-}
+-
+-proc get_help_text {} {
+-	global ocd_helptext
+-	return $ocd_helptext
+-}
+-
+ 
+ # We need to explicitly redirect this to the OpenOCD command
+ # as Tcl defines the exit proc
+@@ -25,6 +10,7 @@ proc exit {} {
+ 	ocd_throw exit
+ }
+ 
++# Help text list. A list of command + help text pairs.
+ proc cmd_help {cmdname h indent} {
+ 	set indent [expr $indent * 2]
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012611.html">[Openocd-development] [PATCH 6/8] provide command context during	cmd_init
+</A></li>
+	<LI>Next message: <A HREF="012614.html">[Openocd-development] [PATCH 8/8] maintain command lists in sorted	order
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12613">[ date ]</a>
+              <a href="thread.html#12613">[ thread ]</a>
+              <a href="subject.html#12613">[ subject ]</a>
+              <a href="author.html#12613">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

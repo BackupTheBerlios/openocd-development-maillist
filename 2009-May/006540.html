@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] CFI driver chip/bus width.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20CFI%20driver%20chip/bus%20width.&In-Reply-To=%3C4A0C7F8C.2080006%40discworld.dascon.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006531.html">
+   <LINK REL="Next"  HREF="006732.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] CFI driver chip/bus width.</H1>
+    <B>Michael Schwingen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20CFI%20driver%20chip/bus%20width.&In-Reply-To=%3C4A0C7F8C.2080006%40discworld.dascon.de%3E"
+       TITLE="[Openocd-development] CFI driver chip/bus width.">rincewind at discworld.dascon.de
+       </A><BR>
+    <I>Thu May 14 22:31:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006531.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+        <LI>Next message: <A HREF="006732.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6540">[ date ]</a>
+              <a href="thread.html#6540">[ thread ]</a>
+              <a href="subject.html#6540">[ subject ]</a>
+              <a href="author.html#6540">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Ra&#250;l S&#225;nchez Siles wrote:
+&gt;<i>   Hello all:
+</I>&gt;<i>
+</I>&gt;<i>   I have noticed some issues on CFI flash driver related to chip and bus width  
+</I>&gt;<i> affecting read and writes.
+</I>&gt;<i>
+</I>&gt;<i>   The system I'm dealing with is based on a Vitesse switch chip which embeds 
+</I>&gt;<i> an ARM926ejs processor. It additionally provides RAM and flash controller. In 
+</I>&gt;<i> this case we are using an spansion S29GL128 16MB flash chip, using a 8bit width 
+</I>&gt;<i> data bus layout, so on each read/write cycle we can only retrieve 1byte at 
+</I>&gt;<i> once. The flash chip data bus width is 16bit.
+</I>&gt;<i>
+</I>&gt;<i>  I declare the flash like this:
+</I>&gt;<i>
+</I>&gt;<i> flash bank cfi 0x80000000 0x1000000 1 2 0
+</I>&gt;<i>   
+</I>You mean you have *two* of those flash chips, each connected to one
+8-bit half of the 16-bit bus?
+&gt;<i> =&gt; 1st problem (writing):
+</I>&gt;<i>
+</I>&gt;<i>   This clashes somehow with the current CFI driver operations as designed now. 
+</I>&gt;<i> I have discovered that when the connected flash is 8 bit, only byte writes will 
+</I>&gt;<i> be performed correctly so even this call:
+</I>&gt;<i>
+</I>&gt;<i>   target-&gt;type-&gt;write_memory(target, address, 4, 1, value_buf)
+</I>&gt;<i>
+</I>&gt;<i> will succeed, the operation isn't carried out correctly.
+</I>&gt;<i>
+</I>&gt;<i>   I got to workaround the problem for just cfi flash probe. See attached cfi-
+</I>&gt;<i> write-width.diff What I do there is using chip width instead of bus width for 
+</I>&gt;<i> each write. This works in my case but I'm not sure it's the general way to go.
+</I>&gt;<i>
+</I>&gt;<i>   This effect expands to larger write operations, for instance in 
+</I>&gt;<i> target_write_u32 (cfi.c:1220) you would need to repeat a byte write operation 4 
+</I>&gt;<i> times.
+</I>&gt;<i>
+</I>&gt;<i> =&gt; 2nd problem (reading)
+</I>&gt;<i>
+</I>&gt;<i>   But writing is not the only problem. In reading, when chip width is 8bit 
+</I>&gt;<i> whereas bus width is 16bit, single byte operation could 	be acceptable, 
+</I>&gt;<i> whereas this is no longer valid for halfword or word operations, 16bit and 
+</I>&gt;<i> 32bit, respectively. When you call, for example cfi_query_u16, expected return 
+</I>&gt;<i> is 0xAABB, where 0xAA is the MSB and 0xBB is the LSB. Current return is always 
+</I>&gt;<i> 0xBBBB. Similar problem for cfi_query_u32
+</I>&gt;<i>
+</I>&gt;<i>   The solution is iterating the necessary times for a 1byte read and then 
+</I>&gt;<i> aggregate each iteration result properly. See attached cfi-read_iteration.diff
+</I>&gt;<i>   
+</I>In general, I don't think this is the right approach. When you have
+multiple chips in parallel to make up the data bus width (like 2 8-bit
+flashs on a 16-bit bus), you can only expect 16-bit read/write
+operations to work. For one, some CPUs don't have separate write enables
+for the separate 8-bit parts of the bus, and even if they do, a read may
+always assert all byte enables and discard the &quot;unused&quot; parts.
+
+I think the only thing that works in general is to only make bus-width
+sized accesses - ie. 16-bit in case of two 8-bit flashs, which means you
+have to read/write both chips in parallel.
+&gt;<i>   I guess the x16_as_x8 option defined but not used should be aimed at handling 
+</I>&gt;<i> this, but this is unimplemented currently.
+</I>&gt;<i>   
+</I>Um - no. The x16_as_x8 option is used for 16-bit flashes that can be
+used with an 8-bit data bus. The reason for that option is that in that
+mode, the &quot;magic&quot; address values used for commands is shifted 1 bit
+against what is used on &quot;real&quot; 8-bit flashs. The option should only tell
+that a 16-bit flash chip is connected to a 8-bit bus - having multiple
+such chips in parallel must be handled by the chip/bus geometry handling.
+
+You might have a look at the CFI code in u-boot, which I *think* does
+handle this situation correct, however, I have no board with such a
+flash layout, so I can't really tell.
+
+cu
+Michael
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006531.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+	<LI>Next message: <A HREF="006732.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6540">[ date ]</a>
+              <a href="thread.html#6540">[ thread ]</a>
+              <a href="subject.html#6540">[ subject ]</a>
+              <a href="author.html#6540">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

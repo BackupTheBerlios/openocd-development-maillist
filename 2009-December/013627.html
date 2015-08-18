@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/FYI 2/5] stellaris: avoid chip writes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/FYI%202/5%5D%20stellaris%3A%20avoid%20chip%20writes&In-Reply-To=%3C200912161252.56772.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013626.html">
+   <LINK REL="Next"  HREF="013630.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/FYI 2/5] stellaris: avoid chip writes</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/FYI%202/5%5D%20stellaris%3A%20avoid%20chip%20writes&In-Reply-To=%3C200912161252.56772.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/FYI 2/5] stellaris: avoid chip writes">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Dec 16 21:52:56 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013626.html">[Openocd-development] [patch/FYI 1/5] JTAG: shrink &quot;scan_chain&quot;	output
+</A></li>
+        <LI>Next message: <A HREF="013630.html">[Openocd-development] [patch/FYI 3/5] stellaris: remove needless	code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13627">[ date ]</a>
+              <a href="thread.html#13627">[ thread ]</a>
+              <a href="subject.html#13627">[ subject ]</a>
+              <a href="author.html#13627">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Previously &quot;reading&quot; clock info (and part info) also, as a side
+effect, wrote the flash timing register.  Instead, be more safe:
+&quot;reading&quot; should only read.  Write paths still refresh timing,
+coping with changes the application code may have made.
+
+Also rename the routine which sets flash timing, indicating what
+it's really doing; it's got nothing to do with a &quot;mode&quot;.
+---
+ src/flash/nor/stellaris.c |   23 ++++++++++-------------
+ 1 file changed, 10 insertions(+), 13 deletions(-)
+
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -345,8 +345,8 @@ static uint32_t stellaris_get_flash_stat
+ 	return fmc;
+ }
+ 
+-/* Setup the timimg registers */
+-static void stellaris_set_flash_mode(struct flash_bank *bank,int mode)
++/* Set the flash timimg register to match current clocking */
++static void stellaris_set_flash_timing(struct flash_bank *bank)
+ {
+ 	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
+ 	struct target *target = bank-&gt;target;
+@@ -471,9 +471,6 @@ static void stellaris_read_clock_info(st
+ 		stellaris_info-&gt;mck_freq = mainfreq/(1 + sysdiv);
+ 	else
+ 		stellaris_info-&gt;mck_freq = mainfreq;
+-
+-	/* Forget old flash timing */
+-	stellaris_set_flash_mode(bank, 0);
+ }
+ 
+ #if 0
+@@ -714,9 +711,9 @@ static int stellaris_erase(struct flash_
+ 		return stellaris_mass_erase(bank);
+ 	}
+ 
+-	/* Configure the flash controller timing */
++	/* Refresh flash controller timing */
+ 	stellaris_read_clock_info(bank);
+-	stellaris_set_flash_mode(bank,0);
++	stellaris_set_flash_timing(bank);
+ 
+ 	/* Clear and disable flash programming interrupts */
+ 	target_write_u32(target, FLASH_CIM, 0);
+@@ -791,9 +788,9 @@ static int stellaris_protect(struct flas
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+ 
+-	/* Configure the flash controller timing */
++	/* Refresh flash controller timing */
+ 	stellaris_read_clock_info(bank);
+-	stellaris_set_flash_mode(bank, 0);
++	stellaris_set_flash_timing(bank);
+ 
+ 	/* convert from pages to lockregions */
+ 	first /= 2;
+@@ -1011,9 +1008,9 @@ static int stellaris_write(struct flash_
+ 	if (offset + count &gt; bank-&gt;size)
+ 		return ERROR_FLASH_DST_OUT_OF_BANK;
+ 
+-	/* Configure the flash controller timing */
++	/* Refresh flash controller timing */
+ 	stellaris_read_clock_info(bank);
+-	stellaris_set_flash_mode(bank, 0);
++	stellaris_set_flash_timing(bank);
+ 
+ 	/* Clear and disable flash programming interrupts */
+ 	target_write_u32(target, FLASH_CIM, 0);
+@@ -1156,9 +1153,9 @@ static int stellaris_mass_erase(struct f
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+ 
+-	/* Configure the flash controller timing */
++	/* Refresh flash controller timing */
+ 	stellaris_read_clock_info(bank);
+-	stellaris_set_flash_mode(bank, 0);
++	stellaris_set_flash_timing(bank);
+ 
+ 	/* Clear and disable flash programming interrupts */
+ 	target_write_u32(target, FLASH_CIM, 0);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013626.html">[Openocd-development] [patch/FYI 1/5] JTAG: shrink &quot;scan_chain&quot;	output
+</A></li>
+	<LI>Next message: <A HREF="013630.html">[Openocd-development] [patch/FYI 3/5] stellaris: remove needless	code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13627">[ date ]</a>
+              <a href="thread.html#13627">[ thread ]</a>
+              <a href="subject.html#13627">[ subject ]</a>
+              <a href="author.html#13627">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

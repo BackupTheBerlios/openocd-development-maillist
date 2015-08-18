@@ -1,0 +1,997 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20split%20%22interface%22%20commands%0A%09from%20%22jtag%22%20ones&In-Reply-To=%3C201003141619.28468.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015213.html">
+   <LINK REL="Next"  HREF="015212.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20split%20%22interface%22%20commands%0A%09from%20%22jtag%22%20ones&In-Reply-To=%3C201003141619.28468.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Mar 15 00:19:28 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015213.html">[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones
+</A></li>
+        <LI>Next message: <A HREF="015212.html">[Openocd-development] arm11: imx31: Push Instructions freeze the	debugger
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15238">[ date ]</a>
+              <a href="thread.html#15238">[ thread ]</a>
+              <a href="subject.html#15238">[ subject ]</a>
+              <a href="author.html#15238">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday 10 March 2010, David Brownell wrote:
+&gt;<i> Start decoupling the two concepts (&quot;debug adapter driver&quot;, &quot;jtag&quot;)
+</I>&gt;<i> by having two command groups, which initialize separately.
+</I>&gt;<i> 
+</I>&gt;<i> This will help us support OpenOCD sessions using only non-JTAG
+</I>&gt;<i> transports, in which JTAG commands should not be registered.
+</I>
+I have some followup patches here too ... as brought out in some
+other mail, there's a bunch of stuff wrongly classified as &quot;JTAG&quot;.
+
+Appended is the first one ... these go like:
+
+ - notice mis-classified command:  &quot;jtag_khz&quot;, for this patch,
+   and a bunch of SRST support too.
+
+ - Global substitute in the source tree ... using adapter_* names
+   for generic debug adapter commands, that are needed for SWD
+   too, as well as eventually SPI, instead of jtag_* names.
+
+	(that step makes for a *big* patch ...)
+
+ - Switch the command group for the new &quot;adapter_*&quot; procedure
+   from &quot;jtag&quot;.
+
+ - Include a migration script to help user scripts not break,
+   which should ideally vanish in about a year.
+
+ - Update NEWS
+
+In short:  this should be pretty transparent.
+
+At some point the User's Guide also deserves some tweaking (to
+improve presentation ... which for clocking, has always been a
+rude mess).
+
+I figure it'll take me a while to catch all of these.  Since they're
+fairly huge but straightforward, I'm not currently planning to post
+each patch for comments
+
+======================================
+From: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+Subject:rename jtag_khz as adapter_khz
+
+Globally rename &quot;jtag_khz&quot; as &quot;adapter_khz&quot;, and move it out of the &quot;jtag&quot;
+command group ...  it needs to be used with non-JTAG transports
+
+Includes a migration aid (in jtag/startup.tcl) so that old user scripts
+won't break.  That aid should Sunset in about a year.
+
+# BETTER DOC UPDATE NEEDED
+
+---
+ NEWS                                         |    5 +++++
+ doc/openocd.texi                             |   18 +++++++++---------
+ src/jtag/core.c                              |   10 +++++-----
+ src/jtag/drivers/presto.c                    |    4 ++--
+ src/jtag/startup.tcl                         |    9 +++++++++
+ src/jtag/tcl.c                               |   21 +++++++++++----------
+ src/svf/svf.c                                |    2 +-
+ tcl/board/at91eb40a.cfg                      |    2 +-
+ tcl/board/at91rm9200-dk.cfg                  |    4 ++--
+ tcl/board/at91sam9g20-ek.cfg                 |    4 ++--
+ tcl/board/csb337.cfg                         |    4 ++--
+ tcl/board/dm365evm.cfg                       |    2 +-
+ tcl/board/ek-lm3s1968.cfg                    |    4 ++--
+ tcl/board/ek-lm3s811.cfg                     |    2 +-
+ tcl/board/ek-lm3s9b9x.cfg                    |    2 +-
+ tcl/board/ethernut3.cfg                      |    2 +-
+ tcl/board/hitex_lpc2929.cfg                  |    6 +++---
+ tcl/board/hitex_str9-comstick.cfg            |    2 +-
+ tcl/board/imx27lnst.cfg                      |    2 +-
+ tcl/board/mini2440.cfg                       |    2 +-
+ tcl/board/phytec_lpc3250.cfg                 |    6 +++---
+ tcl/board/telo.cfg                           |    4 ++--
+ tcl/board/topas910.cfg                       |    2 +-
+ tcl/board/topasa900.cfg                      |    2 +-
+ tcl/board/zy1000.cfg                         |    2 +-
+ tcl/interface/altera-usb-blaster.cfg         |    2 +-
+ tcl/interface/oocdlink.cfg                   |    2 +-
+ tcl/interface/openrd.cfg                     |    2 +-
+ tcl/interface/sheevaplug.cfg                 |    2 +-
+ tcl/interface/usb-jtag.cfg                   |    2 +-
+ tcl/interface/vsllink.cfg                    |    4 ++--
+ tcl/target/at91sam9260_ext_RAM_ext_flash.cfg |    6 +++---
+ tcl/target/c100.cfg                          |    2 +-
+ tcl/target/c100helper.tcl                    |    2 +-
+ tcl/target/dsp56321.cfg                      |    2 +-
+ tcl/target/lm3s6965.cfg                      |    2 +-
+ tcl/target/lpc2124.cfg                       |    2 +-
+ tcl/target/lpc2378.cfg                       |    2 +-
+ tcl/target/mc13224v.cfg                      |    2 +-
+ tcl/target/mega128.cfg                       |    4 ++--
+ tcl/target/pxa255.cfg                        |    4 ++--
+ tcl/target/readme.txt                        |    6 +++---
+ tcl/target/samsung_s3c2450.cfg               |    4 ++--
+ tcl/target/stellaris.cfg                     |    4 ++--
+ tcl/target/stm32.cfg                         |    2 +-
+ tcl/target/str710.cfg                        |    6 +++---
+ tcl/target/str730.cfg                        |    6 +++---
+ tcl/target/str750.cfg                        |    6 +++---
+ tcl/target/telo.cfg                          |    7 +++----
+ 49 files changed, 110 insertions(+), 96 deletions(-)
+
+--- a/NEWS
++++ b/NEWS
+@@ -5,6 +5,11 @@ and other issues not mentioned here.
+ 
+ JTAG Layer:
+ 	New driver for &quot;Bus Pirate&quot;
++	Rename various commands so they're not JTAG-specific
++	   There are migration procedures for these, but you should
++	   convert your scripts to the new names, since those procedures
++	   will not be around forever.
++	   	jtag_khz	... is now adapter_khz
+ 
+ Boundary Scan:
+ 
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -1516,7 +1516,7 @@ solution just avoids using that instruct
+ If both the chip and the board support adaptive clocking,
+ use the @command{jtag_rclk}
+ command, in case your board is used with JTAG adapter which
+-also supports it.  Otherwise use @command{jtag_khz}.
++also supports it.  Otherwise use @command{adapter_khz}.
+ Set the slow rate at the beginning of the reset sequence,
+ and the faster rate as soon as the clocks are at full speed.
+ 
+@@ -2342,7 +2342,7 @@ you may encounter a problem.
+ @deffn Command {parport_toggling_time} [nanoseconds]
+ Displays how many nanoseconds the hardware needs to toggle TCK;
+ the parport driver uses this value to obey the
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at command</A>{jtag_khz} configuration.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at command</A>{adapter_khz} configuration.
+ When the optional @var{nanoseconds} parameter is given,
+ that setting is changed before displaying the current value.
+ 
+@@ -2353,7 +2353,7 @@ To measure the toggling time with a logi
+ oscilloscope, follow the procedure below:
+ @example
+ &gt; parport_toggling_time 1000
+-&gt; jtag_khz 500
++&gt; adapter_khz 500
+ @end example
+ This sets the maximum JTAG clock speed of the hardware, but
+ the actual speed probably deviates from the requested 500 kHz.
+@@ -2364,14 +2364,14 @@ Update the setting to match your measure
+ @example
+ &gt; parport_toggling_time &lt;measured nanoseconds&gt;
+ @end example
+-Now the clock speed will be a better match for @command{jtag_khz rate}
++Now the clock speed will be a better match for @command{adapter_khz rate}
+ commands given in OpenOCD scripts and event handlers.
+ 
+ You can do something similar with many digital multimeters, but note
+ that you'll probably need to run the clock continuously for several
+ seconds before it decides what clock rate to show.  Adjust the
+ toggling time up or down until the measured clock rate is a good
+-match for the jtag_khz rate you specified; be conservative.
++match for the adapter_khz rate you specified; be conservative.
+ @end quotation
+ @end deffn
+ 
+@@ -2470,10 +2470,10 @@ However, it introduces delays to synchro
+ may not be the fastest solution.
+ 
+ @b{NOTE:} Script writers should consider using @command{jtag_rclk}
+-instead of @command{jtag_khz}, but only for (ARM) cores and boards
++instead of @command{adapter_khz}, but only for (ARM) cores and boards
+ which support adaptive clocking.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffn</A> {Command} jtag_khz max_speed_kHz
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> {Command} adapter_khz max_speed_kHz
+ A non-zero speed is in KHZ. Hence: 3000 is 3mhz.
+ JTAG interfaces usually support a limited number of
+ speeds.  The speed actually used won't be faster
+@@ -3881,7 +3881,7 @@ the target clocks are fully set up.)
+ before @command{reset_init} is called.
+ 
+ This is the most robust place to use @command{jtag_rclk}
+-or @command{jtag_khz} to switch to a low JTAG clock rate,
++or @command{adapter_khz} to switch to a low JTAG clock rate,
+ when reset disables PLLs needed to use a fast clock.
+ @ignore
+ @item @b{reset-wait-pos}
+@@ -7290,7 +7290,7 @@ To set the JTAG frequency use the comman
+ 
+ @example
+ # Example: 1.234MHz
+-jtag_khz 1234
++adapter_khz 1234
+ @end example
+ 
+ 
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1556,7 +1556,7 @@ unsigned jtag_get_speed_khz(void)
+ 	return speed_khz;
+ }
+ 
+-static int jtag_khz_to_speed(unsigned khz, int* speed)
++static int adapter_khz_to_speed(unsigned khz, int* speed)
+ {
+ 	LOG_DEBUG(&quot;convert khz to interface specific speed value&quot;);
+ 	speed_khz = khz;
+@@ -1576,11 +1576,11 @@ static int jtag_khz_to_speed(unsigned kh
+ 
+ static int jtag_rclk_to_speed(unsigned fallback_speed_khz, int* speed)
+ {
+-	int retval = jtag_khz_to_speed(0, speed);
++	int retval = adapter_khz_to_speed(0, speed);
+ 	if ((ERROR_OK != retval) &amp;&amp; fallback_speed_khz)
+ 	{
+ 		LOG_DEBUG(&quot;trying fallback speed...&quot;);
+-		retval = jtag_khz_to_speed(fallback_speed_khz, speed);
++		retval = adapter_khz_to_speed(fallback_speed_khz, speed);
+ 	}
+ 	return retval;
+ }
+@@ -1598,7 +1598,7 @@ int jtag_config_khz(unsigned khz)
+ 	LOG_DEBUG(&quot;handle jtag khz&quot;);
+ 	clock_mode = CLOCK_MODE_KHZ;
+ 	int speed = 0;
+-	int retval = jtag_khz_to_speed(khz, &amp;speed);
++	int retval = adapter_khz_to_speed(khz, &amp;speed);
+ 	return (ERROR_OK != retval) ? retval : jtag_set_speed(speed);
+ }
+ 
+@@ -1621,7 +1621,7 @@ int jtag_get_speed(void)
+ 			speed = jtag_speed;
+ 			break;
+ 		case CLOCK_MODE_KHZ:
+-			jtag_khz_to_speed(jtag_get_speed_khz(), &amp;speed);
++			adapter_khz_to_speed(jtag_get_speed_khz(), &amp;speed);
+ 			break;
+ 		case CLOCK_MODE_RCLK:
+ 			jtag_rclk_to_speed(rclk_fallback_speed_khz, &amp;speed);
+--- a/src/jtag/drivers/presto.c
++++ b/src/jtag/drivers/presto.c
+@@ -680,7 +680,7 @@ static struct bitq_interface presto_bitq
+ 
+ /* -------------------------------------------------------------------------- */
+ 
+-static int presto_jtag_khz(int khz, int *jtag_speed)
++static int presto_adapter_khz(int khz, int *jtag_speed)
+ {
+ 	if (khz &lt; 0)
+ 	{
+@@ -797,7 +797,7 @@ struct jtag_interface presto_interface =
+ 
+ 	.execute_queue = bitq_execute_queue,
+ 	.speed = presto_jtag_speed,
+-	.khz = presto_jtag_khz,
++	.khz = presto_adapter_khz,
+ 	.speed_div = presto_jtag_speed_div,
+ 	.init = presto_jtag_init,
+ 	.quit = presto_jtag_quit,
+--- a/src/jtag/startup.tcl
++++ b/src/jtag/startup.tcl
+@@ -75,3 +75,12 @@ add_help_text srst_deasserted &quot;Overridab
+ proc srst_asserted {} {
+ 	puts &quot;Sensed nSRST asserted.&quot;
+ }
++
++# BEGIN MIGRATION AIDS ...  these adapter operations originally had
++# JTAG-specific names despite the fact that the operations were not
++# specific to JTAG.
++#
++# FIXME phase these aids out after about April 2011
++#
++proc jtag_khz args { eval adapter_khz $args }
++# END MIGRATION AIDS
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1351,7 +1351,7 @@ COMMAND_HANDLER(handle_jtag_ntrst_assert
+ 	return ERROR_OK;
+ }
+ 
+-COMMAND_HANDLER(handle_jtag_khz_command)
++COMMAND_HANDLER(handle_adapter_khz_command)
+ {
+ 	if (CMD_ARGC &gt; 1)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+@@ -1609,6 +1609,16 @@ COMMAND_HANDLER(handle_tms_sequence_comm
+ 
+ static const struct command_registration interface_command_handlers[] = {
+ 	{
++		.name = &quot;adapter_khz&quot;,
++		.handler = handle_adapter_khz_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;With an argument, change to the specified maximum &quot;
++			&quot;jtag speed.  For JTAG, 0 KHz signifies adaptive &quot;
++			&quot; clocking. &quot;
++			&quot;With or without argument, display current setting.&quot;,
++		.usage = &quot;[khz]&quot;,
++	},
++	{
+ 		.name = &quot;interface&quot;,
+ 		.handler = handle_interface_command,
+ 		.mode = COMMAND_CONFIG,
+@@ -1637,15 +1647,6 @@ int interface_register_commands(struct c
+ 
+ static const struct command_registration jtag_command_handlers[] = {
+ 	{
+-		.name = &quot;jtag_khz&quot;,
+-		.handler = handle_jtag_khz_command,
+-		.mode = COMMAND_ANY,
+-		.help = &quot;With an argument, change to the specified maximum &quot;
+-			&quot;jtag speed.  Pass 0 to require adaptive clocking. &quot;
+-			&quot;With or without argument, display current setting.&quot;,
+-		.usage = &quot;[khz]&quot;,
+-	},
+-	{
+ 		.name = &quot;jtag_rclk&quot;,
+ 		.handler = handle_jtag_rclk_command,
+ 		.mode = COMMAND_ANY,
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -880,7 +880,7 @@ static int svf_run_command(struct comman
+ 			// TODO: set jtag speed to
+ 			if (svf_para.frequency &gt; 0)
+ 			{
+-				command_run_linef(cmd_ctx, &quot;jtag_khz %d&quot;, (int)svf_para.frequency / 1000);
++				command_run_linef(cmd_ctx, &quot;adapter_khz %d&quot;, (int)svf_para.frequency / 1000);
+ 				LOG_DEBUG(&quot;\tfrequency = %f&quot;, svf_para.frequency);
+ 			}
+ 		}
+--- a/tcl/board/at91eb40a.cfg
++++ b/tcl/board/at91eb40a.cfg
+@@ -65,4 +65,4 @@ $_TARGETNAME configure -event reset-init
+ }
+ 
+ # This target is pretty snappy...
+-jtag_khz 16000
++adapter_khz 16000
+--- a/tcl/board/at91rm9200-dk.cfg
++++ b/tcl/board/at91rm9200-dk.cfg
+@@ -15,7 +15,7 @@ flash_bank cfi 0x10000000 0x00200000 2 2
+ proc at91rm9200_dk_init { } {
+     # Try to run at 1khz... Yea, that slow!
+     # Chip is really running @ 32khz
+-    jtag_khz 8
++    adapter_khz 8
+ 
+     mww 0xfffffc64 0xffffffff
+     ##  disable all clocks but system clock
+@@ -41,7 +41,7 @@ proc at91rm9200_dk_init { } {
+     #========================================
+     # CPU now runs at 180mhz
+     # SYS runs at 60mhz.
+-    jtag_khz 40000
++    adapter_khz 40000
+     #========================================
+ 
+ 
+--- a/tcl/board/at91sam9g20-ek.cfg
++++ b/tcl/board/at91sam9g20-ek.cfg
+@@ -77,7 +77,7 @@ proc at91sam9g20_init { } {
+ 	# means the master clock (MCLK) must be at or below 133 MHz or timing errors will occur.  The processor
+ 	# core can operate up to 400 MHz and therefore PCLK must be at or below this to function properly.
+ 
+-	jtag_khz 2			# Slow-speed oscillator enabled at reset, so run jtag speed slow.
++	adapter_khz 2			# Slow-speed oscillator enabled at reset, so run jtag speed slow.
+ 	halt				# Make sure processor is halted, or error will result in following steps.
+ 	mww 0xfffffd08 0xa5000501	# RSTC_MR : enable user reset.
+ 	mww 0xfffffd44 0x00008000	# WDT_MR : disable watchdog.
+@@ -112,7 +112,7 @@ proc at91sam9g20_init { } {
+ 
+ 	# Switch over to adaptive clocking.
+ 
+-	jtag_khz 0
++	adapter_khz 0
+ 
+ 	# Enable faster DCC downloads.
+ 
+--- a/tcl/board/csb337.cfg
++++ b/tcl/board/csb337.cfg
+@@ -19,7 +19,7 @@ if { [info exists ETM_DRIVER] } {
+ 
+ proc csb337_clk_init { } {
+ 	# CPU is in Slow Clock Mode (32KiHz) ... needs slow JTAG clock
+-	jtag_khz 8
++	adapter_khz 8
+ 
+ 	# CKGR_MOR:  start main oscillator (3.6864 MHz)
+ 	mww 0xfffffc20 0xff01
+@@ -37,7 +37,7 @@ proc csb337_clk_init { } {
+ 	sleep 20
+ 
+ 	# CPU is in Normal Mode ... allows faster JTAG clock speed
+-	jtag_khz 40000
++	adapter_khz 40000
+ }
+ 
+ proc csb337_nor_init { } {
+--- a/tcl/board/dm365evm.cfg
++++ b/tcl/board/dm365evm.cfg
+@@ -103,7 +103,7 @@ proc dm365evm_init {} {
+ 	echo &quot;Initialize DM365 EVM board&quot;
+ 
+ 	# CLKIN	= 24 MHz ... can't talk quickly to ARM yet
+-	jtag_khz 1500
++	adapter_khz 1500
+ 
+ 	# FIXME -- PLL init
+ 
+--- a/tcl/board/ek-lm3s1968.cfg
++++ b/tcl/board/ek-lm3s1968.cfg
+@@ -4,7 +4,7 @@
+ # <A HREF="http://www.luminarymicro.com/products/lm3s1968_evaluation_kits.html">http://www.luminarymicro.com/products/lm3s1968_evaluation_kits.html</A>
+ 
+ # NOTE:  to use J-Link instead of the on-board interface,
+-# you may also need to reduce jtag_khz to be about 1200.
++# you may also need to reduce adapter_khz to be about 1200.
+ # source [find interface/jlink.cfg]
+ 
+ # include the FT2232 interface config for on-board JTAG interface
+@@ -14,7 +14,7 @@ source [find interface/luminary.cfg]
+ source [find target/lm3s1968.cfg]
+ 
+ # jtag speed
+-jtag_khz 3000
++adapter_khz 3000
+ 
+ jtag_nsrst_delay 100
+ 
+--- a/tcl/board/ek-lm3s811.cfg
++++ b/tcl/board/ek-lm3s811.cfg
+@@ -10,7 +10,7 @@ source [find interface/luminary.cfg]
+ source [find target/lm3s811.cfg]
+ 
+ # jtag speed
+-jtag_khz 500
++adapter_khz 500
+ 
+ jtag_nsrst_delay 100
+ 
+--- a/tcl/board/ek-lm3s9b9x.cfg
++++ b/tcl/board/ek-lm3s9b9x.cfg
+@@ -9,7 +9,7 @@ source [find interface/luminary-icdi.cfg
+ source [find target/lm3s9b9x.cfg]
+ 
+ # jtag speed
+-jtag_khz 500
++adapter_khz 500
+ 
+ jtag_nsrst_delay 100
+ 
+--- a/tcl/board/ethernut3.cfg
++++ b/tcl/board/ethernut3.cfg
+@@ -26,7 +26,7 @@ jtag_ntrst_delay 300
+ 
+ arm7_9 fast_memory_access enable
+ arm7_9 dcc_downloads enable
+-jtag_khz 16000
++adapter_khz 16000
+ 
+ 
+ # Target events
+--- a/tcl/board/hitex_lpc2929.cfg
++++ b/tcl/board/hitex_lpc2929.cfg
+@@ -7,7 +7,7 @@ jtag_ntrst_delay 1
+ 
+ # Maximum of 1/8 of clock frequency (XTAL = 16 MHz).
+ # Adaptive clocking through RTCK is not supported.
+-jtag_khz 2000
++adapter_khz 2000
+ 
+ # Target device: LPC29xx with ETB
+ # The following variables are used by the LPC2900 script:
+@@ -24,7 +24,7 @@ $_TARGETNAME configure -work-area-phys 0
+ # Event handlers
+ $_TARGETNAME configure -event reset-start {
+   # Back to the slow JTAG clock
+-  jtag_khz 2000
++  adapter_khz 2000
+ }
+ 
+ # External 16-bit flash at chip select CS7 (SST39VF3201-70, 4 MiB)
+@@ -46,7 +46,7 @@ $_TARGETNAME configure -event reset-init
+   mww 0xFFFF8070 0x02000000     # SYS_CLK_CONF: PLL
+ 
+   # Increase JTAG speed
+-  jtag_khz 6000
++  adapter_khz 6000
+ 
+   # Enable external memory bus (16-bit SRAM at CS6, 16-bit flash at CS7)
+   mww 0xE0001138 0x0000001F     # P1.14 = D0
+--- a/tcl/board/hitex_str9-comstick.cfg
++++ b/tcl/board/hitex_str9-comstick.cfg
+@@ -5,7 +5,7 @@
+ source [find interface/hitex_str9-comstick.cfg]
+ 
+ # set jtag speed
+-jtag_khz 3000
++adapter_khz 3000
+ 
+ jtag_nsrst_delay 100
+ jtag_ntrst_delay 100
+--- a/tcl/board/imx27lnst.cfg
++++ b/tcl/board/imx27lnst.cfg
+@@ -8,7 +8,7 @@ proc imx27lnst_init { } {
+ 	# This setup puts RAM at 0xA0000000
+ 
+ 	# reset the board correctly
+-	jtag_khz 500
++	adapter_khz 500
+ 	reset run
+ 	reset halt
+ 
+--- a/tcl/board/mini2440.cfg
++++ b/tcl/board/mini2440.cfg
+@@ -121,7 +121,7 @@ reset_config trst_and_srst
+ # IMPORTANT! See README at top of this file.
+ #-------------------------------------------------------------------------
+ 
+-    jtag_khz 12000
++    adapter_khz 12000
+     jtag interface
+ 
+ #-------------------------------------------------------------------------
+--- a/tcl/board/phytec_lpc3250.cfg
++++ b/tcl/board/phytec_lpc3250.cfg
+@@ -2,7 +2,7 @@ source [find target/lpc3250.cfg]
+ 
+ jtag_nsrst_delay 200
+ jtag_ntrst_delay 1
+-jtag_khz 200
++adapter_khz 200
+ reset_config trst_and_srst separate
+ 
+ arm7_9 dcc_downloads enable
+@@ -11,11 +11,11 @@ $_TARGETNAME configure -event gdb-attach
+ 
+ $_TARGETNAME configure -event reset-start {
+              arm7_9 fast_memory_access disable
+-             jtag_khz 200
++             adapter_khz 200
+ }
+ 
+ $_TARGETNAME configure -event reset-end {
+-             jtag_khz 6000
++             adapter_khz 6000
+              arm7_9 fast_memory_access enable
+ }
+ 
+--- a/tcl/board/telo.cfg
++++ b/tcl/board/telo.cfg
+@@ -26,11 +26,11 @@ reset_config trst_and_srst separate
+ # issue telnet: reset init
+ # issue gdb: monitor reset init
+ $_TARGETNAME configure -event reset-init {
+-	jtag_khz 100
++	adapter_khz 100
+ 	# this will setup Telo board
+ 	setupTelo
+ 	#turn up the JTAG speed
+-	jtag_khz 3000
++	adapter_khz 3000
+ 	puts &quot;JTAG speek now 3MHz&quot;
+ 	puts &quot;type helpC100 to get help on C100&quot;
+ }
+--- a/tcl/board/topas910.cfg
++++ b/tcl/board/topas910.cfg
+@@ -99,7 +99,7 @@ proc topas910_init { } {
+ 	mww 0xf4300004 0x00000000
+ 
+ 	sleep 10
+-#	jtag_khz NNNN
++#	adapter_khz NNNN
+ 
+ # remap off in case of IROM boot
+ 	mww 0xf0000004 0x00000001
+--- a/tcl/board/topasa900.cfg
++++ b/tcl/board/topasa900.cfg
+@@ -105,7 +105,7 @@ proc topasa900_init { } {
+ 	mww 0xf4300004 0x00000000
+ 
+ 	sleep 10
+-#	jtag_khz NNNN
++#	adapter_khz NNNN
+ 
+ # remap off in case of IROM boot
+ 	mww 0xf0000004 0x00000001
+--- a/tcl/board/zy1000.cfg
++++ b/tcl/board/zy1000.cfg
+@@ -66,7 +66,7 @@ $_TARGETNAME configure -event reset-init
+ # other things than flash programming.
+ $_TARGETNAME configure -work-area-phys 0x00020000 -work-area-size 0x20000 -work-area-backup 0
+ 
+-jtag_khz 16000
++adapter_khz 16000
+ 
+ 
+ proc production_info {} {
+--- a/tcl/interface/altera-usb-blaster.cfg
++++ b/tcl/interface/altera-usb-blaster.cfg
+@@ -8,4 +8,4 @@ interface usb_blaster
+ # These are already the defaults.
+ # usb_blaster_vid_pid 0x09FB 0x6001
+ # usb_blaster_device_desc &quot;USB-Blaster&quot;
+-jtag_khz 3000
++adapter_khz 3000
+--- a/tcl/interface/oocdlink.cfg
++++ b/tcl/interface/oocdlink.cfg
+@@ -8,5 +8,5 @@ interface ft2232
+ ft2232_device_desc &quot;OOCDLink&quot;
+ ft2232_layout oocdlink
+ ft2232_vid_pid 0x0403 0xbaf8
+-jtag_khz 5
++adapter_khz 5
+ 
+--- a/tcl/interface/openrd.cfg
++++ b/tcl/interface/openrd.cfg
+@@ -8,5 +8,5 @@ interface ft2232
+ ft2232_layout sheevaplug
+ ft2232_vid_pid 0x0403 0x9e90
+ ft2232_device_desc &quot;OpenRD JTAGKey FT2232D B&quot;
+-jtag_khz 3000
++adapter_khz 3000
+ 
+--- a/tcl/interface/sheevaplug.cfg
++++ b/tcl/interface/sheevaplug.cfg
+@@ -8,5 +8,5 @@ interface ft2232
+ ft2232_layout sheevaplug
+ ft2232_vid_pid 0x9e88 0x9e8f
+ ft2232_device_desc &quot;SheevaPlug JTAGKey FT2232D B&quot;
+-jtag_khz 2000
++adapter_khz 2000
+ 
+--- a/tcl/interface/usb-jtag.cfg
++++ b/tcl/interface/usb-jtag.cfg
+@@ -7,5 +7,5 @@
+ interface usb_blaster
+ usb_blaster_vid_pid 0x16C0 0x06AD
+ usb_blaster_device_desc &quot;USB-JTAG-IF&quot;
+-jtag_khz 3000
++adapter_khz 3000
+ 
+--- a/tcl/interface/vsllink.cfg
++++ b/tcl/interface/vsllink.cfg
+@@ -19,7 +19,7 @@ vsllink_usb_bulkout	0x03
+ vsllink_usb_interface	1
+ 
+ # vsllink mode, dma or normal
+-# for low jtag_khz, use normal
+-# for high jtag_khz, use dma
++# for low adapter_khz, use normal
++# for high adapter_khz, use dma
+ #vsllink_mode dma
+ vsllink_mode normal
+--- a/tcl/target/at91sam9260_ext_RAM_ext_flash.cfg
++++ b/tcl/target/at91sam9260_ext_RAM_ext_flash.cfg
+@@ -1,7 +1,7 @@
+ 
+ 
+ 
+-jtag_khz 4
++adapter_khz 4
+ 
+ 
+ ######################################
+@@ -62,7 +62,7 @@ flash bank $_FLASHNAME cfi 0x10000000 0x
+ proc at91sam_init { } {
+ 
+ 	# at reset chip runs at 32khz
+-	jtag_khz 8
++	adapter_khz 8
+ 	halt
+ 	mww 0xfffffd08 0xa5000501         # RSTC_MR : enable user reset
+ 	mww 0xfffffd44 0x00008000         # WDT_MR : disable watchdog
+@@ -79,7 +79,7 @@ proc at91sam_init { } {
+ 	sleep 10                          # wait 10 ms
+ 
+ 	# Now run at anything fast... ie: 10mhz!
+-	jtag_khz 10000                    # Increase JTAG Speed to 6 MHz
++	adapter_khz 10000                    # Increase JTAG Speed to 6 MHz
+ 	arm7_9 dcc_downloads enable       # Enable faster DCC downloads
+ 
+ 	mww 0xffffec00 0x0a0a0a0a         # SMC_SETUP0 : Setup SMC for Intel NOR Flash JS28F128P30T85 128MBit
+--- a/tcl/target/c100.cfg
++++ b/tcl/target/c100.cfg
+@@ -3,7 +3,7 @@
+ # this script only configures one core (that is used to run Linux)
+ 
+ # assume no PLL lock, start slowly
+-jtag_khz 100
++adapter_khz 100
+ 
+ if { [info exists CHIPNAME] } {
+    set  _CHIPNAME $CHIPNAME
+--- a/tcl/target/c100helper.tcl
++++ b/tcl/target/c100helper.tcl
+@@ -504,7 +504,7 @@ proc reboot {} {
+     mww $TIMER_WDT_HIGH_BOUND  0xffffff
+     mww $TIMER_WDT_CURRENT_COUNT 0x0
+     puts &quot;JTAG speed lowered to 100kHz&quot;
+-    jtag_khz 100
++    adapter_khz 100
+     mww $TIMER_WDT_CONTROL 0x1
+     # wait until the reset
+     puts -nonewline &quot;Wating for watchdog to trigger...&quot;
+--- a/tcl/target/dsp56321.cfg
++++ b/tcl/target/dsp56321.cfg
+@@ -22,7 +22,7 @@ if { [info exists CPUTAPID ] } {
+ }
+ 
+ #jtag speed
+-jtag_khz 4500
++adapter_khz 4500
+ 
+ #has only srst
+ reset_config srst_only
+--- a/tcl/target/lm3s6965.cfg
++++ b/tcl/target/lm3s6965.cfg
+@@ -13,7 +13,7 @@ if { [info exists CPUTAPID ] } {
+ }
+ 
+ # jtag speed
+-jtag_khz 500
++adapter_khz 500
+ 
+ jtag_nsrst_delay 100
+ jtag_ntrst_delay 100
+--- a/tcl/target/lpc2124.cfg
++++ b/tcl/target/lpc2124.cfg
+@@ -27,7 +27,7 @@ reset_config trst_and_srst srst_pulls_tr
+ jtag_nsrst_delay 100
+ jtag_ntrst_delay 100
+ 
+-jtag_khz 1000
++adapter_khz 1000
+ 
+ #jtag scan chain
+ jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
+--- a/tcl/target/lpc2378.cfg
++++ b/tcl/target/lpc2378.cfg
+@@ -47,4 +47,4 @@ set _FLASHNAME $_CHIPNAME.flash
+ flash bank $_FLASHNAME lpc2000 0x0 0x0007D000 0 0 $_TARGETNAME lpc2000_v2 4000 calc_checksum
+ 
+ # 4MHz / 6 = 666kHz, so use 500
+-jtag_khz 500
++adapter_khz 500
+--- a/tcl/target/mc13224v.cfg
++++ b/tcl/target/mc13224v.cfg
+@@ -36,7 +36,7 @@ jtag_ntrst_delay 200
+ 
+ # rclk hasn't been working well. This maybe the mc13224v or something else.
+ #jtag_rclk 2000
+-jtag_khz 2000
++adapter_khz 2000
+ 
+ ######################
+ # Target configuration
+--- a/tcl/target/mega128.cfg
++++ b/tcl/target/mega128.cfg
+@@ -4,7 +4,7 @@
+    set  _ENDIAN little
+ 
+ # jtag speed
+-jtag_khz 4500
++adapter_khz 4500
+ 
+ reset_config  srst_only
+ jtag_nsrst_delay 100
+@@ -27,7 +27,7 @@ flash bank $_FLASHNAME avr 0 0 0 0 $_TAR
+ 
+ #to use it, script will be like:
+ #init
+-#jtag_khz 4500
++#adapter_khz 4500
+ #reset init
+ #verify_ircapture disable
+ #
+--- a/tcl/target/pxa255.cfg
++++ b/tcl/target/pxa255.cfg
+@@ -28,8 +28,8 @@ target create $_TARGETNAME xscale -endia
+ # PXA255 comes out of reset using 3.6864 MHz oscillator.
+ # Until the PLL kicks in, keep the JTAG clock slow enough
+ # that we get no errors.
+-jtag_khz 300
+-$_TARGETNAME configure -event &quot;reset-start&quot; { jtag_khz 300 }
++adapter_khz 300
++$_TARGETNAME configure -event &quot;reset-start&quot; { adapter_khz 300 }
+ 
+ # both TRST and SRST are *required* for debug
+ # DCSR is often accessed with SRST active
+--- a/tcl/target/readme.txt
++++ b/tcl/target/readme.txt
+@@ -26,12 +26,12 @@ assumed that all write-protect mechanism
+ flash write_image [file] &lt;parameters&gt;
+ verify_image [file] &lt;parameters&gt;
+ 
+-4. jtag_khz sets the maximum speed (or alternatively RCLK). If invoked
++4. adapter_khz sets the maximum speed (or alternatively RCLK). If invoked
+ multiple times only the last setting is used.
+ 
+ interface/xxx.cfg files are always executed *before* target/xxx.cfg
+-files, so any jtag_khz in interface/xxx.cfg will be overridden by
+-target/xxx.cfg. jtag_khz in interface/xxx.cfg would then, effectively,
++files, so any adapter_khz in interface/xxx.cfg will be overridden by
++target/xxx.cfg. adapter_khz in interface/xxx.cfg would then, effectively,
+ set the default JTAG speed.
+ 
+ Note that a target/xxx.cfg file can invoke another target/yyy.cfg file,
+--- a/tcl/target/samsung_s3c2450.cfg
++++ b/tcl/target/samsung_s3c2450.cfg
+@@ -7,11 +7,11 @@
+ #
+ # RCLK?
+ #
+-# jtag_khz 0
++# adapter_khz 0
+ #
+ # Really low clock during reset?
+ #
+-# jtag_khz 1
++# adapter_khz 1
+ 
+ if { [info exists CHIPNAME] } {
+   set  _CHIPNAME $CHIPNAME
+--- a/tcl/target/stellaris.cfg
++++ b/tcl/target/stellaris.cfg
+@@ -41,8 +41,8 @@ $_TARGETNAME configure -work-area-phys 0
+ # NOTE:  this may be increased by a reset-init handler, after it
+ # configures and enables the PLL.  Or you might need to decrease
+ # this, if you're using a slower clock.
+-jtag_khz 500
+-$_TARGETNAME configure -event reset-start {jtag_khz 500}
++adapter_khz 500
++$_TARGETNAME configure -event reset-start {adapter_khz 500}
+ 
+ # flash configuration ... autodetects sizes, autoprobed
+ flash bank $_CHIPNAME.flash stellaris 0 0 0 0 $_TARGETNAME
+--- a/tcl/target/stm32.cfg
++++ b/tcl/target/stm32.cfg
+@@ -21,7 +21,7 @@ if { [info exists WORKAREASIZE] } {
+ }
+ 
+ # JTAG speed should be &lt;= F_CPU/6. F_CPU after reset is 8MHz, so use F_JTAG = 1MHz
+-jtag_khz 1000
++adapter_khz 1000
+ 
+ jtag_nsrst_delay 100
+ jtag_ntrst_delay 100
+--- a/tcl/target/str710.cfg
++++ b/tcl/target/str710.cfg
+@@ -1,5 +1,5 @@
+ #start slow, speed up after reset
+-jtag_khz 10
++adapter_khz 10
+ 
+ if { [info exists CHIPNAME] } {
+    set  _CHIPNAME $CHIPNAME
+@@ -29,9 +29,9 @@ jtag newtap $_CHIPNAME cpu -irlen 4 -irc
+ set _TARGETNAME $_CHIPNAME.cpu
+ target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position $_TARGETNAME -variant arm7tdmi
+ 
+-$_TARGETNAME configure -event reset-start { jtag_khz 10 }
++$_TARGETNAME configure -event reset-start { adapter_khz 10 }
+ $_TARGETNAME configure -event reset-init {
+-	jtag_khz 6000
++	adapter_khz 6000
+ 
+ # Because the hardware cannot be interrogated for the protection state
+ # of sectors, initialize all the sectors to be unprotected. The initial
+--- a/tcl/target/str730.cfg
++++ b/tcl/target/str730.cfg
+@@ -1,6 +1,6 @@
+ #STR730 CPU
+ 
+-jtag_khz 3000
++adapter_khz 3000
+ 
+ if { [info exists CHIPNAME] } {
+    set  _CHIPNAME $CHIPNAME
+@@ -33,9 +33,9 @@ jtag_ntrst_delay 500
+ set _TARGETNAME $_CHIPNAME.cpu
+ target create $_TARGETNAME arm7tdmi -endian little -chain-position 0 -variant arm7tdmi
+ 
+-$_TARGETNAME configure -event reset-start { jtag_khz 10 }
++$_TARGETNAME configure -event reset-start { adapter_khz 10 }
+ $_TARGETNAME configure -event reset-init {
+-	jtag_khz 3000
++	adapter_khz 3000
+ 
+ # Because the hardware cannot be interrogated for the protection state
+ # of sectors, initialize all the sectors to be unprotected. The initial
+--- a/tcl/target/str750.cfg
++++ b/tcl/target/str750.cfg
+@@ -19,7 +19,7 @@ if { [info exists CPUTAPID] } {
+ }
+ 
+ # jtag speed
+-jtag_khz 10
++adapter_khz 10
+ 
+ #use combined on interfaces or targets that can't set TRST/SRST separately
+ reset_config trst_and_srst srst_pulls_trst
+@@ -35,9 +35,9 @@ jtag_ntrst_delay 500
+ set _TARGETNAME $_CHIPNAME.cpu
+ target create $_TARGETNAME arm7tdmi -endian little -chain-position 0 -variant arm7tdmi
+ 
+-$_TARGETNAME configure -event reset-start  { jtag_khz 10 }
++$_TARGETNAME configure -event reset-start  { adapter_khz 10 }
+ $_TARGETNAME configure -event reset-init {
+-	jtag_khz 3000
++	adapter_khz 3000
+ 
+ # Because the hardware cannot be interrogated for the protection state
+ # of sectors, initialize all the sectors to be unprotected. The initial
+--- a/tcl/target/telo.cfg
++++ b/tcl/target/telo.cfg
+@@ -26,12 +26,12 @@ reset_config trst_and_srst separate
+ # issue telnet: reset init
+ # issue gdb: monitor reset init
+ $_TARGETNAME configure -event reset-init {
+-	jtag_khz 100
++	adapter_khz 100
+ 	# this will setup Telo board
+ 	setupTelo
+ 	#turn up the JTAG speed
+-	jtag_khz 3000
+-	puts &quot;JTAG speek now 3MHz&quot;
++	adapter_khz 3000
++	puts &quot;JTAG speed now 3MHz&quot;
+ 	puts &quot;type helpC100 to get help on C100&quot;
+ }
+ 
+@@ -58,4 +58,4 @@ set _FLASHNAME $_CHIPNAME.flash
+ flash bank $_FLASHNAME cfi 0x20000000 0x01000000 2 2 $_TARGETNAME
+ 
+ # writing data to memory does not work without this
+-memwrite burst disable
+\ No newline at end of file
++memwrite burst disable
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015213.html">[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones
+</A></li>
+	<LI>Next message: <A HREF="015212.html">[Openocd-development] arm11: imx31: Push Instructions freeze the	debugger
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15238">[ date ]</a>
+              <a href="thread.html#15238">[ thread ]</a>
+              <a href="subject.html#15238">[ subject ]</a>
+              <a href="author.html#15238">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

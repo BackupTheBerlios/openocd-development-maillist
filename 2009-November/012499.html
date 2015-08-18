@@ -1,0 +1,321 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/3] ARM: add arm_mode_name()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20ARM%3A%20add%20arm_mode_name%28%29&In-Reply-To=%3C200911171544.01150.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012498.html">
+   <LINK REL="Next"  HREF="012500.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/3] ARM: add arm_mode_name()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20ARM%3A%20add%20arm_mode_name%28%29&In-Reply-To=%3C200911171544.01150.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/3] ARM: add arm_mode_name()">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Nov 18 00:44:01 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012498.html">[Openocd-development] [patch 1/3] ARM: only use one set of dummy	FPA registers
+</A></li>
+        <LI>Next message: <A HREF="012500.html">[Openocd-development] [patch 3/3] ARM: add is_arm_mode()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12499">[ date ]</a>
+              <a href="thread.html#12499">[ thread ]</a>
+              <a href="subject.html#12499">[ subject ]</a>
+              <a href="author.html#12499">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add and use arm_mode_name() to map from PSR bits to user
+meaningful names.   It uses a new table which, later, can
+be used to hold other mode-coupled data.
+
+Add definitions for the &quot;Secure Monitor&quot; mode, as seen on
+some ARM11 cores (like ARM1176) and on Cortex-A8.  The
+previous mode name scheme didn't understand that mode.
+
+Remove the old mechanism ... there were two copies, caused
+by Cortex-A8 needing to add &quot;Secure Monitor&quot; mode support.
+---
+ src/target/arm720t.c       |    2 -
+ src/target/arm7_9_common.c |   11 +++++--
+ src/target/arm920t.c       |    2 -
+ src/target/arm926ejs.c     |    2 -
+ src/target/armv4_5.c       |   65 ++++++++++++++++++++++++++++++++++++++-----
+ src/target/armv4_5.h       |    4 +-
+ src/target/armv7a.c        |   12 -------
+ src/target/armv7a.h        |    2 -
+ src/target/xscale.c        |    5 +--
+ 9 files changed, 75 insertions(+), 30 deletions(-)
+
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -239,7 +239,7 @@ static int arm720t_arch_state(struct tar
+ 			&quot;MMU: %s, Cache: %s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name ,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm720t-&gt;armv4_5_mmu.mmu_enabled],
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1420,7 +1420,8 @@ static int arm7_9_debug_entry(struct tar
+ 		return ERROR_TARGET_FAILURE;
+ 	}
+ 
+-	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;, armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)]);
++	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;,
++			 arm_mode_name(armv4_5-&gt;core_mode));
+ 
+ 	if (armv4_5-&gt;core_state == ARMV4_5_STATE_THUMB)
+ 	{
+@@ -1613,7 +1614,8 @@ int arm7_9_restore_context(struct target
+ 	 */
+ 	for (i = 0; i &lt; 6; i++)
+ 	{
+-		LOG_DEBUG(&quot;examining %s mode&quot;, armv4_5_mode_strings[i]);
++		LOG_DEBUG(&quot;examining %s mode&quot;,
++				arm_mode_name(armv4_5-&gt;core_mode));
+ 		dirty = 0;
+ 		mode_change = 0;
+ 		/* check if there are dirty registers in the current mode
+@@ -1675,7 +1677,10 @@ int arm7_9_restore_context(struct target
+ 					num_regs++;
+ 					reg-&gt;dirty = 0;
+ 					reg-&gt;valid = 1;
+-					LOG_DEBUG(&quot;writing register %i of mode %s with value 0x%8.8&quot; PRIx32 &quot;&quot;, j, armv4_5_mode_strings[i], regs[j]);
++					LOG_DEBUG(&quot;writing register %i mode %s &quot;
++						&quot;with value 0x%8.8&quot; PRIx32, j,
++						arm_mode_name(armv4_5-&gt;core_mode),
++						regs[j]);
+ 				}
+ 			}
+ 
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -451,7 +451,7 @@ int arm920t_arch_state(struct target *ta
+ 			&quot;MMU: %s, D-Cache: %s, I-Cache: %s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm920t-&gt;armv4_5_mmu.mmu_enabled],
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -509,7 +509,7 @@ int arm926ejs_arch_state(struct target *
+ 			&quot;MMU: %s, D-Cache: %s, I-Cache: %s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason,target-&gt;debug_reason)-&gt;name,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm926ejs-&gt;armv4_5_mmu.mmu_enabled],
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -53,13 +53,63 @@ char* armv4_5_core_reg_list[] =
+ 	&quot;cpsr&quot;, &quot;spsr_fiq&quot;, &quot;spsr_irq&quot;, &quot;spsr_svc&quot;, &quot;spsr_abt&quot;, &quot;spsr_und&quot;
+ };
+ 
+-static const char *armv4_5_mode_strings_list[] =
+-{
+-	&quot;Illegal mode value&quot;, &quot;User&quot;, &quot;FIQ&quot;, &quot;IRQ&quot;, &quot;Supervisor&quot;, &quot;Abort&quot;, &quot;Undefined&quot;, &quot;System&quot;
++static const struct {
++	const char *name;
++	unsigned psr;
++} arm_mode_data[] = {
++	/* Seven modes are standard from ARM7 on. &quot;System&quot; and &quot;User&quot; share
++	 * the same registers; other modes shadow from 3 to 8 registers.
++	 */
++	{
++		.name = &quot;User&quot;,
++		.psr = ARMV4_5_MODE_USR,
++	},
++	{
++		.name = &quot;FIQ&quot;,
++		.psr = ARMV4_5_MODE_FIQ,
++	},
++	{
++		.name = &quot;Supervisor&quot;,
++		.psr = ARMV4_5_MODE_SVC,
++	},
++	{
++		.name = &quot;Abort&quot;,
++		.psr = ARMV4_5_MODE_ABT,
++	},
++	{
++		.name = &quot;IRQ&quot;,
++		.psr = ARMV4_5_MODE_IRQ,
++	},
++	{
++		.name = &quot;Undefined&quot; /* instruction */,
++		.psr = ARMV4_5_MODE_UND,
++	},
++	{
++		.name = &quot;System&quot;,
++		.psr = ARMV4_5_MODE_SYS,
++	},
++	/* TrustZone &quot;Security Extensions&quot; add a secure monitor mode.
++	 * This is distinct from a &quot;debug monitor&quot; which can support
++	 * non-halting debug, in conjunction with some debuggers.
++	 */
++	{
++		.name = &quot;Secure Monitor&quot;,
++		.psr = ARM_MODE_MON,
++	},
+ };
+ 
+-/* Hack! Yuk! allow -1 index, which simplifies codepaths elsewhere in the code */
+-const char **armv4_5_mode_strings = armv4_5_mode_strings_list + 1;
++/** Map PSR mode bits to the name of an ARM processor operating mode. */
++const char *arm_mode_name(unsigned psr_mode)
++{
++	unsigned i;
++
++	for (i = 0; i &lt; ARRAY_SIZE(arm_mode_data); i++) {
++		if (arm_mode_data[i].psr == psr_mode)
++			return arm_mode_data[i].name;
++	}
++	LOG_ERROR(&quot;unrecognized psr mode: %#02x&quot;, psr_mode);
++	return &quot;UNRECOGNIZED&quot;;
++}
+ 
+ /** Map PSR mode bits to linear number */
+ int armv4_5_mode_to_number(enum armv4_5_mode mode)
+@@ -282,7 +332,8 @@ int armv4_5_set_core_reg(struct reg *reg
+ 
+ 		if (armv4_5_target-&gt;core_mode != (enum armv4_5_mode)(value &amp; 0x1f))
+ 		{
+-			LOG_DEBUG(&quot;changing ARM core mode to '%s'&quot;, armv4_5_mode_strings[armv4_5_mode_to_number(value &amp; 0x1f)]);
++			LOG_DEBUG(&quot;changing ARM core mode to '%s'&quot;,
++					arm_mode_name(value &amp; 0x1f));
+ 			armv4_5_target-&gt;core_mode = value &amp; 0x1f;
+ 			armv4_5_target-&gt;write_core_reg(target, 16, ARMV4_5_MODE_ANY, value);
+ 		}
+@@ -357,7 +408,7 @@ int armv4_5_arch_state(struct target *ta
+ 	LOG_USER(&quot;target halted in %s state due to %s, current mode: %s\ncpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32));
+ 
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -35,16 +35,16 @@ typedef enum armv4_5_mode
+ 	ARMV4_5_MODE_IRQ = 18,
+ 	ARMV4_5_MODE_SVC = 19,
+ 	ARMV4_5_MODE_ABT = 23,
++	ARM_MODE_MON = 26,
+ 	ARMV4_5_MODE_UND = 27,
+ 	ARMV4_5_MODE_SYS = 31,
+ 	ARMV4_5_MODE_ANY = -1
+ } armv4_5_mode_t;
+ 
++const char *arm_mode_name(unsigned psr_mode);
+ int armv4_5_mode_to_number(enum armv4_5_mode mode);
+ enum armv4_5_mode armv4_5_number_to_mode(int number);
+ 
+-extern const char **armv4_5_mode_strings;
+-
+ typedef enum armv4_5_state
+ {
+ 	ARMV4_5_STATE_ARM,
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -47,15 +47,6 @@ char* armv7a_core_reg_list[] =
+ 	&quot;r13_mon&quot;, &quot;lr_mon&quot;, &quot;spsr_mon&quot;
+ };
+ 
+-char * armv7a_mode_strings_list[] =
+-{
+-	&quot;Illegal mode value&quot;, &quot;User&quot;, &quot;FIQ&quot;, &quot;IRQ&quot;,
+-	&quot;Supervisor&quot;, &quot;Abort&quot;, &quot;Undefined&quot;, &quot;System&quot;, &quot;Monitor&quot;
+-};
+-
+-/* Hack! Yuk! allow -1 index, which simplifies codepaths elsewhere in the code */
+-char** armv7a_mode_strings = armv7a_mode_strings_list+1;
+-
+ char* armv7a_state_strings[] =
+ {
+ 	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;, &quot;ThumbEE&quot;
+@@ -183,8 +174,7 @@ int armv7a_arch_state(struct target *tar
+ 		 armv7a_state_strings[armv7a-&gt;core_state],
+ 		 Jim_Nvp_value2name_simple(nvp_target_debug_reason,
+ 				target-&gt;debug_reason)-&gt;name,
+-		 armv7a_mode_strings[
+-			armv7a_mode_to_number(armv4_5-&gt;core_mode)],
++		 arm_mode_name(armv4_5-&gt;core_mode),
+ 		 armv7a_core_reg_list[armv7a_core_reg_map[
+ 			armv7a_mode_to_number(armv4_5-&gt;core_mode)][16]],
+ 		 buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -37,8 +37,6 @@ typedef enum armv7a_mode
+ 	ARMV7A_MODE_ANY = -1
+ } armv7a_t;
+ 
+-extern char **armv7a_mode_strings;
+-
+ typedef enum armv7a_state
+ {
+ 	ARMV7A_STATE_ARM,
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -857,7 +857,7 @@ static int xscale_arch_state(struct targ
+ 			&quot;%s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name ,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[xscale-&gt;armv4_5_mmu.mmu_enabled],
+@@ -960,7 +960,8 @@ static int xscale_debug_entry(struct tar
+ 		LOG_ERROR(&quot;cpsr contains invalid mode value - communication failure&quot;);
+ 		return ERROR_TARGET_FAILURE;
+ 	}
+-	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;, armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)]);
++	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;,
++			 arm_mode_name(armv4_5-&gt;core_mode));
+ 
+ 	if (buffer[9] &amp; 0x20)
+ 		armv4_5-&gt;core_state = ARMV4_5_STATE_THUMB;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012498.html">[Openocd-development] [patch 1/3] ARM: only use one set of dummy	FPA registers
+</A></li>
+	<LI>Next message: <A HREF="012500.html">[Openocd-development] [patch 3/3] ARM: add is_arm_mode()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12499">[ date ]</a>
+              <a href="thread.html#12499">[ thread ]</a>
+              <a href="subject.html#12499">[ subject ]</a>
+              <a href="author.html#12499">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

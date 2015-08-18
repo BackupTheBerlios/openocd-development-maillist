@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] jtag_rclk command &amp; STR912 now uses RCLK
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_rclk%20command%20%26%20STR912%20now%20uses%20RCLK&In-Reply-To=%3Cc09652430808262309g2e99d58bgec7621e8e41175b8%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003056.html">
+   <LINK REL="Next"  HREF="003061.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] jtag_rclk command &amp; STR912 now uses RCLK</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_rclk%20command%20%26%20STR912%20now%20uses%20RCLK&In-Reply-To=%3Cc09652430808262309g2e99d58bgec7621e8e41175b8%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] jtag_rclk command &amp; STR912 now uses RCLK">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Aug 27 08:09:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003056.html">[Openocd-development] jtag_rclk command &amp; STR912 now uses RCLK
+</A></li>
+        <LI>Next message: <A HREF="003061.html">[Openocd-development] jtag_rclk command &amp; STR912 now uses RCLK
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3060">[ date ]</a>
+              <a href="thread.html#3060">[ thread ]</a>
+              <a href="subject.html#3060">[ subject ]</a>
+              <a href="author.html#3060">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Most of the time - in the jtag dongle - RTCK is implemented via software
+</I>&gt;<i> polling, and it ends up being slower. Adding a &quot;timeout&quot; in software (ie: in
+</I>&gt;<i> case the cable is not connected, or target is powered off) makes the
+</I>&gt;<i> software poll loop even slower. But - the vendor will not state that, or
+</I>&gt;<i> their little gadget does not support RTCK and they must cover this little
+</I>&gt;<i> problem up.
+</I>
+Ah :-) I guess I don't have any suggestions currently on how, or if,
+to handle this in OpenOCD.
+
+Add a &quot;Slow RCLK&quot; flag?
+
+Let such drivers implement additional commands to turn RCLK on/off?
+
+Committed a comment about this in jtag.h for now.
+
+&gt;<i> In contrast, a hardware based jtag (cpld, or fpga) could - theoretically run
+</I>&gt;<i> at lighting speed - and dynamically adjust to *ANY* target clock, and
+</I>&gt;<i> implement a small hardware timer to detect/error-on &quot;stuck&quot; signals.
+</I>
+We sample RCLK at 32MHz. I guess it is possible to implement RCLK in
+an asynchronous fashion, but that might be a bit too clever with FPGA
+implementation :-)
+
+I've come to the conclusion that RCLK would be close in speed to maximum
+performance achievable. This is what we've seen with STR912 and LPC2148.
+The maximum speed for those two devices are 2-3MHz (without RCLK) and
+with RCLK sampled at 32MHz we get something close to that.
+
+&gt;<i> Just what is the correct TCK vrs CPU-CLK ratio? I believe a simple statement
+</I>&gt;<i> of: 1/8 the CPU clock frequency is correct for ARM parts.  yes, some parts,
+</I>&gt;<i> it could be faster. See below.
+</I>&gt;<i>
+</I>&gt;<i> My reasoning comes from these schematics supplied by arm detailing how to
+</I>&gt;<i> hook up the ARM core to the jtag pins.
+</I>
+My approach to this has been to try to see what works. The implementation
+of the JTAG interface also matters. The ZY1000 works robustly with
+AT91FR40162 @ 16MHz. That core runs @ 64MHz.
+
+Index: C:/workspace/openocd/src/jtag/jtag.h
+===================================================================
+--- C:/workspace/openocd/src/jtag/jtag.h	(revision 968)
++++ C:/workspace/openocd/src/jtag/jtag.h	(working copy)
+@@ -199,7 +199,13 @@
+ 	int (*init)(void);
+ 	int (*quit)(void);
+ 	/* returns JTAG maxium speed for KHz. 0=RTCK. The function returns
+-	a failure if it can't support the KHz/RTCK. */
++	a failure if it can't support the KHz/RTCK.
++	
++	WARNING!!!! if RTCK is *slow* then think carefully about
++	whether you actually want to support this in the driver.
++	Many target scripts are written to handle the absence of RTCK
++	and use a fallback kHz TCK.
++	*/
+ 	int (*khz)(int khz, int *jtag_speed);
+ 	/* returns the KHz for the provided JTAG speed. 0=RTCK. The function returns
+ 	a failure if it can't support the KHz/RTCK. */
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003056.html">[Openocd-development] jtag_rclk command &amp; STR912 now uses RCLK
+</A></li>
+	<LI>Next message: <A HREF="003061.html">[Openocd-development] jtag_rclk command &amp; STR912 now uses RCLK
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3060">[ date ]</a>
+              <a href="thread.html#3060">[ thread ]</a>
+              <a href="subject.html#3060">[ subject ]</a>
+              <a href="author.html#3060">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

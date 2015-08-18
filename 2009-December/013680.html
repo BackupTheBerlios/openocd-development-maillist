@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/RFC 2/2] stellaris: write words only
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/RFC%202/2%5D%20stellaris%3A%20write%20words%20only&In-Reply-To=%3C200912171554.23696.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013681.html">
+   <LINK REL="Next"  HREF="013701.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/RFC 2/2] stellaris: write words only</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/RFC%202/2%5D%20stellaris%3A%20write%20words%20only&In-Reply-To=%3C200912171554.23696.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/RFC 2/2] stellaris: write words only">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Dec 18 00:54:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013681.html">[Openocd-development] [patch 1/2] stellaris: update bulk flash	writes
+</A></li>
+        <LI>Next message: <A HREF="013701.html">[Openocd-development] [patch/RFC 2/2] stellaris: write words only
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13680">[ date ]</a>
+              <a href="thread.html#13680">[ thread ]</a>
+              <a href="subject.html#13680">[ subject ]</a>
+              <a href="author.html#13680">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Never attempt to write partial words.  The hardware only
+allows writing entire words ... so don't guess about what
+users want to do with the other bytes.  Require them to
+say explicitly what data they want written.
+---
+Similar in concept to the NOR patch I sent for comment.
+
+I sure hope we don't have a lot of upper-level code that
+is so sloppy about flash handling that it requires writing
+random garbage ...
+
+ src/flash/nor/stellaris.c |   33 ++-------------------------------
+ 1 file changed, 2 insertions(+), 31 deletions(-)
+
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -927,8 +927,6 @@ static int stellaris_write(struct flash_
+ 	uint32_t address = offset;
+ 	uint32_t flash_cris, flash_fmc;
+ 	uint32_t words_remaining = (count / 4);
+-	uint32_t bytes_remaining = (count &amp; 0x00000003);
+-	uint32_t bytes_written = 0;
+ 	int retval;
+ 
+ 	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+@@ -943,9 +941,9 @@ static int stellaris_write(struct flash_
+ 	if (stellaris_info-&gt;did1 == 0)
+ 		return ERROR_FLASH_BANK_NOT_PROBED;
+ 
+-	if (offset &amp; 0x3)
++	if ((offset &amp; 0x3) || (count &amp; 0x3))
+ 	{
+-		LOG_WARNING(&quot;offset size must be word aligned&quot;);
++		LOG_WARNING(&quot;Only word-aligned data may be written to flash.&quot;);
+ 		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+ 	}
+ 
+@@ -1014,33 +1012,6 @@ static int stellaris_write(struct flash_
+ 		words_remaining--;
+ 	}
+ 
+-	if (bytes_remaining)
+-	{
+-		uint8_t last_word[4] = {0xff, 0xff, 0xff, 0xff};
+-		int i = 0;
+-
+-		while (bytes_remaining &gt; 0)
+-		{
+-			last_word[i++] = *(buffer + bytes_written);
+-			bytes_remaining--;
+-			bytes_written++;
+-		}
+-
+-		if (!(address &amp; 0xff))
+-			LOG_DEBUG(&quot;0x%&quot; PRIx32 &quot;&quot;, address);
+-
+-		/* Program one word */
+-		target_write_u32(target, FLASH_FMA, address);
+-		target_write_buffer(target, FLASH_FMD, 4, last_word);
+-		target_write_u32(target, FLASH_FMC, FMC_WRKEY | FMC_WRITE);
+-		/* LOG_DEBUG(&quot;0x%x 0x%x 0x%x&quot;,address,buf_get_u32(buffer, 0, 32),FMC_WRKEY | FMC_WRITE); */
+-		/* Wait until write complete */
+-		do
+-		{
+-			target_read_u32(target, FLASH_FMC, &amp;flash_fmc);
+-		} while (flash_fmc &amp; FMC_WRITE);
+-	}
+-
+ 	/* Check access violations */
+ 	target_read_u32(target, FLASH_CRIS, &amp;flash_cris);
+ 	if (flash_cris &amp; (AMASK))
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013681.html">[Openocd-development] [patch 1/2] stellaris: update bulk flash	writes
+</A></li>
+	<LI>Next message: <A HREF="013701.html">[Openocd-development] [patch/RFC 2/2] stellaris: write words only
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13680">[ date ]</a>
+              <a href="thread.html#13680">[ thread ]</a>
+              <a href="subject.html#13680">[ subject ]</a>
+              <a href="author.html#13680">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

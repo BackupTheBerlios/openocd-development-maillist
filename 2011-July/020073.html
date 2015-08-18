@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS target, big endian host
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3CCAEk6gTCM8nEZxy0_HZy5SSHaVe0dS%2BoDA%2B7i8VCTDnCg4i7mug%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020072.html">
+   <LINK REL="Next"  HREF="020074.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS target, big endian host</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3CCAEk6gTCM8nEZxy0_HZy5SSHaVe0dS%2BoDA%2B7i8VCTDnCg4i7mug%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] MIPS target, big endian host">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Fri Jul  8 12:31:31 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020072.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+        <LI>Next message: <A HREF="020074.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20073">[ date ]</a>
+              <a href="thread.html#20073">[ thread ]</a>
+              <a href="subject.html#20073">[ subject ]</a>
+              <a href="author.html#20073">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, Jul 8, 2011 at 12:14 PM, &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt; wrote:
+&gt;&gt;<i> There is no particular need to cast this into uint8_t* and this can be
+</I>&gt;&gt;<i> kept as a void*. Would that suppress the warnings ?
+</I>&gt;<i>
+</I>&gt;<i> It does look like this code is using uint8_t * in lieu of void *...
+</I>
+Why ? It is just an address of 1-byte placeholder to which you would
+like to copy byte read from the memory.
+
+All you have to do late is to copy values read into each memeber of
+uint32_t array to each corresponding member of uint8_t array.
+This loop :
+for (i = 0; i &lt; count; i++)
+	{
+		buf[i] = param_out[i];
+	}
+I see no problem of alignment there, as actually uint32_t will be
+casted to uint8_t, which should be OK (while the other way around is
+dangerous).
+
+
+
+But even that can be avoided, as
+
+retval = mips32_pracc_exec(ejtag_info, ARRAY_SIZE(code), code,
+			ARRAY_SIZE(param_in), param_in, count, param_out, 1);
+
+will get you values in param_out[] array. This array is an array of
+uint32_t values, I do not know for which reason...
+
+Actually, copy from RAM address to our buffer is done in this loop :
+
+/* loop */
+MIPS32_BEQ(0,10,8),									/* beq 0, $10, end */
+		MIPS32_NOP,
+
+		MIPS32_LBU(8,0,9),									/* lw $8,0($9), Load t4 with the byte @mem[t1] */
+		MIPS32_SW(8,0,11),									/* sw $8,0($11) */
+
+		MIPS32_ADDI(10,10,NEG16(1)),						/* $10-- */
+		MIPS32_ADDI(9,9,1),									/* $9 += 1 */
+		MIPS32_ADDI(11,11,4),								/* $11 += 4 */
+		MIPS32_B(NEG16(8)),									/* b loop */
+
+/* end */
+
+Where $11 holds the adress of our buffer member (dst addr). Because we
+said that our destination buffer is consisted of uint32_t, this
+address is incremented by 4 in every pass:
+MIPS32_ADDI(11,11,4),								/* $11 += 4 */
+
+I think that using uint8_t array and using $11 += 1 in the loop should
+do the same thing...
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020072.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+	<LI>Next message: <A HREF="020074.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20073">[ date ]</a>
+              <a href="thread.html#20073">[ thread ]</a>
+              <a href="subject.html#20073">[ subject ]</a>
+              <a href="author.html#20073">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

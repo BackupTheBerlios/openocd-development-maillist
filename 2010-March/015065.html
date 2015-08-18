@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 6/7] semihosting: add armv7m	semihosting support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/7%5D%20semihosting%3A%20add%20armv7m%0A%09semihosting%20support&In-Reply-To=%3C201002282326.01240.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015063.html">
+   <LINK REL="Next"  HREF="015081.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 6/7] semihosting: add armv7m	semihosting support</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/7%5D%20semihosting%3A%20add%20armv7m%0A%09semihosting%20support&In-Reply-To=%3C201002282326.01240.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH 6/7] semihosting: add armv7m	semihosting support">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Mar  1 08:26:01 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015063.html">[Openocd-development] [PATCH 6/7] semihosting: add armv7m	semihosting support
+</A></li>
+        <LI>Next message: <A HREF="015081.html">[Openocd-development] [PATCH 6/7] semihosting: add armv7m semihosting support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15065">[ date ]</a>
+              <a href="thread.html#15065">[ thread ]</a>
+              <a href="subject.html#15065">[ subject ]</a>
+              <a href="author.html#15065">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sunday 28 February 2010, David Brownell wrote:
+&gt;<i> arm_semihosting.c:71: error: &#8216;spsr&#8217; may be used uninitialized in this function
+</I>&gt;<i> arm_semihosting.c:71: error: &#8216;lr&#8217; may be used uninitialized in this function
+</I>
+Quickie build fix appended -- code not tested.   Note the REVISIT comment.
+
+- Dave
+
+
+
+---
+ src/target/arm_semihosting.c |   19 +++++++++++--------
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+--- a/src/target/arm_semihosting.c
++++ b/src/target/arm_semihosting.c
+@@ -68,16 +68,9 @@ static int do_semihosting(struct target 
+ 	struct arm *arm = target_to_arm(target);
+ 	uint32_t r0 = buf_get_u32(arm-&gt;core_cache-&gt;reg_list[0].value, 0, 32);
+ 	uint32_t r1 = buf_get_u32(arm-&gt;core_cache-&gt;reg_list[1].value, 0, 32);
+-	uint32_t lr, spsr;
+ 	uint8_t params[16];
+ 	int retval, result;
+ 
+-	if (is_arm7_9(target_to_arm7_9(target)))
+-	{
+-		lr = buf_get_u32(ARMV4_5_CORE_REG_MODE(arm-&gt;core_cache, ARM_MODE_SVC, 14).value, 0, 32);
+-		spsr = buf_get_u32(arm-&gt;spsr-&gt;value, 0, 32);;
+-	}
+-
+ 	/*
+ 	 * TODO: lots of security issues are not considered yet, such as:
+ 	 * - no validation on target provided file descriptors
+@@ -398,20 +391,30 @@ static int do_semihosting(struct target 
+ 
+ 	if (is_arm7_9(target_to_arm7_9(target)))
+ 	{
++		uint32_t spsr;
++
+ 		/* return value in R0 */
+ 		buf_set_u32(arm-&gt;core_cache-&gt;reg_list[0].value, 0, 32, result);
+ 		arm-&gt;core_cache-&gt;reg_list[0].dirty = 1;
+ 
+ 		/* LR --&gt; PC */
+-		buf_set_u32(arm-&gt;core_cache-&gt;reg_list[15].value, 0, 32, lr);
++		buf_set_u32(arm-&gt;core_cache-&gt;reg_list[15].value, 0, 32,
++			buf_get_u32(arm_reg_current(arm,14)-&gt;value, 0, 32));
+ 		arm-&gt;core_cache-&gt;reg_list[15].dirty = 1;
+ 
+ 		/* saved PSR --&gt; current PSR */
++		spsr = buf_get_u32(arm-&gt;spsr-&gt;value, 0, 32);
++
++		/* REVISIT should this be arm_set_cpsr(arm, spsr)
++		 * instead of a partially unrolled version?
++		 */
++
+ 		buf_set_u32(arm-&gt;cpsr-&gt;value, 0, 32, spsr);
+ 		arm-&gt;cpsr-&gt;dirty = 1;
+ 		arm-&gt;core_mode = spsr &amp; 0x1f;
+ 		if (spsr &amp; 0x20)
+ 			arm-&gt;core_state = ARM_STATE_THUMB;
++
+ 	}
+ 	else
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015063.html">[Openocd-development] [PATCH 6/7] semihosting: add armv7m	semihosting support
+</A></li>
+	<LI>Next message: <A HREF="015081.html">[Openocd-development] [PATCH 6/7] semihosting: add armv7m semihosting support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15065">[ date ]</a>
+              <a href="thread.html#15065">[ thread ]</a>
+              <a href="subject.html#15065">[ subject ]</a>
+              <a href="author.html#15065">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

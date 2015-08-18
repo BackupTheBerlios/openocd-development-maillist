@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Command-line paths problem in Windows
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Command-line%20paths%20problem%20in%20Windows&In-Reply-To=%3C20111021150634.9785.qmail%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021323.html">
+   <LINK REL="Next"  HREF="021325.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Command-line paths problem in Windows</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Command-line%20paths%20problem%20in%20Windows&In-Reply-To=%3C20111021150634.9785.qmail%40stuge.se%3E"
+       TITLE="[Openocd-development] Command-line paths problem in Windows">peter at stuge.se
+       </A><BR>
+    <I>Fri Oct 21 17:06:34 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021323.html">[Openocd-development] Command-line paths problem in Windows
+</A></li>
+        <LI>Next message: <A HREF="021325.html">[Openocd-development] Command-line paths problem in Windows
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21324">[ date ]</a>
+              <a href="thread.html#21324">[ thread ]</a>
+              <a href="subject.html#21324">[ subject ]</a>
+              <a href="author.html#21324">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Xiaofan Chen wrote:
+&gt;<i> For version 0.5.0, the following two commands work and I use only
+</I>&gt;<i> either of them.
+</I>&gt;<i> openocd.exe -f board\ek-lm3s1968.cfg
+</I>&gt;<i> openocd.exe -f board/ek-lm3s1968.cfg
+</I>&gt;<i> 
+</I>&gt;<i> For latest git, none of the following commands work.
+</I>&gt;<i> openocd.exe -f board\ek-lm3s1968.cfg
+</I>&gt;<i> openocd.exe -f board/ek-lm3s1968.cfg
+</I>
+The first is understandable, but the second not working may be a real
+problem.
+
+
+&gt;<i> Example running log.
+</I>
+When looking for string parsing errors it's critical that every byte
+of log output is unchanged. I think some lines were wrapped in the
+email, most likely by some email software. This makes debugging
+impossible. Perhaps you can direct output to a text file and attach
+it to an email?
+
+
+&gt;<i> C:\work\openocd\binary\bin&gt;openocd.exe -f board//ek-lm3s1968.cfg
+</I>&gt;<i> Open On-Chip Debugger 0.6.0-dev-snapshot (2011-10-21-21:26)
+</I>&gt;<i> Licensed under GNU GPL v2
+</I>&gt;<i> For bug reports, read
+</I>&gt;<i>         <A HREF="http://openocd.sourceforge.net/doc/doxygen/bugs.html">http://openocd.sourceforge.net/doc/doxygen/bugs.html</A>
+</I>&gt;<i> Runtime Error: embedded:startup.tcl:58: couldn't read file &quot;C:workopenocinarin..
+</I>&gt;<i> /board//ek-lm3s1968.cfg&quot;: No such file or directory
+</I>&gt;<i> in procedure 'script'
+</I>&gt;<i> at file &quot;embedded:startup.tcl&quot;, line 58
+</I>
+So the commit that broke this is probably
+
+commit a62d8f2271312ba955e839509590f5a5975b1b49
+Author: Steve Bennett &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">steveb at workware.net.au</A>&gt;
+Date:   Thu Aug 11 12:10:54 2011 +1000
+
+    Evaluate 'script' in the global scope
+    
+    Scripts sourced via 'script' should evaluate in the global
+    scope to make it easy to set and reference global variables.
+    
+    Signed-off-by: Steve Bennett &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">steveb at workware.net.au</A>&gt;
+
+
+You could test by running:
+
+git checkout -b beforesuspect a62d8f22^
+
+In the git dir. This creates a branch called beforesuspect which
+points to the commit preceding Steve's. Then build as usual. (make
+distclean or so.)
+
+If you then want to test that this commit created the problem then
+you can run:
+
+git checkout -b suspect a62d8f22
+
+Which creates a branch called suspect, that points to Steve's commit.
+
+Clean and build again.
+
+When done, go back to the master branch, and clean up the temporary
+ones:
+
+git checkout master
+git branch -d beforesuspect
+git branch -d suspect
+
+
+&gt;<i> &gt; Double backslash seems to fix it.
+</I>&gt;<i> 
+</I>&gt;<i> That helps. The following commands work.
+</I>&gt;<i> openocd.exe -f ..\\board\\ek-lm3s1968.cfg
+</I>
+I guess the uplevel makes the parameter be evaluated by the
+interpreter, meaning that all \ is unescaped.
+
+
+&gt;<i> openocd.exe -f ..//board//ek-lm3s1968.cfg
+</I>&gt;<i> 
+</I>&gt;<i> The following command also works.
+</I>&gt;<i> openocd.exe -f ../board/ek-lm3s1968.cfg
+</I>
+So there are two differences in behavior versus 0.5:
+
+1. \ in -f parameters get evaluated one time extra by Jim tcl
+2. paths in -f parameters are now relative to a different directory,
+   one level down from previously
+
+2. is most likely caused by another commit.
+
+
+//Peter
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021323.html">[Openocd-development] Command-line paths problem in Windows
+</A></li>
+	<LI>Next message: <A HREF="021325.html">[Openocd-development] Command-line paths problem in Windows
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21324">[ date ]</a>
+              <a href="thread.html#21324">[ thread ]</a>
+              <a href="subject.html#21324">[ subject ]</a>
+              <a href="author.html#21324">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

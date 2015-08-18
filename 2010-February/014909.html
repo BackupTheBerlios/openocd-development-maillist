@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] Add support for the	redbee-econotag and mc13224v.cfg.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Add%20support%20for%20the%0A%09redbee-econotag%20and%20mc13224v.cfg.&In-Reply-To=%3C55ded6ab72ce9d2edf7ea7d3dba0a99aafa2eb10.1266706402.git.mar%40devl.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014908.html">
+   <LINK REL="Next"  HREF="014944.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] Add support for the	redbee-econotag and mc13224v.cfg.</H1>
+    <B>Mariano Alvira</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Add%20support%20for%20the%0A%09redbee-econotag%20and%20mc13224v.cfg.&In-Reply-To=%3C55ded6ab72ce9d2edf7ea7d3dba0a99aafa2eb10.1266706402.git.mar%40devl.org%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] Add support for the	redbee-econotag and mc13224v.cfg.">mar at devl.org
+       </A><BR>
+    <I>Sat Feb 20 23:57:13 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014908.html">[Openocd-development] [PATCH 0/2] mc13224v config files and	INTERFACE_B support
+</A></li>
+        <LI>Next message: <A HREF="014944.html">[Openocd-development] [PATCH 2/2] Adds a mechanism to specify the FTDI interface (A or B) in the layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14909">[ date ]</a>
+              <a href="thread.html#14909">[ thread ]</a>
+              <a href="subject.html#14909">[ subject ]</a>
+              <a href="author.html#14909">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>---
+ src/jtag/drivers/ft2232.c     |   64 ++++++++++++++++++++++++++++++++
+ tcl/board/redbee-econotag.cfg |    5 +++
+ tcl/target/mc13224v.cfg       |   80 +++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 149 insertions(+), 0 deletions(-)
+ create mode 100644 tcl/board/redbee-econotag.cfg
+ create mode 100644 tcl/target/mc13224v.cfg
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 82132d3..2d7d415 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -161,6 +161,7 @@ static int icebear_jtag_init(void);
+ static int cortino_jtag_init(void);
+ static int signalyzer_h_init(void);
+ static int ktlink_init(void);
++static int redbee_init(void);
+ 
+ /* reset procedures for supported layouts */
+ static void usbjtag_reset(int trst, int srst);
+@@ -203,6 +204,7 @@ static const struct ft2232_layout  ft2232_layouts[] =
+ 	{ &quot;cortino&quot;,              cortino_jtag_init,         comstick_reset, NULL                        },
+ 	{ &quot;signalyzer-h&quot;,         signalyzer_h_init,         signalyzer_h_reset, signalyzer_h_blink      },
+ 	{ &quot;ktlink&quot;,               ktlink_init,               ktlink_reset,       ktlink_blink            },
++	{ &quot;redbee-econotag&quot;,      redbee_init,               axm0432_jtag_reset, NULL                    },
+ 	{ NULL,                   NULL,                      NULL,               NULL                    },
+ };
+ 
+@@ -2346,6 +2348,68 @@ static int axm0432_jtag_init(void)
+ 	return ERROR_OK;
+ }
+ 
++static int redbee_init(void)
++{
++	uint8_t  buf[3];
++	uint32_t bytes_written;
++
++	low_output    = 0x08;
++	low_direction = 0x2b;
++
++	/* initialize low byte for jtag */
++	buf[0] = 0x80;          /* command &quot;set data bits low byte&quot; */
++	buf[1] = low_output;    /* value (TMS = 1,TCK = 0, TDI = 0, nOE = 0) */
++	buf[2] = low_direction; /* dir (output = 1), TCK/TDI/TMS = out, TDO = in, nOE = out */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (((ft2232_write(buf, 3, &amp;bytes_written)) != ERROR_OK) || (bytes_written != 3))
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'redbee' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	nTRST    = 0x08;
++	nTRSTnOE = 0x0;     /* No output enable for TRST*/
++	nSRST    = 0x04;
++	nSRSTnOE = 0x0;     /* No output enable for SRST*/
++	
++	high_output    = 0x0;
++	high_direction = 0x0c;
++
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
++	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++	{
++		LOG_ERROR(&quot;can't set nTRSTOE to push-pull on redbee&quot;);
++	}
++	else
++	{
++		high_output |= nTRST;
++	}
++
++	if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++	{
++		LOG_ERROR(&quot;can't set nSRST to push-pull on redbee&quot;);
++	}
++	else
++	{
++		high_output |= nSRST;
++	}
++
++	/* initialize high port */
++	buf[0] = 0x82;              /* command &quot;set data bits high byte&quot; */
++	buf[1] = high_output;       /* value */
++	buf[2] = high_direction;    /* all outputs (xRST and xRSTnOE) */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (((ft2232_write(buf, 3, &amp;bytes_written)) != ERROR_OK) || (bytes_written != 3))
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'redbee' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
+ static int jtagkey_init(void)
+ {
+ 	uint8_t  buf[3];
+diff --git a/tcl/board/redbee-econotag.cfg b/tcl/board/redbee-econotag.cfg
+new file mode 100644
+index 0000000..4c668d0
+--- /dev/null
++++ b/tcl/board/redbee-econotag.cfg
+@@ -0,0 +1,5 @@
++source [find target/mc13224v.cfg]
++
++interface ft2232
++ft2232_layout redbee-econotag
++ft2232_vid_pid 0x0403 0x6010
+diff --git a/tcl/target/mc13224v.cfg b/tcl/target/mc13224v.cfg
+new file mode 100644
+index 0000000..26b0b13
+--- /dev/null
++++ b/tcl/target/mc13224v.cfg
+@@ -0,0 +1,80 @@
++# Change the default telnet port...
++telnet_port 4444
++# GDB connects here
++gdb_port 3333
++# GDB can also flash my flash!
++#gdb_memory_map enable
++#gdb_flash_program enable
++
++source [find bitsbytes.tcl]
++source [find cpu/arm/arm7tdmi.tcl]
++source [find memory.tcl]
++source [find mmr_helpers.tcl]
++set CHIP_MAKER  freescale
++set CHIP_FAMILY mc1322x
++set CHIP_NAME  mc13224
++set N_RAM 1
++set RAM(0,BASE)  0x00400000
++set RAM(0,LEN)   0x18000
++set RAM(0,HUMAN) &quot;internal SRAM&quot;
++set RAM(0,TYPE)            &quot;ram&quot;
++set RAM(0,RWX)             $RWX_RWX
++set RAM(0,ACCESS_WIDTH)    $ACCESS_WIDTH_ANY
++
++# I AM LAZY... I create 1 region for all MMRs.
++set N_MMREGS    1
++set MMREGS(0,CHIPSELECT)      -1
++set MMREGS(0,BASE)            0x80000000
++set MMREGS(0,LEN)             0x00030000
++set MMREGS(0,HUMAN)           &quot;mm-regs&quot;
++set MMREGS(0,TYPE)            &quot;mmr&quot;
++set MMREGS(0,RWX)             $RWX_RW
++set MMREGS(0,ACCESS_WIDTH)    $ACCESS_WIDTH_ANY
++
++set N_XMEM 0
++
++set _CHIPNAME mc13224v
++set _ENDIAN little
++set _CPUTAPID 0x1f1f001d
++
++jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x01 -irmask 0x0f -expected-id $_CPUTAPID
++
++reset_config srst_only
++jtag_ntrst_delay 200
++
++#jtag_rclk 2000
++jtag_khz 2000
++
++######################
++# Target configuration
++######################
++
++set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME] 
++target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position $_TARGETNAME -variant arm7tdmi
++#$_TARGETNAME -variant arm7tdmi
++#$_TARGETNAME configure -event reset-init {
++#        sleep 100
++#        soft_reset_halt
++#        mww 0x80000018 0x50000000
++#        mww 0x80000000 0x00000f00
++#        mww 0x80000008 0x00000e00
++#        mww 0x80005000 0x00006013
++#        # mww 0x80005018 0x017f270f
++#        # mww 0x80005008 0x55
++#        mww 0x80005018 0x07A9270F
++#        mww 0x80005008 0x55
++#        sleep 100
++#}
++
++# Internal sram memory
++$_TARGETNAME configure -work-area-virt 0x00408000 -work-area-phys 0x00408000 -work-area-size 0x1000 -work-area-backup 1
++
++proc run {file} {
++     puts &quot;loading $file into location 0x00400000 and executing...&quot;
++     soft_reset_halt
++     load_image $file 0x00400000
++     reg pc 0x00400000
++     resume
++}
++
++#flash bank mc1322x 0 0 0 0 $_TARGETNAME
+\ No newline at end of file
+-- 
+1.5.6.5
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014908.html">[Openocd-development] [PATCH 0/2] mc13224v config files and	INTERFACE_B support
+</A></li>
+	<LI>Next message: <A HREF="014944.html">[Openocd-development] [PATCH 2/2] Adds a mechanism to specify the FTDI interface (A or B) in the layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14909">[ date ]</a>
+              <a href="thread.html#14909">[ thread ]</a>
+              <a href="subject.html#14909">[ subject ]</a>
+              <a href="author.html#14909">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

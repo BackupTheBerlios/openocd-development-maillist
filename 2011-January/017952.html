@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] How to define the trn in configuration	files?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20define%20the%20trn%20in%20configuration%0A%09files%3F&In-Reply-To=%3CAANLkTikis6mCMUutpgm%3Dujdh28BskSV8PxQKpxVA9duS%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017951.html">
+   <LINK REL="Next"  HREF="017956.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] How to define the trn in configuration	files?</H1>
+    <B>Tomek CEDRO</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20define%20the%20trn%20in%20configuration%0A%09files%3F&In-Reply-To=%3CAANLkTikis6mCMUutpgm%3Dujdh28BskSV8PxQKpxVA9duS%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] How to define the trn in configuration	files?">tomek.cedro at gmail.com
+       </A><BR>
+    <I>Tue Jan 18 13:57:29 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017951.html">[Openocd-development] How to define the trn in configuration	files?
+</A></li>
+        <LI>Next message: <A HREF="017956.html">[Openocd-development] Cortex A9 target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17952">[ date ]</a>
+              <a href="thread.html#17952">[ thread ]</a>
+              <a href="subject.html#17952">[ subject ]</a>
+              <a href="author.html#17952">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tue, Jan 18, 2011 at 1:18 PM, simon qian &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">simonqian.openocd at gmail.com</A>&gt; wrote:
+&gt;<i> In my implementation of SWD in OpenOCD, trun is configured in configuration
+</I>&gt;<i> files.
+</I>
+Nice! :-) OpenOCD has already great infrastructure implemented and it
+will surely allow many other transport implemented. Maybe it would be
+convenient to separate, create or wrap initialization functions and
+structures somehow to avoid using jtag_* functions in other
+transports..?
+
+&gt;<i> I have sucessfully run SWD under the tranport framework, but some changes:
+</I>&gt;<i> 1. call&#160;jtag_register_commands in swd_select, because these commands are
+</I>&gt;<i> needed when parsing configuration files
+</I>
+Maybe this could be done by creating swd_register_commands based on
+jtag_register_commands, renaming it into core_register_commands or
+wrapping with transport_register_commands?
+
+&gt;<i> 2. ignore jtag calls in core.c and tcl.c in SWD mode.
+</I>
+How these can be ignored? I think the best solution would be not to
+have any alien calls within specified transport, so the tranports are
+separate of each other, even when more than one transport it in use -
+this could allow for instance using JTAG/SWD and SPI for FPGA
+prototyping/development when SPI memory is directly programmed by
+cable and the same cable could use JTAG/SWD for debug.
+
+&gt;<i> 3. add&#160;queue_dp_scan to&#160;struct dap_ops, so that in arm_adi_v5.c,
+</I>&gt;<i> dap_ops-&gt;&#160;queue_dp_scan&#160;is called instead of&#160;adi_jtag_dp_scan.
+</I>
+Great! And the queue is being used by existing infrastructure..?
+
+&gt;<i> 4. clear error registers:
+</I>&gt;<i> In JTAG:
+</I>&gt;<i> dap_queue_dp_write(dap, DP_CTRL_STAT, SSTICKYERR);
+</I>&gt;<i> In SWD:
+</I>&gt;<i> dap_queue_dp_write(dap, DP_ABORT, DAPABORT | STKERRCLR | WDERRCLR |
+</I>&gt;<i> ORUNERRCLR);
+</I>
+Wow, this is really nice and I was wondering how such high-level
+access could look - this one is very comfortable! :-)
+
+Simon, do you know how the command queue can be realized to replay all
+of the commands that are stored in a file (ie. something like svf
+player). Still I dont really understand how such &quot;past&quot; command can be
+executed from the longer queue with additional parameters such as
+error flags and if its possible - those flags must have its own
+structure to be put on the queue with the command? Do you have
+experience with such stuff? This is simple when executing commands at
+real time because error flags can be directly supplied into calling
+function, but when it is one of many commands queued, then after each
+step there must be some additional function checking for an error.. so
+how to filter out some resulting bits in a universal manner, or simply
+blindly replay the queue and stop when driver function returns error?
+
+We could also create high-level command for data transfer polling for
+potential transfer errors (they would consist of data phase and
+CTLSTAT register read to verify the sticky flags), or these should be
+done with external tcl scripts using simple hardcoded functions?
+
+Best regards,
+Tomek
+
+-- 
+CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017951.html">[Openocd-development] How to define the trn in configuration	files?
+</A></li>
+	<LI>Next message: <A HREF="017956.html">[Openocd-development] Cortex A9 target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17952">[ date ]</a>
+              <a href="thread.html#17952">[ thread ]</a>
+              <a href="subject.html#17952">[ subject ]</a>
+              <a href="author.html#17952">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/5] target: avoid using interp global	variable
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/5%5D%20target%3A%20avoid%20using%20interp%20global%0A%09variable&In-Reply-To=%3C1259550185-25916-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013067.html">
+   <LINK REL="Next"  HREF="013068.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/5] target: avoid using interp global	variable</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/5%5D%20target%3A%20avoid%20using%20interp%20global%0A%09variable&In-Reply-To=%3C1259550185-25916-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/5] target: avoid using interp global	variable">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Nov 30 04:03:02 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013067.html">[Openocd-development] [PATCH 1/5] jtag: avoid using interp global	variable
+</A></li>
+        <LI>Next message: <A HREF="013068.html">[Openocd-development] [PATCH 3/5] do not extern 'interp' from	command.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13065">[ date ]</a>
+              <a href="thread.html#13065">[ thread ]</a>
+              <a href="subject.html#13065">[ subject ]</a>
+              <a href="author.html#13065">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Adds 'interp' to target_event_action structure to avoid using the
+global variable of the same name.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/target.c |   19 ++++++++++---------
+ src/target/target.h |    1 +
+ 2 files changed, 11 insertions(+), 9 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 3a84040..4297258 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3524,9 +3524,9 @@ void target_handle_event(struct target *target, enum target_event e)
+ 					   e,
+ 					   Jim_Nvp_value2name_simple(nvp_target_event, e)-&gt;name,
+ 					   Jim_GetString(teap-&gt;body, NULL));
+-			if (Jim_EvalObj(interp, teap-&gt;body) != JIM_OK)
++			if (Jim_EvalObj(teap-&gt;interp, teap-&gt;body) != JIM_OK)
+ 			{
+-				Jim_PrintErrorMessage(interp);
++				Jim_PrintErrorMessage(teap-&gt;interp);
+ 			}
+ 		}
+ 	}
+@@ -3668,9 +3668,10 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 						replace = false;
+ 					}
+ 					teap-&gt;event = n-&gt;value;
++					teap-&gt;interp = goi-&gt;interp;
+ 					Jim_GetOpt_Obj(goi, &amp;o);
+ 					if (teap-&gt;body) {
+-						Jim_DecrRefCount(interp, teap-&gt;body);
++						Jim_DecrRefCount(teap-&gt;interp, teap-&gt;body);
+ 					}
+ 					teap-&gt;body  = Jim_DuplicateObj(goi-&gt;interp, o);
+ 					/*
+@@ -3718,7 +3719,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_virt));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_virt));
+ 			/* loop for more */
+ 			break;
+ 
+@@ -3736,7 +3737,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_phys));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_phys));
+ 			/* loop for more */
+ 			break;
+ 
+@@ -3753,7 +3754,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_size));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_size));
+ 			/* loop for more */
+ 			break;
+ 
+@@ -3771,7 +3772,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;backup_working_area));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;backup_working_area));
+ 			/* loop for more e*/
+ 			break;
+ 
+@@ -3838,7 +3839,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResultString(interp, target-&gt;tap-&gt;dotted_name, -1);
++			Jim_SetResultString(goi-&gt;interp, target-&gt;tap-&gt;dotted_name, -1);
+ 			/* loop for more e*/
+ 			break;
+ 		}
+@@ -4486,7 +4487,7 @@ static int target_create(Jim_GetOptInfo *goi)
+ 
+ 	if (target-&gt;tap == NULL)
+ 	{
+-		Jim_SetResultString(interp, &quot;-chain-position required when creating target&quot;, -1);
++		Jim_SetResultString(goi-&gt;interp, &quot;-chain-position required when creating target&quot;, -1);
+ 		e = JIM_ERR;
+ 	}
+ 
+diff --git a/src/target/target.h b/src/target/target.h
+index 009ec17..af4727c 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -222,6 +222,7 @@ enum target_event
+ 
+ struct target_event_action {
+ 	enum target_event event;
++	Jim_Interp *interp;
+ 	struct Jim_Obj *body;
+ 	int has_percent;
+ 	struct target_event_action *next;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013067.html">[Openocd-development] [PATCH 1/5] jtag: avoid using interp global	variable
+</A></li>
+	<LI>Next message: <A HREF="013068.html">[Openocd-development] [PATCH 3/5] do not extern 'interp' from	command.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13065">[ date ]</a>
+              <a href="thread.html#13065">[ thread ]</a>
+              <a href="subject.html#13065">[ subject ]</a>
+              <a href="author.html#13065">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

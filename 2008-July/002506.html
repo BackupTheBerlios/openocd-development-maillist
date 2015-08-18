@@ -1,0 +1,366 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Switching .cfg files to tcl
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Switching%20.cfg%20files%20to%20tcl&In-Reply-To=%3C4878109D.8040601%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002496.html">
+   <LINK REL="Next"  HREF="002507.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Switching .cfg files to tcl</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Switching%20.cfg%20files%20to%20tcl&In-Reply-To=%3C4878109D.8040601%40duaneellis.com%3E"
+       TITLE="[Openocd-development] Switching .cfg files to tcl">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Jul 12 04:02:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002496.html">[Openocd-development] Switching .cfg files to tcl
+</A></li>
+        <LI>Next message: <A HREF="002507.html">[Openocd-development] Switching .cfg files to tcl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2506">[ date ]</a>
+              <a href="thread.html#2506">[ thread ]</a>
+              <a href="subject.html#2506">[ subject ]</a>
+              <a href="author.html#2506">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>duane&gt; should we generate a different output for each of these languages?
+
+&#216;yvind&gt; I have explained this badly because you completely misunderstand me.
+
+No, I understood you completely. 
+
+Sorry for my long reply - but I feel it is the only way to explain this 
+- for I think the 5th time - (not to you, but to others also)
+
+I would love to hear what others think of this.
+
+-Duane.
+
+BTW -
+    Please do not take, or think this is a rant - or ever - it is not at 
+all intended that way.
+
+==================
+
+&#216;yvind defines or declare the &quot;programing API as some internal tcl 
+representation&quot; - aka: effectively A TCL list object. Using &#216;yvind's 
+example - &quot;flash_banks&quot; in earlier email - it returns its results like this:
+
+    {ecosflash 16777216 2097152 2 2}
+
+&#216;yvind's view is: the host side application can choose
+
+(A) use it as is or
+(B) make it better so they can more easily parse the result.
+
+It is up to the host side application writer to decide what to do.
+
+We programmers are lazy people, most if not all host applications *WILL* 
+code to the supplied API.
+
+When dealing with other external projects - every project will 
+compromise far to much - often because they have no choice.
+As &#216;yvind put it in an earlier email [me asking about a cortex #define 
+vrs command]
+
+ &gt;&gt; Can we simply hardcode the least of evils and delete hacks once
+ &gt;&gt; GDB catches up? (I believe we're waiting for a new and improved GDB
+ &gt;&gt; here?).
+
+I repeat:
+
+We programmers are lazy people, most host applications *WILL* code to 
+the supplied API.
+
+And add...
+
+Often we have no other practical choice.
+
+=========================================
+Where &#216;yvind and I differ is here:
+=========================================
+
+The best analogy I can think of is &#216;yvind wants to offer an &quot;old fashion 
+C structure initialization&quot;- like this:
+(In reality, without the commas - it is a TCL list)
+
+    struct flash_banks data = { &quot;ecosflash&quot; , 16777216 , 2097152 , 2,  2 };
+
+If one element is added - in the wrong place - or - something is moved - 
+BOOM - nothing works. A classic &quot;off-by-one&quot; bug.
+
+If I understand the code correctly, if I used &quot;C99&quot; style syntax - it is 
+this:
+
+    struct flash_banks data = {
+        .name = &quot;ecosflash&quot;,
+        .base  = 16777216,
+        .size = 2097152,
+        .bus_width = 2,
+       .chip_width = 2
+    }
+
+The C99 method is *immune* to the off-by-one bug.  It is very robust.
+
+It is a C99 style reply that I strongly advocate
+
+Some believe it is overly complicated, perhaps they do not see what I see.
+
+=========================================
+Problem Example:
+=========================================
+
+Today - we have exactly 1 command - the one &#216;yvind wrote, and it has an 
+*exact* example of the problem that i do not want to see happen.
+
+Can somebody fix this:
+
+    In the &quot;flash_banks&quot; the field num_sectors field is missing.
+
+How can this be fixed?
+
+Please do not break any host side application that coded to the exactly 
+5 item response
+
+And - do not change the parameter order - many other apps hard code that 
+specific order.
+
+Remember: Tomorrow will happen again - if not this command the next 
+command will have this problem.
+
+This problem is worse with the &quot;flash info&quot; command.
+
+=========================================
+Also - note:
+=========================================
+
+If anybody adds 1 item - or changes the order in an &quot;un-tagged&quot; 
+structure - BOOM!
+
+An off by one error - agh... nasty.
+
+Put another way - earlier in email about &quot;openocd &amp; cortex &amp; gdb&quot; - and 
+the #if define.
+
+ &gt;&gt; Can we simply hardcode the least of evils and delete hacks once
+ &gt;&gt; GDB catches up? (I believe we're waiting for a new and improved GDB
+ &gt;&gt; here?).
+
+The same problem - only in a different form.
+
+=========================================
+This problem has been solved, long ago by smart people.
+=========================================
+
+This guy wrote the most successful over the wire protocol in the world, HTTP
+Not surprisingly - I think the C99 feature - and it has a common theme.
+
+Look carefully at how the HTTP protocol is implemented - and how 
+flexible it has been.
+
+    Initially - 1.0
+    Later they added cookies.
+    Later they added caching,
+    Later they added proxy stuff
+    Later they added MIME type.
+    Later ... they keep adding things.
+    Today.... wow!
+
+Yet, all of the old browsers still (reasonably work) as do old servers.
+
+That is an extremely robust and adaptable protocol beyond measure.
+
+We can easily emulate a small core feature of that protocol.
+We only need to stand on the shoulders of giants.
+
+Effectively, the protocol is a &quot;remote procedure call&quot; - with many 
+parameters - all done as ascii text.
+
+=========================================
+Some detail - about how utterly simple HTTP is.
+=========================================
+
+HTTP in a nut shell works like this:
+
+1) Connect, and send an HTTP request.
+
+   Each requests consists of:
+          1 or more non-blank lines of simple &quot;name-value&quot; ascii text.
+    The request ends with a blank line.
+
+    There can be many names and values.
+    Names do not need to be unique.
+    Names &amp; values can come in any *reasonable* order.
+    If the server does not understand or use the 'name-value&quot; it ignores it.
+    This solves &quot;backward compatibility&quot;.
+
+    Each name-value (non-blank line) of the request has the following 
+format:
+  
+            &lt;NAME&gt;  &lt;COLON&gt; &lt;SPACE&gt;  &lt;some-text&gt; &lt;end-of-line&gt;
+
+    At least - one &quot;name&quot; is required - the &quot;command&quot; to the server.
+
+   This name-value format is analogous to the C99 name/value structure 
+stuff.
+ 
+2) The HTTP response always includes a &quot;response header&quot;.
+
+    The response header is in the *exact* same format as a request.
+    Like a request, the response ends in a blank line.
+    Non blank lines contain: Name &amp; Value.
+    Like a request, the client can ignore all unknown &quot;name-value&quot; pairs.
+
+3) The response if needed - can contain a &quot;data phase&quot;.
+    Data begins after that 1st blank line.
+
+    Data ends - when either
+    (A) the connection is closed Or -
+    (B) the sender *may* optionally include a header element containing 
+data length.
+
+4) As a performance improvement -
+    If Option (B) [header contains length] is used, the connection can 
+remain open and an additional request can occur.
+
+It is utterly simple and very robust.
+
+And I am leaving out a vast amount of detail.
+
+=========================================   
+
+FYI - &quot;SMTP&quot; (email) is stored the same way -
+  
+            name: value
+            name: value
+            &lt;blank line&gt;
+            Message body...
+
+=========================================   
+
+I believe OpenOCD should use that simple &quot;name value&quot; &amp; blank line 
+concept for 'over the wire' remote program type control.
+
+It is *IMPERATIVE* to get the core API correct.
+
+If we do not - we will pay that price forever and a day.
+
+We are talking about 1 computer - one openocd.
+Often times - both are simply: &quot;localhost&quot;.
+Often times - bit-banging the parallel port.
+
+Performance is not an issue here - this is not the 'www.google.com' of 
+JTAG controllers.
+
+=========================================   
+
+As I described in earlier email, the *WIRE*LINE* protocol request should 
+be simple - like this:
+
+    tcl:      flash_banks
+    &lt;blankline&gt;
+
+The response is:
+
+    status:   error
+    human:   Some Human Error Message
+    &lt;blank line&gt;
+
+or:
+    status:   warning
+    human:   some human error message
+    &lt;blank line&gt;
+
+or
+    status:   ok
+    name: ecosflash
+    base: 16777216
+    size: 2097152
+    bus_width: 2
+    chip_width: 2
+    &lt;blank line&gt;
+
+=========================================   
+
+The trick here is create an example - in many script languages with a 
+*PROPER* parser
+that properly adheres to the rules we want to create. Like:
+
+    random order of name &amp; values 
+    How to ignore things that are unknown.
+    How to handle very long lines.
+    How to handle the &quot;data phase&quot;.
+    Blank Line Ends.
+
+There should be 2 core example functions:
+
+    Send command.
+
+    Read Reply.
+
+If done right - that code will be copied &amp; pasted into every host side 
+application.
+
+And - the host side application will be as robust as the sample examples 
+we give.
+
+=========================================  
+
+Getting this API right - now - will have great benefit later.
+
+There is a *GREAT* google tech talks video  @ google video about API 
+design by Joshua Bloch
+
+    <A HREF="http://video.google.com/videoplay?docid=-3733345136856180693">http://video.google.com/videoplay?docid=-3733345136856180693</A>
+
+These are the slides from the talk:
+
+    <A HREF="http://lcsd05.cs.tamu.edu/slides/keynote.pdf">http://lcsd05.cs.tamu.edu/slides/keynote.pdf</A>
+
+
+*** END ***
+
+
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080711/264bce39/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080711/264bce39/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002496.html">[Openocd-development] Switching .cfg files to tcl
+</A></li>
+	<LI>Next message: <A HREF="002507.html">[Openocd-development] Switching .cfg files to tcl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2506">[ date ]</a>
+              <a href="thread.html#2506">[ thread ]</a>
+              <a href="subject.html#2506">[ subject ]</a>
+              <a href="author.html#2506">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

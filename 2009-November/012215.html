@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 17/20] command_handler_t: make cmd an	indirect parameter
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2017/20%5D%20command_handler_t%3A%20make%20cmd%20an%0A%09indirect%20parameter&In-Reply-To=%3C1257948772-26222-18-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012212.html">
+   <LINK REL="Next"  HREF="012220.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 17/20] command_handler_t: make cmd an	indirect parameter</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2017/20%5D%20command_handler_t%3A%20make%20cmd%20an%0A%09indirect%20parameter&In-Reply-To=%3C1257948772-26222-18-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 17/20] command_handler_t: make cmd an	indirect parameter">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 11 15:12:49 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012212.html">[Openocd-development] [PATCH 16/20] command_handler_t: make args	parameter const
+</A></li>
+        <LI>Next message: <A HREF="012220.html">[Openocd-development] [PATCH 18/20] add src/hello.c to augment new	command tutorial
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12215">[ date ]</a>
+              <a href="thread.html#12215">[ thread ]</a>
+              <a href="subject.html#12215">[ subject ]</a>
+              <a href="author.html#12215">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch removes 'cmd' from the list of direct parameters, moving
+that pointer to args[-1] (by way of the new COMMAND_NAME macro).
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   16 +++++++++-------
+ src/helper/command.h |    6 +++---
+ 2 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 45f5747..93301b0 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -102,7 +102,8 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	script_debug(interp, c-&gt;name, argc, argv);
+ 
+-	words = malloc(sizeof(char *) * argc);
++	words = malloc(sizeof(char *) * (argc + 1));
++	words[0] = c-&gt;name;
+ 	for (i = 0; i &lt; argc; i++)
+ 	{
+ 		int len;
+@@ -112,12 +113,12 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 			/* hit an end of line comment */
+ 			break;
+ 		}
+-		words[i] = strdup(w);
+-		if (words[i] == NULL)
++		words[i + 1] = strdup(w);
++		if (words[i + 1] == NULL)
+ 		{
+ 			int j;
+ 			for (j = 0; j &lt; i; j++)
+-				free(words[j]);
++				free(words[j + 1]);
+ 			free(words);
+ 			return JIM_ERR;
+ 		}
+@@ -141,7 +142,8 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	log_add_callback(tcl_output, tclOutput);
+ 
+-	retval = run_command(context, c, (const char **)words, nwords);
++	// turn words[0] into args[-1] with this cast
++	retval = run_command(context, c, (const char **)words + 1, nwords);
+ 
+ 	log_remove_callback(tcl_output, tclOutput);
+ 
+@@ -150,7 +152,7 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	Jim_DecrRefCount(interp, tclOutput);
+ 
+ 	for (i = 0; i &lt; nwords; i++)
+-		free(words[i]);
++		free(words[i + 1]);
+ 	free(words);
+ 
+ 	int *return_retval = Jim_GetAssocData(interp, &quot;retval&quot;);
+@@ -419,7 +421,7 @@ static int run_command(command_context_t *context,
+ 
+ 	unsigned argc = num_words - start_word - 1;
+ 	const char **args = words + start_word + 1;
+-	int retval = c-&gt;handler(context, c-&gt;name, args, argc);
++	int retval = c-&gt;handler(context, args, argc);
+ 	if (retval == ERROR_COMMAND_SYNTAX_ERROR)
+ 	{
+ 		/* Print help for command */
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 260d9a1..a5fe997 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -88,7 +88,7 @@ typedef struct command_context_s
+  */
+ #define __COMMAND_HANDLER(name, extra...) \
+ 		int name(struct command_context_s *cmd_ctx, \
+-				const char *cmd, const char *args[], unsigned argc, ##extra)
++				const char *args[], unsigned argc, ##extra)
+ 
+ /**
+  * Use this to macro to call a command helper (or a nested handler).
+@@ -96,7 +96,7 @@ typedef struct command_context_s
+  * removal of unused parameters.
+  */
+ #define CALL_COMMAND_HANDLER(name, extra...) \
+-		name(cmd_ctx, cmd, args, argc, ##extra)
++		name(cmd_ctx, args, argc, ##extra)
+ 
+ /**
+  * Always use this macro to define new command handler functions.
+@@ -116,7 +116,7 @@ typedef struct command_context_s
+  * Use this macro to access the name of the command being handled,
+  * rather than accessing the variable directly.  It may be moved.
+  */
+-#define COMMAND_NAME cmd
++#define COMMAND_NAME args[-1]
+ 
+ 
+ /// The type signature for commands' handler functions.
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012212.html">[Openocd-development] [PATCH 16/20] command_handler_t: make args	parameter const
+</A></li>
+	<LI>Next message: <A HREF="012220.html">[Openocd-development] [PATCH 18/20] add src/hello.c to augment new	command tutorial
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12215">[ date ]</a>
+              <a href="thread.html#12215">[ thread ]</a>
+              <a href="subject.html#12215">[ subject ]</a>
+              <a href="author.html#12215">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

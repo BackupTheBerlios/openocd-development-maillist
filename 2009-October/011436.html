@@ -1,0 +1,331 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] target_phys_read/write_memory writeup
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20target_phys_read/write_memory%20writeup&In-Reply-To=%3Cc09652430910210513g1a6ab5a7t18cb6d9d235d4d28%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011591.html">
+   <LINK REL="Next"  HREF="011439.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] target_phys_read/write_memory writeup</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20target_phys_read/write_memory%20writeup&In-Reply-To=%3Cc09652430910210513g1a6ab5a7t18cb6d9d235d4d28%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] target_phys_read/write_memory writeup">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Oct 21 14:13:58 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011591.html">[Openocd-development] first cut at implementing arm926ejs	breakpoints in mmu read only memory
+</A></li>
+        <LI>Next message: <A HREF="011439.html">[Openocd-development] target_phys_read/write_memory writeup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11436">[ date ]</a>
+              <a href="thread.html#11436">[ thread ]</a>
+              <a href="subject.html#11436">[ subject ]</a>
+              <a href="author.html#11436">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I've written up the code to implement polymorphic support
+for physical read/write target fn's.
+
+Essentially there are two new target-&gt;type fn's that targets should
+support:
+
+
+	/* read directly from physical memory. caches are bypassed and untouched.
+	 *
+	 * If the target does not support disabling caches, leaving them untouched,
+	 * then minimally the actual physical memory location will be read even
+	 * if cache states are unchanged, flushed, etc.
+	 *
+	 * Default implementation is to call read_memory.
+	 */
+	int (*read_phys_memory)(struct target_s *target, uint32_t
+phys_address, uint32_t size, uint32_t count, uint8_t *buffer);
+
+	/*
+	 * same as read_phys_memory, except that it writes...
+	 */
+	int (*write_phys_memory)(struct target_s *target, uint32_t
+phys_address, uint32_t size, uint32_t count, uint8_t *buffer);
+
+
+
+
+Implemented on arm926ejs as example.
+
+mdX and mwX cmd's have been updated with an optional &quot;phys&quot;
+keyword:
+
+mdw phys 0x1234 0x10 =&gt;
+
+write 0x10 to physical address 0x1234.
+
+I'd like to see virt2phys cleaned up a bit to allow e.g.
+
+mdw phys [virt2phys 0x1234] 0x10 =&gt;
+
+bypass MMU when writing to logical address 0x1234.
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+-------------- next part --------------
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index c3c5097..d5ea082 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -47,7 +47,9 @@ int arm926ejs_handle_read_mmu_command(struct command_context_s *cmd_ctx, char *c
+ int arm926ejs_target_create(struct target_s *target, Jim_Interp *interp);
+ int arm926ejs_init_target(struct command_context_s *cmd_ctx, struct target_s *target);
+ int arm926ejs_quit(void);
+-int arm926ejs_read_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++
++int arm926ejs_read_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++int arm926ejs_write_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ 
+ static int arm926ejs_virt2phys(struct target_s *target, uint32_t virtual, uint32_t *physical);
+ static int arm926ejs_mmu(struct target_s *target, int *enabled);
+@@ -90,7 +92,10 @@ target_type_t arm926ejs_target =
+ 	.examine = arm9tdmi_examine,
+ 	.quit = arm926ejs_quit,
+ 	.virt2phys = arm926ejs_virt2phys,
+-	.mmu = arm926ejs_mmu
++	.mmu = arm926ejs_mmu,
++
++	.read_phys_memory = arm926ejs_read_phys_memory,
++	.write_phys_memory = arm926ejs_write_phys_memory,
+ };
+ 
+ int arm926ejs_catch_broken_irscan(uint8_t *captured, void *priv, scan_field_t *field)
+@@ -738,6 +743,26 @@ int arm926ejs_write_memory(struct target_s *target, uint32_t address, uint32_t s
+ 	return retval;
+ }
+ 
++int arm926ejs_write_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	arm9tdmi_common_t *arm9tdmi = arm7_9-&gt;arch_info;
++	arm926ejs_common_t *arm926ejs = arm9tdmi-&gt;arch_info;
++
++	return armv4_5_mmu_write_physical(target, &amp;arm926ejs-&gt;armv4_5_mmu, address, size, count, buffer);
++}
++
++int arm926ejs_read_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	arm9tdmi_common_t *arm9tdmi = arm7_9-&gt;arch_info;
++	arm926ejs_common_t *arm926ejs = arm9tdmi-&gt;arch_info;
++
++	return armv4_5_mmu_read_physical(target, &amp;arm926ejs-&gt;armv4_5_mmu, address, size, count, buffer);
++}
++
+ int arm926ejs_init_target(struct command_context_s *cmd_ctx, struct target_s *target)
+ {
+ 	arm9tdmi_init_target(cmd_ctx, target);
+diff --git a/src/target/target.c b/src/target/target.c
+index 7763b95..ebece13 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -601,11 +601,24 @@ int target_read_memory(struct target_s *target,
+ 	return target-&gt;type-&gt;read_memory(target, address, size, count, buffer);
+ }
+ 
++int target_read_phys_memory(struct target_s *target,
++		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	return target-&gt;type-&gt;read_phys_memory(target, address, size, count, buffer);
++}
++
+ int target_write_memory(struct target_s *target,
+ 		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	return target-&gt;type-&gt;write_memory(target, address, size, count, buffer);
+ }
++
++int target_write_phys_memory(struct target_s *target,
++		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	return target-&gt;type-&gt;write_phys_memory(target, address, size, count, buffer);
++}
++
+ int target_bulk_write_memory(struct target_s *target,
+ 		uint32_t address, uint32_t count, uint8_t *buffer)
+ {
+@@ -698,6 +711,17 @@ int target_init(struct command_context_s *cmd_ctx)
+ 		{
+ 			target-&gt;type-&gt;virt2phys = default_virt2phys;
+ 		}
++
++		if (target-&gt;type-&gt;read_phys_memory == NULL)
++		{
++			target-&gt;type-&gt;read_phys_memory = target-&gt;type-&gt;read_memory;
++		}
++
++		if (target-&gt;type-&gt;write_phys_memory == NULL)
++		{
++			target-&gt;type-&gt;write_phys_memory = target-&gt;type-&gt;write_memory;
++		}
++
+ 		/* a non-invasive way(in terms of patches) to add some code that
+ 		 * runs before the type-&gt;write/read_memory implementation
+ 		 */
+@@ -1531,13 +1555,13 @@ int target_register_user_commands(struct command_context_s *cmd_ctx)
+ 	register_command(cmd_ctx,  NULL, &quot;reset&quot;, handle_reset_command, COMMAND_EXEC, &quot;reset target [run | halt | init] - default is run&quot;);
+ 	register_command(cmd_ctx,  NULL, &quot;soft_reset_halt&quot;, handle_soft_reset_halt_command, COMMAND_EXEC, &quot;halt the target and do a soft reset&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;mdw&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory words &lt;addr&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mdh&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory half-words &lt;addr&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mdb&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory bytes &lt;addr&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mdw&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory words [phys] &lt;addr&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mdh&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory half-words [phys] &lt;addr&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mdb&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory bytes [phys] &lt;addr&gt; [count]&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;mww&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory word &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mwh&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory half-word &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mwb&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory byte &lt;addr&gt; &lt;value&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mww&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mwh&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory half-word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mwb&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory byte [phys] &lt;addr&gt; &lt;value&gt; [count]&quot;);
+ 
+ 	register_command(cmd_ctx,  NULL, &quot;bp&quot;,
+ 			handle_bp_command, COMMAND_EXEC,
+@@ -2183,6 +2207,26 @@ static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 	default: return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
++	if (argc &lt; 2)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++	bool physical=strcmp(args[0], &quot;phys&quot;)==0;
++	int (*fn)(struct target_s *target,
++			uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	if (physical)
++	{
++		argc--;
++		args++;
++		fn=target_read_phys_memory;
++	} else
++	{
++		fn=target_read_memory;
++	}
++	if (argc &lt; 2)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
+ 	uint32_t address;
+ 	int retval = parse_u32(args[0], &amp;address);
+ 	if (ERROR_OK != retval)
+@@ -2199,8 +2243,7 @@ static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 	uint8_t *buffer = calloc(count, size);
+ 
+ 	target_t *target = get_current_target(cmd_ctx);
+-	retval = target_read_memory(target,
+-				address, size, count, buffer);
++	retval = fn(target, address, size, count, buffer);
+ 	if (ERROR_OK == retval)
+ 		handle_md_output(cmd_ctx, target, address, size, count, buffer);
+ 
+@@ -2211,7 +2254,23 @@ static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 
+ static int handle_mw_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+-	 if ((argc &lt; 2) || (argc &gt; 3))
++	if (argc &lt; 2)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++	bool physical=strcmp(args[0], &quot;phys&quot;)==0;
++	int (*fn)(struct target_s *target,
++			uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	if (physical)
++	{
++		argc--;
++		args++;
++		fn=target_write_phys_memory;
++	} else
++	{
++		fn=target_write_memory;
++	}
++	if ((argc &lt; 2) || (argc &gt; 3))
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+ 	uint32_t address;
+@@ -2254,7 +2313,7 @@ static int handle_mw_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 	}
+ 	for (unsigned i = 0; i &lt; count; i++)
+ 	{
+-		retval = target_write_memory(target,
++		retval = fn(target,
+ 				address + i * wordsize, wordsize, 1, value_buf);
+ 		if (ERROR_OK != retval)
+ 			return retval;
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index d28608f..aab4321 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -180,7 +180,26 @@ struct target_type_s
+ 	int (*init_target)(struct command_context_s *cmd_ctx, struct target_s *target);
+ 	int (*quit)(void);
+ 
++	/* translate from virtual to physical address. Default implementation is successful
++	 * no-op(i.e. virtual==physical).
++	 */
+ 	int (*virt2phys)(struct target_s *target, uint32_t address, uint32_t *physical);
++
++	/* read directly from physical memory. caches are bypassed and untouched.
++	 *
++	 * If the target does not support disabling caches, leaving them untouched,
++	 * then minimally the actual physical memory location will be read even
++	 * if cache states are unchanged, flushed, etc.
++	 *
++	 * Default implementation is to call read_memory.
++	 */
++	int (*read_phys_memory)(struct target_s *target, uint32_t phys_address, uint32_t size, uint32_t count, uint8_t *buffer);
++
++	/*
++	 * same as read_phys_memory, except that it writes...
++	 */
++	int (*write_phys_memory)(struct target_s *target, uint32_t phys_address, uint32_t size, uint32_t count, uint8_t *buffer);
++
+ 	int (*mmu)(struct target_s *target, int *enabled);
+ 
+ };
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011591.html">[Openocd-development] first cut at implementing arm926ejs	breakpoints in mmu read only memory
+</A></li>
+	<LI>Next message: <A HREF="011439.html">[Openocd-development] target_phys_read/write_memory writeup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11436">[ date ]</a>
+              <a href="thread.html#11436">[ thread ]</a>
+              <a href="subject.html#11436">[ subject ]</a>
+              <a href="author.html#11436">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

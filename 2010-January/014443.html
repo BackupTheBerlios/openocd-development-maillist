@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Issues with interface amt_jtagaccel
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Issues%20with%20interface%20amt_jtagaccel&In-Reply-To=%3CB6B2686F0997D84D87D51D82CD0AAF550878568BBF%40SCL-DCX.serck-uk.internal%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014440.html">
+   <LINK REL="Next"  HREF="014446.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Issues with interface amt_jtagaccel</H1>
+    <B>Matthew Fletcher</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Issues%20with%20interface%20amt_jtagaccel&In-Reply-To=%3CB6B2686F0997D84D87D51D82CD0AAF550878568BBF%40SCL-DCX.serck-uk.internal%3E"
+       TITLE="[Openocd-development] Issues with interface amt_jtagaccel">MFletcher at serck-controls.co.uk
+       </A><BR>
+    <I>Thu Jan 28 12:40:15 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014440.html">[Openocd-development] invoking a procedure defined in cfg file	from a commandline
+</A></li>
+        <LI>Next message: <A HREF="014446.html">[Openocd-development] Issues with interface amt_jtagaccel
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14443">[ date ]</a>
+              <a href="thread.html#14443">[ thread ]</a>
+              <a href="subject.html#14443">[ subject ]</a>
+              <a href="author.html#14443">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+Can anyone verify that this interface is still functional in 0.4 ? Out of 0.4-rc1, 0.3.1 and an old rev.131 fetch only the old rev.131 fetch works to a certain extent. In all cases the openocd was built from source on cygwin with only amt_jtagaccell and parport_give_io enabled in configure.
+
+My rev.131 config is as follows; with this i can halt and resume the processor, download code via GDB, etc There are problems with setting breakpoints and after 20-30 seconds of running openocd fails to poll the jtag and quits.
+---
+#daemon configuration
+telnet_port 4444
+gdb_port 3333
+interface amt_jtagaccel
+jtag_speed 5
+#use combined on interfaces or targets that can't set TRST/SRST separately
+reset_config trst_and_srst srst_pulls_trst
+# arm7_9 spesific
+#arm7_9 force_hw_bkpts enable
+#jtag scan chain
+#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag_device 4 0x1 0xf 0xe
+#jtag nTRST and nSRST delay
+jtag_nsrst_delay 250
+jtag_ntrst_delay 250
+#target configuration
+daemon_startup reset
+#target &lt;type&gt; &lt;startup mode&gt;
+#target arm7tdmi &lt;reset mode&gt; &lt;chainpos&gt; &lt;endianness&gt; &lt;variant&gt;
+target arm7tdmi little run_and_halt 0 arm7tdmi-s_r4
+#run_and_halt_time 0 30
+---
+
+My 0.4-rc1 config is as follows; i think i have translated the configuration correctly, but openocd cant even scan the jtag chain.
+---
+#daemon configuration
+telnet_port 4444
+gdb_port 3333
+interface amt_jtagaccel
+jtag_khz 100
+#use combined on interfaces or targets that can't set TRST/SRST separately
+reset_config trst_and_srst srst_pulls_trst
+# arm7_9 spesific
+#arm7_9 force_hw_bkpts enable
+# Switch over to adaptive clocking.
+jtag_khz 100
+#jtag nTRST and nSRST delay
+jtag_nsrst_delay 200
+jtag_ntrst_delay 200
+#jtag scan chain
+jtag newtap lpc2292 cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id 0xe
+set _TARGETNAME lpc2292.cpu
+target create $_TARGETNAME arm7tdmi -endian little -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x40000000 -work-area-size 0x4000 -work-area-backup 0
+$_TARGETNAME configure -event reset-init {
+ # Force target into ARM state
+ arm core_state arm
+}
+---
+Debug (-d1) output is as follows,
+--
+$ ./openocd.exe -d1 -f mx101.cfg
+Open On-Chip Debugger 0.4.0-rc1 (2010-01-28-09:43)
+For bug reports, read
+        <A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+debug_level: 1
+Error: command 'parport_port' is already registered in '&lt;global&gt;' context
+trst_and_srst srst_pulls_trst srst_gates_jtag trst_push_pull srst_open_drain
+100 kHz
+jtag_nsrst_delay: 200
+jtag_ntrst_delay: 200
+Warn : No parport port specified, using default '0x378' (LPT1)
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from jtag_speed to khz not implemented
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Warn : JTAG tap: lpc2292.cpu       UNEXPECTED: 0x4f1f0f0f (mfg: 0x787, part: 0xf
+1f0, ver: 0x4)
+Error: JTAG tap: lpc2292.cpu  expected 1 of 1: 0x0000000e (mfg: 0x007, part: 0x0
+000, ver: 0x0)
+Warn : Unexpected idcode after end of chain: 32 0x8000007e
+Warn : Unexpected idcode after end of chain: 64 0x800000ff
+Warn : Unexpected idcode after end of chain: 96 0x8000007f
+Warn : Unexpected idcode after end of chain: 160 0x8000007f
+Warn : Unexpected idcode after end of chain: 192 0x800000ff
+Warn : Unexpected idcode after end of chain: 224 0x8000007f
+Warn : Unexpected idcode after end of chain: 256 0x800000ff
+Warn : Unexpected idcode after end of chain: 320 0x8000007f
+Warn : Unexpected idcode after end of chain: 352 0x8000007f
+Warn : Unexpected idcode after end of chain: 384 0x800000ff
+Warn : Unexpected idcode after end of chain: 480 0x8000007f
+Warn : Unexpected idcode after end of chain: 512 0x0000007f
+Warn : Unexpected idcode after end of chain: 544 0x8000007f
+Warn : Unexpected idcode after end of chain: 576 0x8000007f
+Warn : Unexpected idcode after end of chain: 608 0x800000ff
+Error: double-check your JTAG setup (interface, speed, missing TAPs, ...)
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Error: Translation from khz to jtag_speed not implemented
+Warn : JTAG tap: lpc2292.cpu       UNEXPECTED: 0x4f9f8f8f (mfg: 0x7c7, part: 0xf
+9f8, ver: 0x4)
+Error: JTAG tap: lpc2292.cpu  expected 1 of 1: 0x0000000e (mfg: 0x007, part: 0x0
+000, ver: 0x0)
+Warn : Unexpected idcode after end of chain: 32 0x8000007e
+Warn : Unexpected idcode after end of chain: 64 0x0000007f
+Warn : Unexpected idcode after end of chain: 128 0x8000007f
+Warn : Unexpected idcode after end of chain: 160 0x8000007f
+Warn : Unexpected idcode after end of chain: 192 0x8000007f
+Warn : Unexpected idcode after end of chain: 224 0x800000ff
+Warn : Unexpected idcode after end of chain: 256 0x0000007f
+Warn : Unexpected idcode after end of chain: 288 0x8000007f
+Warn : Unexpected idcode after end of chain: 352 0x800000ff
+Warn : Unexpected idcode after end of chain: 384 0x8000007f
+Warn : Unexpected idcode after end of chain: 416 0x800000ff
+Warn : Unexpected idcode after end of chain: 448 0x800000ff
+Warn : Unexpected idcode after end of chain: 512 0x0000007f
+Warn : Unexpected idcode after end of chain: 544 0x800000ff
+Warn : Unexpected idcode after end of chain: 576 0x0000007f
+Warn : Unexpected idcode after end of chain: 608 0x800000ff
+Error: double-check your JTAG setup (interface, speed, missing TAPs, ...)
+Command handler execution failed
+Warn : jtag initialization failed; try 'jtag init' again.
+---
+
+0.3.1 fails is a pretty simmilar way with a pretty simmilar config.
+
+regards, 
+
+- Matthew.
+
+**********************************************************************
+Serck Controls Ltd, Rowley Drive, Coventry, CV3 4FH, UK
+A company registered in England Reg. No. 4353634
+Tel: +44 (0) 24 7630 5050   Fax: +44 (0) 24 7630 2437
+Web: www.serck-controls.com  Admin: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">post at serck-controls.co.uk</A>
+A subsidiary of Serck Controls Pty. Ltd. 
+**********************************************************************
+This email and files transmitted with it are confidential and 
+intended solely for the use of the individual or entity to whom they 
+are addressed. If you have received this email in error please notify 
+the above. Any views or opinions presented are those of the author 
+and do not necessarily represent those of Serck Controls Ltd. 
+
+This message has been scanned for malware by Mailcontrol. www.Mailcontrol.com
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014440.html">[Openocd-development] invoking a procedure defined in cfg file	from a commandline
+</A></li>
+	<LI>Next message: <A HREF="014446.html">[Openocd-development] Issues with interface amt_jtagaccel
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14443">[ date ]</a>
+              <a href="thread.html#14443">[ thread ]</a>
+              <a href="subject.html#14443">[ subject ]</a>
+              <a href="author.html#14443">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

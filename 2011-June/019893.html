@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [OpenOCD][MIPS32]Cache non-coherent - sync	missing
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5DCache%20non-coherent%20-%20sync%0A%09missing&In-Reply-To=%3CBANLkTi%3DGFt48x_PVof6TZKy%2BGLmasu9VsQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019889.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [OpenOCD][MIPS32]Cache non-coherent - sync	missing</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5DCache%20non-coherent%20-%20sync%0A%09missing&In-Reply-To=%3CBANLkTi%3DGFt48x_PVof6TZKy%2BGLmasu9VsQ%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [OpenOCD][MIPS32]Cache non-coherent - sync	missing">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Thu Jun 30 18:25:41 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019889.html">[Openocd-development] Please welcome Jean-Christophe as release	manager
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19893">[ date ]</a>
+              <a href="thread.html#19893">[ thread ]</a>
+              <a href="subject.html#19893">[ subject ]</a>
+              <a href="author.html#19893">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+Currently for MIPS32 target we do mem writes using
+mips32_pracc_write_mem() function. And this works fine, but only
+untill kseg0 memory segment is uncached (i.e. K0 field of the Config
+Register (CP0 Register 16, Select 0) are set to 0x2, which is a reset
+value). However, this memory region is cachable, and it is it's
+primary use (in difference to kseg1, which is always uncached).
+
+The moment I tried to turn on cache, using &quot;Cacheable, noncoherent,
+write-back, write allocate&quot; set-up (0x3 in the K0 field), I saw that
+all data writes are left in cache. Linux turns on these caches by
+default - and this is quite normal, and a proper way to do. From this
+point on OpenOCD debugging via GDB is unusable : writing breakpoint
+instruction will happily live in your D$ and will never be seen by
+CPU, who will keep executing instructions from I$ (not coherent from
+this moment on).
+
+As done for all architectures before, proper way to handle write on a
+cached reginos is folowing :
+1) do your write
+2) clean and drain D$, so that data and instructions you wrote will
+end up in RAM (you do not necessarily have to invalidate it - it will
+be coherent from this point on)
+3) invalidate I$, so that CPU will pick up newly written instructions
+from RAM, and not continue executing it's I$ (which is btw. no longer
+coherent)
+
+Now, in case of EJTAG communication implementation in mips32_pracc.c
+this is not a simple thing to implement. I am currently adding missing
+opcodes and trying to craft a miniprogram based on bytecode, similar
+to existing stuff. It is quite a headache to debug, but I previously
+spent a lot of time on demistfying this implementation and wrote one
+draft doc to this list (more complete doc is on the way, and will be
+contributed as a separate patch).
+
+In the MIPS official doc MD00086  (MIPS32&#8482; Architecture For
+Programmers Volume II: The MIPS32&#8482; Instruction Set), we can find
+interesting procedure to synchronize caches using synci (Synchronize
+Caches to Make Instruction Writes Effective) instruction. I am
+referencing here Programming Notes given in the chapter describing
+this instruction (page 287). Based on this, I re-implemented this
+procedure to the detail in bytecode minirpogram and I have first
+working draft.
+
+Here is what I tested :
+1) I put a soft breakpoint on start_kernel() just after image
+download. It is after-reset state, and kseg0 is uncached (by default)
+2) I do &quot;continue&quot; in GDB and program hits this breakpoint. It should,
+it is well in the memory (and copied to I$)
+3) On further resume, OpenOCD will replace this breakpoint with
+original instruction that lived on this addr. That will, however, be
+put in D$ and never reflected in I$ upon resume
+4) CPU keeps hitting soft breakpoint, because it is what it really
+sees in I$ - original instruction has never been really brought back !
+
+I think that synci is a good candidate for this fix, rather than
+explicitly using &quot;cache&quot; instructions. I give a reference to similar
+discussion : <A HREF="http://comments.gmane.org/gmane.linux.ports.mips.general/4267.">http://comments.gmane.org/gmane.linux.ports.mips.general/4267.</A>
+Some nice information can also be found in &quot;See Mips Run&quot; book
+(<A HREF="http://www.scribd.com/doc/39654922/161/Synci-Cache-Management-for-Instruction-Writers">http://www.scribd.com/doc/39654922/161/Synci-Cache-Management-for-Instruction-Writers</A>).
+Normally, it should do exactly what is needed - clean D$ and
+invalidate I$ at the same time. As I said, I did some fixes and
+OpenOCD started to work correctly even on cached regions, so I can
+proceeded debugging Linux kernel with it).
+
+I will post the patch soon, just after I clean the code and test it a
+little bit more.
+
+In the meantime, I would like to hear some observations like : Did
+anyone else experienced this problem ? Would &quot;synci&quot; be better than
+&quot;cache&quot; instruction ? What happens with FASTDATA - should we clean
+after these bulk loads too ?
+
+Best regards,
+Drasko
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019889.html">[Openocd-development] Please welcome Jean-Christophe as release	manager
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19893">[ date ]</a>
+              <a href="thread.html#19893">[ thread ]</a>
+              <a href="subject.html#19893">[ subject ]</a>
+              <a href="author.html#19893">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

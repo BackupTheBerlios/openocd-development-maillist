@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH for black JLink Rev &lt;5.0
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%20for%20black%20JLink%20Rev%20%3C5.0&In-Reply-To=%3C200903152007.37259.DeMonk%40gmx.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005031.html">
+   <LINK REL="Next"  HREF="005039.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH for black JLink Rev &lt;5.0</H1>
+    <B>Benjamin Schmidt</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%20for%20black%20JLink%20Rev%20%3C5.0&In-Reply-To=%3C200903152007.37259.DeMonk%40gmx.net%3E"
+       TITLE="[Openocd-development] PATCH for black JLink Rev &lt;5.0">DeMonk at gmx.net
+       </A><BR>
+    <I>Sun Mar 15 20:07:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005031.html">[Openocd-development] [PATCH] Drop gdb/telnet port lines from	partport* cfg files
+</A></li>
+        <LI>Next message: <A HREF="005039.html">[Openocd-development] PATCH for black JLink Rev &lt;5.0
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5035">[ date ]</a>
+              <a href="thread.html#5035">[ thread ]</a>
+              <a href="subject.html#5035">[ subject ]</a>
+              <a href="author.html#5035">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi!
+
+I'm not really familiar with OpenOCD development but I wanted to make my older 
+black JLink interface work with OpenOCD. It took some time to understand the 
+differences between v5 and pre v5... 
+
+I got it to work but I'm not really sure how to implement a second variant of 
+the JLink interface for the older protocol. It's only very few differences, so 
+I guess it shouldn't be that much of a problem.
+
+To the changes:
+
+- the datasheet says the in/out buffers are only 2kb -&gt; changed from 8192 to 
+2048
+- JLink &lt; 5.0 uses endpoint 0x01 for transmission
+- JLink &lt; 5.0 doesn't seem to understand the EMU_CMD_HW_JTAG3 command, so 
+changed to EMU_CMD_HW_JTAG2. Difference is that EMU_CMD_HW_JTAG2 doesn't reply 
+0x00 on success, so removed that part.
+
+As far as I tested the hole thing seems to work ok.
+
+
+
+
+Benjamin Schmidt
+
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">DeMonk at gmx.net</A>
+
+
+
+Index: src/jtag/jlink.c
+===================================================================
+--- src/jtag/jlink.c	(revision 1412)
++++ src/jtag/jlink.c	(working copy)
+@@ -49,13 +49,13 @@
+ #define VID 0x1366
+ #define PID 0x0101
+ 
+-#define JLINK_WRITE_ENDPOINT	0x02
++#define JLINK_WRITE_ENDPOINT	0x01
+ #define JLINK_READ_ENDPOINT		0x81
+ 
+ #define JLINK_USB_TIMEOUT		1000
+ 
+-#define JLINK_IN_BUFFER_SIZE			8192
+-#define JLINK_OUT_BUFFER_SIZE			8192
++#define JLINK_IN_BUFFER_SIZE			2048
++#define JLINK_OUT_BUFFER_SIZE			2048
+ #define JLINK_EMU_RESULT_BUFFER_SIZE	64
+ 
+ /* Global USB buffers */
+@@ -67,14 +67,14 @@
+ #define EMU_CMD_VERSION     0x01
+ #define EMU_CMD_SET_SPEED   0x05
+ #define EMU_CMD_GET_STATE   0x07
+-#define EMU_CMD_HW_JTAG3    0xcf
++#define EMU_CMD_HW_JTAG2    0xce
+ #define EMU_CMD_HW_RESET0   0xdc
+ #define EMU_CMD_HW_RESET1   0xdd
+ #define EMU_CMD_HW_TRST0    0xde
+ #define EMU_CMD_HW_TRST1    0xdf
+ 
+-/* max speed 12MHz v5.0 jlink */
+-#define JLINK_MAX_SPEED 12000
++/* max speed 4MHz jlink Rev. &lt; v5.0 */
++#define JLINK_MAX_SPEED 4000
+ 
+ /* External interface functions */
+ int jlink_execute_queue(void);
+@@ -663,7 +663,7 @@
+ 
+ 		byte_length = tap_length / 8;
+ 
+-		usb_out_buffer[0] = EMU_CMD_HW_JTAG3;
++		usb_out_buffer[0] = EMU_CMD_HW_JTAG2;
+ 		usb_out_buffer[1] = 0;
+ 		usb_out_buffer[2] = (tap_length &gt;&gt; 0) &amp; 0xff;
+ 		usb_out_buffer[3] = (tap_length &gt;&gt; 8) &amp; 0xff;
+@@ -789,7 +789,6 @@
+ int jlink_usb_message(jlink_jtag_t *jlink_jtag, int out_length, int 
+in_length)
+ {
+ 	int result;
+-	int result2;
+ 
+ 	result = jlink_usb_write(jlink_jtag, out_length);
+ 	if (result == out_length)
+@@ -799,26 +798,7 @@
+ 		{
+ 			if (result == in_length)
+ 			{
+-				/* Must read the result from the EMU too */
+-				result2 = jlink_usb_read_emu_result(jlink_jtag);
+-				if (1 == result2)
+-				{
+-					/* Check the result itself */
+-					if (0 == usb_emu_result_buffer[0])
+-					{
+-						return result;
+-					}
+-					else
+-					{
+-						LOG_ERROR(&quot;jlink_usb_read_emu_result (requested=0, result=%d)&quot;, 
+usb_emu_result_buffer[0]);
+-						return -1;
+-					}
+-				}
+-				else
+-				{
+-					LOG_ERROR(&quot;jlink_usb_read_emu_result len (requested=1, result=%d)&quot;, 
+result2);
+-					return -1;
+-				}
++				return result;
+ 			}
+ 			else
+ 			{
+
+	
+
+-------------------------------------------------------
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005031.html">[Openocd-development] [PATCH] Drop gdb/telnet port lines from	partport* cfg files
+</A></li>
+	<LI>Next message: <A HREF="005039.html">[Openocd-development] PATCH for black JLink Rev &lt;5.0
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5035">[ date ]</a>
+              <a href="thread.html#5035">[ thread ]</a>
+              <a href="subject.html#5035">[ subject ]</a>
+              <a href="author.html#5035">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

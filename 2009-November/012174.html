@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] bug with openocd 0.3.0 with LPC2148 +	workaround
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20bug%20with%20openocd%200.3.0%20with%20LPC2148%20%2B%0A%09workaround&In-Reply-To=%3C4AF9E022.3070100%40yahoo.com.br%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012170.html">
+   <LINK REL="Next"  HREF="012175.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] bug with openocd 0.3.0 with LPC2148 +	workaround</H1>
+    <B>Gilson Fonseca Peres Filho</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20bug%20with%20openocd%200.3.0%20with%20LPC2148%20%2B%0A%09workaround&In-Reply-To=%3C4AF9E022.3070100%40yahoo.com.br%3E"
+       TITLE="[Openocd-development] bug with openocd 0.3.0 with LPC2148 +	workaround">gilsonfonseca at yahoo.com.br
+       </A><BR>
+    <I>Tue Nov 10 22:50:26 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012170.html">[Openocd-development] [patch/rfc] target: simplified init for	mmu memory read/write
+</A></li>
+        <LI>Next message: <A HREF="012175.html">[Openocd-development] bug with openocd 0.3.0 with LPC2148	+	workaround
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12174">[ date ]</a>
+              <a href="thread.html#12174">[ thread ]</a>
+              <a href="subject.html#12174">[ subject ]</a>
+              <a href="author.html#12174">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+I found a bug on openocd 0.3.0 when using with LPC2148 and standard 
+openocd file  lpc2148.cfg.
+
+It seems to be related to an incorrect MMU detection, since LPC2148 
+doesn't have it., from attached lpc2148cfg.log:
+    Debug: 176 563 target.c:1064 target_alloc_working_area(): MMU 
+enabled, using virtual address for working memory 0x00000000
+    Debug: 177 563 target.c:1115 target_alloc_working_area(): allocated 
+new working area at address 0x00000000
+
+The visible error takes place on those lines (from attached lpc2148cfg.log):
+    Warn : 180 563 arm7_9_common.c:2618 arm7_9_write_memory(): memory 
+write caused data abort (address: 0x00000000, size: 0x4, count: 0x2)
+    Debug: 181 563 arm7tdmi.c:492 arm7tdmi_write_xpsr_im8(): xpsr_im: 
+df, rot: 0, spsr: 0
+    Error: 182 563 lpc2000.c:317 lpc2000_iap_call(): Write memory at 
+address 0x00000000 failed (check work_area definition)
+    Warn : 183 563 lpc2000.c:546 lpc2000_erase(): lpc2000 prepare 
+sectors returned -307
+    Error: 184 563 flash.c:116 flash_driver_erase(): failed erasing 
+sectors 0 to 0 (-902)
+
+The workaround I found was to change the work area definition from:
+    -work-area-virt 0
+to
+    -work-area-virt 0x40000000
+thus matching the physical address.
+
+Below all information to help on bug solution along with attached files
+
+Target PCB/board description: LPC-P2148 (olimex)
+Interface: ARM-USB-OCD (olimex)
+Configuration scripts: attached
+OpenOCD command line:
+
+for the lpc2148.cfg
+C:\OpenOCD\0.3.0\bin&gt;openocd -d 3 -f ../target/lpc2148.cfg -f 
+.../interface/olimx-arm-usb-ocd.cfg -f goflash.script -c &quot;init&quot; -c &quot;halt&quot; 
+-c &quot;reset run&quot; -c &quot;shutown&quot; -l lpc2148cfg.log
+Open On-Chip Debugger 0.3.0 (2009-11-10-18:29)
+$URL$
+For bug reports, read
+        <A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+User : 5 0 command.c:400 command_print(): debug_level: 3
+Debug: 7 0 command.c:68 script_debug(): command - log_output
+Debug: 8 0 command.c:77 script_debug(): log_output - argv[0]=ocd_log_output
+Debug: 9 0 command.c:77 script_debug(): log_output - argv[1]=lpc2148cfg.log
+
+
+for the patched_lpc2148.cfg
+
+C:\OpenOCD\0.3.0\bin&gt;openocd -d 3 -f ../target/patched_lpc2148.cfg -f 
+.../interfce/olimex-arm-usb-ocd.cfg -f goflash.script -c &quot;init&quot; -c &quot;halt&quot; 
+-c &quot;reset run&quot; -c &quot;shutdown&quot; -l patched_lpc2148cfg.log
+Open On-Chip Debugger 0.3.0 (2009-11-10-18:29)
+$URL$
+For bug reports, read
+        <A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+User : 5 0 command.c:400 command_print(): debug_level: 3
+Debug: 7 0 command.c:68 script_debug(): command - log_output
+Debug: 8 0 command.c:77 script_debug(): log_output - argv[0]=ocd_log_output
+Debug: 9 0 command.c:77 script_debug(): log_output - 
+argv[1]=patched_lpc2148cfg.log
+
+
+on lpc2148cfg.log:
+Debug: 176 563 target.c:1064 target_alloc_working_area(): MMU enabled, 
+using virtual address for working memory 0x00000000
+Debug: 177 563 target.c:1115 target_alloc_working_area(): allocated new 
+working area at address 0x00000000
+
+on patched_lpc2148cfg.log
+Debug: 176 625 target.c:1064 target_alloc_working_area(): MMU enabled, 
+using virtual address for working memory 0x40000000
+Debug: 177 625 target.c:1115 target_alloc_working_area(): allocated new 
+working area at address 0x40000000
+
+
+
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: patched_lpc2148.cfg
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment.ksh</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: lpc2148.cfg
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0001.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0001.ksh</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: lpc2148cfg.log
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0002.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0002.ksh</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: patched_lpc2148cfg.log
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0003.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0003.ksh</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: goflash.script
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0004.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20091110/87ae5b6f/attachment-0004.ksh</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012170.html">[Openocd-development] [patch/rfc] target: simplified init for	mmu memory read/write
+</A></li>
+	<LI>Next message: <A HREF="012175.html">[Openocd-development] bug with openocd 0.3.0 with LPC2148	+	workaround
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12174">[ date ]</a>
+              <a href="thread.html#12174">[ thread ]</a>
+              <a href="subject.html#12174">[ subject ]</a>
+              <a href="author.html#12174">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

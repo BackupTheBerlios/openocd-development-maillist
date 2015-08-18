@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] deprecate the global_cmd_ctx pointer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20deprecate%20the%20global_cmd_ctx%20pointer&In-Reply-To=%3C1259551600-29287-1-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013069.html">
+   <LINK REL="Next"  HREF="013071.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] deprecate the global_cmd_ctx pointer</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20deprecate%20the%20global_cmd_ctx%20pointer&In-Reply-To=%3C1259551600-29287-1-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH] deprecate the global_cmd_ctx pointer">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Nov 30 04:26:40 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013069.html">[Openocd-development] [PATCH 5/5] remove interp global variable!
+</A></li>
+        <LI>Next message: <A HREF="013071.html">[Openocd-development] [PATCH] main: invoke jtag_interface_quit()	explicitly
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13070">[ date ]</a>
+              <a href="thread.html#13070">[ thread ]</a>
+              <a href="subject.html#13070">[ subject ]</a>
+              <a href="author.html#13070">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The global_cmd_ctx variable is never used in-tree, but rather serves the
+eCos build.  As such, it does not seem safe remove directly; however, it
+represents an architectural blemish and needs to be removed.
+
+Adds comments and ouputs warnings regarding this feature's deprecation.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   12 ++++++++----
+ src/openocd.c        |    5 ++++-
+ 2 files changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 9b9c5ec..1cbedae 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -106,8 +106,6 @@ static int command_retval_set(Jim_Interp *interp, int retval)
+ 	return (retval == ERROR_OK) ? JIM_OK : JIM_ERR;
+ }
+ 
+-extern struct command_context *global_cmd_ctx;
+-
+ void script_debug(Jim_Interp *interp, const char *name,
+ 		unsigned argc, Jim_Obj *const *argv)
+ {
+@@ -164,9 +162,15 @@ static struct command_context *current_command_context(Jim_Interp *interp)
+ 	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
+ 	if (NULL == cmd_ctx)
+ 	{
+-		/* Tcl can invoke commands directly instead of via command_run_line(). This would
+-		 * happen when the Jim Tcl interpreter is provided by eCos.
++		/**
++		 * Tcl can invoke commands directly instead of via
++		 * command_run_line(). This would happen when the Jim Tcl
++		 * interpreter is provided by eCos.
++		 * NOTE: THIS IS A FUNDAMENTAL DESIGN FLAW.  IT MUST DIE!!!
+ 		 */
++		LOG_WARNING(&quot;You are using a global command context!!!&quot;);
++		LOG_WARNING(&quot;This support will be removed in the future!&quot;);
++		extern struct command_context *global_cmd_ctx;
+ 		cmd_ctx = global_cmd_ctx;
+ 	}
+ 	return cmd_ctx;
+diff --git a/src/openocd.c b/src/openocd.c
+index 1be209a..73a24dd 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -191,6 +191,7 @@ static const struct command_registration openocd_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
++/// @todo Remove the global_cmd_ctx pointer; it has been deprecated.
+ struct command_context *global_cmd_ctx;
+ 
+ /* NB! this fn can be invoked outside this file for non PC hosted builds */
+@@ -201,7 +202,9 @@ struct command_context *setup_command_handler(void)
+ 
+ 	struct command_context *cmd_ctx;
+ 
+-	global_cmd_ctx = cmd_ctx = command_init(openocd_startup_tcl);
++	cmd_ctx = command_init(openocd_startup_tcl);
++	// global that needs to be removed (see definition above)
++	global_cmd_ctx = cmd_ctx;
+ 
+ 	register_commands(cmd_ctx, NULL, openocd_command_handlers);
+ 	/* register subsystem commands */
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013069.html">[Openocd-development] [PATCH 5/5] remove interp global variable!
+</A></li>
+	<LI>Next message: <A HREF="013071.html">[Openocd-development] [PATCH] main: invoke jtag_interface_quit()	explicitly
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13070">[ date ]</a>
+              <a href="thread.html#13070">[ thread ]</a>
+              <a href="subject.html#13070">[ subject ]</a>
+              <a href="author.html#13070">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

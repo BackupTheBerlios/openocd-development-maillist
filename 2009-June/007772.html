@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Do not try to examine targets	with disabled taps
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Do%20not%20try%20to%20examine%20targets%0A%09with%20disabled%20taps&In-Reply-To=%3C200906061931.46188.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007768.html">
+   <LINK REL="Next"  HREF="007779.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Do not try to examine targets	with disabled taps</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Do%20not%20try%20to%20examine%20targets%0A%09with%20disabled%20taps&In-Reply-To=%3C200906061931.46188.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH] Do not try to examine targets	with disabled taps">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Jun  7 04:31:46 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007768.html">[Openocd-development] [PATCH] Do not try to examine targets with disabled taps
+</A></li>
+        <LI>Next message: <A HREF="007779.html">[Openocd-development] [PATCH] Do not try to examine targets with disabled taps
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7772">[ date ]</a>
+              <a href="thread.html#7772">[ thread ]</a>
+              <a href="subject.html#7772">[ subject ]</a>
+              <a href="author.html#7772">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Saturday 06 June 2009, Duane Ellis wrote:
+&gt;<i> duane&gt;  $TARGETNAME mdw
+</I>
+Though &quot;mdw&quot; is really impractical for scripting.  The &quot;memread32&quot;
+thing would be better ... but notice that *it* ignores $TARGETNAME
+too, for much the same reason other scripts can't use it.
+
+
+&gt;<i> david&gt;  You'll notice most of the reset-init event handlers can't use that.
+</I>&gt;<i> 
+</I>&gt;<i> CAN'T - or &quot;just happen to not use that&quot; - Big difference.
+</I>
+A third option:  too painful to use.  How exactly is $_TARGETNAME
+going to get *into* the event handler since nothing binds the right
+value to that name??
+
+I'll tell you how.  By hard-wiring a particular target name.  Which
+means non-reusable code.  But ... the entire point of switching to
+that new &quot;$target_name mww addr value&quot; is reusability, right?  By
+decoupling from the &quot;current target&quot; notion.  Else there's no reason
+not to continue using un-adorned &quot;mww&quot;...
+
+
+Some of that's a general event handler issue:  the event handlers
+have no invocation-specific context.  They have to be coded to know
+they're working on a specific target and event.  They can't know if
+the &quot;reset-init&quot; code is going to run later, or if the reset mode
+is &quot;run&quot;.
+
+(Example:  &quot;reset run&quot; normally means the first stage loader will
+run and set up clocks, so jtag_khz can be upped from pokey-slow to
+something non-painful.  Likewise with &quot;reset init&quot;.  But &quot;reset halt&quot;
+means I get a bare CPU, in need of serious re-init, and using a slow
+JTAG clock...)
+
+
+&gt;<i> There's a subtle thing here that I did when I created these new 
+</I>&gt;<i> commands, I quietly enforced inline documentation of parameters in the 
+</I>&gt;<i> script files.
+</I>&gt;<i> 
+</I>&gt;<i> How?  I *COULD* have made the parameters positional, ie: 'the 5th 
+</I>&gt;<i> parameter is the tap name' - but i did not on purpose. By *REQUIRING* a 
+</I>&gt;<i> prefix it serves as *EXPLICIT* documentation of the parameters purpose, 
+</I>&gt;<i> one does not need a comment line above the script command explaining the 
+</I>&gt;<i> positional parameters :-) 
+</I>&gt;<i> 
+</I>&gt;<i> Look at the &quot;flash bank&quot; command as a *nasty* example.
+</I>&gt;<i> (tcl/target/sam7x256.cfg - line 48)
+</I>
+Also known as &quot;require an armload of zeroes before the only
+useful parameter&quot;.  What's the &quot;preferred&quot; number of zeroes
+lately ...  a dozen?  Sooo easy to lose count there.  :(
+
+
+&gt;<i> It's not thrash if it becomes *in*line* documentation,
+</I>
+I'm in favor of non-positional paramters, but that's unrelated
+to my point:  that the changes you suggest touch a *LOT* of code,
+forcing a flag day ... but for relatively minor benefit.
+
+One could for example adopt the coding convention incrementally,
+withoug the &quot;flag day&quot; provision of your &quot;part #1&quot;.  No code
+thrash at all.
+
+
+&gt;<i> think +2 years  
+</I>&gt;<i> from now, with +10 more targets, and +10 more boards, they will be 
+</I>&gt;<i> better documented, that is the bigger win.
+</I>
+If only ten more targets and boards appear in two years, this
+project won't have lived up to a fraction of its potential.
+Heck, I've got at least five more ARM boards I could hook up,
+and a few non-ARM ones.
+
+Expect at least ten more boards by the 0.3 release, and that
+should be a more realistic model.  Maybe they won't all have
+nontrivial configs -- as in, DRAM initialized, and OpenOCD
+can replace their bootloaders -- but I think there must be
+a lot of &quot;low hanging fruit&quot; lurking.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007768.html">[Openocd-development] [PATCH] Do not try to examine targets with disabled taps
+</A></li>
+	<LI>Next message: <A HREF="007779.html">[Openocd-development] [PATCH] Do not try to examine targets with disabled taps
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7772">[ date ]</a>
+              <a href="thread.html#7772">[ thread ]</a>
+              <a href="subject.html#7772">[ subject ]</a>
+              <a href="author.html#7772">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,692 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Add interface config for the	Embedded-Projects OpenOCD-USB	JTAG programmer.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20interface%20config%20for%20the%0A%09Embedded-Projects%20OpenOCD-USB%09JTAG%20programmer.&In-Reply-To=%3C1223337867.20975.36.camel%40zaphod.localdomain%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003301.html">
+   <LINK REL="Next"  HREF="003273.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Add interface config for the	Embedded-Projects OpenOCD-USB	JTAG programmer.</H1>
+    <B>John McCarthy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20interface%20config%20for%20the%0A%09Embedded-Projects%20OpenOCD-USB%09JTAG%20programmer.&In-Reply-To=%3C1223337867.20975.36.camel%40zaphod.localdomain%3E"
+       TITLE="[Openocd-development] [PATCH] Add interface config for the	Embedded-Projects OpenOCD-USB	JTAG programmer.">jgmcc at magma.ca
+       </A><BR>
+    <I>Tue Oct  7 02:04:27 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003301.html">[Openocd-development] BUG: encountered unregistered arch type	+Segmentation fault
+</A></li>
+        <LI>Next message: <A HREF="003273.html">[Openocd-development] [PATCH] Add interface config for	theEmbedded-Projects OpenOCD-USB	JTAG programmer.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3265">[ date ]</a>
+              <a href="thread.html#3265">[ thread ]</a>
+              <a href="subject.html#3265">[ subject ]</a>
+              <a href="author.html#3265">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+The following patch adds support for DMA mode access as supported by EJTAG 1.0/2.0 processors, specifically
+the Broadcom BCM5352 (and BCM47xx) SoC processors used in the Linksys WRT54G series of wireless routers.
+This is needed because PrAcc mode seems non-functional on these chips.  I have a theory on why this but believe
+WRT54GL firmware changes are necessary to get it working (unlike later EJTAG versions I don't think ProbeTrap
+is implemented).  In any case I've been unable to get PrAcc to work with this processor.
+
+The DMA read/write logic comes from the wrt54g_debrick flash utility for the WRT54 series by HairyDairyMaid.  I plan to clean
+it up (don't think the retries are the right thing to do) but this is a good start that works for me on my WRT54GL with a BCM5352.
+I can now read/write memory and program the flash of my WRT54GL with OpenOCD (though it is pretty slow to program--I'm
+working on improving that).
+
+This mode is enabled if the EJTAG impcode indicates that DMA mode is available which I believe is just EJTAG 1.0/2.0
+processors.
+
+
+Enjoy,
+John McCarthy.
+
+Date: Sun, 5 Oct 2008 21:16:10 -0400
+Subject: [PATCH] Add support for EJTAG 1.0/2.0 DMA mode memory accesses.
+   - also add LOG_DEBUG decoding of impcode and failure to enter debug mode.
+
+Signed-off-by: John McCarthy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jgmcc at magma.ca</A>&gt;
+---
+Index: src/target/mips_ejtag.c
+===================================================================
+--- src/target/mips_ejtag.c	(revision 1016)
++++ src/target/mips_ejtag.c	(working copy)
+@@ -204,6 +204,9 @@
+ 	/* break bit will be cleared by hardware */
+ 	ejtag_info-&gt;ejtag_ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PRACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
+ 	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_info-&gt;ejtag_ctrl);
++	LOG_DEBUG(&quot;ejtag_ctrl: 0x%8.8x&quot;, ejtag_info-&gt;ejtag_ctrl);
++	if((ejtag_info-&gt;ejtag_ctrl &amp; EJTAG_CTRL_BRKST) == 0)
++		LOG_DEBUG(&quot;Failed to enter Debug Mode!&quot;);
+ 	
+ 	return ERROR_OK;
+ }
+@@ -275,6 +278,17 @@
+ 			LOG_DEBUG(&quot;EJTAG: Unknown Version Detected&quot;);
+ 			break;
+ 	}
++	LOG_DEBUG(&quot;EJTAG: features:%s%s%s%s%s%s%s&quot;,
++		ejtag_info-&gt;impcode &amp; (1&lt;&lt;28) ? &quot; R3k&quot;:    &quot; R4k&quot;,
++		ejtag_info-&gt;impcode &amp; (1&lt;&lt;24) ? &quot; DINT&quot;:   &quot;&quot;,
++		ejtag_info-&gt;impcode &amp; (1&lt;&lt;22) ? &quot; ASID_8&quot;: &quot;&quot;,
++		ejtag_info-&gt;impcode &amp; (1&lt;&lt;21) ? &quot; ASID_6&quot;: &quot;&quot;,
++		ejtag_info-&gt;impcode &amp; (1&lt;&lt;16) ? &quot; MIPS16&quot;: &quot;&quot;,
++		ejtag_info-&gt;impcode &amp; (1&lt;&lt;14) ? &quot; noDMA&quot;:  &quot; DMA&quot;,
++		ejtag_info-&gt;impcode &amp; (1&lt;&lt;0)  ? &quot; MIPS64&quot;: &quot; MIPS32&quot;
++	);
++	if((ejtag_info-&gt;impcode &amp; (1&lt;&lt;14)) == 0)
++		LOG_DEBUG(&quot;EJTAG: DMA Access Mode Support Enabled&quot;);
+ 	
+ 	/* set initial state for ejtag control reg */
+ 	ejtag_info-&gt;ejtag_ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PRACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
+Index: src/target/mips_ejtag.h
+===================================================================
+--- src/target/mips_ejtag.h	(revision 1016)
++++ src/target/mips_ejtag.h	(working copy)
+@@ -38,7 +38,7 @@
+ #define EJTAG_INST_TCBCONTROLA	0x10
+ #define EJTAG_INST_TCBCONTROLB	0x11
+ #define EJTAG_INST_TCBDATA		0x12
+-#define EJTAG_INST_BYPASS		0x1F
++#define EJTAG_INST_BYPASS		0xFF
+ 
+ #define EJTAG_CTRL_TOF			(1 &lt;&lt; 1)
+ #define EJTAG_CTRL_TIF			(1 &lt;&lt; 2)
+Index: src/target/mips32_dmaacc.c
+===================================================================
+--- src/target/mips32_dmaacc.c	(revision 0)
++++ src/target/mips32_dmaacc.c	(revision 0)
+@@ -0,0 +1,447 @@
++/***************************************************************************
++ *   Copyright (C) 2008 by John McCarthy                                   *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jgmcc at magma.ca</A>                                                        *
++ *                                                                         *
++ *   Copyright (C) 2008 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2008 by David T.L. Wong                                 *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;string.h&gt;
++#include &quot;log.h&quot;
++#include &quot;mips32.h&quot;
++#include &quot;mips32_dmaacc.h&quot;
++
++/*
++ * The following logic shamelessly cloned from HairyDairyMaid's wrt54g_debrick
++ * to support the Broadcom BCM5352 SoC in the Linksys WRT54GL wireless router
++ * (and any others that support EJTAG DMA transfers).
++ * Note: This only supports memory read/write. Since the BCM5352 doesn't
++ * appear to support PRACC accesses, all debug functions except halt
++ * do not work.  Still, this does allow erasing/writing flash as well as
++ * displaying/modifying memory and memory mapped registers.
++ */
++
++static int ejtag_dma_read(mips_ejtag_t *ejtag_info, u32 addr, u32 *data)
++{
++    u32 v;
++    u32 ctrl_reg;
++    int   retries = RETRY_ATTEMPTS;
++
++begin_ejtag_dma_read:
++
++    // Setup Address
++    v = addr;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Initiate DMA Read &amp; set DSTRT
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_WORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++
++    // Wait for DSTRT to Clear
++    do {
++	    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++	    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    } while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++
++    // Read Data
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
++    mips_ejtag_drscan_32(ejtag_info, data);
++
++    // Clear DMA &amp; Check DERR
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++    {
++        if (retries--) {
++            printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ (retrying)\n&quot;, addr);
++            //test_reset();
++            goto begin_ejtag_dma_read;
++        } else  printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ\n&quot;, addr);
++		return ERROR_JTAG_DEVICE_ERROR;
++    }
++
++    return ERROR_OK;
++}
++
++static int ejtag_dma_read_h(mips_ejtag_t *ejtag_info, u32 addr, u16 *data)
++{
++    u32 v;
++    u32 ctrl_reg;
++    int   retries = RETRY_ATTEMPTS;
++
++begin_ejtag_dma_read_h:
++
++    // Setup Address
++    v = addr;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Initiate DMA Read &amp; set DSTRT
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_HALFWORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++
++    // Wait for DSTRT to Clear
++    do {
++	    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++	    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    } while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++
++    // Read Data
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Clear DMA &amp; Check DERR
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++    {
++        if (retries--) {
++            printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ (retrying)\n&quot;, addr);
++            //test_reset();
++            goto begin_ejtag_dma_read_h;
++        } else  printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ\n&quot;, addr);
++		return ERROR_JTAG_DEVICE_ERROR;
++    }
++
++    // Handle the bigendian/littleendian
++    if ( addr &amp; 0x2 )  *data = (v&gt;&gt;16)&amp;0xffff ;
++    else               *data = (v&amp;0x0000ffff) ;
++
++    return ERROR_OK;
++}
++
++static int ejtag_dma_read_b(mips_ejtag_t *ejtag_info, u32 addr, u8 *data)
++{
++    u32 v;
++    u32 ctrl_reg;
++    int   retries = RETRY_ATTEMPTS;
++
++begin_ejtag_dma_read_b:
++
++    // Setup Address
++    v = addr;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Initiate DMA Read &amp; set DSTRT
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_BYTE | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++
++    // Wait for DSTRT to Clear
++    do {
++	    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++	    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    } while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++
++    // Read Data
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Clear DMA &amp; Check DERR
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++    {
++        if (retries--) {
++            printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ (retrying)\n&quot;, addr);
++            //test_reset();
++            goto begin_ejtag_dma_read_b;
++        } else  printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ\n&quot;, addr);
++		return ERROR_JTAG_DEVICE_ERROR;
++    }
++
++    // Handle the bigendian/littleendian
++    switch(addr &amp; 0x3) {
++    case 0:  *data =  v      &amp; 0xff; break;
++    case 1:  *data = (v&gt;&gt;8)  &amp; 0xff; break;
++    case 2:  *data = (v&gt;&gt;16) &amp; 0xff; break;
++    case 3:  *data = (v&gt;&gt;24) &amp; 0xff; break;
++    }
++
++    return ERROR_OK;
++}
++
++static int ejtag_dma_write(mips_ejtag_t *ejtag_info, u32 addr, u32 data)
++{
++    u32 v;
++    u32 ctrl_reg;
++    int   retries = RETRY_ATTEMPTS;
++
++begin_ejtag_dma_write:
++
++    // Setup Address
++    v = addr;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Setup Data
++    v = data;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Initiate DMA Write &amp; set DSTRT
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_WORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++
++    // Wait for DSTRT to Clear
++    do {
++	    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++	    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    } while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++
++    // Clear DMA &amp; Check DERR
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++    {
++        if (retries--) {
++            printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE (retrying)\n&quot;, addr);
++            //test_reset();
++            goto begin_ejtag_dma_write;
++        } else  printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE\n&quot;, addr);
++		return ERROR_JTAG_DEVICE_ERROR;
++    }
++
++    return ERROR_OK;
++}
++
++static int ejtag_dma_write_h(mips_ejtag_t *ejtag_info, u32 addr, u32 data)
++{
++    u32 v;
++    u32 ctrl_reg;
++    int   retries = RETRY_ATTEMPTS;
++
++
++    // Handle the bigendian/littleendian
++    data &amp;= 0xffff;
++    data |= (data&lt;&lt;16);
++
++begin_ejtag_dma_write_h:
++
++    // Setup Address
++    v = addr;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Setup Data
++    v = data;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Initiate DMA Write &amp; set DSTRT
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_HALFWORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++
++    // Wait for DSTRT to Clear
++    do {
++	    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++	    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    } while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++
++    // Clear DMA &amp; Check DERR
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++    {
++        if (retries--) {
++            printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE (retrying)\n&quot;, addr);
++            //test_reset();
++            goto begin_ejtag_dma_write_h;
++        } else  printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE\n&quot;, addr);
++		return ERROR_JTAG_DEVICE_ERROR;
++    }
++
++    return ERROR_OK;
++}
++
++static int ejtag_dma_write_b(mips_ejtag_t *ejtag_info, u32 addr, u32 data)
++{
++    u32 v;
++    u32 ctrl_reg;
++    int   retries = RETRY_ATTEMPTS;
++
++
++    // Handle the bigendian/littleendian
++    data &amp;= 0xff;
++    data |= (data&lt;&lt;8);
++    data |= (data&lt;&lt;16);
++
++begin_ejtag_dma_write_b:
++
++    // Setup Address
++    v = addr;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Setup Data
++    v = data;
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
++    mips_ejtag_drscan_32(ejtag_info, &amp;v);
++
++    // Initiate DMA Write &amp; set DSTRT
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_BYTE | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++
++    // Wait for DSTRT to Clear
++    do {
++	    ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++	    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    } while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++
++    // Clear DMA &amp; Check DERR
++    mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
++    ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
++    mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++    if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++    {
++        if (retries--) {
++            printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE (retrying)\n&quot;, addr);
++            //test_reset();
++            goto begin_ejtag_dma_write_b;
++        } else  printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE\n&quot;, addr);
++		return ERROR_JTAG_DEVICE_ERROR;
++    }
++
++    return ERROR_OK;
++}
++
++
++int mips32_dmaacc_read_mem(mips_ejtag_t *ejtag_info, u32 addr, int size, int count, void *buf)
++{
++	switch (size)
++	{
++		case 1:
++			return mips32_dmaacc_read_mem8(ejtag_info, addr, count, (u8*)buf);
++		case 2:
++			return mips32_dmaacc_read_mem16(ejtag_info, addr, count, (u16*)buf);
++		case 4:
++			return mips32_dmaacc_read_mem32(ejtag_info, addr, count, (u32*)buf);
++	}
++	
++	return ERROR_OK;
++}
++
++int mips32_dmaacc_read_mem32(mips_ejtag_t *ejtag_info, u32 addr, int count, u32 *buf)
++{	
++	int i;
++	int	retval;
++	
++	for(i=0; i&lt;count; i++) {
++		if((retval=ejtag_dma_read(ejtag_info, addr+i*sizeof(*buf), &amp;buf[i])) != ERROR_OK)
++			return retval;
++	}
++
++	return ERROR_OK;
++}
++
++int mips32_dmaacc_read_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf)
++{
++	int i;
++	int retval;
++	
++	for(i=0; i&lt;count; i++) {
++		if((retval=ejtag_dma_read_h(ejtag_info, addr+i*sizeof(*buf), &amp;buf[i])) != ERROR_OK)
++			return retval;
++	}
++
++	return ERROR_OK;
++}
++
++int mips32_dmaacc_read_mem8(mips_ejtag_t *ejtag_info, u32 addr, int count, u8 *buf)
++{
++	int i;
++	int retval;
++	
++	for(i=0; i&lt;count; i++) {
++		if((retval=ejtag_dma_read_b(ejtag_info, addr+i*sizeof(*buf), &amp;buf[i])) != ERROR_OK)
++			return retval;
++	}
++
++	return ERROR_OK;
++}
++
++int mips32_dmaacc_write_mem(mips_ejtag_t *ejtag_info, u32 addr, int size, int count, void *buf)
++{
++	switch (size)
++	{
++		case 1:
++			return mips32_dmaacc_write_mem8(ejtag_info, addr, count, (u8*)buf);
++		case 2:
++			return mips32_dmaacc_write_mem16(ejtag_info, addr, count,(u16*)buf);
++		case 4:
++			return mips32_dmaacc_write_mem32(ejtag_info, addr, count, (u32*)buf);
++	}
++	
++	return ERROR_OK;
++}
++
++int mips32_dmaacc_write_mem32(mips_ejtag_t *ejtag_info, u32 addr, int count, u32 *buf)
++{
++	int i;
++	int retval;
++	
++	for(i=0; i&lt;count; i++) {
++		if((retval=ejtag_dma_write(ejtag_info, addr+i*sizeof(*buf), buf[i])) != ERROR_OK)
++			return retval;
++	}
++
++	return ERROR_OK;
++}
++
++int mips32_dmaacc_write_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf)
++{
++	int i;
++	int retval;
++	
++	for(i=0; i&lt;count; i++) {
++		if((retval=ejtag_dma_write_h(ejtag_info, addr+i*sizeof(*buf), buf[i])) != ERROR_OK)
++			return retval;
++	}
++
++	return ERROR_OK;
++}
++
++int mips32_dmaacc_write_mem8(mips_ejtag_t *ejtag_info, u32 addr, int count, u8 *buf)
++{
++	int i;
++	int retval;
++	
++	for(i=0; i&lt;count; i++) {
++		if((retval=ejtag_dma_write_b(ejtag_info, addr+i*sizeof(*buf), buf[i])) != ERROR_OK)
++			return retval;
++	}
++
++	return ERROR_OK;
++}
+Index: src/target/mips32_dmaacc.h
+===================================================================
+--- src/target/mips32_dmaacc.h	(revision 0)
++++ src/target/mips32_dmaacc.h	(revision 0)
+@@ -0,0 +1,53 @@
++/***************************************************************************
++ *   Copyright (C) 2008 by John McCarthy                                   *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jgmcc at magma.ca</A>                                                        *
++ *                                                                         *
++ *   Copyright (C) 2008 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2008 by David T.L. Wong                                 *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef MIPS32_DMAACC_H
++#define MIPS32_DMAACC_H
++
++#include &quot;mips_ejtag.h&quot;
++
++#define EJTAG_CTRL_DMA_BYTE        0x00000000
++#define EJTAG_CTRL_DMA_HALFWORD    0x00000080
++#define EJTAG_CTRL_DMA_WORD        0x00000100
++#define EJTAG_CTRL_DMA_TRIPLEBYTE  0x00000180
++
++#define RETRY_ATTEMPTS	16
++
++extern int mips32_dmaacc_read_mem(mips_ejtag_t *ejtag_info, u32 addr, int size, int count, void *buf);
++extern int mips32_dmaacc_write_mem(mips_ejtag_t *ejtag_info, u32 addr, int size, int count, void *buf);
++
++extern int mips32_dmaacc_read_mem8(mips_ejtag_t *ejtag_info, u32 addr, int count, u8 *buf);
++extern int mips32_dmaacc_read_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf);
++extern int mips32_dmaacc_read_mem32(mips_ejtag_t *ejtag_info, u32 addr, int count, u32 *buf);
++
++extern int mips32_dmaacc_write_mem8(mips_ejtag_t *ejtag_info, u32 addr, int count, u8 *buf);
++extern int mips32_dmaacc_write_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf);
++extern int mips32_dmaacc_write_mem32(mips_ejtag_t *ejtag_info, u32 addr, int count, u32 *buf);
++
++#if 0
++extern int mips32_dmaacc_read_regs(mips_ejtag_t *ejtag_info, u32 *regs);
++extern int mips32_dmaacc_write_regs(mips_ejtag_t *ejtag_info, u32 *regs);
++#endif
++
++#endif
+Index: src/target/mips_m4k.c
+===================================================================
+--- src/target/mips_m4k.c	(revision 1016)
++++ src/target/mips_m4k.c	(working copy)
+@@ -512,7 +512,11 @@
+ 		case 4:
+ 		case 2:
+ 		case 1:
+-			return mips32_pracc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++			/* if noDMA off, use DMAACC mode for memory read */
++			if(ejtag_info-&gt;impcode &amp; (1&lt;&lt;14))
++				return mips32_pracc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++			else
++				return mips32_dmaacc_read_mem(ejtag_info, address, size, count, (void *)buffer);
+ 		default:
+ 			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+ 			exit(-1);
+@@ -547,7 +551,11 @@
+ 		case 4:
+ 		case 2:
+ 		case 1:
+-			mips32_pracc_write_mem(ejtag_info, address, size, count, (void *)buffer);
++			/* if noDMA off, use DMAACC mode for memory write */
++			if(ejtag_info-&gt;impcode &amp; (1&lt;&lt;14))
++				mips32_pracc_write_mem(ejtag_info, address, size, count, (void *)buffer);
++			else
++				mips32_dmaacc_write_mem(ejtag_info, address, size, count, (void *)buffer);
+ 			break;
+ 		default:
+ 			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+Index: src/target/Makefile.am
+===================================================================
+--- src/target/Makefile.am	(revision 1016)
++++ src/target/Makefile.am	(working copy)
+@@ -13,11 +13,11 @@
+ 	arm_jtag.c arm7_9_common.c algorithm.c arm920t.c arm720t.c armv4_5_mmu.c armv4_5_cache.c arm_disassembler.c \
+ 	arm966e.c arm926ejs.c feroceon.c etb.c xscale.c arm_simulator.c image.c armv7m.c cortex_m3.c cortex_swjdp.c \
+ 	etm_dummy.c $(OOCD_TRACE_FILES) target_request.c trace.c arm11.c arm11_dbgtap.c mips32.c mips_m4k.c \
+-	mips32_pracc.c mips_ejtag.c
++	mips32_pracc.c mips32_dmaacc.c mips_ejtag.c
+ noinst_HEADERS = target.h trace.h register.h armv4_5.h embeddedice.h etm.h arm7tdmi.h arm9tdmi.h \
+ 	arm_jtag.h arm7_9_common.h arm920t.h arm720t.h armv4_5_mmu.h armv4_5_cache.h breakpoints.h algorithm.h \
+ 	arm_disassembler.h arm966e.h arm926ejs.h etb.h xscale.h arm_simulator.h image.h armv7m.h cortex_m3.h cortex_swjdp.h \
+-	etm_dummy.h oocd_trace.h target_request.h trace.h arm11.h mips32.h mips_m4k.h mips_ejtag.h mips32_pracc.h
++	etm_dummy.h oocd_trace.h target_request.h trace.h arm11.h mips32.h mips_m4k.h mips_ejtag.h mips32_pracc.h mips32_dmaacc.h
+ 
+ nobase_dist_pkglib_DATA = xscale/debug_handler.bin target/at91eb40a.cfg \
+ 	event/at91r40008_reset.script event/sam7x256_reset.script \
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003301.html">[Openocd-development] BUG: encountered unregistered arch type	+Segmentation fault
+</A></li>
+	<LI>Next message: <A HREF="003273.html">[Openocd-development] [PATCH] Add interface config for	theEmbedded-Projects OpenOCD-USB	JTAG programmer.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3265">[ date ]</a>
+              <a href="thread.html#3265">[ thread ]</a>
+              <a href="subject.html#3265">[ subject ]</a>
+              <a href="author.html#3265">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

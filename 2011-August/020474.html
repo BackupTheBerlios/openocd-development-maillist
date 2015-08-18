@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Clock setup for STM32F107
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Clock%20setup%20for%20STM32F107&In-Reply-To=%3CCAKGHftdLMPw3ttkQcXyWR7PGimsUoZckcw7gtqoSsVboqchEgQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020471.html">
+   <LINK REL="Next"  HREF="020477.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Clock setup for STM32F107</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Clock%20setup%20for%20STM32F107&In-Reply-To=%3CCAKGHftdLMPw3ttkQcXyWR7PGimsUoZckcw7gtqoSsVboqchEgQ%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Clock setup for STM32F107">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Thu Aug  4 20:09:04 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020471.html">[Openocd-development] Clock setup for STM32F107
+</A></li>
+        <LI>Next message: <A HREF="020477.html">[Openocd-development] Clock setup for STM32F107
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20474">[ date ]</a>
+              <a href="thread.html#20474">[ thread ]</a>
+              <a href="subject.html#20474">[ subject ]</a>
+              <a href="author.html#20474">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, Aug 4, 2011 at 5:12 PM, Simon Barner &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">barner at gmx.de</A>&gt; wrote:
+
+&gt;<i> I applied the patches 1/5 - 5/5 against my fixed ARM-JTAG-EW driver
+</I>&gt;<i> and yield now (STM32F107, JTAG @ 6 MHz). Also, debugging the target
+</I>&gt;<i> seems to work decently.
+</I>&gt;<i>
+</I>&gt;<i> flash erase_address 0x08000000 0x40000
+</I>&gt;<i>  erased address 0x08000000 (length 262144) in 0.063400s (4037.855 KiB/s)
+</I>&gt;<i>
+</I>&gt;<i> flash write_image image.bin 0x08000000 bin
+</I>&gt;<i>  wrote 47984 bytes from image.bin in 1.778403s (26.349 KiB/s)
+</I>&gt;<i>
+</I>
+Thanks for testing the patches. So, a significant speed-up (~50%) due to the
+async patches, great. I believe the actual flashing is now mostly limited by
+flash write speed of the STM32F1x (~39 KiB/s =&gt; about 1.2 seconds for your
+file) and that there's not much more that can be done with the flash write
+algorithm. The overhead of almost 0.6 seconds can be explained (without
+examining debug logs) by the time it takes to set and restore registers
+before and after the algorithm execution. Which is extremely inefficient and
+I don't know if it's for a good reason. It's on my todo list to dig into
+that. Any speedup in that area would also greatly improve stepping speed.
+
+
+&gt;<i> Here, the performance penalty of auto-erase becomes even more visible.
+</I>&gt;<i>
+</I>&gt;<i> monitor flash write_image erase image.bin 0x08000000 bin
+</I>&gt;<i>  wrote 49152 bytes from file image.bin in 2.932805s (16.367 KiB/s)
+</I>&gt;<i>
+</I>&gt;<i> Or, could it be the case the time required for the explicit erase is
+</I>&gt;<i> reported to low?
+</I>&gt;<i>
+</I>
+I think it's correct. I haven't looked at the auto erase code but I suspect
+that the slowdown is due to the fact that only the blocks being reprogrammed
+are erased. As is common with flash, you can select one of a few
+configurations of blocks to erased. On the STM32F1xx, you have the choice of
+erasing one block, or all of them. Both operations take about the same time
+(milliseconds). I'm guessing that the explicit erase command detect that
+you're erasing the entire flash and so use the mass erase command instead of
+several invocations of the per-block erase command. I very seldom need to
+save existing flash content so I tend to use the explicit mass erase command
+(stm32f1x mass_erase 0) instead of auto erase/flash erase.
+
+
+&gt;<i> One more question: In the above patch (5/5), there is a change to the
+</I>&gt;<i> flash loader in the contrib directory. As far as I understand, this
+</I>&gt;<i> Cortex-Code is not used in the above programming method. Could you
+</I>&gt;<i> please point me to some documentation how to use it or briefly explain
+</I>&gt;<i> what it is good for?
+</I>&gt;<i>
+</I>
+It is certainly being used during flash programming. The source code is
+assembled to machine code and included as a static array in the flash block
+write function in stm32f1x.c, using the following commands (out of my head):
+
+arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -c stm32f1x.S -o stm32f1x.o
+arm-none-eabi-objcopy -O binary stm32f1x.o stm32f1x.bin
+xxd -i &lt; stm32f1x.bin
+
+This is not done automatically during build to avoid the need for the casual
+openocd builder to have lots of cross toolchains installed. The source code
+is included for reference and not actually used during build.
+
+/Andreas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110804/0cc36346/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110804/0cc36346/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020471.html">[Openocd-development] Clock setup for STM32F107
+</A></li>
+	<LI>Next message: <A HREF="020477.html">[Openocd-development] Clock setup for STM32F107
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20474">[ date ]</a>
+              <a href="thread.html#20474">[ thread ]</a>
+              <a href="subject.html#20474">[ subject ]</a>
+              <a href="author.html#20474">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

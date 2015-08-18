@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] memory fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20memory%20fixes&In-Reply-To=%3C200705051303.01195.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000145.html">
+   <LINK REL="Next"  HREF="000148.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] memory fixes</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20memory%20fixes&In-Reply-To=%3C200705051303.01195.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] memory fixes">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Sat May  5 13:03:00 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000145.html">[Openocd-development] memory fixes
+</A></li>
+        <LI>Next message: <A HREF="000148.html">[Openocd-development] eice cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Vincent,
+
+On Friday 04 May 2007 18:25:52 Vincent Palatin wrote:
+&gt;<i> Dear developpers,
+</I>&gt;<i>
+</I>&gt;<i> While checking my code using Valgrind, I've detected a few random memory
+</I>&gt;<i> errors in openOCD, here the details :
+</I>&gt;<i>
+</I>Yeah, I know I should do this more often... Thanks for going through the bugs 
+and fixing them!
+
+&gt;<i> 1)  In &quot;str_to_buf()&quot; (binary_buffer.c),
+</I>&gt;<i>    depending on &quot;str_len&quot;, the following loop might read uninitialized
+</I>&gt;<i> memory  :
+</I>&gt;<i>    for (j = 0; j &lt; CEIL(buf_len, 8); j++)
+</I>&gt;<i> 		  buf[j] = b256_buf[j];
+</I>&gt;<i>   A typical use case is the &quot;reg&quot; command when not all digits are typed,
+</I>&gt;<i> for example :
+</I>&gt;<i>   reg ETM_VIEWDATA_CTRL3 0x032
+</I>&gt;<i>  (with ETM_VIEWDATA_CTRL3 size = 17)
+</I>&gt;<i>  When j is greater than b256_len, we should 0 instead of b256_buf.
+</I>&gt;<i>
+</I>Thanks, applied.
+
+&gt;<i> 2) In &quot;jtag_examine_chain()&quot; (jtag.c)
+</I>&gt;<i> We have the following code :
+</I>&gt;<i> for (i = 0; i &lt; JTAG_MAX_CHAIN_SIZE; i++)
+</I>&gt;<i> {
+</I>&gt;<i> 	buf_set_u32(idcode_buffer, 0, 32, 0x000000FF);
+</I>&gt;<i> }
+</I>&gt;<i> I guess &quot;0&quot; must probably be replace by &quot;i*32&quot;
+</I>&gt;<i> (led later to read unitialized values in &quot;idcode_buffer&quot; by buf_set_buf())
+</I>&gt;<i>
+</I>Thanks again, applied.
+
+&gt;<i> 3) The function &quot;buf_set_buf()&quot; (binary_buffer.c) relies on the fact that
+</I>&gt;<i> &quot;dst&quot; buffer is initialized since  it uses dst[I] |= OR dst[I] &amp;= .
+</I>&gt;<i>  But when called from &quot;jtag_read_buffer()&quot; (jtag.c), the &quot;dst&quot; is directly
+</I>&gt;<i> allocated using &quot;malloc&quot; thus uninitialized.
+</I>&gt;<i> We may replace the malloc by calloc.
+</I>&gt;<i> (may be not enough to fix the problem, I must recheck my patch, seems not
+</I>&gt;<i> OK ...)
+</I>&gt;<i>
+</I>I'm not sure if this is really a problem - the code sets and clears all the 
+bits in dst from dst_start to dst_start + len. Unless the code later reads 
+bits that don't belong to the buffer this shouldn't cause problems as I 
+understand it.
+The buf_set_buf function shouldn't do anything else, because other parts of 
+the dst buffer could (not sure if this is actually used, but that's what I 
+intended) hold valid bits.
+Unconditionally zero-initializing the buffer could hide real problems, which 
+is a reason why I mostly used malloc instead of calloc.
+
+&gt;<i> 4) In etb.c code, at first &quot;handle_arm7_9_etb_dump_command()&quot; call,
+</I>&gt;<i>     the code checks the value of -&gt;RAM_depth and -&gt;RAM_width (to know if
+</I>&gt;<i> they have been read from hardware regs) but in fact these variables are not
+</I>&gt;<i> yet defined. I guess their initialization to 0  is missing in
+</I>&gt;<i> &quot;handle_arm7_9_etb_command()&quot; (arm7_9_common.c)
+</I>&gt;<i>
+</I>Yeah, I added those as a quick hack and forgot to initialize them, thanks for 
+noticing.
+
+&gt;<i> I attach a patch which tries to fix these issues (status unclear for 3) ).
+</I>I left #3 unchanged for now.
+
+Best regards,
+
+Dominic
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000145.html">[Openocd-development] memory fixes
+</A></li>
+	<LI>Next message: <A HREF="000148.html">[Openocd-development] eice cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

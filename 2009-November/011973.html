@@ -1,0 +1,306 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/fyi 1/2] target: provide container_of()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%201/2%5D%20target%3A%20provide%20container_of%28%29&In-Reply-To=%3C200911042201.23559.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011970.html">
+   <LINK REL="Next"  HREF="012002.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/fyi 1/2] target: provide container_of()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%201/2%5D%20target%3A%20provide%20container_of%28%29&In-Reply-To=%3C200911042201.23559.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/fyi 1/2] target: provide container_of()">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov  5 07:01:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011970.html">[Openocd-development] OpenOCD v0.3.0 -- out!
+</A></li>
+        <LI>Next message: <A HREF="012002.html">[Openocd-development] [patch/fyi 1/2] target: provide	container_of()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11973">[ date ]</a>
+              <a href="thread.html#11973">[ thread ]</a>
+              <a href="subject.html#11973">[ subject ]</a>
+              <a href="author.html#11973">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Provide a cleaner way to handle single inheritance of targets
+in C, using the same model Linux does:  structs containing other
+structs, un-nested via calls to a &quot;container_of()&quot; macro that
+are packaged in typesafe inline functions.
+
+Targets already use this containment idiom, but make it much
+more complicated because they un-nest using embedded &quot;void *&quot;
+pointers ... in chains of up to five per target, which is all
+pure needless complication.  (Example: arm92x core, arm9tdmi,
+arm7_9, armv4_5 ... on top of the base &quot;target&quot; class.)
+
+Applying this scheme consistently simplifies things, and gets
+rid of many error-prone untyped pointers.  It won't change any
+part of the type model though -- it just simplifies things.
+(And facilitates more cleanup later on.)
+
+Rule of thumb:  where there's an X-&gt;arch_info void* pointer,
+access to that pointer can and should be removed.  It may be
+convenient to set up pointers to some of the embedded structs;
+and shrink their current &quot;*_common&quot; names (annoyingly long).
+---
+This is the guts of the simplification.  I've got a pile of
+patches that go on top of this -- more or less one for each
+ARM core, etc -- and patch #2 is a *sample* of what they
+look like.  I can post a dozen more such files if anyone's
+really interested, but I can't see they'd be interesting
+once you see what they all do.  So unless someone asks me
+to do that, I won't post them.
+
+ src/target/arm720t.h       |    7 +++++++
+ src/target/arm7_9_common.h |    7 +++++++
+ src/target/arm920t.h       |    7 +++++++
+ src/target/arm926ejs.h     |    8 ++++++++
+ src/target/arm966e.h       |    7 +++++++
+ src/target/armv4_5.h       |    6 ++++++
+ src/target/armv7a.h        |    7 +++++++
+ src/target/armv7m.h        |    6 ++++++
+ src/target/cortex_a8.h     |    7 +++++++
+ src/target/cortex_m3.h     |    7 +++++++
+ src/target/target.h        |   15 +++++++++++++++
+ src/target/xscale.h        |    7 +++++++
+ 12 files changed, 91 insertions(+)
+
+--- a/src/target/arm720t.h
++++ b/src/target/arm720t.h
+@@ -35,4 +35,11 @@ typedef struct arm720t_common_s
+ 	uint32_t far_reg;
+ } arm720t_common_t;
+ 
++static inline struct arm720t_common_s *
++target_to_arm720(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct arm720t_common_s,
++			arm7tdmi_common.arm7_9_common.armv4_5_common);
++}
++
+ #endif /* ARM720T_H */
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -113,6 +113,13 @@ typedef struct arm7_9_common_s
+ 
+ } arm7_9_common_t;
+ 
++static inline struct arm7_9_common_s *
++target_to_arm7_9(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct arm7_9_common_s,
++			armv4_5_common);
++}
++
+ int arm7_9_register_commands(struct command_context_s *cmd_ctx);
+ 
+ int arm7_9_poll(target_t *target);
+--- a/src/target/arm920t.h
++++ b/src/target/arm920t.h
+@@ -38,6 +38,13 @@ typedef struct arm920t_common_s
+ 	int preserve_cache;
+ } arm920t_common_t;
+ 
++static inline struct arm920t_common_s *
++target_to_arm920(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct arm920t_common_s,
++			arm9tdmi_common.arm7_9_common.armv4_5_common);
++}
++
+ typedef struct arm920t_cache_line_s
+ {
+ 	uint32_t cam;
+--- a/src/target/arm926ejs.h
++++ b/src/target/arm926ejs.h
+@@ -38,6 +38,14 @@ typedef struct arm926ejs_common_s
+ 	uint32_t d_far;
+ } arm926ejs_common_t;
+ 
++static inline struct arm926ejs_common_s *
++target_to_arm926(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct arm926ejs_common_s,
++		arm9tdmi_common.arm7_9_common.armv4_5_common);
++}
++
++
+ extern int arm926ejs_init_arch_info(target_t *target, arm926ejs_common_t *arm926ejs, jtag_tap_t *tap);
+ extern int arm926ejs_register_commands(struct command_context_s *cmd_ctx);
+ extern int arm926ejs_arch_state(struct target_s *target);
+--- a/src/target/arm966e.h
++++ b/src/target/arm966e.h
+@@ -34,6 +34,13 @@ typedef struct arm966e_common_s
+ 	uint32_t cp15_control_reg;
+ } arm966e_common_t;
+ 
++static inline struct arm966e_common_s *
++target_to_arm966(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct arm966e_common_s,
++			arm9tdmi_common.arm7_9_common.armv4_5_common);
++}
++
+ extern int arm966e_init_arch_info(target_t *target, arm966e_common_t *arm966e, jtag_tap_t *tap);
+ extern int arm966e_register_commands(struct command_context_s *cmd_ctx);
+ extern int arm966e_write_cp15(target_t *target, int reg_addr, uint32_t value);
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -86,6 +86,12 @@ typedef struct armv4_5_common_s
+ 	void *arch_info;
+ } armv4_5_common_t;
+ 
++static inline struct armv4_5_common_s *
++target_to_armv4_5(struct target_s *target)
++{
++	return target-&gt;arch_info;
++}
++
+ typedef struct armv4_5_algorithm_s
+ {
+ 	int common_magic;
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -128,6 +128,13 @@ typedef struct armv7a_common_s
+ 
+ } armv7a_common_t;
+ 
++static inline struct armv7a_common_s *
++target_to_armv7a(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct armv7a_common_s,
++			armv4_5_common);
++}
++
+ typedef struct armv7a_algorithm_s
+ {
+ 	int common_magic;
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -117,6 +117,12 @@ typedef struct armv7m_common_s
+ 	void *arch_info;
+ } armv7m_common_t;
+ 
++static inline struct armv7m_common_s *
++target_to_armv7m(struct target_s *target)
++{
++	return target-&gt;arch_info;
++}
++
+ typedef struct armv7m_algorithm_s
+ {
+ 	int common_magic;
+--- a/src/target/cortex_a8.h
++++ b/src/target/cortex_a8.h
+@@ -137,6 +137,13 @@ typedef struct cortex_a8_common_s
+ 	void *arch_info;
+ } cortex_a8_common_t;
+ 
++static inline struct cortex_a8_common_s *
++target_to_cortex_a8(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct cortex_a8_common_s,
++			armv7a_common.armv4_5_common);
++}
++
+ extern int cortex_a8_init_arch_info(target_t *target, cortex_a8_common_t *cortex_a8, jtag_tap_t *tap);
+ int cortex_a8_read_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ int cortex_a8_write_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -164,4 +164,11 @@ typedef struct cortex_m3_common_s
+ 	void *arch_info;
+ } cortex_m3_common_t;
+ 
++static inline struct cortex_m3_common_s *
++target_to_cm3(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info,
++			struct cortex_m3_common_s, armv7m);
++}
++
+ #endif /* CORTEX_M3_H */
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -26,6 +26,8 @@
+ #ifndef TARGET_H
+ #define TARGET_H
+ 
++#include &lt;stddef.h&gt;
++
+ #include &quot;breakpoints.h&quot;
+ #include &quot;algorithm.h&quot;
+ #include &quot;command.h&quot;
+@@ -34,6 +36,19 @@ struct reg_s;
+ struct trace_s;
+ struct command_context_s;
+ 
++
++/**
++ * Cast a member of a structure out to the containing structure.
++ * @param ptr The pointer to the member.
++ * @param type The type of the container struct this is embedded in.
++ * @param member The name of the member within the struct.
++ *
++ * This is a mechanism which is used throughout the Linux kernel.
++ */
++#define container_of(ptr, type, member) ({			\
++	const typeof( ((type *)0)-&gt;member ) *__mptr = (ptr);	\
++	(type *)( (char *)__mptr - offsetof(type,member) );})
++
+ /*
+  * TARGET_UNKNOWN = 0: we don't know anything about the target yet
+  * TARGET_RUNNING = 1: the target is executing user code
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -134,6 +134,13 @@ typedef struct xscale_common_s
+ 	int fast_memory_access;
+ } xscale_common_t;
+ 
++static inline struct xscale_common_s *
++target_to_xscale(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct xscale_common_s,
++			armv4_5_common);
++}
++
+ typedef struct xscale_reg_s
+ {
+ 	int dbg_handler_number;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011970.html">[Openocd-development] OpenOCD v0.3.0 -- out!
+</A></li>
+	<LI>Next message: <A HREF="012002.html">[Openocd-development] [patch/fyi 1/2] target: provide	container_of()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11973">[ date ]</a>
+              <a href="thread.html#11973">[ thread ]</a>
+              <a href="subject.html#11973">[ subject ]</a>
+              <a href="author.html#11973">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

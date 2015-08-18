@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Revert &quot;improve alloc_vprintf&quot;
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Revert%20%22improve%20alloc_vprintf%22&In-Reply-To=%3C1259572594-27656-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013071.html">
+   <LINK REL="Next"  HREF="013075.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Revert &quot;improve alloc_vprintf&quot;</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Revert%20%22improve%20alloc_vprintf%22&In-Reply-To=%3C1259572594-27656-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] Revert &quot;improve alloc_vprintf&quot;">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Nov 30 10:16:34 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013071.html">[Openocd-development] [PATCH] main: invoke jtag_interface_quit()	explicitly
+</A></li>
+        <LI>Next message: <A HREF="013075.html">[Openocd-development] [PATCH] Revert &quot;improve alloc_vprintf&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13072">[ date ]</a>
+              <a href="thread.html#13072">[ thread ]</a>
+              <a href="subject.html#13072">[ subject ]</a>
+              <a href="author.html#13072">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Whether or not vsnprintf() allows NULL as pointer to destination
+string to calculate length depends on the implementation.
+
+Revert more efficient, but non-portable implementation.
+
+This reverts commit 338a674faa96ae321560efa3f1b1e8122d61aac4.
+---
+ src/helper/log.c |   43 +++++++++++++++++++++++++++----------------
+ 1 files changed, 27 insertions(+), 16 deletions(-)
+
+diff --git a/src/helper/log.c b/src/helper/log.c
+index 3067ecc..f1aa6d7 100644
+--- a/src/helper/log.c
++++ b/src/helper/log.c
+@@ -417,26 +417,37 @@ int log_remove_callback(log_callback_fn fn, void *priv)
+ /* return allocated string w/printf() result */
+ char *alloc_vprintf(const char *fmt, va_list ap)
+ {
+-	va_list ap_copy;
+-	int len;
+-	char *string;
++	/* no buffer at the beginning, force realloc to do the job */
++	char *string = NULL;
+ 
+-	/* determine the length of the buffer needed */
+-	va_copy(ap_copy, ap);
+-	len = vsnprintf(NULL, 0, fmt, ap_copy);
+-	va_end(ap_copy);
++	/* start with buffer size suitable for typical messages */
++	int size = 128;
+ 
+-	/* allocate and make room for terminating zero. */
+-	/* FIXME: The old version always allocated at least one byte extra and
+-	 * other code depend on that. They should be probably be fixed, but for
+-	 * now reserve the extra byte. */
+-	string = malloc(len + 2);
+-	if (string == NULL)
+-		return NULL;
++	for (;;)
++	{
++		char *t = string;
++		va_list ap_copy;
++		int ret;
++		string = realloc(string, size);
++		if (string == NULL)
++		{
++			if (t != NULL)
++				free(t);
++			return NULL;
++		}
+ 
+-	/* do the real work */
+-	vsnprintf(string, len + 1, fmt, ap);
++		va_copy(ap_copy, ap);
++
++		ret = vsnprintf(string, size, fmt, ap_copy);
++		/* NB! The result of the vsnprintf() might be an *EMPTY* string! */
++		if ((ret &gt;= 0) &amp;&amp; ((ret + 1) &lt; size))
++			break;
++
++		/* there was just enough or not enough space, allocate more in the next round */
++		size *= 2; /* double the buffer size */
++	}
+ 
++	/* the returned buffer is by principle guaranteed to be at least one character longer */
+ 	return string;
+ }
+ 
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013071.html">[Openocd-development] [PATCH] main: invoke jtag_interface_quit()	explicitly
+</A></li>
+	<LI>Next message: <A HREF="013075.html">[Openocd-development] [PATCH] Revert &quot;improve alloc_vprintf&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13072">[ date ]</a>
+              <a href="thread.html#13072">[ thread ]</a>
+              <a href="subject.html#13072">[ subject ]</a>
+              <a href="author.html#13072">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

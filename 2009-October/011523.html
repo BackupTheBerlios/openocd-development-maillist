@@ -1,0 +1,1060 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] patch - added support for Signalyzer H2 and	Signalyzer H4 JTAG dongles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20patch%20-%20added%20support%20for%20Signalyzer%20H2%20and%0A%09Signalyzer%20H4%20JTAG%20dongles&In-Reply-To=%3Cc1deb6da0910231804j7890475nbf4a0a5fdfbbec9b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011515.html">
+   <LINK REL="Next"  HREF="011526.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] patch - added support for Signalyzer H2 and	Signalyzer H4 JTAG dongles</H1>
+    <B>Signalyzer ( www.signalyzer.com )</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20patch%20-%20added%20support%20for%20Signalyzer%20H2%20and%0A%09Signalyzer%20H4%20JTAG%20dongles&In-Reply-To=%3Cc1deb6da0910231804j7890475nbf4a0a5fdfbbec9b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] patch - added support for Signalyzer H2 and	Signalyzer H4 JTAG dongles">web at signalyzer.com
+       </A><BR>
+    <I>Sat Oct 24 03:04:59 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011515.html">[Openocd-development] OpenOCD current SVN regression on s3c6410
+</A></li>
+        <LI>Next message: <A HREF="011526.html">[Openocd-development] patch - added support for Signalyzer H2	and Signalyzer H4 JTAG dongles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11523">[ date ]</a>
+              <a href="thread.html#11523">[ thread ]</a>
+              <a href="subject.html#11523">[ subject ]</a>
+              <a href="author.html#11523">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch adds support for Signalyzer H2 (FT2232H) and Signalyzer H4
+(FT4232H) to
+OpenOCD using D2XX and/or libftdi drivers.
+
+Signalyzer H relies on FTDI eeprom location read/write calls for the
+extra functionality
+built into the product, therefore patched version of libftdi must be
+used implementing
+eeprom location reads and writes.
+
+--enable-signalyzer_h option must be used to include support for
+Signalyzer H into compilation,
+without this option openocd will compile and not require patched
+version of libftdi.
+
+I will also submit a simple patch to libftdi adding single eeprom
+locations reads and writes to the library.
+Please let me know if anyone needs this patch before it gets into the
+libftdi trunk and I will happily post it here.
+
+Many thanks,
+Oleg
+www.signalyzer.com
+-------------- next part --------------
+diff --git a/README b/README
+index 33258e8..8d164e5 100644
+--- a/README
++++ b/README
+@@ -250,6 +250,8 @@ options may be available there:
+   --enable-ecosboard      Enable building support for eCos based JTAG debugger
+   --enable-zy1000         Enable ZY1000 interface
+ 
++  --enable-signalyzer_h   Enable building support for Xverve Signalyzer H2 and H4
++  
+   --enable-minidriver-dummy
+                           Enable the dummy minidriver.
+ 
+diff --git a/configure.in b/configure.in
+index 1d3f0ec..6e66b0f 100644
+--- a/configure.in
++++ b/configure.in
+@@ -396,6 +396,10 @@ AC_ARG_ENABLE(arm-jtag-ew,
+   AS_HELP_STRING([--enable-arm-jtag-ew], [Enable building support for the Olimex ARM-JTAG-EW Programmer]),
+   [build_armjtagew=$enableval], [build_armjtagew=no])
+ 
++AC_ARG_ENABLE(signalyzer_h,
++  AS_HELP_STRING([--enable-signalyzer-h], [Enable building support for the Xverve Signalyzer H2 and H4 Programmer]),
++  [build_signalyzer_h=$enableval], [build_signalyzer_h=no])
++  
+ AC_ARG_ENABLE(minidriver_dummy,
+   AS_HELP_STRING([--enable-minidriver-dummy], [Enable the dummy minidriver.]),
+   [build_minidriver_dummy=$enableval], [build_minidriver_dummy=no])
+@@ -661,6 +665,11 @@ else
+   AC_DEFINE(BUILD_ARMJTAGEW, 0, [0 if you don't want the ARM-JTAG-EW JTAG driver.])
+ fi
+ 
++if test $build_signalyzer_h = yes; then
++  AC_DEFINE(BUILD_SIGNALYZER_H, 1, [1 if you want the SIGNALYZER H2 and H4 JTAG driver.])
++else
++  AC_DEFINE(BUILD_SIGNALYZER_H, 0, [0 if you don't want the SIGNALYZER H2 and H4 driver.])
++fi
+ #-- Deal with MingW/Cygwin FTD2XX issues
+ 
+ if test $is_win32 = yes; then
+diff --git a/src/jtag/ft2232.c b/src/jtag/ft2232.c
+index 839976f..52554cd 100644
+--- a/src/jtag/ft2232.c
++++ b/src/jtag/ft2232.c
+@@ -138,6 +138,10 @@ static int sheevaplug_init(void);
+ static int icebear_jtag_init(void);
+ static int cortino_jtag_init(void);
+ 
++#if BUILD_SIGNALYZER_H == 1
++static int signalyzer_h_init(void);
++#endif
++
+ /* reset procedures for supported layouts */
+ static void usbjtag_reset(int trst, int srst);
+ static void jtagkey_reset(int trst, int srst);
+@@ -150,11 +154,19 @@ static void axm0432_jtag_reset(int trst, int srst);
+ static void sheevaplug_reset(int trst, int srst);
+ static void icebear_jtag_reset(int trst, int srst);
+ 
++#if BUILD_SIGNALYZER_H == 1
++static void signalyzer_h_reset(int trst, int srst);
++#endif
++
+ /* blink procedures for layouts that support a blinking led */
+ static void olimex_jtag_blink(void);
+ static void flyswatter_jtag_blink(void);
+ static void turtle_jtag_blink(void);
+ 
++#if BUILD_SIGNALYZER_H == 1
++static void signalyzer_h_blink(void);
++#endif
++
+ static const ft2232_layout_t  ft2232_layouts[] =
+ {
+ 	{ &quot;usbjtag&quot;,              usbjtag_init,              usbjtag_reset,      NULL                    },
+@@ -173,6 +185,9 @@ static const ft2232_layout_t  ft2232_layouts[] =
+ 	{ &quot;sheevaplug&quot;,           sheevaplug_init,           sheevaplug_reset,   NULL                    },
+ 	{ &quot;icebear&quot;,              icebear_jtag_init,         icebear_jtag_reset, NULL                    },
+ 	{ &quot;cortino&quot;,              cortino_jtag_init,         comstick_reset, NULL                        },
++#if BUILD_SIGNALYZER_H == 1	
++	{ &quot;signalyzer-h&quot;,         signalyzer_h_init,         signalyzer_h_reset, signalyzer_h_blink      },
++#endif	
+ 	{ NULL,                   NULL,                      NULL,               NULL                    },
+ };
+ 
+@@ -3071,3 +3086,876 @@ static void icebear_jtag_reset(int trst, int srst) {
+ 
+ 	LOG_DEBUG(&quot;trst: %i, srst: %i, low_output: 0x%2.2x, low_direction: 0x%2.2x&quot;, trst, srst, low_output, low_direction);
+ }
++
++#if BUILD_SIGNALYZER_H == 1
++/* ---------------------------------------------------------------------
++ * Support for Signalyzer H2 and Signalyzer H4
++ * JTAG adapter from Xverve Technologies Inc.
++ * <A HREF="http://www.signalyzer.com">http://www.signalyzer.com</A> or <A HREF="http://www.xverve.com">http://www.xverve.com</A>
++ *
++ * Author: Oleg Seiljus, <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oleg at signalyzer.com</A>
++ */
++static unsigned char signalyzer_h_side;
++static unsigned int signalyzer_h_adapter_type;
++
++static int signalyzer_h_ctrl_write (int address, unsigned short value);
++static int signalyzer_h_ctrl_read (int address, unsigned short *value);
++static int signalyzer_h_led_set(unsigned char channel, unsigned char led, int on_time_ms, int off_time_ms, unsigned char cycles);
++ 
++#define SIGNALYZER_COMMAND_ADDR				128
++#define SIGNALYZER_DATA_BUFFER_ADDR			129
++
++#define SIGNALYZER_COMMAND_VERSION			0x41
++#define SIGNALYZER_COMMAND_RESET			0x42
++#define SIGNALYZER_COMMAND_POWERCONTROL_GET	0x50
++#define SIGNALYZER_COMMAND_POWERCONTROL_SET	0x51
++#define SIGNALYZER_COMMAND_PWM_SET			0x52
++#define SIGNALYZER_COMMAND_LED_SET 			0x53
++#define SIGNALYZER_COMMAND_ADC 				0x54
++#define SIGNALYZER_COMMAND_GPIO_STATE 		0x55
++#define SIGNALYZER_COMMAND_GPIO_MODE 		0x56
++#define SIGNALYZER_COMMAND_GPIO_PORT		0x57
++#define SIGNALYZER_COMMAND_I2C 				0x58
++
++#define SIGNALYZER_CHAN_A 					1 	// Signalyzer Channel A
++#define SIGNALYZER_CHAN_B 					2 	// Signalyzer Channel B
++#define SIGNALYZER_CHAN_C 					4	// Signalyzer Channel C center LEDs
++
++#define SIGNALYZER_LED_GREEN 				1
++#define SIGNALYZER_LED_RED 					2
++
++#define SIGNALYZER_MODULE_TYPE_EM_LT16_A		0x0301
++#define SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG		0x0302
++#define SIGNALYZER_MODULE_TYPE_EM_JTAG			0x0303
++#define SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG_P	0x0304
++#define SIGNALYZER_MODULE_TYPE_EM_JTAG_P		0x0305
++
++
++static int signalyzer_h_ctrl_write (int address, unsigned short value)
++{
++#if BUILD_FT2232_FTD2XX == 1
++	return FT_WriteEE (ftdih, address, value)
++#elif BUILD_FT2232_LIBFTDI == 1
++	return ftdi_write_eeprom_location(&amp;ftdic, address, value);
++#endif
++}
++
++static int signalyzer_h_ctrl_read (int address, unsigned short *value)
++{
++#if BUILD_FT2232_FTD2XX == 1
++	return FT_ReadEE (ftdih, address, value)
++#elif BUILD_FT2232_LIBFTDI == 1
++	return ftdi_read_eeprom_location(&amp;ftdic, address, value);
++#endif
++}
++
++static int signalyzer_h_led_set(unsigned char channel, unsigned char led, int on_time_ms, int off_time_ms, unsigned char cycles)
++{
++	unsigned char on_time;
++    unsigned char off_time;
++
++    if (on_time_ms &lt; 0xFFFF)
++    	on_time = (unsigned char)(on_time_ms / 62);
++    else
++    	on_time = 0xFF;
++
++    off_time = (unsigned char)(off_time_ms / 62);
++	
++#if BUILD_FT2232_FTD2XX == 1
++	FT_STATUS status;
++
++	if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(channel &lt;&lt; 8) | led))) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write  returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 1), ((uint32_t)(on_time &lt;&lt; 8) | off_time))) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write  returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 2), ((uint32_t)cycles))) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write  returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_LED_SET)) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write  returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++	
++	return ERROR_OK;
++#elif BUILD_FT2232_LIBFTDI == 1
++	int retval;
++
++	if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(channel &lt;&lt; 8) | led))) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 1), ((uint32_t)(on_time &lt;&lt; 8) | off_time))) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 2), ((uint32_t)cycles))) &lt; 0 )
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_LED_SET)) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++	
++	return ERROR_OK;
++#endif
++}
++
++static int signalyzer_h_init(void)
++{
++#if BUILD_FT2232_FTD2XX == 1
++	FT_STATUS status;
++#elif BUILD_FT2232_LIBFTDI == 1
++	int retval;	
++#endif
++
++	char * end_of_desc;
++	int i;
++	uint16_t read_buf[12];
++	uint8_t  buf[3];
++	uint32_t bytes_written;
++
++	
++	// turn on center green led
++	signalyzer_h_led_set(SIGNALYZER_CHAN_C, SIGNALYZER_LED_GREEN, 0xFFFF, 0x00, 0x00);
++
++	// determine what channel config wants to open
++	// TODO: change me... current implementation is made to work with openocd description parsing.
++	end_of_desc = strrchr(ft2232_device_desc, 0x00);
++
++	if (end_of_desc)
++	{
++		signalyzer_h_side = *(end_of_desc - 1);
++		if (signalyzer_h_side == 'B')
++			signalyzer_h_side = SIGNALYZER_CHAN_B;
++		else
++			signalyzer_h_side = SIGNALYZER_CHAN_A;
++	}
++	else
++	{
++		LOG_ERROR(&quot;No Channel was specified&quot;);
++		return ERROR_FAIL;
++	}
++
++	signalyzer_h_led_set(signalyzer_h_side, SIGNALYZER_LED_GREEN, 1000, 1000, 0xFF);
++
++#if BUILD_FT2232_FTD2XX == 1
++	// read signalyzer versionining information
++	if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_VERSION)) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	for (i = 0; i &lt; 10; i++)
++	{
++		if ((status = signalyzer_h_ctrl_read ((SIGNALYZER_DATA_BUFFER_ADDR + i), &amp;read_buf[i])) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_read returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++	}
++
++	LOG_INFO(&quot;Signalyzer: ID info: { %.4x %.4x %.4x %.4x %.4x %.4x %.4x }&quot;, 
++		read_buf[0], read_buf[1], read_buf[2], read_buf[3], read_buf[4], read_buf[5], read_buf[6]);
++
++	// set gpio register
++	if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x8080)) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_STATE)) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	// read adapter type information
++	if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(signalyzer_h_side &lt;&lt; 8) | 0x01))) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 1), 0xA000)) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 2), 0x0008)) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_I2C)) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	usleep(100000);
++
++	if ((status = signalyzer_h_ctrl_read (SIGNALYZER_COMMAND_ADDR, &amp;read_buf[0])) != FT_OK)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_read returned: %lu&quot;, status);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if (read_buf[0] != 0x0498)
++	{
++		signalyzer_h_adapter_type = 0x0000;
++	}
++	else
++	{
++		for (i = 0; i &lt; 4; i++)
++		{
++			if ((status = signalyzer_h_ctrl_read ((SIGNALYZER_DATA_BUFFER_ADDR + i), &amp;read_buf[i])) != FT_OK)
++			{
++				LOG_ERROR(&quot;signalyzer_h_ctrl_read returned: %lu&quot;, status);
++				return ERROR_JTAG_DEVICE_ERROR;
++			}
++		}
++
++		signalyzer_h_adapter_type = read_buf[0];
++	}
++#elif BUILD_FT2232_LIBFTDI == 1
++	// read signalyzer versionining information
++	if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_VERSION)) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned:  %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	for (i = 0; i &lt; 10; i++)
++	{
++		if ((retval = signalyzer_h_ctrl_read ((SIGNALYZER_DATA_BUFFER_ADDR + i), &amp;read_buf[i])) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_read returned:  %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++	}
++
++	LOG_INFO(&quot;Signalyzer: ID info: { %.4x %.4x %.4x %.4x %.4x %.4x %.4x }&quot;, 
++		read_buf[0], read_buf[1], read_buf[2], read_buf[3], read_buf[4], read_buf[5], read_buf[6]);
++
++	// set gpio register
++	if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x8080)) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_STATE)) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	// read adapter type information
++	if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(signalyzer_h_side &lt;&lt; 8) | 0x01))) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 1), 0xA000)) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write ((SIGNALYZER_DATA_BUFFER_ADDR + 2), 0x0008)) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_I2C)) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	usleep(100000);
++
++	if ((retval = signalyzer_h_ctrl_read (SIGNALYZER_COMMAND_ADDR, &amp;read_buf[0])) &lt; 0)
++	{
++		LOG_ERROR(&quot;signalyzer_h_ctrl_read returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if (read_buf[0] != 0x0498)
++	{
++		signalyzer_h_adapter_type = 0x0000;
++	}
++	else
++	{
++		for (i = 0; i &lt; 4; i++)
++		{
++			if ((retval = signalyzer_h_ctrl_read ((SIGNALYZER_DATA_BUFFER_ADDR + i), &amp;read_buf[i])) &lt; 0)
++			{
++				LOG_ERROR(&quot;signalyzer_h_ctrl_read returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++				return ERROR_JTAG_DEVICE_ERROR;
++			}
++		}
++
++		signalyzer_h_adapter_type = read_buf[0];
++	}
++#endif
++
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
++
++	// ADAPTOR: EM_LT16_A
++	if (signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_LT16_A)
++	{
++		LOG_INFO(&quot;Signalyzer: EM-LT (16-channel level translator) detected. (HW: %2x).&quot;, (read_buf[1] &gt;&gt; 8));
++
++		nTRST    = 0x10;
++		nTRSTnOE = 0x10;
++		nSRST    = 0x20;
++		nSRSTnOE = 0x20;
++
++		low_output     = 0x08;
++		low_direction  = 0x1b;
++
++		high_output    = 0x0;
++		high_direction = 0x0;
++
++		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++		{
++			low_direction &amp;= ~nTRSTnOE; /* nTRST input */
++			low_output    &amp;= ~nTRST;    /* nTRST = 0 */
++		}
++		else
++		{
++			low_direction |= nTRSTnOE;  /* nTRST output */
++			low_output    |= nTRST;     /* nTRST = 1 */
++		}
++
++		if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++		{
++			low_direction |= nSRSTnOE;  /* nSRST output */
++			low_output    |= nSRST;     /* nSRST = 1 */
++		}
++		else
++		{
++			low_direction &amp;= ~nSRSTnOE; /* nSRST input */
++			low_output    &amp;= ~nSRST;    /* nSRST = 0 */
++		}
++
++#if BUILD_FT2232_FTD2XX == 1
++		// enable power to the module
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(signalyzer_h_side &lt;&lt; 8) | 0x01))) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_POWERCONTROL_SET)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio mode register
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0000)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_MODE)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio register
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x4040)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_STATE)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++#elif BUILD_FT2232_LIBFTDI == 1
++		// enable power to the module
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(signalyzer_h_side &lt;&lt; 8) | 0x01))) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_POWERCONTROL_SET)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio mode register
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0000)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_MODE)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio register
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x4040)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_STATE)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++#endif		
++	}
++
++	// ADAPTOR: EM_ARM_JTAG, EM_ARM_JTAG_P, EM_JTAG, EM_JTAG_P
++	else if ((signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG) ||
++				(signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG_P) ||
++				(signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_JTAG)  ||
++				(signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_JTAG_P))
++	{
++		if(signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG)
++			LOG_INFO(&quot;Signalyzer: EM-ARM-JTAG (ARM JTAG) detected. (HW: %2x).&quot;, (read_buf[1] &gt;&gt; 8));
++		else if (signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG_P)
++			LOG_INFO(&quot;Signalyzer: EM-ARM-JTAG_P (ARM JTAG with PSU) detected. (HW: %2x).&quot;, (read_buf[1] &gt;&gt; 8));
++		else if (signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_JTAG)
++			LOG_INFO(&quot;Signalyzer: EM-JTAG (Generic JTAG) detected. (HW: %2x).&quot;, (read_buf[1] &gt;&gt; 8));
++		else if (signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_JTAG_P)
++			LOG_INFO(&quot;Signalyzer: EM-JTAG-P (Generic JTAG with PSU) detected. (HW: %2x).&quot;, (read_buf[1] &gt;&gt; 8));
++
++		if ((signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG_P) || (signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_JTAG_P))
++			LOG_INFO(&quot;Signalyzer: EM-ARM-JTAG-P and EM-JTAG-P modules have adjustable power supply with output voltage range from 1.00V to 5.00V and current measurement capabilities. Presently support for power supply is not integrated into OpenOCD directly. Please visit <A HREF="http://www.signalyzer.com">http://www.signalyzer.com</A> for alternative ways to control built-in power supply)&quot;);
++
++		nTRST          = 0x02;
++		nTRSTnOE       = 0x04;
++		nSRST          = 0x08;
++		nSRSTnOE       = 0x10;
++
++		low_output     = 0x08;
++		low_direction  = 0x1b;
++
++		high_output    = 0x0;
++		high_direction = 0x1f;
++
++		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++		{
++			high_output |= nTRSTnOE;
++			high_output &amp;= ~nTRST;
++		}
++		else
++		{
++			high_output &amp;= ~nTRSTnOE;
++			high_output |= nTRST;
++		}
++
++		if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++		{
++			high_output &amp;= ~nSRSTnOE;
++			high_output |= nSRST;
++		}
++		else
++		{
++			high_output |= nSRSTnOE;
++			high_output &amp;= ~nSRST;
++		}
++
++#if BUILD_FT2232_FTD2XX == 1
++		// enable power to the module
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(signalyzer_h_side &lt;&lt; 8) | 0x01))) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_POWERCONTROL_SET)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio mode register (IO_16 and IO_17 set as analog inputs, other is gpio)
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0060)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_MODE)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio register (all inputs, for -P modules, PSU will be turned off)
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0000)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((status = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_STATE)) != FT_OK)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %lu&quot;, status);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// read and report Vtarget TODO: implement this in next release
++#elif BUILD_FT2232_LIBFTDI == 1
++		// enable power to the module
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, ((uint32_t)(signalyzer_h_side &lt;&lt; 8) | 0x01))) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_POWERCONTROL_SET)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio mode register (IO_16 and IO_17 set as analog inputs, other is gpio)
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0060)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_MODE)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// set gpio register (all inputs, for -P modules, PSU will be turned off)
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR, (uint32_t)(signalyzer_h_side &lt;&lt; 8))) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0000)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		if ((retval = signalyzer_h_ctrl_write (SIGNALYZER_COMMAND_ADDR, SIGNALYZER_COMMAND_GPIO_STATE)) &lt; 0)
++		{
++			LOG_ERROR(&quot;signalyzer_h_ctrl_write returned: %s&quot;, ftdi_get_error_string(&amp;ftdic));
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++
++		// read and report Vtarget TODO: implement this in next release
++#endif
++	}
++
++	else if (signalyzer_h_adapter_type == 0x0000)
++	{
++		LOG_INFO(&quot;Signalyzer: No external modules were detected.&quot;);
++
++		nTRST    = 0x10;
++		nTRSTnOE = 0x10;
++		nSRST    = 0x20;
++		nSRSTnOE = 0x20;
++
++		low_output     = 0x08;
++		low_direction  = 0x1b;
++
++		high_output    = 0x0;
++		high_direction = 0x0;
++
++		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++		{
++			low_direction &amp;= ~nTRSTnOE; /* nTRST input */
++			low_output    &amp;= ~nTRST;    /* nTRST = 0 */
++		}
++		else
++		{
++			low_direction |= nTRSTnOE;  /* nTRST output */
++			low_output    |= nTRST;     /* nTRST = 1 */
++		}
++
++		if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++		{
++			low_direction |= nSRSTnOE;  /* nSRST output */
++			low_output    |= nSRST;     /* nSRST = 1 */
++		}
++		else
++		{
++			low_direction &amp;= ~nSRSTnOE; /* nSRST input */
++			low_output    &amp;= ~nSRST;    /* nSRST = 0 */
++		}
++	}
++	else
++	{
++		LOG_ERROR(&quot;Unknown module type is detected: %.4x&quot;, signalyzer_h_adapter_type);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	// initialize low byte of controller for jtag operation
++	buf[0] = 0x80;
++	buf[1] = low_output;
++	buf[2] = low_direction;
++
++	if (((ft2232_write(buf, 3, &amp;bytes_written)) != ERROR_OK) || (bytes_written != 3))
++	{
++		LOG_ERROR(&quot;couldn't initialize Signalyzer-H layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++#if BUILD_FT2232_FTD2XX == 1
++	if (ftdi_device == FT_DEVICE_2232H)
++	{
++		// initialize high byte of controller for jtag operation
++		buf[0] = 0x82;
++		buf[1] = high_output;
++		buf[2] = high_direction;
++
++		if ((ft2232_write(buf, 3, &amp;bytes_written) != ERROR_OK) || (bytes_written != 3))
++		{
++			LOG_ERROR(&quot;couldn't initialize Signalyzer-H layout&quot;);
++			return ERROR_JTAG_INIT_FAILED;
++		}
++	}
++#elif BUILD_FT2232_LIBFTDI == 1
++	if (ftdi_device == TYPE_2232H)
++	{
++		// initialize high byte of controller for jtag operation
++		buf[0] = 0x82;
++		buf[1] = high_output;
++		buf[2] = high_direction;
++
++		if ((ft2232_write(buf, 3, &amp;bytes_written) != ERROR_OK) || (bytes_written != 3))
++		{
++			LOG_ERROR(&quot;couldn't initialize Signalyzer-H layout&quot;);
++			return ERROR_JTAG_INIT_FAILED;
++		}
++	}
++#endif
++	return ERROR_OK;
++}
++
++static void signalyzer_h_reset(int trst, int srst)
++{
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
++
++	// ADAPTOR: EM_LT16_A
++	if (signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_LT16_A)
++	{
++		if (trst == 1)
++		{
++			if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++				low_direction |= nTRSTnOE;	/* switch to output pin (output is low) */
++			else
++				low_output &amp;= ~nTRST;		/* switch output low */
++		}
++		else if (trst == 0)
++		{
++			if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++				low_direction &amp;= ~nTRSTnOE;	/* switch to input pin (high-Z + internal and external pullup) */
++			else
++				low_output |= nTRST;		/* switch output high */
++		}
++
++		if (srst == 1)
++		{
++			if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++				low_output &amp;= ~nSRST;		/* switch output low */
++			else
++				low_direction |= nSRSTnOE;	/* switch to output pin (output is low) */
++		}
++		else if (srst == 0)
++		{
++			if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++				low_output |= nSRST;		/* switch output high */
++			else
++				low_direction &amp;= ~nSRSTnOE;	/* switch to input pin (high-Z) */
++		}
++
++		/* command &quot;set data bits low byte&quot; */
++		buffer_write(0x80);
++		buffer_write(low_output);
++		buffer_write(low_direction);
++		LOG_DEBUG(&quot;trst: %i, srst: %i, low_output: 0x%2.2x, low_direction: 0x%2.2x&quot;, trst, srst, low_output, low_direction);
++	}
++	// ADAPTOR: EM_ARM_JTAG,  EM_ARM_JTAG_P, EM_JTAG, EM_JTAG_P
++	else if ((signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG) ||
++				(signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_ARM_JTAG_P) ||
++				(signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_JTAG)  ||
++				(signalyzer_h_adapter_type == SIGNALYZER_MODULE_TYPE_EM_JTAG_P))
++	{
++		if (trst == 1)
++		{
++			if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++				high_output &amp;= ~nTRSTnOE;
++			else
++				high_output &amp;= ~nTRST;
++		}
++		else if (trst == 0)
++		{
++			if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++				high_output |= nTRSTnOE;
++			else
++				high_output |= nTRST;
++		}
++
++		if (srst == 1)
++		{
++			if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++				high_output &amp;= ~nSRST;
++			else
++				high_output &amp;= ~nSRSTnOE;
++		}
++		else if (srst == 0)
++		{
++			if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++				high_output |= nSRST;
++			else
++				high_output |= nSRSTnOE;
++		}
++
++		/* command &quot;set data bits high byte&quot; */
++		buffer_write(0x82);
++		buffer_write(high_output);
++		buffer_write(high_direction);
++		LOG_INFO(&quot;trst: %i, srst: %i, high_output: 0x%2.2x, high_direction: 0x%2.2x&quot;, trst, srst, high_output, high_direction);
++	}
++	else if (signalyzer_h_adapter_type == 0x0000)
++	{
++		if (trst == 1)
++		{
++			if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++				low_direction |= nTRSTnOE;	/* switch to output pin (output is low) */
++			else
++				low_output &amp;= ~nTRST;		/* switch output low */
++		}
++		else if (trst == 0)
++		{
++			if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++				low_direction &amp;= ~nTRSTnOE;	/* switch to input pin (high-Z + internal and external pullup) */
++			else
++				low_output |= nTRST;		/* switch output high */
++		}
++
++		if (srst == 1)
++		{
++			if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++				low_output &amp;= ~nSRST;		/* switch output low */
++			else
++				low_direction |= nSRSTnOE;	/* switch to output pin (output is low) */
++		}
++		else if (srst == 0)
++		{
++			if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++				low_output |= nSRST;		/* switch output high */
++			else
++				low_direction &amp;= ~nSRSTnOE;	/* switch to input pin (high-Z) */
++		}
++
++		/* command &quot;set data bits low byte&quot; */
++		buffer_write(0x80);
++		buffer_write(low_output);
++		buffer_write(low_direction);
++		LOG_DEBUG(&quot;trst: %i, srst: %i, low_output: 0x%2.2x, low_direction: 0x%2.2x&quot;, trst, srst, low_output, low_direction);
++	}
++}
++
++static void signalyzer_h_blink(void) 
++{
++	signalyzer_h_led_set(signalyzer_h_side, SIGNALYZER_LED_RED, 100, 0, 1);
++}
++#endif
+\ No newline at end of file
+diff --git a/tcl/interface/signalyzer.cfg b/tcl/interface/signalyzer.cfg
+index ff5f125..b0581c5 100644
+--- a/tcl/interface/signalyzer.cfg
++++ b/tcl/interface/signalyzer.cfg
+@@ -1,7 +1,7 @@
+ #
+ # Xverve Signalyzer Tool (DT-USB-ST)
+ #
+-# <A HREF="http://www.signalyzer.com/products/development-tools/signalyzer-tool-dt-usb-st.html">http://www.signalyzer.com/products/development-tools/signalyzer-tool-dt-usb-st.html</A>
++# <A HREF="http://www.signalyzer.com">http://www.signalyzer.com</A>
+ #
+ 
+ interface ft2232
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011515.html">[Openocd-development] OpenOCD current SVN regression on s3c6410
+</A></li>
+	<LI>Next message: <A HREF="011526.html">[Openocd-development] patch - added support for Signalyzer H2	and Signalyzer H4 JTAG dongles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11523">[ date ]</a>
+              <a href="thread.html#11523">[ thread ]</a>
+              <a href="subject.html#11523">[ subject ]</a>
+              <a href="author.html#11523">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

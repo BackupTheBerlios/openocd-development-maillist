@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] TI AM3517 status
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20TI%20AM3517%20status&In-Reply-To=%3CAANLkTiluaji4QozHSE78uShbV0eTPEogqXmTyZvIG_HK%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015921.html">
+   <LINK REL="Next"  HREF="015923.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] TI AM3517 status</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20TI%20AM3517%20status&In-Reply-To=%3CAANLkTiluaji4QozHSE78uShbV0eTPEogqXmTyZvIG_HK%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] TI AM3517 status">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jun 21 10:52:42 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015921.html">[Openocd-development] [PATCH 2/2] adi_v5_jtag: add missing error	handling
+</A></li>
+        <LI>Next message: <A HREF="015923.html">[Openocd-development] TI AM3517 status
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15922">[ date ]</a>
+              <a href="thread.html#15922">[ thread ]</a>
+              <a href="subject.html#15922">[ subject ]</a>
+              <a href="author.html#15922">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I've hooked it up and fixed some error handling problems in OpenOCD.
+
+Now I'm stuck until I can find documentation on the JTAG chain for
+this part. (Or rather I don't particularly enjoy the prospect of resorting
+to reverse engineering...). Hopefully I've just overlooked some obvious
+resource that is publicly available. Hints anyone?
+
+
+
+Below is proof of life from the board at least:
+
+
+
+
+# TI AM517
+# <A HREF="http://focus.ti.com/docs/prod/folders/print/am3517.html">http://focus.ti.com/docs/prod/folders/print/am3517.html</A>
+# <A HREF="http://processors.wiki.ti.com/index.php/Debug_Access_Port_(DAP">http://processors.wiki.ti.com/index.php/Debug_Access_Port_(DAP</A>)
+# <A HREF="http://processors.wiki.ti.com/index.php?title=How_to_Find_the_Silicon_Revision_of_your_OMAP35x">http://processors.wiki.ti.com/index.php?title=How_to_Find_the_Silicon_Revision_of_your_OMAP35x</A>
+# openocd -c &quot;interface ZY1000&quot; -c &quot;zy1000_server 10.0.0.69&quot; -c
+&quot;reset_config trst_only&quot;
+
+
+if { [info exists CHIPNAME] } {
+   set  _CHIPNAME $CHIPNAME
+} else {
+   set  _CHIPNAME am3517
+}
+
+set JRC_TAPID 0
+
+set DAP_TAPID 0x0b86802f
+
+# Subsidiary TAP: CoreSight Debug Access Port (DAP)
+if { [info exists DAP_TAPID ] } {
+   set _DAP_TAPID $DAP_TAPID
+} else {
+   set _DAP_TAPID 0x0b6d602f
+}
+
+
+# Primary TAP: ICEpick-C (JTAG route controller) and boundary scan
+if { [info exists JRC_TAPID ] } {
+   set _JRC_TAPID $JRC_TAPID
+} else {
+   set _JRC_TAPID 0x0b7ae02f
+}
+
+# ICEpick-C ... used to route Cortex, and more not shown here
+source [find target/icepick.cfg]
+
+jtag newtap $_CHIPNAME jrc -irlen 6 -ircapture 0x1 -irmask 0x3f \
+	-expected-id $_JRC_TAPID
+
+jtag newtap $_CHIPNAME dap -irlen 4 -ircapture 0x1 -irmask 0xf \
+	-expected-id $_DAP_TAPID -disable
+jtag configure $_CHIPNAME.dap -event tap-enable \
+	&quot;icepick_c_tapenable $_CHIPNAME.jrc 2&quot;
+
+
+# GDB target:  Cortex-A8, using DAP
+set _TARGETNAME $_CHIPNAME.cpu
+target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.dap
+
+# SRAM: 64K at 0x4020.0000; use the first 16K
+$_TARGETNAME configure -work-area-phys 0x40200000 -work-area-size 0x4000
+
+###################
+
+# the reset sequence is event-driven
+# and kind of finicky...
+
+# some TCK tycles are required to activate the DEBUG power domain
+jtag configure $_CHIPNAME.jrc -event post-reset &quot;runtest 100&quot;
+
+# have the DAP &quot;always&quot; be active
+jtag configure $_CHIPNAME.jrc -event setup &quot;jtag tapenable $_CHIPNAME.dap&quot;
+
+proc omap3_dbginit {target} {
+     # General Cortex A8 debug initialisation
+     cortex_a8 dbginit
+     # Enable DBGU signal for OMAP353x
+     $target mww 0x5401d030 0x00002000
+}
+
+# be absolutely certain the JTAG clock will work with the worst-case
+# 16.8MHz/2 = 8.4MHz core clock, even before a bootloader kicks in.
+# OK to speed up *after* PLL and clock tree setup.
+jtag_rclk 1000
+$_TARGETNAME configure -event &quot;reset-start&quot; { jtag_rclk 1000 }
+
+# Assume SRST is unavailable (e.g. TI-14 JTAG), so we must assert reset
+# ourselves using PRM_RSTCTRL.  RST_GS (2) is a warm reset, like ICEpick
+# would issue.  RST_DPLL3 (4) is a cold reset.
+#set PRM_RSTCTRL 0x48307250
+#$_TARGETNAME configure -event reset-assert &quot;$_TARGETNAME mww $PRM_RSTCTRL 2&quot;
+
+$_TARGETNAME configure -event reset-assert-post &quot;cortex_a8 dbginit&quot;
+
+
+reset_config trst_only
+
+
+init
+
+reset
+reset init
+
+
+shutdown
+
+
+
+--- output
+
+
+Open On-Chip Debugger 0.5.0-dev-00357-g2d7c078 (2010-06-21-08:46)
+Licensed under GNU GPL v2
+For bug reports, read
+	<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+RCLK - adaptive
+trst_only separate trst_push_pull
+Info : RCLK (adaptive clock speed)
+Error: JTAG scan chain interrogation failed: all zeroes
+Error: Check JTAG interface, timings, target power, etc.
+Info : JTAG tap: am3517.jrc tap/device found: 0x0b86802f (mfg: 0x017,
+part: 0xb868, ver: 0x0)
+Info : JTAG tap: am3517.dap enabled
+Warn : Invalid ACK 0 in JTAG-DP transaction
+RCLK - adaptive
+Info : JTAG tap: am3517.jrc tap/device found: 0x0b86802f (mfg: 0x017,
+part: 0xb868, ver: 0x0)
+Info : JTAG tap: am3517.dap enabled
+Warn : Invalid ACK 0 in JTAG-DP transaction
+examine-fails: -107
+Command handler execution failed
+in procedure 'reset' called at file &quot;../ti.cfg&quot;, line 95
+called at file &quot;embedded:startup.tcl&quot;, line 57
+in procedure 'script'
+
+
+-- 
+&#216;yvind Harboe
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015921.html">[Openocd-development] [PATCH 2/2] adi_v5_jtag: add missing error	handling
+</A></li>
+	<LI>Next message: <A HREF="015923.html">[Openocd-development] TI AM3517 status
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15922">[ date ]</a>
+              <a href="thread.html#15922">[ thread ]</a>
+              <a href="subject.html#15922">[ subject ]</a>
+              <a href="author.html#15922">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

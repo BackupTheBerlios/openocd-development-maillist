@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] FA526: wrong pc value
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FA526%3A%20wrong%20pc%20value&In-Reply-To=%3C1258226905.5670.10.camel%40haydn.schildmann.tux%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012405.html">
+   <LINK REL="Next"  HREF="012380.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] FA526: wrong pc value</H1>
+    <B>Peter Schildmann</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FA526%3A%20wrong%20pc%20value&In-Reply-To=%3C1258226905.5670.10.camel%40haydn.schildmann.tux%3E"
+       TITLE="[Openocd-development] FA526: wrong pc value">linux at schildmann.info
+       </A><BR>
+    <I>Sat Nov 14 20:28:25 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012405.html">[Openocd-development] [PUSHED 12/11] improve binarybuffers routines
+</A></li>
+        <LI>Next message: <A HREF="012380.html">[Openocd-development] FA526: wrong pc value
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12372">[ date ]</a>
+              <a href="thread.html#12372">[ thread ]</a>
+              <a href="subject.html#12372">[ subject ]</a>
+              <a href="author.html#12372">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I have just tested OpenOCD 0.3.1 with a StorLink SL3516 (Gemini) SoC.
+This SoC contains a FA526 ARM CPU core and all the peripherials needed
+for NAS, Router, and similar applications. (The system is an
+IB-NAS4220-B which fortunately has a 20-pin JTAG on its mainboard.)
+
+The problem:
+The pc displayed contains the value of the just executed instruction.
+
+Consider the following OpenOCD session:
+
+&gt;<i> armv4_5 disassemble 0 32
+</I>0x00000000	0xea000012	B 0x00000050
+0x00000004	0xe59ff018	LDR r15, [r15, #0x18]
+0x00000008	0xe59ff018	LDR r15, [r15, #0x18]
+0x0000000c	0xe59ff018	LDR r15, [r15, #0x18]
+0x00000010	0xe59ff018	LDR r15, [r15, #0x18]
+0x00000014	0xea00000d	B 0x00000050
+0x00000018	0xe59ff018	LDR r15, [r15, #0x18]
+0x0000001c	0xe59ff018	LDR r15, [r15, #0x18]
+0x00000020	0x00000050	ANDEQ r0, r0, r0, ASR r0
+0x00000024	0x00000418	ANDEQ r0, r0, r8, LSL r4
+0x00000028	0x00000418	ANDEQ r0, r0, r8, LSL r4
+0x0000002c	0x00000418	ANDEQ r0, r0, r8, LSL r4
+0x00000030	0x00000418	ANDEQ r0, r0, r8, LSL r4
+0x00000034	0x00000000	ANDEQ r0, r0, r0
+0x00000038	0x00000420	ANDEQ r0, r0, r0, LSR #0x8
+0x0000003c	0x00000418	ANDEQ r0, r0, r8, LSL r4
+0x00000040	0x6500000c	STRVS r0, [r0, #-0xc]
+0x00000044	0x30000200	ANDCC r0, r0, r0, LSL #0x4
+0x00000048	0x30000800	ANDCC r0, r0, r0, LSL #0x10
+0x0000004c	0x40000030	ANDMI r0, r0, r0, LSR r0
+0x00000050	0xe3a000d3	MOV r0, #0xd3
+0x00000054	0xe129f000	MSR CPSR_cf, r0
+0x00000058	0xe59f0434	LDR r0, [r15, #0x434]
+0x0000005c	0xe3a01000	MOV r1, #0x0
+0x00000060	0xe5801000	STR r1, [r0]
+0x00000064	0xe24f002c	SUB r0, r15, #0x2c
+0x00000068	0xe5901000	LDR r1, [r0]
+0x0000006c	0xe5911000	LDR r1, [r1]
+0x00000070	0xe2012b06	AND r2, r1, #0x1800
+0x00000074	0xe3520000	CMP r2, #0x0
+0x00000078	0x1a000004	BNE 0x00000090
+0x0000007c	0xe3a001c1	MOV r0, #0x40000030
+
+&gt;<i> bp 0x00000054 4 hw
+</I>breakpoint set at 0x00000054
+resume
+
+[reboot by bootloader]
+
+target state: halted
+target halted in ARM state due to breakpoint, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000050
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+
+&gt;<i> armv4_5 reg             
+</I>      r0: 000000d3       r0: 000000d3       r0: 000000d3       r0:
+000000d3       r0: 000000d3       r0: 000000d3 
+      r1: 00000000       r1: 00000000       r1: 00000000       r1:
+00000000       r1: 00000000       r1: 00000000
+      ...
+      pc: 00000050       pc: 00000050       pc: 00000050       pc:
+00000050       pc: 00000050       pc: 00000050
+    cpsr: 000000d3 spsr_fiq: 00000010 spsr_irq: 80000013 spsr_svc:
+00000011 spsr_abt: 00000010 spsr_und: 00000090
+
+[The instruction at address 0x00000050 was executed.]
+
+&gt;<i> step
+</I>target state: halted
+target halted in ARM state due to single-step, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000050
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+
+&gt;<i> step
+</I>target state: halted
+target halted in ARM state due to single-step, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000050
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+
+&gt;<i> rbp 0x00000054
+</I>
+[The breakpoint must be removed to step further.]
+
+&gt;<i> step          
+</I>target state: halted
+target halted in ARM state due to single-step, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000054
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+
+Regards,
+Peter
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012405.html">[Openocd-development] [PUSHED 12/11] improve binarybuffers routines
+</A></li>
+	<LI>Next message: <A HREF="012380.html">[Openocd-development] FA526: wrong pc value
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12372">[ date ]</a>
+              <a href="thread.html#12372">[ thread ]</a>
+              <a href="subject.html#12372">[ subject ]</a>
+              <a href="author.html#12372">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

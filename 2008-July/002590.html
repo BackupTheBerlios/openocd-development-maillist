@@ -1,0 +1,294 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] convert drscan back to	handle_drscan_command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20convert%20drscan%20back%20to%0A%09handle_drscan_command&In-Reply-To=%3C200807162141.m6GLfWI2027237%40hades%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002588.html">
+   <LINK REL="Next"  HREF="002601.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] convert drscan back to	handle_drscan_command</H1>
+    <B>Charles Hardin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20convert%20drscan%20back%20to%0A%09handle_drscan_command&In-Reply-To=%3C200807162141.m6GLfWI2027237%40hades%3E"
+       TITLE="[Openocd-development] [PATCH] convert drscan back to	handle_drscan_command">ckhardin at gmail.com
+       </A><BR>
+    <I>Wed Jul 16 23:41:32 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002588.html">[Openocd-development] Fixes to \ and / handling for OpenOCD
+</A></li>
+        <LI>Next message: <A HREF="002601.html">[Openocd-development] [PATCH] convert drscan back to	handle_drscan_command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2590">[ date ]</a>
+              <a href="thread.html#2590">[ thread ]</a>
+              <a href="subject.html#2590">[ subject ]</a>
+              <a href="author.html#2590">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Following patch added some incremental debugging for a devices that are
+broken - ie print the number of the device in bypass that is having issues
+
+Mainly patches the drscan back to the handle_drscan because of the following
+patch that makes the underlying commands not really need to be tcl aware
+
+Index: src/jtag/jtag.c
+===================================================================
+--- src/jtag/jtag.c	(revision 815)
++++ src/jtag/jtag.c	(working copy)
+@@ -32,9 +32,7 @@
+ #include &quot;string.h&quot;
+ #include &lt;unistd.h&gt;
+ 
+-#include &quot;openocd_tcl.h&quot;
+ 
+-
+ /* note that this is not marked as static as it must be available from outside jtag.c for those 
+    that implement the jtag_xxx() minidriver layer 
+ */
+@@ -269,7 +267,7 @@
+ int handle_jtag_reset_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_runtest_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
++int handle_drscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ 
+ int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ 
+@@ -669,7 +667,7 @@
+ 			/* if a device is listed, the BYPASS register must not be selected */
+ 			if (jtag_get_device(i)-&gt;bypass)
+ 			{
+-				LOG_ERROR(&quot;BUG: scan data for a device in BYPASS&quot;);
++				LOG_ERROR(&quot;BUG: scan data for a device(%u) in BYPASS&quot;, i);
+ 				exit(-1);
+ 			}
+ #endif
+@@ -1444,7 +1442,7 @@
+ 	device = jtag_devices;
+ 	while (device)
+ 	{
+-		if (buf_get_u32(ir_test, chain_pos, 2) != 0x1)
++		if (jtag_verify_capture_ir &amp;&amp; buf_get_u32(ir_test, chain_pos, 2) != 0x1)
+ 		{
+ 			char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
+ 			LOG_ERROR(&quot;Error validating JTAG scan chain, IR mismatch, scan returned 0x%s&quot;, cbuf);
+@@ -1455,7 +1453,7 @@
+ 		chain_pos += device-&gt;ir_length;
+ 		device = device-&gt;next;
+ 	}
+-	
++
+ 	if (buf_get_u32(ir_test, chain_pos, 2) != 0x3)
+ 	{
+ 		char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
+@@ -1464,9 +1462,9 @@
+ 		free(ir_test);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+-	
++
+ 	free(ir_test);
+-	
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -1498,7 +1496,8 @@
+ 		COMMAND_EXEC, &quot;move to Run-Test/Idle, and execute &lt;num_cycles&gt;&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;irscan&quot;, handle_irscan_command,
+ 		COMMAND_EXEC, &quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
+-	add_jim(&quot;drscan&quot;, Jim_Command_drscan, &quot;execute DR scan &lt;device&gt; &lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
++	register_command(cmd_ctx, NULL, &quot;drscan&quot;, handle_drscan_command,
++		COMMAND_EXEC, &quot;execute DR scan &lt;device&gt; &lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
+ 
+ 	register_command(cmd_ctx, NULL, &quot;verify_ircapture&quot;, handle_verify_ircapture_command,
+ 		COMMAND_ANY, &quot;verify value captured during Capture-IR &lt;enable|disable&gt;&quot;);
+@@ -2006,7 +2005,6 @@
+ 	jtag_execute_queue();
+ 
+ 	return ERROR_OK;
+-
+ }
+ 
+ 
+@@ -2014,7 +2012,7 @@
+ {
+ 	int i;
+ 	scan_field_t *fields;
+-	
++
+ 	if ((argc &lt; 2) || (argc % 2))
+ 	{
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+@@ -2024,8 +2022,17 @@
+ 	
+ 	for (i = 0; i &lt; argc / 2; i++)
+ 	{
+-		int device = strtoul(args[i*2], NULL, 0);
+-		int field_size = jtag_get_device(device)-&gt;ir_length;
++		int device;
++		int field_size;
++		jtag_device_t *jtag_device;
++
++		device = strtol(args[i*2], NULL, 0);
++		jtag_device = jtag_get_device(device);
++		if (jtag_device == NULL)
++			return ERROR_JTAG_DEVICE_ERROR;
++
++		field_size = jtag_device-&gt;ir_length;
++
+ 		fields[i].device = device;
+ 		fields[i].out_value = malloc(CEIL(field_size, 8));
+ 		buf_set_u32(fields[i].out_value, 0, field_size, strtoul(args[i*2+1], NULL, 0));
+@@ -2042,55 +2049,56 @@
+ 	for (i = 0; i &lt; argc / 2; i++)
+ 		free(fields[i].out_value);
+ 
+-	free (fields);
+-
++	free(fields);
+ 	return ERROR_OK;
+ }
+ 
+-int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++int handle_drscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	int retval;
+ 	scan_field_t *fields;
+ 	int num_fields;
+-	int field_count = 0;
++	int field_count;
+ 	int i, j, e;
+ 	long device;
++	char *ptr;
+ 
+-	/* args[1] = device
+-	 * args[2] = num_bits
+-	 * args[3] = hex string
++	/* args[0] = device
++	 * args[1] = num_bits
++	 * args[2] = hex string
+ 	 * ... repeat num bits and hex string ...
+ 	 */
+-	if ((argc &lt; 4) || ((argc % 2)!=0))
++	if ((argc &lt; 3) || ((argc % 2) == 0))
+ 	{
+-		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
+-		return JIM_ERR;
++		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	for (i = 2; i &lt; argc; i+=2)
++	for (i = 1; i &lt; argc; i+=2)
+ 	{
+ 		long bits;
+ 
+-		e = Jim_GetLong(interp, args[i], &amp;bits);
+-		if (e != JIM_OK)
+-			return e;
++		bits = strtol(args[i], &amp;ptr, 0);
++		if (ptr == args[i] || ptr[0] != '\0')
++			return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	e = Jim_GetLong(interp, args[1], &amp;device);
+-	if (e != JIM_OK)
+-		return e;
++	device = strtol(args[0], &amp;ptr, 0);
++	if (ptr == args[0] || ptr[0] != '\0')
++		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+-	num_fields=(argc-2)/2;
++	field_count = 0;
++	num_fields=(argc-1)/2;
+ 	fields = malloc(sizeof(scan_field_t) * num_fields);
+-	for (i = 2; i &lt; argc; i+=2)
++	for (i = 1; i &lt; argc; i+=2)
+ 	{
+ 		long bits;
+ 		int len;
+ 		const char *str;
+ 
+-		Jim_GetLong(interp, args[i], &amp;bits);
+-		str = Jim_GetString(args[i+1], &amp;len);
+-		
++		bits = strtol(args[i], &amp;ptr, 0);
++		str = args[i+1];
++		len = strlen(str);
++
+ 		fields[field_count].device = device;
+ 		fields[field_count].num_bits = bits;
+ 		fields[field_count].out_value = malloc(CEIL(bits, 8));
+@@ -2106,33 +2114,25 @@
+ 	jtag_add_dr_scan(num_fields, fields, -1);
+ 	retval = jtag_execute_queue();
+ 	if (retval != ERROR_OK)
+-	{
+-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
+-		Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;drscan: jtag execute failed&quot;, NULL);
+-		return JIM_ERR;
+-	}
++		return retval;
+ 
+ 	field_count=0;
+-	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
+-	for (i = 2; i &lt; argc; i+=2)
++	for (i = 1; i &lt; argc; i+=2)
+ 	{
+ 		long bits;
+ 		char *str;
+ 
+-		Jim_GetLong(interp, args[i], &amp;bits);
++		bits = strtol(args[i], &amp;ptr, 0);
+ 		str = buf_to_str(fields[field_count].in_value, bits, 16);
+ 		free(fields[field_count].out_value);
+ 
+-		Jim_ListAppendElement(interp, list, Jim_NewStringObj(interp, str, strlen(str)));
++		command_print(cmd_ctx, str);
+ 		free(str);
+ 		field_count++;
+ 	}
+ 
+-	Jim_SetResult(interp, list);
+-	
+ 	free(fields);
+-
+-	return JIM_OK;
++	return ERROR_OK;
+ }
+ 
+ int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002588.html">[Openocd-development] Fixes to \ and / handling for OpenOCD
+</A></li>
+	<LI>Next message: <A HREF="002601.html">[Openocd-development] [PATCH] convert drscan back to	handle_drscan_command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2590">[ date ]</a>
+              <a href="thread.html#2590">[ thread ]</a>
+              <a href="subject.html#2590">[ subject ]</a>
+              <a href="author.html#2590">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Tiny jtag_add_xxxx cleanup in etb.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Tiny%20jtag_add_xxxx%20cleanup%20in%20etb.c&In-Reply-To=%3Cc09652430911151354m51ac56eeg491f0b8bbfc5e4c0%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012447.html">
+   <LINK REL="Next"  HREF="012396.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Tiny jtag_add_xxxx cleanup in etb.c</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Tiny%20jtag_add_xxxx%20cleanup%20in%20etb.c&In-Reply-To=%3Cc09652430911151354m51ac56eeg491f0b8bbfc5e4c0%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Tiny jtag_add_xxxx cleanup in etb.c">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sun Nov 15 22:54:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012447.html">[Openocd-development] SWD, Simon's branch and git.
+</A></li>
+        <LI>Next message: <A HREF="012396.html">[Openocd-development] Tiny jtag_add_xxxx cleanup in etb.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12390">[ date ]</a>
+              <a href="thread.html#12390">[ thread ]</a>
+              <a href="subject.html#12390">[ subject ]</a>
+              <a href="author.html#12390">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The fact that this malloc(1) has survived the latest purges just
+goes to show how obtuse the jtag_add_xxx() code is.
+
+Also, this patch is interesting because it shows how switching
+to a 32 bit word size rather than 8 bit, would make the code
+a lot less obtuse.
+
+In this case 8 bit happens to be sufficiently wide and therefore
+all those &quot;helper&quot; buf_set_u32() just evaporate...
+
+With a 32 bit word size, that callback would disappear too...
+
+Comments?
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+-------------- next part --------------
+diff --git a/src/target/etb.c b/src/target/etb.c
+index 925a021..b477818 100644
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -187,14 +187,14 @@ static int etb_read_ram(etb_t *etb, uint32_t *data, int num_frames)
+ 
+ 	fields[1].tap = etb-&gt;tap;
+ 	fields[1].num_bits = 7;
+-	fields[1].out_value = malloc(1);
+-	buf_set_u32(fields[1].out_value, 0, 7, 4);
++	u8_t t = 4;
++	fields[1].out_value = &t;
+ 	fields[1].in_value = NULL;
+ 
+ 	fields[2].tap = etb-&gt;tap;
+ 	fields[2].num_bits = 1;
+-	fields[2].out_value = malloc(1);
+-	buf_set_u32(fields[2].out_value, 0, 1, 0);
++	u8_t t2 = 0;
++	fields[2].out_value = &amp;t2;
+ 	fields[2].in_value = NULL;
+ 
+ 	jtag_add_dr_scan(3, fields, jtag_get_end_state());
+@@ -202,13 +202,13 @@ static int etb_read_ram(etb_t *etb, uint32_t *data, int num_frames)
+ 	for (i = 0; i &lt; num_frames; i++)
+ 	{
+ 		/* ensure nR/W reamins set to read */
+-		buf_set_u32(fields[2].out_value, 0, 1, 0);
++		fields[2].out_value = 0;
+ 
+ 		/* address remains set to 0x4 (RAM data) until we read the last frame */
+ 		if (i &lt; num_frames - 1)
+-			buf_set_u32(fields[1].out_value, 0, 7, 4);
++			fields[1].out_value[0] = 4;
+ 		else
+-			buf_set_u32(fields[1].out_value, 0, 7, 0);
++			fields[1].out_value[0] = 0;
+ 
+ 		fields[0].in_value = (uint8_t *)(data + i);
+ 		jtag_add_dr_scan(3, fields, jtag_get_end_state());
+@@ -216,12 +216,7 @@ static int etb_read_ram(etb_t *etb, uint32_t *data, int num_frames)
+ 		jtag_add_callback(etb_getbuf, (jtag_callback_data_t)(data + i));
+ 	}
+ 
+-	jtag_execute_queue();
+-
+-	free(fields[1].out_value);
+-	free(fields[2].out_value);
+-
+-	return ERROR_OK;
++	return jtag_execute_queue();
+ }
+ 
+ static int etb_read_reg_w_check(reg_t *reg,
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012447.html">[Openocd-development] SWD, Simon's branch and git.
+</A></li>
+	<LI>Next message: <A HREF="012396.html">[Openocd-development] Tiny jtag_add_xxxx cleanup in etb.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12390">[ date ]</a>
+              <a href="thread.html#12390">[ thread ]</a>
+              <a href="subject.html#12390">[ subject ]</a>
+              <a href="author.html#12390">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

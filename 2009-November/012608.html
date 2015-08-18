@@ -1,0 +1,349 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/8] refactor command registration
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/8%5D%20refactor%20command%20registration&In-Reply-To=%3C1258742030-30859-4-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012610.html">
+   <LINK REL="Next"  HREF="012612.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/8] refactor command registration</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/8%5D%20refactor%20command%20registration&In-Reply-To=%3C1258742030-30859-4-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/8] refactor command registration">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Nov 20 19:33:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012610.html">[Openocd-development] [PATCH 2/8] change command_find helper	interface
+</A></li>
+        <LI>Next message: <A HREF="012612.html">[Openocd-development] [PATCH 4/8] factor help script command into	parts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12608">[ date ]</a>
+              <a href="thread.html#12608">[ thread ]</a>
+              <a href="subject.html#12608">[ subject ]</a>
+              <a href="author.html#12608">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Refactors the command registration to use helpers to simplify the code.
+The unregistration routines were made more flexible by allowing them
+to operate on a single command, such that one can remove all of a
+commands children in one step (perhaps before adding back a 'config'
+subcommand that allows getting the others back).  Eliminates a bit
+of duplicated code and adds full API documentation for these routines.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |  150 ++++++++++++++++++++++++--------------------------
+ src/helper/command.h |   51 +++++++++++++++--
+ src/openocd.c        |    2 +-
+ 3 files changed, 119 insertions(+), 84 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 538c07b..87a898f 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -233,33 +233,69 @@ static void command_add_child(struct command **head, struct command *c)
+ 	cc-&gt;next = c;
+ }
+ 
+-struct command* register_command(struct command_context *context,
+-		struct command *parent, char *name, command_handler_t handler,
+-		enum command_mode mode, char *help)
++static struct command **command_list_for_parent(
++		struct command_context *cmd_ctx, struct command *parent)
+ {
+-	if (!context || !name)
+-		return NULL;
++	return parent ? &amp;parent-&gt;children : &amp;cmd_ctx-&gt;commands;
++}
+ 
+-	struct command **head = parent ? &amp;parent-&gt;children : &amp;context-&gt;commands;
+-	struct command *c = command_find(*head, name);
+-	if (NULL != c)
+-		return c;
++static struct command *command_new(struct command_context *cmd_ctx,
++		struct command *parent, const char *name,
++		command_handler_t handler, enum command_mode mode,
++		const char *help)
++{
++	assert(name);
+ 
+-	c = malloc(sizeof(struct command));
++	struct command *c = malloc(sizeof(struct command));
++	memset(c, 0, sizeof(struct command));
+ 
+ 	c-&gt;name = strdup(name);
+ 	c-&gt;parent = parent;
+-	c-&gt;children = NULL;
+ 	c-&gt;handler = handler;
+ 	c-&gt;mode = mode;
+-	c-&gt;next = NULL;
+ 
+-	command_add_child(head, c);
++	command_add_child(command_list_for_parent(cmd_ctx, parent), c);
+ 
+ 	command_helptext_add(command_name_list(c), help);
+ 
+-	/* just a placeholder, no handler */
+-	if (c-&gt;handler == NULL)
++	return c;
++}
++static void command_free(struct command *c)
++{
++	/// @todo if command has a handler, unregister its jim command!
++
++	while (NULL != c-&gt;children)
++	{
++		struct command *tmp = c-&gt;children;
++		c-&gt;children = tmp-&gt;next;
++		command_free(tmp);
++	}
++
++	if (c-&gt;name)
++		free(c-&gt;name);
++	free(c);
++}
++
++struct command* register_command(struct command_context *context,
++		struct command *parent, const char *name,
++		command_handler_t handler, enum command_mode mode,
++		const char *help)
++{
++	if (!context || !name)
++		return NULL;
++
++	struct command **head = command_list_for_parent(context, parent);
++	struct command *c = command_find(*head, name);
++	if (NULL != c)
++	{
++		LOG_ERROR(&quot;command '%s' is already registered in '%s' context&quot;,
++				name, parent ? parent-&gt;name : &quot;&lt;global&gt;&quot;);
++		return c;
++	}
++
++	c = command_new(context, parent, name, handler, mode, help);
++	/* if allocation failed or it is a placeholder (no handler), we're done */
++	if (NULL == c || NULL == c-&gt;handler)
+ 		return c;
+ 
+ 	const char *full_name = command_name(c, '_');
+@@ -281,85 +317,43 @@ struct command* register_command(struct command_context *context,
+ 	return c;
+ }
+ 
+-int unregister_all_commands(struct command_context *context)
++int unregister_all_commands(struct command_context *context,
++		struct command *parent)
+ {
+-	struct command *c, *c2;
+-
+ 	if (context == NULL)
+ 		return ERROR_OK;
+ 
+-	while (NULL != context-&gt;commands)
++	struct command **head = command_list_for_parent(context, parent);
++	while (NULL != *head)
+ 	{
+-		c = context-&gt;commands;
+-
+-		while (NULL != c-&gt;children)
+-		{
+-			c2 = c-&gt;children;
+-			c-&gt;children = c-&gt;children-&gt;next;
+-			free(c2-&gt;name);
+-			c2-&gt;name = NULL;
+-			free(c2);
+-			c2 = NULL;
+-		}
+-
+-		context-&gt;commands = context-&gt;commands-&gt;next;
+-
+-		free(c-&gt;name);
+-		c-&gt;name = NULL;
+-		free(c);
+-		c = NULL;
++		struct command *tmp = *head;
++		*head = tmp-&gt;next;
++		command_free(tmp);
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-int unregister_command(struct command_context *context, char *name)
++int unregister_command(struct command_context *context,
++		struct command *parent, const char *name)
+ {
+-	struct command *c, *p = NULL, *c2;
+-
+ 	if ((!context) || (!name))
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+-	/* find command */
+-	c = context-&gt;commands;
+-
+-	while (NULL != c)
++	struct command *p = NULL;
++	struct command **head = command_list_for_parent(context, parent);
++	for (struct command *c = *head; NULL != c; p = c, c = c-&gt;next)
+ 	{
+-		if (strcmp(name, c-&gt;name) == 0)
+-		{
+-			/* unlink command */
+-			if (p)
+-			{
+-				p-&gt;next = c-&gt;next;
+-			}
+-			else
+-			{
+-				/* first element in command list */
+-				context-&gt;commands = c-&gt;next;
+-			}
++		if (strcmp(name, c-&gt;name) != 0)
++			continue;
+ 
+-			/* unregister children */
+-			while (NULL != c-&gt;children)
+-			{
+-				c2 = c-&gt;children;
+-				c-&gt;children = c-&gt;children-&gt;next;
+-				free(c2-&gt;name);
+-				c2-&gt;name = NULL;
+-				free(c2);
+-				c2 = NULL;
+-			}
+-
+-			/* delete command */
+-			free(c-&gt;name);
+-			c-&gt;name = NULL;
+-			free(c);
+-			c = NULL;
+-			return ERROR_OK;
+-		}
++		if (p)
++			p-&gt;next = c-&gt;next;
++		else
++			*head = c-&gt;next;
+ 
+-		/* remember the last command for unlinking */
+-		p = c;
+-		c = c-&gt;next;
++		command_free(c);
++		return ERROR_OK;
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/helper/command.h b/src/helper/command.h
+index def0935..56bd149 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -176,12 +176,53 @@ struct command
+  */
+ char *command_name(struct command *c, char delim);
+ 
+-struct command* register_command(struct command_context *context,
+-		struct command *parent, char *name, command_handler_t handler,
+-		enum command_mode mode, char *help);
++/**
++ * Register a command @c handler that can be called from scripts during
++ * the execution @c mode specified.  
++ *
++ * If @c parent is non-NULL, the new command will be registered as a
++ * sub-command under it; otherwise, it will be available as a top-level
++ * command.
++ *
++ * A conventioal format should be used for help strings, to provide both
++ * usage and basic information:
++ * @code
++ * &quot;@&lt;options@&gt; ... - some explanation text&quot;
++ * @endcode
++ *
++ * @param cmd_ctx The command_context in which to register the command.
++ * @param parent Register this command as a child of this, or NULL to
++ * register a top-level command.
++ * @param name The name of the command to register, which must not have
++ * been registered previously.
++ * @param handler The callback function that will be called.  If NULL,
++ * then the command serves as a placeholder for its children or a script.
++ * @param mode The command mode(s) in which this command may be run.
++ * @param help The help text that will be displayed to the user.
++ * @returns The new command, if successful; otherwise, NULL.  
++ */
++struct command* register_command(struct command_context *cmd_ctx,
++		struct command *parent, const char *name,
++		command_handler_t handler, enum command_mode mode,
++		const char *help);
+ 
+-int unregister_command(struct command_context *context, char *name);
+-int unregister_all_commands(struct command_context *context);
++/**
++ * Unregisters command @c name from the given context, @c cmd_ctx.
++ * @param cmd_ctx The context of the registered command.
++ * @param parent The parent of the given command, or NULL.
++ * @param name The name of the command to unregister.
++ * @returns ERROR_OK on success, or an error code.
++ */
++int unregister_command(struct command_context *cmd_ctx,
++		struct command *parent, const char *name);
++/**
++ * Unregisters all commands from the specfied context.
++ * @param cmd_ctx The context that will be cleared of registered commands.
++ * @param parent If given, only clear commands from under this one command.
++ * @returns ERROR_OK on success, or an error code.
++ */
++int unregister_all_commands(struct command_context *cmd_ctx,
++		struct command *parent);
+ 
+ void command_set_output_handler(struct command_context* context,
+ 		command_output_handler_t output_handler, void *priv);
+diff --git a/src/openocd.c b/src/openocd.c
+index b7781a6..8e8ceac 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -278,7 +278,7 @@ int openocd_main(int argc, char *argv[])
+ 	httpd_stop();
+ #endif
+ 
+-	unregister_all_commands(cmd_ctx);
++	unregister_all_commands(cmd_ctx, NULL);
+ 
+ 	/* free commandline interface */
+ 	command_done(cmd_ctx);
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012610.html">[Openocd-development] [PATCH 2/8] change command_find helper	interface
+</A></li>
+	<LI>Next message: <A HREF="012612.html">[Openocd-development] [PATCH 4/8] factor help script command into	parts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12608">[ date ]</a>
+              <a href="thread.html#12608">[ thread ]</a>
+              <a href="subject.html#12608">[ subject ]</a>
+              <a href="author.html#12608">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

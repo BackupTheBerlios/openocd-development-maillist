@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [OpenOCD][PULL Request][MIPS32] Fixed single byte memory write
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BPULL%20Request%5D%5BMIPS32%5D%20Fixed%0A%20single%20byte%20memory%20write&In-Reply-To=%3CCAKGHftfhyE8Z5BxFbWjLt3b4QQtAgJ5tETtM98PMv8NJ09Jxzg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020434.html">
+   <LINK REL="Next"  HREF="020436.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [OpenOCD][PULL Request][MIPS32] Fixed single byte memory write</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BPULL%20Request%5D%5BMIPS32%5D%20Fixed%0A%20single%20byte%20memory%20write&In-Reply-To=%3CCAKGHftfhyE8Z5BxFbWjLt3b4QQtAgJ5tETtM98PMv8NJ09Jxzg%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [OpenOCD][PULL Request][MIPS32] Fixed single byte memory write">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Sat Jul 30 13:13:36 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020434.html">[Openocd-development] [OpenOCD][PULL Request][MIPS32] Fixed single byte memory write
+</A></li>
+        <LI>Next message: <A HREF="020436.html">[Openocd-development] [OpenOCD][PULL Request][MIPS32] Fixed single byte memory write
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20435">[ date ]</a>
+              <a href="thread.html#20435">[ thread ]</a>
+              <a href="subject.html#20435">[ subject ]</a>
+              <a href="author.html#20435">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, Jul 30, 2011 at 4:26 AM, Mahr, Stefan &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Stefan.Mahr at sphairon.com</A>&gt;wrote:
+
+&gt;<i> Hi Drasko.
+</I>&gt;<i>
+</I>&gt;<i> &gt; Drasko DRASKOVIC (1):
+</I>&gt;<i> &gt;      mips32 : Fixed memory byte access
+</I>&gt;<i>
+</I>&gt;<i> Your patch fixes the broken byte access, but not the big endian host issue.
+</I>&gt;<i> Since both problems are tied together, I would prefer a more common
+</I>&gt;<i> solution. Attached patch hopefully fixes both issues. It should also fix
+</I>&gt;<i> alignment warning that &#216;yvind had reported. Unfortunately I can't test it
+</I>&gt;<i> for the time being.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> +void target_buffer_get_u32_array(struct target *target, const uint8_t
+</I>*buffer, uint32_t count, uint32_t *dstbuf);
+&gt;<i> +void target_buffer_get_u16_array(struct target *target, const uint8_t
+</I>*buffer, uint32_t count, uint16_t *dstbuf);
+&gt;<i> +void target_buffer_set_u32_array(struct target *target, uint8_t *buffer,
+</I>uint32_t count, uint32_t *srcbuf);
+&gt;<i> +void target_buffer_set_u16_array(struct target *target, uint8_t *buffer,
+</I>uint32_t count, uint16_t *srcbuf);
+
+Great, these helper functions are on my todo list. There are several other
+places where they are useful.
+
+Comments for the get functions are broken, though.
+
+&gt;<i>   /* mips32_..._write_mem with size 4/2 requires uint32_t/uint16_t in host
+</I>*/
+&gt;<i>   /* endianness, but byte array represents target endianness
+</I>*/
+
+&gt;<i>   /* mips32_pracc_fastdata_xfer requires uint32_t in host endianness, */
+</I>&gt;<i>   /* but byte array represents target endianness                      */
+</I>
+Those comments suggest to me that the mips32_..._write_mem
+and mips32_pracc_fastdata_xfer functions are the ones that are broken (by
+design?). If the byte array already is in target endianness, why on earth do
+we need to swap it back and forth? Why can't mips32_pracc_write_mem8/16/32
+simply copy the already properly formatted memory block to the target, using
+load/store byte for the -8 version, load/store halfword for the -16 version
+and load/store word for the -32 version?
+
+Looking at the -32 version, the memory block (that with your patch has been
+swapped to host order) is simply passed on to mips32_pracc_exec(), which I
+assume perform the actual transfer. Where in the following process is the
+data swapped *back* to target order?
+
+BTW, I'm puzzled by the naming here. It seems mips32_pracc_exec_read is used
+for transfers host-&gt;target and mips32_pracc_exec_write for target-&gt;host?
+
+It seems to me that the endianness handling in the MIPS code is very much
+more complex than it would need to be. Maybe the root cause of the
+complexity is that the mips_ejtag scan functions are handling arrays of
+uint32_ts when they should be handling arrays of bits (which in OpenOCD is
+represented by a LSBit-filled-first array of bytes)? That approach forces
+*host* endianness and alignment considerations far down into the low level
+code where they don't belong.
+
+/Andreas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110730/febdf1cd/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110730/febdf1cd/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020434.html">[Openocd-development] [OpenOCD][PULL Request][MIPS32] Fixed single byte memory write
+</A></li>
+	<LI>Next message: <A HREF="020436.html">[Openocd-development] [OpenOCD][PULL Request][MIPS32] Fixed single byte memory write
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20435">[ date ]</a>
+              <a href="thread.html#20435">[ thread ]</a>
+              <a href="subject.html#20435">[ subject ]</a>
+              <a href="author.html#20435">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

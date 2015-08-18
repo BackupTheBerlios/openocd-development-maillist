@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 22/22] remove register_commands from	etm_capture_driver
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2022/22%5D%20remove%20register_commands%20from%0A%09etm_capture_driver&In-Reply-To=%3C1259100321-14469-23-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012859.html">
+   <LINK REL="Next"  HREF="012860.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 22/22] remove register_commands from	etm_capture_driver</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2022/22%5D%20remove%20register_commands%20from%0A%09etm_capture_driver&In-Reply-To=%3C1259100321-14469-23-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 22/22] remove register_commands from	etm_capture_driver">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012859.html">[Openocd-development] [PATCH 01/10] refactor command_new to use	command_registration
+</A></li>
+        <LI>Next message: <A HREF="012860.html">[Openocd-development] [PATCH 02/10] add jim_handler to	command_registration
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12856">[ date ]</a>
+              <a href="thread.html#12856">[ thread ]</a>
+              <a href="subject.html#12856">[ subject ]</a>
+              <a href="author.html#12856">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Converts callback to an array of command_registration records.
+Moves oocd_trace driver definition to end of file to eliminate
+useless forward declaration.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/etb.c        |    7 +------
+ src/target/etm.c        |    5 +++--
+ src/target/etm.h        |    2 +-
+ src/target/etm_dummy.c  |    7 +------
+ src/target/oocd_trace.c |   27 +++++++++++----------------
+ 5 files changed, 17 insertions(+), 31 deletions(-)
+
+diff --git a/src/target/etb.c b/src/target/etb.c
+index 63dee18..bc0e1bf 100644
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -421,11 +421,6 @@ static const struct command_registration etb_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-static int etb_register_commands(struct command_context *cmd_ctx)
+-{
+-	return register_commands(cmd_ctx, NULL, etb_command_handlers);
+-}
+-
+ static int etb_init(struct etm_context *etm_ctx)
+ {
+ 	struct etb *etb = etm_ctx-&gt;capture_driver_priv;
+@@ -696,7 +691,7 @@ static int etb_stop_capture(struct etm_context *etm_ctx)
+ struct etm_capture_driver etb_capture_driver =
+ {
+ 	.name = &quot;etb&quot;,
+-	.register_commands = etb_register_commands,
++	.commands = etb_command_handlers,
+ 	.init = etb_init,
+ 	.status = etb_status,
+ 	.start_capture = etb_start_capture,
+diff --git a/src/target/etm.c b/src/target/etm.c
+index 2465d5c..4e7f917 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1471,8 +1471,9 @@ COMMAND_HANDLER(handle_etm_config_command)
+ 	{
+ 		if (strcmp(CMD_ARGV[4], etm_capture_drivers[i]-&gt;name) == 0)
+ 		{
+-			int retval;
+-			if ((retval = etm_capture_drivers[i]-&gt;register_commands(CMD_CTX)) != ERROR_OK)
++			int retval = register_commands(CMD_CTX, NULL,
++					etm_capture_drivers[i]-&gt;commands);
++			if (ERROR_OK != retval)
+ 			{
+ 				free(etm_ctx);
+ 				return retval;
+diff --git a/src/target/etm.h b/src/target/etm.h
+index 05e5495..c8da794 100644
+--- a/src/target/etm.h
++++ b/src/target/etm.h
+@@ -126,7 +126,7 @@ struct etm_context;
+ struct etm_capture_driver
+ {
+ 	char *name;
+-	int (*register_commands)(struct command_context *cmd_ctx);
++	const struct command_registration *commands;
+ 	int (*init)(struct etm_context *etm_ctx);
+ 	trace_status_t (*status)(struct etm_context *etm_ctx);
+ 	int (*read_trace)(struct etm_context *etm_ctx);
+diff --git a/src/target/etm_dummy.c b/src/target/etm_dummy.c
+index 27a8eec..647774f 100644
+--- a/src/target/etm_dummy.c
++++ b/src/target/etm_dummy.c
+@@ -77,11 +77,6 @@ static const struct command_registration etm_dummy_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-static int etm_dummy_register_commands(struct command_context *cmd_ctx)
+-{
+-	return register_commands(cmd_ctx, NULL, etm_dummy_command_handlers);
+-}
+-
+ static int etm_dummy_init(struct etm_context *etm_ctx)
+ {
+ 	return ERROR_OK;
+@@ -110,7 +105,7 @@ static int etm_dummy_stop_capture(struct etm_context *etm_ctx)
+ struct etm_capture_driver etm_dummy_capture_driver =
+ {
+ 	.name = &quot;dummy&quot;,
+-	.register_commands = etm_dummy_register_commands,
++	.commands = etm_dummy_command_handlers,
+ 	.init = etm_dummy_init,
+ 	.status = etm_dummy_status,
+ 	.start_capture = etm_dummy_start_capture,
+diff --git a/src/target/oocd_trace.c b/src/target/oocd_trace.c
+index a34c63c..ac79f18 100644
+--- a/src/target/oocd_trace.c
++++ b/src/target/oocd_trace.c
+@@ -30,8 +30,6 @@
+  */
+ 
+ 
+-static int oocd_trace_register_commands(struct command_context *cmd_ctx);
+-
+ static int oocd_trace_read_reg(struct oocd_trace *oocd_trace, int reg, uint32_t *value)
+ {
+ 	size_t bytes_written, bytes_read, bytes_to_read;
+@@ -278,17 +276,6 @@ static int oocd_trace_stop_capture(struct etm_context *etm_ctx)
+ 	return ERROR_OK;
+ }
+ 
+-struct etm_capture_driver oocd_trace_capture_driver =
+-{
+-	.name = &quot;oocd_trace&quot;,
+-	.register_commands = oocd_trace_register_commands,
+-	.init = oocd_trace_init,
+-	.status = oocd_trace_status,
+-	.start_capture = oocd_trace_start_capture,
+-	.stop_capture = oocd_trace_stop_capture,
+-	.read_trace = oocd_trace_read_trace,
+-};
+-
+ COMMAND_HANDLER(handle_oocd_trace_config_command)
+ {
+ 	struct target *target;
+@@ -438,7 +425,15 @@ static const struct command_registration oocd_trace_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-int oocd_trace_register_commands(struct command_context *cmd_ctx)
++struct etm_capture_driver oocd_trace_capture_driver =
+ {
+-	return register_commands(cmd_ctx, NULL, oocd_trace_command_handlers);
+-}
++	.name = &quot;oocd_trace&quot;,
++	.commands = oocd_trace_command_handlers,
++	.init = oocd_trace_init,
++	.status = oocd_trace_status,
++	.start_capture = oocd_trace_start_capture,
++	.stop_capture = oocd_trace_stop_capture,
++	.read_trace = oocd_trace_read_trace,
++};
++
++
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012859.html">[Openocd-development] [PATCH 01/10] refactor command_new to use	command_registration
+</A></li>
+	<LI>Next message: <A HREF="012860.html">[Openocd-development] [PATCH 02/10] add jim_handler to	command_registration
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12856">[ date ]</a>
+              <a href="thread.html#12856">[ thread ]</a>
+              <a href="subject.html#12856">[ subject ]</a>
+              <a href="author.html#12856">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

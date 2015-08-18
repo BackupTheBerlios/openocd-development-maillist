@@ -1,0 +1,117 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 flash performance
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20flash%20performance&In-Reply-To=%3C49D28275.9070905%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005107.html">
+   <LINK REL="Next"  HREF="005149.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 flash performance</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20flash%20performance&In-Reply-To=%3C49D28275.9070905%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] STM32 flash performance">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Tue Mar 31 22:52:05 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005107.html">[Openocd-development] STM32 flash performance
+</A></li>
+        <LI>Next message: <A HREF="005149.html">[Openocd-development] STM32 flash performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5148">[ date ]</a>
+              <a href="thread.html#5148">[ thread ]</a>
+              <a href="subject.html#5148">[ subject ]</a>
+              <a href="author.html#5148">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi list
+
+I just have had enough free time to check out my STM32-P103 boards,
+( and update from a version of OpenOCD that was  current a year  and a 
+half ago,  my head spins :) )
+
+My understanding of why the STM32 flash  write is slow is as follows:
+
+    - flash write uses  run_algorithm that saves and restores all core 
+registers, for every block 8k/16k written
+
+    - Saving and restoring core registers is done one register at a 
+time, incurring a lot of USB overhead
+
+    - Saving and writing core registers always saves and then restores  
+DCB_DCRDR
+
+    - swjdp_transaction_endcheck(swjdp_common_t *swjdp) has one extra 
+call to jtag_execute_queue()
+This was added because of some problems that I think are related to 
+reset handling and jtag commands sent by reset code
+and not from the cortex swjdp module.
+
+So the way to improve flash writing, and perhaps also debug, single step 
+speed:
+
+- Increase buffer size, this helps but RAM is limited
+
+- Try to remove the extra jtag_execute_queue() call in 
+wjdp_transaction_endcheck
+
+- Make the read and writes of DCB_DCRDR in ahbap_read_coreregister_u3 
+and ahbap_write_coreregister_u3 nonatomic, ie part of a single transaction.
+If the transaction failes then DCC communications is broken anyway.
+
+- Do save and restore of several core registers in a single transaction 
+with values in an array of u32 and controlled by a bitmask
+This should improve all debug start/stop/singlestep performance
+
+- Use a more sofisticated write algoritm that has two RAM buffers on the 
+target, and where OpenOCD fills one while the algorithm code is flashing 
+the other.
+This works on Cortex-M3 since OpenOCD can write to RAM while the target 
+is running the algorithm.
+This is requires more complicated target algoritm and interaction bewwen 
+host and taget while the algorithm is running.
+
+I have tested the first three suggestions above, the simple ones, and 
+get 15kB/s for a 37kB file, and nothing seems broken
+
+Comments ?? 
+
+Regards
+Magnus
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005107.html">[Openocd-development] STM32 flash performance
+</A></li>
+	<LI>Next message: <A HREF="005149.html">[Openocd-development] STM32 flash performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5148">[ date ]</a>
+              <a href="thread.html#5148">[ thread ]</a>
+              <a href="subject.html#5148">[ subject ]</a>
+              <a href="author.html#5148">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] XScale IXP42x 16-bit CFI flash detection	fails
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20XScale%20IXP42x%2016-bit%20CFI%20flash%20detection%0A%09fails&In-Reply-To=%3Cc384c5ea0709131354x560097b5pb8c100dc5c7f9cb1%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000337.html">
+   <LINK REL="Next"  HREF="000335.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] XScale IXP42x 16-bit CFI flash detection	fails</H1>
+    <B>Leon Woestenberg</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20XScale%20IXP42x%2016-bit%20CFI%20flash%20detection%0A%09fails&In-Reply-To=%3Cc384c5ea0709131354x560097b5pb8c100dc5c7f9cb1%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] XScale IXP42x 16-bit CFI flash detection	fails">leon.woestenberg at gmail.com
+       </A><BR>
+    <I>Thu Sep 13 22:54:37 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000337.html">[Openocd-development] XScale IXP42x 16-bit CFI flash detection	fails
+</A></li>
+        <LI>Next message: <A HREF="000335.html">[Openocd-development] Build error on SPARC
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#339">[ date ]</a>
+              <a href="thread.html#339">[ thread ]</a>
+              <a href="subject.html#339">[ subject ]</a>
+              <a href="author.html#339">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+I pursued getting the OpenOCD / IXP42x combo to work almost fully
+correctly with a workspace area.
+
+The (single sector) data I tried to flash and the subsequent dump
+differ only in the first 16-bit:
+
+--- /random.txt 2007-09-13 16:15:40.047915400 +0200
++++ /dump.txt   2007-09-13 16:17:46.685881800 +0200
+@@ -1,4 +1,4 @@
+-000000 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f
++000000 00 00 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f
+ 000010 de ad be ef 52 a8 c0 27 fc a6 eb ba fa 71 f4 1c
+ 000020 31 c7 44 dc c2 68 b2 24 99 a0 ba f2 bf f6 22 7f
+ 000030 fe b9 bc 73 c5 93 b7 db de 64 aa 87 31 91 b7 ba
+
+Given that my second nibble (4 bits) always become zero after
+programming I suspect this line to be redudant, as Intel docs tell me
+0xff should be used to return to &quot;read array&quot; mode, not 0xf0.
+
+int cfi_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
+
+/* return to read array mode */
+cfi_command(bank, 0xf0, current_word);
+
+
+
+
+config:
+
+jtag_speed 0
+reset_config trst_and_srst
+jtag_device 7 0x01 0x7f 0x7e
+target xscale big reset_init 0 ixp42x
+target_script 0 reset /ixp42x_big.init
+xscale debug_handler 0 0xfe000800
+xscale cache_clean_address 0 0xfffe0000
+flash bank cfi 0x50000000 0x01000000 2 2 0
+working_area 0 0x01000000 0x00100000 nobackup
+
+init script:
+
+wait_halt
+#set big endian mode
+reg XSCALE_CTRL 0xF8
+#setup expansion bus CS#0, write enable, @0x50000000
+mww 0xc4000000 0xbcd23c42
+flash probe 0
+# 32 MB, CAS3
+mww 0xcc000000 0x00000018
+# disable refresh
+mww 0xcc000004 0x00000000
+# nop
+mww 0xcc000008 0x00000003
+sleep 20
+# set refresh value
+mww 0xcc000004 0x0000081a
+# precharge all
+mww 0xcc000008 0x00000002
+sleep 20
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000004
+mww 0xcc000008 0x00000001
+mww 0xcc000008 0x00000006
+sleep 200
+# map SDRAM to 0x00000000
+mww 0xc4000020 0x00fffffe
+
+
+
+--
+Leon
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000337.html">[Openocd-development] XScale IXP42x 16-bit CFI flash detection	fails
+</A></li>
+	<LI>Next message: <A HREF="000335.html">[Openocd-development] Build error on SPARC
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#339">[ date ]</a>
+              <a href="thread.html#339">[ thread ]</a>
+              <a href="subject.html#339">[ subject ]</a>
+              <a href="author.html#339">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

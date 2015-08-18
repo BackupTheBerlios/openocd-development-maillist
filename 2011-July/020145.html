@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Versaloon driver update fix,	and about jtag_usb_open
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Versaloon%20driver%20update%20fix%2C%0A%09and%20about%20jtag_usb_open&In-Reply-To=%3CCAGjSPUA1kt2BhQJwz2OoSiAJZJUFM647gJDN13EbDTDVoSeGZw%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020143.html">
+   <LINK REL="Next"  HREF="020146.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Versaloon driver update fix,	and about jtag_usb_open</H1>
+    <B>Xiaofan Chen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Versaloon%20driver%20update%20fix%2C%0A%09and%20about%20jtag_usb_open&In-Reply-To=%3CCAGjSPUA1kt2BhQJwz2OoSiAJZJUFM647gJDN13EbDTDVoSeGZw%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Versaloon driver update fix,	and about jtag_usb_open">xiaofanc at gmail.com
+       </A><BR>
+    <I>Mon Jul 11 03:12:58 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020143.html">[Openocd-development]  Versaloon driver update fix,	and about jtag_usb_open
+</A></li>
+        <LI>Next message: <A HREF="020146.html">[Openocd-development] Versaloon driver update fix,	and about	jtag_usb_open
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20145">[ date ]</a>
+              <a href="thread.html#20145">[ thread ]</a>
+              <a href="subject.html#20145">[ subject ]</a>
+              <a href="author.html#20145">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, Jul 11, 2011 at 3:17 AM, simon qian &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">simonqian.openocd at gmail.com</A>&gt; wrote:
+&gt;<i> Hi,
+</I>&gt;<i> Attachment is the versaloon driver update, please commit if no problem.
+</I>&gt;<i>
+</I>&gt;<i> In vsllink_usb_open, I remove call to jtag_usb_open, because jtag_usb_open
+</I>&gt;<i> will only check PID and VID to identify a device. There is 2 devices in the
+</I>&gt;<i> recent Versaloon, one is Versaloon programmer/debugger, the other is a
+</I>&gt;<i> CDC COM port. IAD is used to implement the 2 devices. So these devices
+</I>&gt;<i> share the same PID and VID, and there is chances that openocd find the
+</I>&gt;<i> wrong device.
+</I>
+You are right. I think jtag_usb_open should probably be extended to be
+able to match individual interface and even things like serial number or
+manufacturer string. In that case, OpenOCD can be used with more
+than one device with the same VID/PID.
+
+I like your find_usb_device help function. Maybe others can
+use the same function as well.
+
++static usb_dev_handle* find_usb_device(uint16_t VID, uint16_t PID,
++		uint8_t interface, int8_t serialindex, char *serialstring,
++		int8_t productindex, char *productstring)
++{
++	usb_dev_handle *dev_handle = NULL;
++	struct usb_bus *busses;
++	struct usb_bus *bus;
++	struct usb_device *dev;
++
++	usb_init();
++	usb_find_busses();
++	usb_find_devices();
++	busses = usb_get_busses();
++
++	for (bus = busses; bus; bus = bus-&gt;next)
++	{
++		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
++		{
++			if ((dev-&gt;descriptor.idVendor == VID)
++				&amp;&amp; (dev-&gt;descriptor.idProduct == PID))
++			{
++				dev_handle = usb_open(dev);
++				if (NULL == dev_handle)
++				{
++					LOG_ERROR(&quot;failed to open %04X:%04X, %s&quot;, VID, PID,
++								usb_strerror());
++					continue;
++				}
++				
++				// check description string
++				if (((productstring != NULL) &amp;&amp; (productindex &gt;= 0)
++						&amp;&amp; !usb_check_string(dev_handle, productindex,
++												productstring, NULL, 0))
++					|| ((serialstring != NULL) &amp;&amp; (serialindex &gt;= 0)
++						&amp;&amp; !usb_check_string(dev_handle, serialindex,
++												serialstring, NULL, 0)))
++				{
++					usb_close(dev_handle);
++					dev_handle = NULL;
++					continue;
++				}
++				
++				if (usb_claim_interface(dev_handle, interface) != 0)
++				{
++					LOG_ERROR(ERRMSG_FAILURE_OPERATION_MESSAGE,
++								&quot;claim interface&quot;, usb_strerror());
++					usb_close(dev_handle);
++					dev_handle = NULL;
++					continue;
++				}
++				
++				if (dev_handle != NULL)
++				{
++					return dev_handle;
++				}
++			}
++		}
++	}
++	
++	return dev_handle;
++}
++
+
+
+-- 
+Xiaofan
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020143.html">[Openocd-development]  Versaloon driver update fix,	and about jtag_usb_open
+</A></li>
+	<LI>Next message: <A HREF="020146.html">[Openocd-development] Versaloon driver update fix,	and about	jtag_usb_open
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20145">[ date ]</a>
+              <a href="thread.html#20145">[ thread ]</a>
+              <a href="subject.html#20145">[ subject ]</a>
+              <a href="author.html#20145">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

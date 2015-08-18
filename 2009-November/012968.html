@@ -1,0 +1,355 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/8] split jim_target into multiple	handlers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/8%5D%20split%20jim_target%20into%20multiple%0A%09handlers&In-Reply-To=%3C1259273350-9173-4-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012966.html">
+   <LINK REL="Next"  HREF="012969.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/8] split jim_target into multiple	handlers</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/8%5D%20split%20jim_target%20into%20multiple%0A%09handlers&In-Reply-To=%3C1259273350-9173-4-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/8] split jim_target into multiple	handlers">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 26 23:09:05 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012966.html">[Openocd-development] [Patch 0/8] more command cleaning
+</A></li>
+        <LI>Next message: <A HREF="012969.html">[Openocd-development] [PATCH 4/8] explode tcl_target_func into many	handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12968">[ date ]</a>
+              <a href="thread.html#12968">[ thread ]</a>
+              <a href="subject.html#12968">[ subject ]</a>
+              <a href="author.html#12968">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The 'target' command group was implemented using its own command
+dispatching, which can be eliminated by using the new chained command
+registration mechanism.  This patch splits the jim_target() function
+into individual handlers, which makes them to be visible to the help and
+usage commands.  These one-trick handlers are much easier to understand.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/target.c |  246 ++++++++++++++++++++++++++++-----------------------
+ 1 files changed, 137 insertions(+), 109 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 3de9f2c..fddf983 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -4401,129 +4401,156 @@ static int target_create(Jim_GetOptInfo *goi)
+ 	return (NULL != c) ? ERROR_OK : ERROR_FAIL;
+ }
+ 
+-static int jim_target(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++static int jim_target_current(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	int x,r,e;
+-	jim_wide w;
+-	struct command_context *cmd_ctx;
+-	struct target *target;
+-	Jim_GetOptInfo goi;
+-	enum tcmd {
+-		/* TG = target generic */
+-		TG_CMD_CREATE,
+-		TG_CMD_TYPES,
+-		TG_CMD_NAMES,
+-		TG_CMD_CURRENT,
+-		TG_CMD_NUMBER,
+-		TG_CMD_COUNT,
+-	};
+-	const char *target_cmds[] = {
+-		&quot;create&quot;, &quot;types&quot;, &quot;names&quot;, &quot;current&quot;, &quot;number&quot;,
+-		&quot;count&quot;,
+-		NULL /* terminate */
+-	};
+-
+-	LOG_DEBUG(&quot;Target command params:&quot;);
+-	LOG_DEBUG(&quot;%s&quot;, Jim_Debug_ArgvString(interp, argc, argv));
+-
+-	cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;Too many parameters&quot;);
++		return JIM_ERR;
++	}
++	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	Jim_SetResultString(interp, get_current_target(cmd_ctx)-&gt;cmd_name, -1);
++	return JIM_OK;
++}
+ 
+-	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++static int jim_target_types(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;Too many parameters&quot;);
++		return JIM_ERR;
++	}
++	Jim_SetResult(interp, Jim_NewListObj(interp, NULL, 0));
++	for (unsigned x = 0; NULL != target_types[x]; x++)
++	{
++		Jim_ListAppendElement(interp, Jim_GetResult(interp),
++			Jim_NewStringObj(interp, target_types[x]-&gt;name, -1));
++	}
++	return JIM_OK;
++}
+ 
+-	if (goi.argc == 0) {
+-		Jim_WrongNumArgs(interp, 1, argv, &quot;missing: command ...&quot;);
++static int jim_target_names(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;Too many parameters&quot;);
+ 		return JIM_ERR;
+ 	}
++	Jim_SetResult(interp, Jim_NewListObj(interp, NULL, 0));
++	struct target *target = all_targets;
++	while (target)
++	{
++		Jim_ListAppendElement(interp, Jim_GetResult(interp),
++			Jim_NewStringObj(interp, target_name(target), -1));
++		target = target-&gt;next;
++	}
++	return JIM_OK;
++}
+ 
+-	/* Jim_GetOpt_Debug(&amp;goi); */
+-	r = Jim_GetOpt_Enum(&amp;goi, target_cmds, &amp;x);
+-	if (r != JIM_OK) {
+-		return r;
++static int jim_target_create(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++	if (goi.argc &lt; 3)
++	{
++		Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv,
++			&quot;&lt;name&gt; &lt;target_type&gt; [&lt;target_options&gt; ...]&quot;);
++		return JIM_ERR;
+ 	}
++	return target_create(&amp;goi);
++}
+ 
+-	switch (x) {
+-	default:
+-		Jim_Panic(goi.interp,&quot;Why am I here?&quot;);
++static int jim_target_number(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++
++	/* It's OK to remove this mechanism sometime after August 2010 or so */
++	LOG_WARNING(&quot;don't use numbers as target identifiers; use names&quot;);
++	if (goi.argc != 1)
++	{
++		Jim_SetResult_sprintf(goi.interp, &quot;usage: target number &lt;number&gt;&quot;);
+ 		return JIM_ERR;
+-	case TG_CMD_CURRENT:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResultString(goi.interp,
+-				target_name(get_current_target(cmd_ctx)),
+-				-1);
+-		return JIM_OK;
+-	case TG_CMD_TYPES:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResult(goi.interp, Jim_NewListObj(goi.interp, NULL, 0));
+-		for (x = 0 ; target_types[x] ; x++) {
+-			Jim_ListAppendElement(goi.interp,
+-								   Jim_GetResult(goi.interp),
+-								   Jim_NewStringObj(goi.interp, target_types[x]-&gt;name, -1));
+-		}
+-		return JIM_OK;
+-	case TG_CMD_NAMES:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResult(goi.interp, Jim_NewListObj(goi.interp, NULL, 0));
+-		target = all_targets;
+-		while (target) {
+-			Jim_ListAppendElement(goi.interp,
+-					Jim_GetResult(goi.interp),
+-					Jim_NewStringObj(goi.interp,
+-						target_name(target), -1));
+-			target = target-&gt;next;
+-		}
+-		return JIM_OK;
+-	case TG_CMD_CREATE:
+-		if (goi.argc &lt; 3) {
+-			Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv, &quot;?name  ... config options ...&quot;);
+-			return JIM_ERR;
+-		}
+-		return target_create(&amp;goi);
+-		break;
+-	case TG_CMD_NUMBER:
+-		/* It's OK to remove this mechanism sometime after August 2010 or so */
+-		LOG_WARNING(&quot;don't use numbers as target identifiers; use names&quot;);
+-		if (goi.argc != 1) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;expected: target number ?NUMBER?&quot;);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;w);
+-		if (e != JIM_OK) {
+-			return JIM_ERR;
+-		}
+-		for (x = 0, target = all_targets; target; target = target-&gt;next, x++) {
+-			if (target-&gt;target_number == w)
+-				break;
+-		}
+-		if (target == NULL) {
+-			Jim_SetResult_sprintf(goi.interp,
+-					&quot;Target: number %d does not exist&quot;, (int)(w));
+-			return JIM_ERR;
+-		}
+-		Jim_SetResultString(goi.interp, target_name(target), -1);
+-		return JIM_OK;
+-	case TG_CMD_COUNT:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 0, goi.argv, &quot;&lt;no parameters&gt;&quot;);
+-			return JIM_ERR;
+-		}
+-		for (x = 0, target = all_targets; target; target = target-&gt;next, x++)
++	}
++	jim_wide w;
++	int e = Jim_GetOpt_Wide(&amp;goi, &amp;w);
++	if (e != JIM_OK)
++		return JIM_ERR;
++
++	struct target *target;
++	for (target = all_targets; NULL != target; target = target-&gt;next)
++	{
++		if (target-&gt;target_number != w)
+ 			continue;
+-		Jim_SetResult(goi.interp, Jim_NewIntObj(goi.interp, x));
++
++		Jim_SetResultString(goi.interp, target_name(target), -1);
+ 		return JIM_OK;
+ 	}
+-
++	Jim_SetResult_sprintf(goi.interp,
++			&quot;Target: number %d does not exist&quot;, (int)(w));
+ 	return JIM_ERR;
+ }
+ 
++static int jim_target_count(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;&lt;no parameters&gt;&quot;);
++		return JIM_ERR;
++	}
++	unsigned count = 0;
++	struct target *target = all_targets;
++	while (NULL != target)
++	{
++		target = target-&gt;next;
++		count++;
++	}
++	Jim_SetResult(interp, Jim_NewIntObj(interp, count));
++	return JIM_OK;
++}
++
++static const struct command_registration target_subcommand_handlers[] = {
++	{
++		.name = &quot;create&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_create,
++		.usage = &quot;&lt;name&gt; &lt;type&gt; ...&quot;,
++		.help = &quot;Returns the currently selected target&quot;,
++	},
++	{
++		.name = &quot;current&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_current,
++		.help = &quot;Returns the currently selected target&quot;,
++	},
++	{
++		.name = &quot;types&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_types,
++		.help = &quot;Returns the available target types as a list of strings&quot;,
++	},
++	{
++		.name = &quot;names&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_names,
++		.help = &quot;Returns the names of all targets as a list of strings&quot;,
++	},
++	{
++		.name = &quot;number&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_number,
++		.usage = &quot;&lt;number&gt;&quot;,
++		.help = &quot;Returns the name of target &lt;n&gt;&quot;,
++	},
++	{
++		.name = &quot;count&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_count,
++		.help = &quot;Returns the number of targets as an integer&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ 
+ struct FastLoad
+ {
+@@ -4793,8 +4820,9 @@ static const struct command_registration target_command_handlers[] = {
+ 	{
+ 		.name = &quot;target&quot;,
+ 		.mode = COMMAND_CONFIG,
+-		.jim_handler = &amp;jim_target,
+ 		.help = &quot;configure target&quot;,
++
++		.chain = target_subcommand_handlers,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012966.html">[Openocd-development] [Patch 0/8] more command cleaning
+</A></li>
+	<LI>Next message: <A HREF="012969.html">[Openocd-development] [PATCH 4/8] explode tcl_target_func into many	handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12968">[ date ]</a>
+              <a href="thread.html#12968">[ thread ]</a>
+              <a href="subject.html#12968">[ subject ]</a>
+              <a href="author.html#12968">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problems%20with%20erase%20%28Re%3A%20Segfault%20because%0A%20ofconfiguration%20or%20hardware%3F%29&In-Reply-To=%3C47BA2950.9030608%40jaeger.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000938.html">
+   <LINK REL="Next"  HREF="000943.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)</H1>
+    <B>Christian Jaeger</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problems%20with%20erase%20%28Re%3A%20Segfault%20because%0A%20ofconfiguration%20or%20hardware%3F%29&In-Reply-To=%3C47BA2950.9030608%40jaeger.mine.nu%3E"
+       TITLE="[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)">christian at jaeger.mine.nu
+       </A><BR>
+    <I>Tue Feb 19 01:56:48 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000938.html">[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+</A></li>
+        <LI>Next message: <A HREF="000943.html">[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#941">[ date ]</a>
+              <a href="thread.html#941">[ thread ]</a>
+              <a href="subject.html#941">[ subject ]</a>
+              <a href="author.html#941">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I wrote:
+&gt;<i> and tried to &quot;load&quot; that from gdb (which succeeds but then at the 
+</I>&gt;<i> adresses it prints during flashing is 'nothing' (iirc all-1-bits, or 
+</I>&gt;<i> access errors); &quot;cont&quot; from gdb seems to go into an endless jump to 
+</I>&gt;<i> address 0, e.g. reset loop).
+</I>&gt;<i>
+</I>&gt;<i> Now I'm also trying:
+</I>&gt;<i>
+</I>&gt;<i> $ arm-elf-objcopy -O binary a.out a.bin
+</I>&gt;<i> $ file a.bin
+</I>&gt;<i> a.bin: data
+</I>&gt;<i> $ arm-elf-gdb
+</I>&gt;<i> (gdb) load &quot;a.bin&quot;
+</I>&gt;<i> &quot;a.bin&quot; is not an object file: File format not recognized
+</I>&gt;<i>
+</I>&gt;<i> Not sure what to do.
+</I>&gt;<i>
+</I>&gt;<i> In any case, I'd like to try to load the program into RAM; dunno how to 
+</I>&gt;<i> do that yet. I welcome any tips.
+</I>&gt;<i>   
+</I>
+I've gotten a bit further now:
+
+$ arm-elf-gcc -g -Wall -fpic -fpie -pie exp1.c
+# (BTW I'm attaching exp1.c for reference)
+$ arm-elf-gdb a.out
+
+(gdb) load a.out 0x04000000
+Loading section .hash, size 0xa8 lma 0x40000d4
+Loading section .dynsym, size 0x170 lma 0x400017c
+Loading section .dynstr, size 0x118 lma 0x40002ec
+Loading section .rel.dyn, size 0xac8 lma 0x4000404
+Loading section .init, size 0x20 lma 0x4000ecc
+Loading section .text, size 0x2460 lma 0x4000eec
+Loading section .fini, size 0x1c lma 0x400334c
+Loading section .rodata, size 0xc lma 0x4003368
+Loading section .interp, size 0x11 lma 0x4003374
+Loading section .eh_frame, size 0x4 lma 0x4003388
+Loading section .ctors, size 0x8 lma 0x400b38c
+Loading section .dtors, size 0x8 lma 0x400b394
+Loading section .jcr, size 0x4 lma 0x400b39c
+Loading section .dynamic, size 0x90 lma 0x400b3a0
+Loading section .got, size 0xc lma 0x400b430
+Loading section .data, size 0x934 lma 0x400b43c
+Start address 0xfcc, load size 15513
+Transfer rate: 636 bytes/sec, 705 bytes/write.
+
+(gdb) disassemble 0x4000ecc 0x4000fff
+Dump of assembler code from 0x4000ecc to 0x4000fff:
+0x04000ecc: mov r12, sp
+0x04000ed0: push {r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr, pc}
+0x04000ed4: sub r11, r12, #4 ; 0x4
+0x04000ed8: bl 0x4000f6c
+...
+# (looks good, getting the same output as from arm-elf-objdump -d a.out)
+
+(gdb) call main(0,0)
+&lt;ctl-c&gt;
+Program received signal SIGINT, Interrupt.
+0x00000004 in ?? ()
+# (so I guess the ARM ran into some illegal instruction or so and did a 
+reset (jump to 0x0), where there's an illegal op again, thus from then 
+on meaning endless reset)
+
+(gdb) call _init()
+&lt;ctl-c&gt;
+Program received signal SIGINT, Interrupt.
+0x00000004 in ?? ()
+
+(gdb) disassemble main
+Dump of assembler code for function main:
+0x0000110c &lt;main+0&gt;: undefined instruction 0xffffffff
+0x00001110 &lt;main+4&gt;: undefined instruction 0xffffffff
+..
+
+oh, gdb didn't realize that the code is at 0x04000000+. hm.
+
+(gdb) call 0x04000ecc()
+&lt;ctl-c&gt;
+Program received signal SIGINT, Interrupt.
+0x00000004 in ?? ()
+
+hm not sure how to initialize that system, I guess I'll have to study 
+the newlib docs. I'm sure that's now getting offtopic. (I'd still be 
+happy if anyone points me to some dummies docs.)
+
+OTOH, I'm still lost on the other subject, how to load code into flash.
+
+(gdb) load a.out 0x00000000
+Loading section .hash, size 0xa8 lma 0xd4
+Loading section .dynsym, size 0x170 lma 0x17c
+Loading section .dynstr, size 0x118 lma 0x2ec
+Loading section .rel.dyn, size 0xac8 lma 0x404
+Loading section .init, size 0x20 lma 0xecc
+Loading section .text, size 0x2460 lma 0xeec
+Loading section .fini, size 0x1c lma 0x334c
+Loading section .rodata, size 0xc lma 0x3368
+Loading section .interp, size 0x11 lma 0x3374
+Loading section .eh_frame, size 0x4 lma 0x3388
+Loading section .ctors, size 0x8 lma 0xb38c
+Loading section .dtors, size 0x8 lma 0xb394
+Loading section .jcr, size 0x4 lma 0xb39c
+Loading section .dynamic, size 0x90 lma 0xb3a0
+Loading section .got, size 0xc lma 0xb430
+Loading section .data, size 0x934 lma 0xb43c
+Start address 0xfcc, load size 15513
+Transfer rate: 1 KB/sec, 705 bytes/write.
+# (^- this is now with jtag_speed 4)
+
+(gdb) disassemble main
+Dump of assembler code for function main:
+0x0000110c &lt;main+0&gt;: undefined instruction 0xffffffff
+0x00001110 &lt;main+4&gt;: undefined instruction 0xffffffff
+0x00001114 &lt;main+8&gt;: undefined instruction 0xffffffff
+...
+
+So why does 'load' not complain, but also not write anything? My first 
+thought is still, &quot;because I need to erase the flash first&quot;, but then as 
+I've written I've tried that now (and even if I didn't, someone said 
+that &quot;load file&quot; should erase the place being written to automatically 
+anyway?).
+
+Thanks,
+Christian.
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: exp1.c
+Type: text/x-csrc
+Size: 283 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080219/27df820c/attachment.c">https://lists.berlios.de/pipermail/openocd-development/attachments/20080219/27df820c/attachment.c</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000938.html">[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+</A></li>
+	<LI>Next message: <A HREF="000943.html">[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#941">[ date ]</a>
+              <a href="thread.html#941">[ thread ]</a>
+              <a href="subject.html#941">[ subject ]</a>
+              <a href="author.html#941">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

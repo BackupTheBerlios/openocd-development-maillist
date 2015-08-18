@@ -1,0 +1,331 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/4] add flash/nor/core.[ch]
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20add%20flash/nor/core.%5Bch%5D&In-Reply-To=%3C1259892254-5829-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013310.html">
+   <LINK REL="Next"  HREF="013315.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/4] add flash/nor/core.[ch]</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20add%20flash/nor/core.%5Bch%5D&In-Reply-To=%3C1259892254-5829-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/4] add flash/nor/core.[ch]">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Dec  4 03:04:14 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013310.html">[Openocd-development] [PATCH 2/4] separate Jim from jtag/core.c
+</A></li>
+        <LI>Next message: <A HREF="013315.html">[Openocd-development] Error: The 'init' command must be used before	'init'.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13309">[ date ]</a>
+              <a href="thread.html#13309">[ thread ]</a>
+              <a href="subject.html#13309">[ subject ]</a>
+              <a href="author.html#13309">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The newly moved flash TCL routines access the internals of the module
+too much.  Fix the layering issues by adding new core NOR flash APIs:
+
+&lt;flash/nor/core.h&gt;:
+  - flash_driver_find_by_name() - self-descriptive
+
+&lt;flash/nor/imp.h&gt;:
+  - flash_bank_add()            - encapsulates adding banks to bank list
+  - flash_bank_list()           - encapsulates retreiving bank list
+
+This allows the externs in flash/nor/imp.h to be removed, and
+these mechanisms may now be re-used by other flash module code.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/nor/Makefile.am |    1 +
+ src/flash/nor/core.c      |   65 +++++++++++++++++++++++++++++++++++++++++++++
+ src/flash/nor/core.h      |   31 +++++++++++++++++++++
+ src/flash/nor/imp.h       |   15 ++++++++--
+ src/flash/nor/tcl.c       |   45 +++++++++----------------------
+ 5 files changed, 122 insertions(+), 35 deletions(-)
+ create mode 100644 src/flash/nor/core.c
+ create mode 100644 src/flash/nor/core.h
+
+diff --git a/src/flash/nor/Makefile.am b/src/flash/nor/Makefile.am
+index ed9ebb3..499ebfa 100644
+--- a/src/flash/nor/Makefile.am
++++ b/src/flash/nor/Makefile.am
+@@ -2,6 +2,7 @@ AM_CPPFLAGS = -I$(top_srcdir)/src
+ 
+ noinst_LTLIBRARIES = libocdflashnor.la
+ libocdflashnor_la_SOURCES = \
++	core.c \
+ 	tcl.c \
+ 	$(NOR_DRIVERS)
+ 
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+new file mode 100644
+index 0000000..a69c3f4
+--- /dev/null
++++ b/src/flash/nor/core.c
+@@ -0,0 +1,65 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &lt;config.h&gt;
++#endif
++#include &lt;flash/flash.h&gt;
++#include &lt;flash/nor/imp.h&gt;
++
++// in flash.c, to be moved here
++extern struct flash_driver *flash_drivers[];
++extern struct flash_bank *flash_banks;
++
++struct flash_driver *flash_driver_find_by_name(const char *name)
++{
++	for (unsigned i = 0; flash_drivers[i]; i++)
++	{
++		if (strcmp(name, flash_drivers[i]-&gt;name) == 0)
++			return flash_drivers[i];
++	}
++	return NULL;
++}
++
++void flash_bank_add(struct flash_bank *bank)
++{
++	/* put flash bank in linked list */
++	unsigned bank_num = 0;
++	if (flash_banks)
++	{
++		/* find last flash bank */
++		struct flash_bank *p = flash_banks;
++		while (NULL != p-&gt;next)
++		{
++			bank_num += 1;
++			p = p-&gt;next;
++		}
++		p-&gt;next = bank;
++		bank_num += 1;
++	}
++	else
++		flash_banks = bank;
++
++	bank-&gt;bank_number = bank_num;
++}
++
++struct flash_bank *flash_bank_list(void)
++{
++	return flash_banks;
++}
+diff --git a/src/flash/nor/core.h b/src/flash/nor/core.h
+new file mode 100644
+index 0000000..0c6a804
+--- /dev/null
++++ b/src/flash/nor/core.h
+@@ -0,0 +1,31 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef FLASH_NOR_CORE_H
++#define FLASH_NOR_CORE_H
++
++#include &lt;flash/flash.h&gt;
++
++/**
++ * Find a NOR flash driver by its name.
++ * @param name The name of the requested driver.
++ * @returns The flash_driver called @c name, or NULL if not found.
++ */
++struct flash_driver *flash_driver_find_by_name(const char *name);
++
++#endif // FLASH_NOR_CORE_H
+diff --git a/src/flash/nor/imp.h b/src/flash/nor/imp.h
+index 29d7f7e..23ac476 100644
+--- a/src/flash/nor/imp.h
++++ b/src/flash/nor/imp.h
+@@ -19,9 +19,18 @@
+ #ifndef FLASH_NOR_IMP_H
+ #define FLASH_NOR_IMP_H
+ 
+-#include &lt;flash/flash.h&gt;
++// this is an internal header
++#include &quot;core.h&quot;
+ 
+-extern struct flash_driver *flash_drivers[];
+-extern struct flash_bank *flash_banks;
++/**
++ * Adds a new NOR bank to the global list of banks.
++ * @params bank The bank that should be added.
++ */
++void flash_bank_add(struct flash_bank *bank);
++
++/**
++ * @return The first bank in the global list.
++ */
++struct flash_bank *flash_bank_list(void);
+ 
+ #endif // FLASH_NOR_IMP_H
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index 8c13241..b00516d 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -44,16 +44,19 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 	}
+ 
+ 	const char *driver_name = CMD_ARGV[0];
+-	for (unsigned i = 0; flash_drivers[i]; i++)
++	struct flash_driver *driver = flash_driver_find_by_name(driver_name);
++	if (NULL == driver)
+ 	{
+-		if (strcmp(driver_name, flash_drivers[i]-&gt;name) != 0)
+-			continue;
++		/* no matching flash driver found */
++		LOG_ERROR(&quot;flash driver '%s' not found&quot;, driver_name);
++		return ERROR_FAIL;
++	}
+ 
+ 		/* register flash specific commands */
+-		if (NULL != flash_drivers[i]-&gt;commands)
++	if (NULL != driver-&gt;commands)
+ 		{
+ 			int retval = register_commands(CMD_CTX, NULL,
+-					flash_drivers[i]-&gt;commands);
++				driver-&gt;commands);
+ 			if (ERROR_OK != retval)
+ 			{
+ 				LOG_ERROR(&quot;couldn't register '%s' commands&quot;,
+@@ -62,11 +65,10 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 			}
+ 		}
+ 
+-		struct flash_bank *p, *c;
+-		c = malloc(sizeof(struct flash_bank));
++	struct flash_bank *c = malloc(sizeof(*c));
+ 		c-&gt;name = strdup(bank_name);
+ 		c-&gt;target = target;
+-		c-&gt;driver = flash_drivers[i];
++	c-&gt;driver = driver;
+ 		c-&gt;driver_priv = NULL;
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], c-&gt;base);
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], c-&gt;size);
+@@ -77,7 +79,7 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 		c-&gt;next = NULL;
+ 
+ 		int retval;
+-		retval = CALL_COMMAND_HANDLER(flash_drivers[i]-&gt;flash_bank_command, c);
++	retval = CALL_COMMAND_HANDLER(driver-&gt;flash_bank_command, c);
+ 		if (ERROR_OK != retval)
+ 		{
+ 			LOG_ERROR(&quot;'%s' driver rejected flash bank at 0x%8.8&quot; PRIx32,
+@@ -86,42 +88,21 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 			return retval;
+ 		}
+ 
+-		/* put flash bank in linked list */
+-		if (flash_banks)
+-		{
+-			int	bank_num = 0;
+-			/* find last flash bank */
+-			for (p = flash_banks; p &amp;&amp; p-&gt;next; p = p-&gt;next) bank_num++;
+-			if (p)
+-				p-&gt;next = c;
+-			c-&gt;bank_number = bank_num + 1;
+-		}
+-		else
+-		{
+-			flash_banks = c;
+-			c-&gt;bank_number = 0;
+-		}
+-
+ 		return ERROR_OK;
+-	}
+ 
+-	/* no matching flash driver found */
+-	LOG_ERROR(&quot;flash driver '%s' not found&quot;, driver_name);
+-	return ERROR_FAIL;
+ }
+ 
+ 
+ static int jim_flash_banks(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	struct flash_bank *p;
+-
+ 	if (argc != 1) {
+ 		Jim_WrongNumArgs(interp, 1, argv, &quot;no arguments to flash_banks command&quot;);
+ 		return JIM_ERR;
+ 	}
+ 
+ 	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
+-	for (p = flash_banks; p; p = p-&gt;next)
++
++	for (struct flash_bank *p = flash_bank_list(); p; p = p-&gt;next)
+ 	{
+ 		Jim_Obj *elem = Jim_NewListObj(interp, NULL, 0);
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013310.html">[Openocd-development] [PATCH 2/4] separate Jim from jtag/core.c
+</A></li>
+	<LI>Next message: <A HREF="013315.html">[Openocd-development] Error: The 'init' command must be used before	'init'.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13309">[ date ]</a>
+              <a href="thread.html#13309">[ thread ]</a>
+              <a href="subject.html#13309">[ subject ]</a>
+              <a href="author.html#13309">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

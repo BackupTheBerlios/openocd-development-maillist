@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Breakpoints do not work for LM3S6918 / Eclipse
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Breakpoints%20do%20not%20work%20for%20LM3S6918%20/%0A%20Eclipse&In-Reply-To=%3C4A437950.4060800%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008714.html">
+   <LINK REL="Next"  HREF="008728.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Breakpoints do not work for LM3S6918 / Eclipse</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Breakpoints%20do%20not%20work%20for%20LM3S6918%20/%0A%20Eclipse&In-Reply-To=%3C4A437950.4060800%40duaneellis.com%3E"
+       TITLE="[Openocd-development] Breakpoints do not work for LM3S6918 / Eclipse">openocd at duaneellis.com
+       </A><BR>
+    <I>Thu Jun 25 15:19:12 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008714.html">[Openocd-development] platform survey
+</A></li>
+        <LI>Next message: <A HREF="008728.html">[Openocd-development] Fix Rev 2403 build on Windows
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8722">[ date ]</a>
+              <a href="thread.html#8722">[ thread ]</a>
+              <a href="subject.html#8722">[ subject ]</a>
+              <a href="author.html#8722">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Joe,
+
+Try adding this to your configuration file
+
+#----
+gdb_memory_map     enable
+#----
+
+This tells openocd to inform GDB where 'flash lives' - thus GDB will 
+attempt to use hardware breakpoints.
+
+====
+
+You are also not paying attention to what GDB is telling you - when it 
+&quot;cannot find the bounds of the current function&quot; - not much is going to 
+work..
+
+This is very true of the command &quot;step&quot; - which - is a *source*level* 
+step. Read back through what I told you about how GDB steps ... if the 
+current PC is not within the bounds of your code - GDB has no way to 
+figure out how to &quot;STEP&quot; - it can - however &quot;stepi&quot; - which is an 
+instruction step, but *you* the human need to type &quot;stepi&quot; - not &quot;step&quot;.
+
+===========================
+I start GDB - without a configuration file, and type various commands - 
+below is a transcript of what I am typing with embedded comments.
+I am using an atmel at91sam3u4E chip on a SAM3U-EK eval board, I do not 
+have a Luminary Micro - however both are cortex-M3 parts.
+
+
+===========================
+
+[<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">duane at borgcube</A> basic-internalflash-project]$ 
+../../../install/bin/arm-none-eabi-gdb
+GNU gdb (GDB) 6.7.50.20080107-cvs
+Copyright (C) 2008 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later 
+&lt;<A HREF="http://gnu.org/licenses/gpl.html">http://gnu.org/licenses/gpl.html</A>&gt;
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type &quot;show copying&quot;
+and &quot;show warranty&quot; for details.
+This GDB was configured as &quot;--host=i686-pc-linux-gnu 
+--target=arm-none-eabi&quot;.
+For bug reporting instructions, please see:
+&lt;<A HREF="http://www.gnu.org/software/gdb/bugs/">http://www.gnu.org/software/gdb/bugs/</A>&gt;.
+
+===========================
+I did not specify a CONFIG file on the command-line and I did not 
+specify an ELF file on the command line.
+therefore I must type commands and specify the ELF file I want to debug.
+===========================
+
+=====
+Specify the ELF file...
+=====
+(gdb) file 
+./bin/basic-internalflash-project-at91sam3u-ek-at91sam3u4-flash.elf
+Reading symbols from 
+/home/duane/cortex/b/basic-internalflash-project-at91sam3u-ek/basic-internalflash-project/bin/bas
+ic-internalflash-project-at91sam3u-ek-at91sam3u4-flash.elf...done.
+=====
+Specify the target
+=====
+
+(gdb) target remote 192.168.0.100:3333
+Remote debugging using 192.168.0.100:3333
+0x00000000 in ?? ()
+
+=====
+Tell openocd to HALT the target
+=====
+(gdb) mon halt
+
+=====
+Tell openocd to RESET the target.
+=====
+(gdb) mon reset
+JTAG tap: sam3.cpu tap/device found: 0x4ba00477 (mfg: 0x23b, part: 
+0xba00, ver: 0x4)
+JTAG Tap/device matched
+
+=====
+And i tell it to  halt again...
+=====
+(gdb) mon halt
+target state: halted
+target halted due to debug-request, current mode: Handler BusFault
+xPSR: 0x21000005 pc: 0x000817dc
+
+=====
+Load my program - this actually programs the flash
+=====
+
+(gdb) load
+Loading section .fixed, size 0x133c lma 0x80000
+Loading section .relocate, size 0xf4 lma 0x8133c
+Start address 0x811dc, load size 5168
+Transfer rate: 4 KB/sec, 2584 bytes/write.
+
+=====
+Set a breakpoint at &quot;main()&quot;
+=====
+
+(gdb) break main
+Breakpoint 1 at 0x800c0: file main.c, line 168.
+
+=====
+Tell GDB to continue - see the NOTE from GDB...
+=====
+
+(gdb) cont
+Continuing.
+Note: automatically using hardware breakpoints for read-only addresses.
+
+=====
+I hit my breakpoint..
+=====
+Breakpoint 1, main () at main.c:168
+168         TRACE_CONFIGURE(DBGU_STANDARD, 115200, BOARD_MCK);
+(gdb)
+
+=====
+Works for me :-)
+=====
+
+-Duane.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008714.html">[Openocd-development] platform survey
+</A></li>
+	<LI>Next message: <A HREF="008728.html">[Openocd-development] Fix Rev 2403 build on Windows
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8722">[ date ]</a>
+              <a href="thread.html#8722">[ thread ]</a>
+              <a href="subject.html#8722">[ subject ]</a>
+              <a href="author.html#8722">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

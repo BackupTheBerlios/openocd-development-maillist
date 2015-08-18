@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] gdb: restore behavior from 0.3.1 for	srst_asserted and power_restore
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20gdb%3A%20restore%20behavior%20from%200.3.1%20for%0A%09srst_asserted%20and%20power_restore&In-Reply-To=%3C1264968126-28438-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014496.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] gdb: restore behavior from 0.3.1 for	srst_asserted and power_restore</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20gdb%3A%20restore%20behavior%20from%200.3.1%20for%0A%09srst_asserted%20and%20power_restore&In-Reply-To=%3C1264968126-28438-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] gdb: restore behavior from 0.3.1 for	srst_asserted and power_restore">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sun Jan 31 21:02:06 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014496.html">[Openocd-development] [PATCH] build: fix problems with &quot;struct	stat&quot; not being defined under eCos
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14497">[ date ]</a>
+              <a href="thread.html#14497">[ thread ]</a>
+              <a href="subject.html#14497">[ subject ]</a>
+              <a href="author.html#14497">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>srst_asserted and power_restore can now be overriden to do
+nothing. By default they will &quot;reset init&quot; the targets and
+halt gdb.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/jtag/startup.tcl |   23 ++++++++++++++++++++++-
+ src/target/target.c  |   32 +++++++++++++++++++++-----------
+ 2 files changed, 43 insertions(+), 12 deletions(-)
+
+diff --git a/src/jtag/startup.tcl b/src/jtag/startup.tcl
+index ab215ba..245624b 100644
+--- a/src/jtag/startup.tcl
++++ b/src/jtag/startup.tcl
+@@ -30,8 +30,18 @@ proc init_reset { mode } {
+ # documented nor supported except on ZY1000.
+ 
+ proc power_restore {} {
+-	puts &quot;Sensed power restore.&quot;
++	puts &quot;Sensed power restore, running reset init.&quot;
+ 	reset init
++	
++	# Halt GDB so user can deal with a detected power restore.
++	#
++	# After GDB is halted, then output is no longer forwarded
++	# to the GDB console.
++	set targets [target names]	
++	foreach t $targets {
++		# New event script.
++		$t invoke-event arp_halt_gdb
++	}	
+ }
+ 
+ add_help_text power_restore &quot;Overridable procedure run when power restore is detected. Runs 'reset init' by default.&quot;
+@@ -48,7 +58,18 @@ proc power_dropout {} {
+ proc srst_deasserted {} {
+ 	puts &quot;Sensed nSRST deasserted.&quot;
+ 	reset init
++
++	# Halt GDB so user can deal with a detected reset.
++	#
++	# After GDB is halted, then output is no longer forwarded
++	# to the GDB console.
++	set targets [target names]	
++	foreach t $targets {
++		# New event script.
++		$t invoke-event arp_halt_gdb
++	}		
+ }
++
+ add_help_text srst_deasserted &quot;Overridable procedure run when srst deassert is detected. Runs 'reset init' by default.&quot;
+ 
+ proc srst_asserted {} {
+diff --git a/src/target/target.c b/src/target/target.c
+index 1eb65a6..abf3f39 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1739,15 +1739,6 @@ static int sense_handler(void)
+ 	return ERROR_OK;
+ }
+ 
+-static void target_call_event_callbacks_all(enum target_event e) {
+-	struct target *target;
+-	target = all_targets;
+-	while (target) {
+-		target_call_event_callbacks(target, e);
+-		target = target-&gt;next;
+-	}
+-}
+-
+ /* process target state changes */
+ static int handle_target(void *priv)
+ {
+@@ -1768,7 +1759,6 @@ static int handle_target(void *priv)
+ 		if (runSrstAsserted)
+ 		{
+ 			LOG_INFO(&quot;Waking up GDB, srst asserted detected.&quot;);
+-			target_call_event_callbacks_all(TARGET_EVENT_GDB_HALT);
+ 			Jim_Eval(interp, &quot;srst_asserted&quot;);
+ 			did_something = 1;
+ 		}
+@@ -1780,7 +1770,6 @@ static int handle_target(void *priv)
+ 		if (runPowerDropout)
+ 		{
+ 			LOG_INFO(&quot;Waking up GDB, power dropout detected.&quot;);
+-			target_call_event_callbacks_all(TARGET_EVENT_GDB_HALT);
+ 			Jim_Eval(interp, &quot;power_dropout&quot;);
+ 			did_something = 1;
+ 		}
+@@ -4065,6 +4054,21 @@ static int jim_target_examine(Jim_Interp *interp, int argc, Jim_Obj *const *argv
+ 	return JIM_OK;
+ }
+ 
++static int jim_target_halt_gdb(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++
++	if (target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT) != ERROR_OK)
++		return JIM_ERR;
++
++	return JIM_OK;
++}
++
+ static int jim_target_poll(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	if (argc != 1)
+@@ -4346,6 +4350,12 @@ static const struct command_registration target_instance_command_handlers[] = {
+ 		.help = &quot;used internally for reset processing&quot;,
+ 	},
+ 	{
++		.name = &quot;arp_halt_gdb&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = jim_target_halt_gdb,
++		.help = &quot;used internally for reset processing to halt GDB&quot;,
++	},
++	{
+ 		.name = &quot;arp_poll&quot;,
+ 		.mode = COMMAND_EXEC,
+ 		.jim_handler = jim_target_poll,
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014496.html">[Openocd-development] [PATCH] build: fix problems with &quot;struct	stat&quot; not being defined under eCos
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14497">[ date ]</a>
+              <a href="thread.html#14497">[ thread ]</a>
+              <a href="subject.html#14497">[ subject ]</a>
+              <a href="author.html#14497">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

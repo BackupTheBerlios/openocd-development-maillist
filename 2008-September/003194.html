@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Incorrect chain detection for SoC...
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Incorrect%20chain%20detection%20for%20SoC...&In-Reply-To=%3C48DFF0B1.7040304%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003197.html">
+   <LINK REL="Next"  HREF="003196.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Incorrect chain detection for SoC...</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Incorrect%20chain%20detection%20for%20SoC...&In-Reply-To=%3C48DFF0B1.7040304%40duaneellis.com%3E"
+       TITLE="[Openocd-development] Incorrect chain detection for SoC...">openocd at duaneellis.com
+       </A><BR>
+    <I>Sun Sep 28 23:01:37 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003197.html">[Openocd-development] Incorrect chain detection for SoC...
+</A></li>
+        <LI>Next message: <A HREF="003196.html">[Openocd-development] Incorrect chain detection for SoC...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3194">[ date ]</a>
+              <a href="thread.html#3194">[ thread ]</a>
+              <a href="subject.html#3194">[ subject ]</a>
+              <a href="author.html#3194">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE> &gt; But this lead me to the conclusion that the wiggler parport has no 
+analog  problems (aside from the perfectly digital levels at the scope). 
+So I've looked into jtag/bitbang.c and read that comment in bitbang_scan():
+
+ &gt;&gt; &quot; Because there is no way to read the signal exactly at the rising 
+edge, read after the rising edge.&quot;
+
+ &gt; Sounds strange to me. If you want to read the value of a signal 
+changing with a rising clock edge, the only reliable way is to read it 
+*before* the edge.
+
+Agreed.  Seems 100% wrong to me, and does not match urjtag-0.8
+
+Comparing this with &quot;urjtag&quot; - it is quite different.
+
+----
+openocd does it this way:
+
+    src/jtag/bitbang.c - line 181/182
+    1)  bitbang_interface-&gt; write(  0, tms, tdi );
+          which has a delay internal.
+    2)  bitbang_interface-&gt; write(   1, tms,tdi );
+          which has a delay internal
+    3) Then @ bitbang.c line 200
+          it does a read.
+
+Which seems exactly 100% wrong.
+
+I would have expected, this sequence.
+
+        write( 0, tms, tdi );
+         tdo =  read()
+         write( 1, tms, tdi );
+
+=====
+In contrast, (urjtag 0.8 is the version I have)
+
+    UrJtag, does this:
+    1)  wiggler_get_tdo() - wiggler.c line 262 file:
+        setclock low - [via: PRM_TCK_INACT(cable)]
+    2) cable_wait() - line 264
+    3)  get_status() [does the read] line 265     
+
+Elsewhere, it sets the clock high.
+
+Which is exactly correct, as I would expect.
+======
+
+Interesting comment I saw in the urjtag package, &quot;certain Macraigor 
+Wigglers appear to use one of the unused data lines as a power line so 
+set all unused pins high&quot;.
+
+Q: How are you powering your wiggler?
+
+=====
+
+Do you have any other jtag adapter you can use?
+
+-Duane.
+
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003197.html">[Openocd-development] Incorrect chain detection for SoC...
+</A></li>
+	<LI>Next message: <A HREF="003196.html">[Openocd-development] Incorrect chain detection for SoC...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3194">[ date ]</a>
+              <a href="thread.html#3194">[ thread ]</a>
+              <a href="subject.html#3194">[ subject ]</a>
+              <a href="author.html#3194">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

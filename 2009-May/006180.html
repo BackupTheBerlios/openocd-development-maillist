@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] in_handler: w/o &quot;in_value&quot;,	mismatch in SIR
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20in_handler%3A%20w/o%20%22in_value%22%2C%0A%09mismatch%20in%20SIR&In-Reply-To=%3Ce5e16330905071123j59351137g1a156b0d488c5f6e%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006179.html">
+   <LINK REL="Next"  HREF="006182.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] in_handler: w/o &quot;in_value&quot;,	mismatch in SIR</H1>
+    <B>Kees Jongenburger</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20in_handler%3A%20w/o%20%22in_value%22%2C%0A%09mismatch%20in%20SIR&In-Reply-To=%3Ce5e16330905071123j59351137g1a156b0d488c5f6e%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] in_handler: w/o &quot;in_value&quot;,	mismatch in SIR">kees.jongenburger at gmail.com
+       </A><BR>
+    <I>Thu May  7 20:23:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006179.html">[Openocd-development] in_handler: w/o &quot;in_value&quot;,	mismatch in SIR
+</A></li>
+        <LI>Next message: <A HREF="006182.html">[Openocd-development] Mac OS X: Broken build 1621 and above
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6180">[ date ]</a>
+              <a href="thread.html#6180">[ thread ]</a>
+              <a href="subject.html#6180">[ subject ]</a>
+              <a href="author.html#6180">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, May 7, 2009 at 6:38 PM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+&gt;<i> One of the patches since the merge of the ti_dm355.cfg line-end
+</I>&gt;<i> update seems to have broken some aspect of scan chain discovery.
+</I>&gt;<i> See the openocd server startup transcript below, with &quot;scan_chain&quot;
+</I>&gt;<i> command debug output. &#160;(FWIW, using with an Olimex ft2232 adapter.)
+</I>&gt;<i>
+</I>&gt;<i> The recent TAP changes forced a slowdown from 3 MHz to 1.5 MHz;
+</I>&gt;<i> &quot;why&quot; is unclear to me, but the failure mode was similar: &#160;it
+</I>&gt;<i> found just the last of the three TAPs listed (i.e. the one that
+</I>&gt;<i> is hooked up right next to TDI on the SoC).
+</I>
+Indeed , specially when using the open ftdi driver the long scan chain
+discovery 640 bits
+does not succed. the problem is to be found in the ft2232.c (I think)
+
+This part of the code does some strange assumptions about the timeout
+. This timeout is also decreased every time and the ftdi_read_data
+apparently doesn't wait long enough
+for new data then the speed it to low
+
+        int retval;
+        int timeout = 100;
+        *bytes_read = 0;
+
+        while ( (*bytes_read &lt; size) &amp;&amp; timeout-- )
+        {
+                if ( ( retval = ftdi_read_data(&amp;ftdic, buf +
+*bytes_read, size - *bytes_read) ) &lt; 0 )
+                {
+                        *bytes_read = 0;
+                        LOG_ERROR( &quot;ftdi_read_data: %s&quot;,
+ftdi_get_error_string(&amp;ftdic) );
+                        return ERROR_JTAG_DEVICE_ERROR;
+                }
+                *bytes_read += retval;
+        }
+
+&gt;<i>
+</I>&gt;<i> Which suggested a potential workaround here: &#160;slow TCK down even
+</I>&gt;<i> more. &#160;Sure enough, at 750 KHz the startup doesn't fail...
+</I>&gt;<i>
+</I>&gt;<i> I'm hoping that this recent trend of needing to halve the clock
+</I>&gt;<i> rate after each &quot;svn up&quot; can be halted and then reversed. &#160;There
+</I>&gt;<i> would seem to be some hard limits coming up soon ... ;)
+</I>&gt;<i>
+</I>&gt;<i> - Dave
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> ================
+</I>&gt;<i>
+</I>&gt;<i> Open On-Chip Debugger 0.2.0-in-development (2009-05-07-08:37) svn:1649
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> $URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+</I>&gt;<i> 1500 kHz
+</I>&gt;<i> use of EmbeddedICE dbgrq instead of breakpoint for target halt enabled
+</I>&gt;<i> fast memory access is enabled
+</I>&gt;<i> dcc downloads are enabled
+</I>&gt;<i> Info : JTAG tap: dm355.etb tap/device found: 0x0b73b02f (Manufacturer: 0x017, Part: 0xb73b, Version: 0x0)
+</I>&gt;<i> Error: JTAG tap: dm355.etb &#160; &#160; &#160; &#160; &#160; &#160; got: 0x0b73b02f (mfg: 0x017, part: 0xb73b, ver: 0x0)
+</I>&gt;<i> Error: JTAG tap: dm355.etb expected 1 of 1: 0x2b900f0f (mfg: 0x787, part: 0xb900, ver: 0x2)
+</I>&gt;<i> Error: trying to validate configured JTAG chain anyway...
+</I>&gt;<i> Error: Could not validate JTAG scan chain, IR mismatch, scan returned 0xFFC1. tap=dm355.arm pos=4 expected 0x1 got 0
+</I>&gt;<i> Warn : Could not validate JTAG chain, continuing anyway...
+</I>&gt;<i> Warn : TAP dm355.arm:
+</I>&gt;<i> Warn : value captured during scan didn't pass the requested check:
+</I>&gt;<i> Warn : captured: 0x0C check_value: 0x01 check_mask: 0x0F
+</I>&gt;<i> Warn : in_handler: w/o &quot;in_value&quot;, mismatch in SIR
+</I>&gt;<i> Warn : TAP dm355.arm:
+</I>&gt;<i> Warn : value captured during scan didn't pass the requested check:
+</I>&gt;<i> Warn : captured: 0x0C check_value: 0x01 check_mask: 0x0F
+</I>&gt;<i> Warn : in_handler: w/o &quot;in_value&quot;, mismatch in SIR
+</I>&gt;<i> Warn : no telnet port specified, using default port 4444
+</I>&gt;<i> Info : accepting 'telnet' connection from 0
+</I>&gt;<i> &#160; &#160; TapName &#160; &#160; &#160; &#160; &#160; &#160;| Enabled | &#160; IdCode &#160; &#160; &#160;Expected &#160; &#160;IrLen IrCap &#160;IrMask Instr
+</I>&gt;<i> ---|--------------------|---------|------------|------------|------|------|------|---------
+</I>&gt;<i> &#160;0 | dm355.etb &#160; &#160; &#160; &#160; &#160;| &#160; &#160;Y &#160; &#160;| 0x0b73b02f | 0x2b900f0f | 0x04 | 0x01 | 0x0f | 0x0f
+</I>&gt;<i> &#160;1 | dm355.arm &#160; &#160; &#160; &#160; &#160;| &#160; &#160;Y &#160; &#160;| 0x00000000 | 0x07926001 | 0x04 | 0x01 | 0x0f | 0x0c
+</I>&gt;<i> &#160;2 | dm355.jrc &#160; &#160; &#160; &#160; &#160;| &#160; &#160;Y &#160; &#160;| 0x00000000 | 0x0b73b02f | 0x06 | 0x01 | 0x3f | 0x3f
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006179.html">[Openocd-development] in_handler: w/o &quot;in_value&quot;,	mismatch in SIR
+</A></li>
+	<LI>Next message: <A HREF="006182.html">[Openocd-development] Mac OS X: Broken build 1621 and above
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6180">[ date ]</a>
+              <a href="thread.html#6180">[ thread ]</a>
+              <a href="subject.html#6180">[ subject ]</a>
+              <a href="author.html#6180">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

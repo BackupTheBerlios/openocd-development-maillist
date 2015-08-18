@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] JTAG queue profiling feature
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20queue%20profiling%20feature&In-Reply-To=%3C4A041D35.30801%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006257.html">
+   <LINK REL="Next"  HREF="006261.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] JTAG queue profiling feature</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20queue%20profiling%20feature&In-Reply-To=%3C4A041D35.30801%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] JTAG queue profiling feature">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Fri May  8 13:53:25 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006257.html">[Openocd-development] JTAG queue profiling feature
+</A></li>
+        <LI>Next message: <A HREF="006261.html">[Openocd-development] in_handler: w/o &quot;in_value&quot;, mismatch in SIR
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6259">[ date ]</a>
+              <a href="thread.html#6259">[ thread ]</a>
+              <a href="subject.html#6259">[ subject ]</a>
+              <a href="author.html#6259">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is useful but equally useful, and not dependent on,  if we accept 
+my or &#214;yvinds ideas about some design issues.
+
+Regards
+Magnus
+
+
+&#216;yvind Harboe wrote:
+&gt;<i> Committed.
+</I>&gt;<i>
+</I>&gt;<i> Profiling feature that counts # of times that the queue is flushed.
+</I>&gt;<i>
+</I>&gt;<i> The nice thing about this feature is that it works across all
+</I>&gt;<i> interface types.
+</I>&gt;<i>
+</I>&gt;<i> Adding a 1ms delay where the counter is incremented can be used
+</I>&gt;<i> to emulate long delays of USB or JTAG over TCP/IP....
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> help flush
+</I>&gt;&gt;<i>     
+</I>&gt;<i>  flush_count               returns number of times the JTAG queue has been
+</I>&gt;<i>                           flushed
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> puts [flush_count]
+</I>&gt;&gt;<i>     
+</I>&gt;<i>  290
+</I>&gt;<i>   
+</I>&gt;&gt;<i> reset init
+</I>&gt;&gt;<i>     
+</I>&gt;<i>  JTAG tap: lpc2148.cpu tap/device found: 0x4f1f0f0f (Manufacturer: 0x787, Part:
+</I>&gt;<i> 0xf1f0, Version: 0x4)
+</I>&gt;<i> JTAG Tap/device matched
+</I>&gt;<i> srst pulls trst - can not reset into halted mode. Issuing halt after reset.
+</I>&gt;<i> target state: halted
+</I>&gt;<i> target halted in Thumb state due to debug-request, current mode: Supervisor
+</I>&gt;<i> cpsr: 0xa00000f3 pc: 0x7fffd2d8
+</I>&gt;<i> requesting target halt and executing a soft reset
+</I>&gt;<i> target state: halted
+</I>&gt;<i> target halted in ARM state due to debug-request, current mode: Supervisor
+</I>&gt;<i> cpsr: 0xa00000d3 pc: 0x00000000
+</I>&gt;<i>   
+</I>&gt;&gt;<i> puts [flush_count]
+</I>&gt;&gt;<i>     
+</I>&gt;<i>  385
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> ### Eclipse Workspace Patch 1.0
+</I>&gt;<i> #P openocd
+</I>&gt;<i> Index: src/jtag/jtag.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/jtag/jtag.c	(revision 1673)
+</I>&gt;<i> +++ src/jtag/jtag.c	(working copy)
+</I>&gt;<i> @@ -43,7 +43,7 @@
+</I>&gt;<i>  #endif
+</I>&gt;<i>  #include &lt;assert.h&gt;
+</I>&gt;<i>
+</I>&gt;<i> -
+</I>&gt;<i> +int jtag_flush_queue_count; /* count # of flushes for profiling /
+</I>&gt;<i> debugging purposes */
+</I>&gt;<i>
+</I>&gt;<i>  /* note that this is not marked as static as it must be available
+</I>&gt;<i> from outside jtag.c for those
+</I>&gt;<i>     that implement the jtag_xxx() minidriver layer
+</I>&gt;<i> @@ -243,6 +243,7 @@
+</I>&gt;<i>  static int handle_runtest_command(struct command_context_s *cmd_ctx,
+</I>&gt;<i> char *cmd, char **args, int argc);
+</I>&gt;<i>  static int handle_irscan_command(struct command_context_s *cmd_ctx,
+</I>&gt;<i> char *cmd, char **args, int argc);
+</I>&gt;<i>  static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj
+</I>&gt;<i> *const *argv);
+</I>&gt;<i> +static int Jim_Command_flush_count(Jim_Interp *interp, int argc,
+</I>&gt;<i> Jim_Obj *const *args);
+</I>&gt;<i>
+</I>&gt;<i>  static int handle_verify_ircapture_command(struct command_context_s
+</I>&gt;<i> *cmd_ctx, char *cmd, char **args, int argc);
+</I>&gt;<i>
+</I>&gt;<i> @@ -1446,6 +1447,11 @@
+</I>&gt;<i>
+</I>&gt;<i>  void jtag_execute_queue_noclear(void)
+</I>&gt;<i>  {
+</I>&gt;<i> +	/* each flush can take as much as 1-2ms on high bandwidth low
+</I>&gt;<i> latency interfaces.
+</I>&gt;<i> +	 * E.g. a JTAG over TCP/IP or USB....
+</I>&gt;<i> +	 */
+</I>&gt;<i> +	jtag_flush_queue_count++;
+</I>&gt;<i> +
+</I>&gt;<i>  	int retval=interface_jtag_execute_queue();
+</I>&gt;<i>  	/* we keep the first error */
+</I>&gt;<i>  	if ((jtag_error==ERROR_OK)&amp;&amp;(retval!=ERROR_OK))
+</I>&gt;<i> @@ -2180,6 +2186,7 @@
+</I>&gt;<i>  	register_command(cmd_ctx, NULL, &quot;irscan&quot;, handle_irscan_command,
+</I>&gt;<i>  		COMMAND_EXEC, &quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
+</I>&gt;<i>  	register_jim(cmd_ctx, &quot;drscan&quot;, Jim_Command_drscan, &quot;execute DR scan
+</I>&gt;<i> &lt;device&gt; &lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
+</I>&gt;<i> +	register_jim(cmd_ctx, &quot;flush_count&quot;, Jim_Command_flush_count,
+</I>&gt;<i> &quot;returns number of times the JTAG queue has been flushed&quot;);
+</I>&gt;<i>
+</I>&gt;<i>  	register_command(cmd_ctx, NULL, &quot;verify_ircapture&quot;,
+</I>&gt;<i> handle_verify_ircapture_command,
+</I>&gt;<i>  		COMMAND_ANY, &quot;verify value captured during Capture-IR &lt;enable|disable&gt;&quot;);
+</I>&gt;<i> @@ -2945,6 +2952,15 @@
+</I>&gt;<i>  	return JIM_OK;
+</I>&gt;<i>  }
+</I>&gt;<i>
+</I>&gt;<i> +
+</I>&gt;<i> +static int Jim_Command_flush_count(Jim_Interp *interp, int argc,
+</I>&gt;<i> Jim_Obj *const *args)
+</I>&gt;<i> +{
+</I>&gt;<i> +	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_flush_queue_count));
+</I>&gt;<i> +
+</I>&gt;<i> +	return JIM_OK;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +
+</I>&gt;<i>  static int handle_verify_ircapture_command(struct command_context_s
+</I>&gt;<i> *cmd_ctx, char *cmd, char **args, int argc)
+</I>&gt;<i>  {
+</I>&gt;<i>  	if (argc == 1)
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006257.html">[Openocd-development] JTAG queue profiling feature
+</A></li>
+	<LI>Next message: <A HREF="006261.html">[Openocd-development] in_handler: w/o &quot;in_value&quot;, mismatch in SIR
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6259">[ date ]</a>
+              <a href="thread.html#6259">[ thread ]</a>
+              <a href="subject.html#6259">[ subject ]</a>
+              <a href="author.html#6259">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

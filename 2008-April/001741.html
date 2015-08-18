@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%09srst_pulls_trst%22%20case&In-Reply-To=%3Cc09652430804071230y43984163r5755ecedb65565cb%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001739.html">
+   <LINK REL="Next"  HREF="001743.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%09srst_pulls_trst%22%20case&In-Reply-To=%3Cc09652430804071230y43984163r5755ecedb65565cb%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Apr  7 21:30:12 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001739.html">[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+</A></li>
+        <LI>Next message: <A HREF="001743.html">[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1741">[ date ]</a>
+              <a href="thread.html#1741">[ thread ]</a>
+              <a href="subject.html#1741">[ subject ]</a>
+              <a href="author.html#1741">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, Apr 7, 2008 at 9:18 PM, Pavel Chromy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chromy at asix.cz</A>&gt; wrote:
+&gt;<i>
+</I>&gt;<i>  Hello,
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>  &#216;yvind Harboe wrote:
+</I>&gt;<i>
+</I>&gt;<i> &gt; The problem that I addressed below is that for targets with srst_only and
+</I>&gt;<i> &gt; srst_pulls_trst, asserting the trst line can have *bad* effects.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; The driver layer would assert trst even if srst_only was specified, which
+</I>&gt;<i> is
+</I>&gt;<i> &gt; wrong.
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i>  Which should not harm anything...
+</I>
+It does. We've got a target where the trst pin must be left floating.
+
+&gt;<i> &gt; Drivers track the state internally and when srst is asserted with
+</I>&gt;<i> &gt; srst_pulls_trst,
+</I>&gt;<i> &gt; then the driver needs to update the tracked state of the JTAG TAP
+</I>&gt;<i> controller
+</I>&gt;<i> &gt; to TAP_TLR, which the bitbang &amp; ft drivers now do.
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i>  Actually, the driver needs not to do that, if such situation never occurs,
+</I>&gt;<i> see below.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &gt;  &gt; Do not assert trst in srst_only case even if srst_pulls_trst.
+</I>&gt;<i> &gt; &gt;  &gt; This requires drivers to update their record of cur_state when srst
+</I>&gt;<i> is
+</I>&gt;<i> &gt; &gt; asserted.
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i>  Better to signal this to the driver (the need to update cur_state)
+</I>&gt;<i> somewhere in the
+</I>&gt;<i>  jtag reset command structure rather than let the driver deduce this (?).
+</I>
+The reset command structure is only used for the default minidriver.
+
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &gt;  From what I read in the code, my assumption is that if
+</I>&gt;<i> &gt; &gt;  RESET_SRST_PULLS_TRST bit is set jtag_add reset _never_ enqueues
+</I>&gt;<i> command
+</I>&gt;<i> &gt; &gt;  with jtag_srst==1 and jtag_trst==0.
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Correct. I don't think this happens with todays code.
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i>  Here we go... that is the core of the question, so the driver does not need
+</I>&gt;<i>  to check RESET_SRST_PULLS_TRST as such situation never really effectively
+</I>&gt;<i> happens, right?
+</I>
+srst can be asserted for these targets and then, in effect trst is asserted
+and if the driver needs/wants to track the current state of the target,
+then it has to update that state variable.
+
+&gt;<i>  What about defining the API so, rather than covering this impossible
+</I>&gt;<i> condition
+</I>&gt;<i>
+</I>&gt;<i>  in the driver?
+</I>
+The situtation is not impossible.
+
+I don't particularly like this sort of complexity in the driver and would
+not mind moving this into the jtag layer.
+
+&gt;<i> &gt; That would cause the clk to be driven while trst is asserted, that's an
+</I>&gt;<i> &gt; unintended side effect during reset, which is not nice.
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i>  Misunderstanding: I meant signal the driver to reset cur_state to TLR here.
+</I>&gt;<i>  The current code requires driver to deduce this, which I consider unclean
+</I>&gt;<i> solution.
+</I>
+Agreed. It's not pretty. It would be better to have this code in the
+jtag.c layer. However, there is no packet that can be queued to
+achieve this. Setting the current state has the side effect of clocking
+out tms's.
+
+Got a patch? :-)
+
+Letting the driver do this at the lowest level sidestepped the need
+for a new packet.
+
+
+&gt;<i>  Or even better: to split it to two API function jtag_add_srst and
+</I>&gt;<i> jtag_add_tlr (?).
+</I>
+And perhaps also even clarifying the difference between trst and tms.
+
+Perhaps the arm7/9 code should be more directly aware of the difference
+between jtag_add_tms/trst?
+
+I posted a first patch which is a step in the right direction, while being
+compatible with the current jtag_add_reset().
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001739.html">[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+</A></li>
+	<LI>Next message: <A HREF="001743.html">[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1741">[ date ]</a>
+              <a href="thread.html#1741">[ thread ]</a>
+              <a href="subject.html#1741">[ subject ]</a>
+              <a href="author.html#1741">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] ARM11 test release
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ARM11%20test%20release&In-Reply-To=%3C47C2758D.5040504%40digenius.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001077.html">
+   <LINK REL="Next"  HREF="001125.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] ARM11 test release</H1>
+    <B>Michael Bruck</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ARM11%20test%20release&In-Reply-To=%3C47C2758D.5040504%40digenius.de%3E"
+       TITLE="[Openocd-development] ARM11 test release">mbruck at digenius.de
+       </A><BR>
+    <I>Mon Feb 25 09:00:13 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001077.html">[Openocd-development] cleaning up poll, reset,	resume and halt output
+</A></li>
+        <LI>Next message: <A HREF="001125.html">[Openocd-development] ARM11 test release
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1080">[ date ]</a>
+              <a href="thread.html#1080">[ thread ]</a>
+              <a href="subject.html#1080">[ subject ]</a>
+              <a href="author.html#1080">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi list,
+
+ok, here some test code for ARM11 in case someone else has a system to 
+run this on.
+
+The patch is against r337.
+
+I am working on ARM1176 and there are some (minor but deadly) 
+differences in the debugging compared to the ARM1136 which are not 
+supported (yet). So it will probably not work on ARM1136 out of the box. 
+I would fix these things if someone can do tests on actual hardware.
+
+Due to the modifications mentioned below the patch will work only on 
+FTDI interfaces.
+
+
+I am testing mostly via telnet. Your mileage with GDB may vary.
+
+1. Resets are ignored (functions not implemented). The system is halted 
+in whatever state it is.
+
+Part of the reason here is that I have no core reset capability in my 
+system except from inside the core (i.e. after taking debug control) and 
+that capability resets everything including DBGTAP.
+
+2. Memory transfers in both directions should work.
+
+3. halt, resume and step should work
+
+4. No Breakpoints so far
+
+5. I currently have no plans to go very far beyond the basic debug 
+functionality with the implementation, as this is all what we currently 
+need here.
+
+
+Code for the config file (dev 0 is ETM, dev 1 is ARM1176):
+
+jtag_device 4 0x1 0xf 0xe
+jtag_device 5 0x1 0x1f 0x1e
+
+target arm11 little reset_halt 1
+run_and_halt_time 0 0
+
+
+
+I also included some changes to the base system that might be worth 
+adding. The PD-&gt;SD transition issue we discussed yesterday in 
+particular. The statemove solution would only be a workaround in my case 
+since it requires keeping track previous activities in my upper layer. I 
+found that an not sufficiently elegant approach.
+
+
+
+My changes:
+
+1. I removed the unused parameter from jtag_add_ir_scan et al. This 
+wasn't necessary in hindsight but anyway.
+
+2. I added a field 'via_capture' to scan_command_t.
+
+3. I added:
+
+extern int jtag_add_ir_scan_vc(int num_fields, scan_field_t *fields, 
+enum tap_state endstate);
+extern int jtag_add_dr_scan_vc(int num_fields, scan_field_t *fields, 
+enum tap_state endstate);
+
+They do the same as the original functions but set the via_capture bit.
+
+They will behave exactly as the normal functions except if one starts in 
+PI/PD respectively.
+
+4. I added
+
+#define TAP_MOVE_PI_TO_SI_VIA_CI	0x1E	/* 001111. */
+#define TAP_MOVE_PD_TO_SD_VIA_CD	0x1C	/* 00111.. */
+
+to be used to deal with the via_capture scenario in the low level driver.
+
+5. I updated the FTDI2232 driver to use these macros instead of the 
+lookup table for the cases where a PI-&gt;SI or PD-&gt;SD transition is required.
+
+6. There is an unrelated bugfix to src/server/server.c included.
+
+
+Michael
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: openocd-arm11.gz
+Type: application/gzip
+Size: 18667 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080225/7d40d44d/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20080225/7d40d44d/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001077.html">[Openocd-development] cleaning up poll, reset,	resume and halt output
+</A></li>
+	<LI>Next message: <A HREF="001125.html">[Openocd-development] ARM11 test release
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1080">[ date ]</a>
+              <a href="thread.html#1080">[ thread ]</a>
+              <a href="subject.html#1080">[ subject ]</a>
+              <a href="author.html#1080">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

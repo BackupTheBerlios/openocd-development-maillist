@@ -1,0 +1,121 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%20srst_pulls_trst%22%20case&In-Reply-To=%3C47FA7E7B.6010705%40asix.cz%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001741.html">
+   <LINK REL="Next"  HREF="001744.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case</H1>
+    <B>Pavel Chromy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%20srst_pulls_trst%22%20case&In-Reply-To=%3C47FA7E7B.6010705%40asix.cz%3E"
+       TITLE="[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case">chromy at asix.cz
+       </A><BR>
+    <I>Mon Apr  7 22:05:15 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001741.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+        <LI>Next message: <A HREF="001744.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1743">[ date ]</a>
+              <a href="thread.html#1743">[ thread ]</a>
+              <a href="subject.html#1743">[ subject ]</a>
+              <a href="author.html#1743">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&#216;yvind Harboe wrote:
+&gt;&gt;<i>  Here we go... that is the core of the question, so the driver does not need
+</I>&gt;&gt;<i>  to check RESET_SRST_PULLS_TRST as such situation never really effectively
+</I>&gt;&gt;<i> happens, right?
+</I>&gt;<i> srst can be asserted for these targets and then, in effect trst is asserted
+</I>&gt;<i> and if the driver needs/wants to track the current state of the target,
+</I>&gt;<i> then it has to update that state variable.
+</I>&gt;<i> 
+</I>&gt;&gt;<i>  What about defining the API so, rather than covering this impossible
+</I>&gt;&gt;<i> condition in the driver?
+</I>&gt;<i> 
+</I>&gt;<i> The situtation is not impossible.
+</I>
+Well, I would argue a bit here...
+Lest assume (jtag_reset_config &amp; RESET_SRST_PULLS_TRST) is true.
+Then if jtag_add_reset(req_tms_or_trst=0, req_srst=1) is called, an error is reported.
+If jtag_add_reset(req_tms_or_trst=1, req_srst=1) is called,
+either interface_jtag_add_reset(1,1) gets called,
+or { jtag_add_end_state(TAP_TLR); jtag_add_tms(); } gets executed
+
+Either way, cur_state gets set to TAP_TLR even without the driver checking for RESET_SRST_PULLS_TRST.
+It just happens in wrong order I assuem - jtag_add_tms() is called after asserting SRST (?).
+
+So the situation where driver really needs deducing about cur_state based on SRST assertion
+really does not happen in fact...
+
+This might be ok, but I feel like there is rather something wrong in the jtag_add_reset as described above.
+And we cannot tell what, before we define its semantic. It is really not clear to me what jtag_add_reset
+is supposed to do (I mean the logic which is there before passing srst and trst to lower layer,
+especially how it should handle interface without TRST so that the target is ok with that).
+
+
+&gt;&gt;<i>  Misunderstanding: I meant signal the driver to reset cur_state to TLR here.
+</I>&gt;&gt;<i>  The current code requires driver to deduce this, which I consider unclean
+</I>&gt;&gt;<i> solution.
+</I>&gt;<i> 
+</I>&gt;<i> Agreed. It's not pretty. It would be better to have this code in the
+</I>&gt;<i> jtag.c layer. However, there is no packet that can be queued to
+</I>&gt;<i> achieve this. Setting the current state has the side effect of clocking
+</I>&gt;<i> out tms's.
+</I>&gt;<i> 
+</I>&gt;<i> Got a patch? :-)
+</I>
+I am too busy these days to fiddle with this right away, sorry. But I feel like it is
+still better to bring it to discussion then
+
+
+&gt;<i> Letting the driver do this at the lowest level sidestepped the need
+</I>&gt;<i> for a new packet.
+</I>
+Sure.
+
+&gt;&gt;<i>  Or even better: to split it to two API function jtag_add_srst and
+</I>&gt;&gt;<i> jtag_add_tlr (?).
+</I>&gt;<i> 
+</I>&gt;<i> And perhaps also even clarifying the difference between trst and tms.
+</I>
+Agreed.
+
+Pavel
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001741.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+	<LI>Next message: <A HREF="001744.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1743">[ date ]</a>
+              <a href="thread.html#1743">[ thread ]</a>
+              <a href="subject.html#1743">[ subject ]</a>
+              <a href="author.html#1743">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

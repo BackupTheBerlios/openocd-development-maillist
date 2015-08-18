@@ -1,0 +1,461 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 4/4] Cortex-A8: avoid DSCR reads
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%204/4%5D%20Cortex-A8%3A%20avoid%20DSCR%20reads&In-Reply-To=%3C200911241450.02591.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012890.html">
+   <LINK REL="Next"  HREF="012886.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 4/4] Cortex-A8: avoid DSCR reads</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%204/4%5D%20Cortex-A8%3A%20avoid%20DSCR%20reads&In-Reply-To=%3C200911241450.02591.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 4/4] Cortex-A8: avoid DSCR reads">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Nov 24 23:50:02 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012890.html">[Openocd-development] [patch 3/4] Cortex-A8: hook up dpm
+</A></li>
+        <LI>Next message: <A HREF="012886.html">[Openocd-development] [patch 1/4] Cortex-A8: minor cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12889">[ date ]</a>
+              <a href="thread.html#12889">[ thread ]</a>
+              <a href="subject.html#12889">[ subject ]</a>
+              <a href="author.html#12889">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There was a lot of needless handshaking overhead in the current
+Cortex-A8 DCC/ITR operations, since the status read by each step
+was discarded rather than letting the next step know it.
+
+This shrinks the handshaking by:  (a) passing status along from
+previous steps, avoiding re-fetching; and the big win that enables,
+(b) enforcing a useful invariant:  that the DSCR_INSTR_COMP bit is
+set after every call to a DPM method.
+
+A &quot;reg sp_usr&quot; call previously took 17 flushes; now it takes just 9.
+This visibly speeds common operations like entry to debug state and
+stepping, as well as &quot;arm reg&quot; and so on.
+---
+ src/target/cortex_a8.c |  151 ++++++++++++++++++++++++++++++++---------------
+ 1 file changed, 103 insertions(+), 48 deletions(-)
+
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -89,20 +89,25 @@ static int cortex_a8_init_debug_access(s
+ 	return retval;
+ }
+ 
+-/* FIXME we waste a *LOT* of round-trips with needless DSCR reads, which
+- * slows down operations considerably.  One good way to start reducing
+- * them would pass current values into and out of this routine.  That
+- * should also help synch DCC read/write.
++/* To reduce needless round-trips, pass in a pointer to the current
++ * DSCR value.  Initialize it to zero if you just need to know the
++ * value on return from this function; or (1 &lt;&lt; DSCR_INSTR_COMP) if
++ * you happen to know that no instruction is pending.
+  */
+-static int cortex_a8_exec_opcode(struct target *target, uint32_t opcode)
++static int cortex_a8_exec_opcode(struct target *target,
++		uint32_t opcode, uint32_t *dscr_p)
+ {
+ 	uint32_t dscr;
+ 	int retval;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct swjdp_common *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
++	dscr = dscr_p ? *dscr_p : 0;
++
+ 	LOG_DEBUG(&quot;exec opcode 0x%08&quot; PRIx32, opcode);
+-	do
++
++	/* Wait for InstrCompl bit to be set */
++	while ((dscr &amp; (1 &lt;&lt; DSCR_INSTR_COMP)) == 0)
+ 	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+@@ -112,7 +117,6 @@ static int cortex_a8_exec_opcode(struct 
+ 			return retval;
+ 		}
+ 	}
+-	while ((dscr &amp; (1 &lt;&lt; DSCR_INSTR_COMP)) == 0); /* Wait for InstrCompl bit to be set */
+ 
+ 	mem_ap_write_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_ITR, opcode);
+ 
+@@ -128,6 +132,9 @@ static int cortex_a8_exec_opcode(struct 
+ 	}
+ 	while ((dscr &amp; (1 &lt;&lt; DSCR_INSTR_COMP)) == 0); /* Wait for InstrCompl bit to be set */
+ 
++	if (dscr_p)
++		*dscr_p = dscr;
++
+ 	return retval;
+ }
+ 
+@@ -144,7 +151,7 @@ static int cortex_a8_read_regs_through_m
+ 
+ 	cortex_a8_dap_read_coreregister_u32(target, regfile, 0);
+ 	cortex_a8_dap_write_coreregister_u32(target, address, 0);
+-	cortex_a8_exec_opcode(target, ARMV4_5_STMIA(0, 0xFFFE, 0, 0));
++	cortex_a8_exec_opcode(target, ARMV4_5_STMIA(0, 0xFFFE, 0, 0), NULL);
+ 	dap_ap_select(swjdp, swjdp_memoryap);
+ 	mem_ap_read_buf_u32(swjdp, (uint8_t *)(&amp;regfile[1]), 4*15, address);
+ 	dap_ap_select(swjdp, swjdp_debugap);
+@@ -158,10 +165,15 @@ static int cortex_a8_read_cp(struct targ
+ 	int retval;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct swjdp_common *swjdp = &amp;armv7a-&gt;swjdp_info;
++	uint32_t dscr = 0;
++
++	/* MRC(...) to read coprocessor register into r0 */
++	cortex_a8_exec_opcode(target, ARMV4_5_MRC(CP, op1, 0, CRn, CRm, op2),
++			&amp;dscr);
+ 
+-	cortex_a8_exec_opcode(target, ARMV4_5_MRC(CP, op1, 0, CRn, CRm, op2));
+ 	/* Move R0 to DTRTX */
+-	cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
++	cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
++			&amp;dscr);
+ 
+ 	/* Read DCCTX */
+ 	retval = mem_ap_read_atomic_u32(swjdp,
+@@ -187,16 +199,21 @@ static int cortex_a8_write_cp(struct tar
+ 	{
+ 		LOG_ERROR(&quot;DSCR_DTR_RX_FULL, dscr 0x%08&quot; PRIx32, dscr);
+ 		/* Clear DCCRX with MCR(p14, 0, Rd, c0, c5, 0), opcode  0xEE000E15 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++				&amp;dscr);
+ 	}
+ 
++	/* Write DTRRX ... sets DSCR.DTRRXfull but exec_opcode() won't care */
+ 	retval = mem_ap_write_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DTRRX, value);
++
+ 	/* Move DTRRX to r0 */
+-	cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++	cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0), &amp;dscr);
+ 
+-	cortex_a8_exec_opcode(target, ARMV4_5_MCR(CP, op1, 0, CRn, CRm, op2));
+-	return retval;
++	/* MCR(...) to write r0 to coprocessor */
++	return cortex_a8_exec_opcode(target,
++			ARMV4_5_MCR(CP, op1, 0, CRn, CRm, op2),
++			&amp;dscr);
+ }
+ 
+ static int cortex_a8_read_cp15(struct target *target, uint32_t op1, uint32_t op2,
+@@ -238,7 +255,7 @@ static int cortex_a8_dap_read_coreregist
+ {
+ 	int retval = ERROR_OK;
+ 	uint8_t reg = regnum&amp;0xFF;
+-	uint32_t dscr;
++	uint32_t dscr = 0;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct swjdp_common *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
+@@ -248,30 +265,35 @@ static int cortex_a8_dap_read_coreregist
+ 	if (reg &lt; 15)
+ 	{
+ 		/* Rn to DCCTX, &quot;MCR p14, 0, Rn, c0, c5, 0&quot;  0xEE00nE15 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, reg, 0, 5, 0));
++		cortex_a8_exec_opcode(target,
++				ARMV4_5_MCR(14, 0, reg, 0, 5, 0),
++				&amp;dscr);
+ 	}
+ 	else if (reg == 15)
+ 	{
+ 		/* &quot;MOV r0, r15&quot;; then move r0 to DCCTX */
+-		cortex_a8_exec_opcode(target, 0xE1A0000F);
+-		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
++		cortex_a8_exec_opcode(target, 0xE1A0000F, &amp;dscr);
++		cortex_a8_exec_opcode(target,
++				ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
++				&amp;dscr);
+ 	}
+ 	else
+ 	{
+ 		/* &quot;MRS r0, CPSR&quot; or &quot;MRS r0, SPSR&quot;
+ 		 * then move r0 to DCCTX
+ 		 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, reg &amp; 1));
+-		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
++		cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, reg &amp; 1), &amp;dscr);
++		cortex_a8_exec_opcode(target,
++				ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
++				&amp;dscr);
+ 	}
+ 
+-	/* Read DTRRTX */
+-	do
++	/* Wait for DTRRXfull then read DTRRTX */
++	while ((dscr &amp; (1 &lt;&lt; DSCR_DTR_TX_FULL)) == 0)
+ 	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+ 	}
+-	while ((dscr &amp; (1 &lt;&lt; DSCR_DTR_TX_FULL)) == 0); /* Wait for DTRRXfull */
+ 
+ 	retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DTRTX, value);
+@@ -298,13 +320,14 @@ static int cortex_a8_dap_write_coreregis
+ 	{
+ 		LOG_ERROR(&quot;DSCR_DTR_RX_FULL, dscr 0x%08&quot; PRIx32, dscr);
+ 		/* Clear DCCRX with MCR(p14, 0, Rd, c0, c5, 0), opcode  0xEE000E15 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++				&amp;dscr);
+ 	}
+ 
+ 	if (Rd &gt; 17)
+ 		return retval;
+ 
+-	/* Write to DCCRX */
++	/* Write DTRRX ... sets DSCR.DTRRXfull but exec_opcode() won't care */
+ 	LOG_DEBUG(&quot;write DCC 0x%08&quot; PRIx32, value);
+ 	retval = mem_ap_write_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DTRRX, value);
+@@ -312,28 +335,33 @@ static int cortex_a8_dap_write_coreregis
+ 	if (Rd &lt; 15)
+ 	{
+ 		/* DCCRX to Rn, &quot;MCR p14, 0, Rn, c0, c5, 0&quot;, 0xEE00nE15 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, Rd, 0, 5, 0));
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, Rd, 0, 5, 0),
++				&amp;dscr);
+ 	}
+ 	else if (Rd == 15)
+ 	{
+ 		/* DCCRX to R0, &quot;MCR p14, 0, R0, c0, c5, 0&quot;, 0xEE000E15
+ 		 * then &quot;mov r15, r0&quot;
+ 		 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
+-		cortex_a8_exec_opcode(target, 0xE1A0F000);
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++				&amp;dscr);
++		cortex_a8_exec_opcode(target, 0xE1A0F000, &amp;dscr);
+ 	}
+ 	else
+ 	{
+ 		/* DCCRX to R0, &quot;MCR p14, 0, R0, c0, c5, 0&quot;, 0xEE000E15
+ 		 * then &quot;MSR CPSR_cxsf, r0&quot; or &quot;MSR SPSR_cxsf, r0&quot; (all fields)
+ 		 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
+-		cortex_a8_exec_opcode(target, ARMV4_5_MSR_GP(0, 0xF, Rd &amp; 1));
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++				&amp;dscr);
++		cortex_a8_exec_opcode(target, ARMV4_5_MSR_GP(0, 0xF, Rd &amp; 1),
++				&amp;dscr);
+ 
+ 		/* &quot;Prefetch flush&quot; after modifying execution status in CPSR */
+ 		if (Rd == 16)
+ 			cortex_a8_exec_opcode(target,
+-					ARMV4_5_MCR(15, 0, 0, 7, 5, 4));
++					ARMV4_5_MCR(15, 0, 0, 7, 5, 4),
++					&amp;dscr);
+ 	}
+ 
+ 	return retval;
+@@ -354,6 +382,9 @@ static int cortex_a8_dap_write_memap_reg
+ /*
+  * Cortex-A8 implementation of Debug Programmer's Model
+  *
++ * NOTE the invariant:  these routines return with DSCR_INSTR_COMP set,
++ * so there's no need to poll for it before executing an instruction.
++ *
+  * NOTE that in several of these cases the &quot;stall&quot; mode might be useful.
+  * It'd let us queue a few operations together... prepare/finish might
+  * be the places to enable/disable that mode.
+@@ -371,23 +402,30 @@ static int cortex_a8_write_dcc(struct co
+ 			a8-&gt;armv7a_common.debug_base + CPUDBG_DTRRX, data);
+ }
+ 
+-static int cortex_a8_read_dcc(struct cortex_a8_common *a8, uint32_t *data)
++static int cortex_a8_read_dcc(struct cortex_a8_common *a8, uint32_t *data,
++		uint32_t *dscr_p)
+ {
+ 	struct swjdp_common *swjdp = &amp;a8-&gt;armv7a_common.swjdp_info;
+-	uint32_t dscr;
++	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
+ 	int retval;
+ 
++	if (dscr_p)
++		dscr = *dscr_p;
++
+ 	/* Wait for DTRRXfull */
+-	do {
++	while ((dscr &amp; (1 &lt;&lt; DSCR_DTR_TX_FULL)) == 0) {
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				a8-&gt;armv7a_common.debug_base + CPUDBG_DSCR,
+ 				&amp;dscr);
+-	} while ((dscr &amp; (1 &lt;&lt; DSCR_DTR_TX_FULL)) == 0);
++	}
+ 
+ 	retval = mem_ap_read_atomic_u32(swjdp,
+ 			a8-&gt;armv7a_common.debug_base + CPUDBG_DTRTX, data);
+ 	LOG_DEBUG(&quot;read DCC 0x%08&quot; PRIx32, *data);
+ 
++	if (dscr_p)
++		*dscr_p = dscr;
++
+ 	return retval;
+ }
+ 
+@@ -398,9 +436,12 @@ static int cortex_a8_dpm_prepare(struct 
+ 	uint32_t dscr;
+ 	int retval;
+ 
+-	retval = mem_ap_read_atomic_u32(swjdp,
+-			a8-&gt;armv7a_common.debug_base + CPUDBG_DSCR,
+-			&amp;dscr);
++	/* set up invariant:  INSTR_COMP is set after ever DPM operation */
++	do {
++		retval = mem_ap_read_atomic_u32(swjdp,
++				a8-&gt;armv7a_common.debug_base + CPUDBG_DSCR,
++				&amp;dscr);
++	} while ((dscr &amp; (1 &lt;&lt; DSCR_INSTR_COMP)) == 0);
+ 
+ 	/* this &quot;should never happen&quot; ... */
+ 	if (dscr &amp; (1 &lt;&lt; DSCR_DTR_RX_FULL)) {
+@@ -408,7 +449,8 @@ static int cortex_a8_dpm_prepare(struct 
+ 		/* Clear DCCRX */
+ 		retval = cortex_a8_exec_opcode(
+ 				a8-&gt;armv7a_common.armv4_5_common.target,
+-				ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++				ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++				&amp;dscr);
+ 	}
+ 
+ 	return retval;
+@@ -425,18 +467,21 @@ static int cortex_a8_instr_write_data_dc
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+ 	int retval;
++	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
+ 
+ 	retval = cortex_a8_write_dcc(a8, data);
+ 
+ 	return cortex_a8_exec_opcode(
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+-			opcode);
++			opcode,
++			&amp;dscr);
+ }
+ 
+ static int cortex_a8_instr_write_data_r0(struct arm_dpm *dpm,
+ 		uint32_t opcode, uint32_t data)
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
++	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
+ 	int retval;
+ 
+ 	retval = cortex_a8_write_dcc(a8, data);
+@@ -444,12 +489,14 @@ static int cortex_a8_instr_write_data_r0
+ 	/* DCCRX to R0, &quot;MCR p14, 0, R0, c0, c5, 0&quot;, 0xEE000E15 */
+ 	retval = cortex_a8_exec_opcode(
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+-			ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++			ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++			&amp;dscr);
+ 
+ 	/* then the opcode, taking data from R0 */
+ 	retval = cortex_a8_exec_opcode(
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+-			opcode);
++			opcode,
++			&amp;dscr);
+ 
+ 	return retval;
+ }
+@@ -457,9 +504,12 @@ static int cortex_a8_instr_write_data_r0
+ static int cortex_a8_instr_cpsr_sync(struct arm_dpm *dpm)
+ {
+ 	struct target *target = dpm-&gt;arm-&gt;target;
++	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
+ 
+ 	/* &quot;Prefetch flush&quot; after modifying execution status in CPSR */
+-	return cortex_a8_exec_opcode(target, ARMV4_5_MCR(15, 0, 0, 7, 5, 4));
++	return cortex_a8_exec_opcode(target,
++			ARMV4_5_MCR(15, 0, 0, 7, 5, 4),
++			&amp;dscr);
+ }
+ 
+ static int cortex_a8_instr_read_data_dcc(struct arm_dpm *dpm,
+@@ -467,13 +517,15 @@ static int cortex_a8_instr_read_data_dcc
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+ 	int retval;
++	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
+ 
+ 	/* the opcode, writing data to DCC */
+ 	retval = cortex_a8_exec_opcode(
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+-			opcode);
++			opcode,
++			&amp;dscr);
+ 
+-	return cortex_a8_read_dcc(a8, data);
++	return cortex_a8_read_dcc(a8, data, &amp;dscr);
+ }
+ 
+ 
+@@ -481,19 +533,22 @@ static int cortex_a8_instr_read_data_r0(
+ 		uint32_t opcode, uint32_t *data)
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
++	uint32_t dscr = 1 &lt;&lt; DSCR_INSTR_COMP;
+ 	int retval;
+ 
+ 	/* the opcode, writing data to R0 */
+ 	retval = cortex_a8_exec_opcode(
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+-			opcode);
++			opcode,
++			&amp;dscr);
+ 
+ 	/* write R0 to DCC */
+ 	retval = cortex_a8_exec_opcode(
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+-			ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
++			ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
++			&amp;dscr);
+ 
+-	return cortex_a8_read_dcc(a8, data);
++	return cortex_a8_read_dcc(a8, data, &amp;dscr);
+ }
+ 
+ static int cortex_a8_dpm_setup(struct cortex_a8_common *a8, uint32_t didr)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012890.html">[Openocd-development] [patch 3/4] Cortex-A8: hook up dpm
+</A></li>
+	<LI>Next message: <A HREF="012886.html">[Openocd-development] [patch 1/4] Cortex-A8: minor cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12889">[ date ]</a>
+              <a href="thread.html#12889">[ thread ]</a>
+              <a href="subject.html#12889">[ subject ]</a>
+              <a href="author.html#12889">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

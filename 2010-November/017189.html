@@ -1,0 +1,269 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20SVF%20Chain%20Handling%20%28was%3A%0A%09lpc3131%09and%20Actel%20FPGA%20chain%20programming%29&In-Reply-To=%3C20101117152936.16902.qmail%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017180.html">
+   <LINK REL="Next"  HREF="017191.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20SVF%20Chain%20Handling%20%28was%3A%0A%09lpc3131%09and%20Actel%20FPGA%20chain%20programming%29&In-Reply-To=%3C20101117152936.16902.qmail%40stuge.se%3E"
+       TITLE="[Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)">peter at stuge.se
+       </A><BR>
+    <I>Wed Nov 17 16:29:36 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017180.html">[Openocd-development] [PATCH] SVF Chain Handling (was: lpc3131 and Actel FPGA chain programming)
+</A></li>
+        <LI>Next message: <A HREF="017191.html">[Openocd-development] [PATCH] SVF Chain Handling (was: lpc3131 and Actel FPGA chain programming)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17189">[ date ]</a>
+              <a href="thread.html#17189">[ thread ]</a>
+              <a href="subject.html#17189">[ subject ]</a>
+              <a href="author.html#17189">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Andrew Leech wrote:
+&gt;<i> I actually would normally have used a basic static buffer exactly
+</I>&gt;<i> how you suggest, it's only that the malloc'd svf_command_buffer is
+</I>&gt;<i> used later for running commands I thought it'd make sense to reuse
+</I>&gt;<i> it
+</I>
+That makes sense.
+
+
+&gt;<i> rather than adding a static ram usage to the module (and therefore
+</I>&gt;<i> openocd).
+</I>
+Not a big problem since there is a) lots of RAM in PCs and b) a
+well-defined failure mode in (rare) case of memory pressure.
+I agree conservative is good, but allocation is also slow, and in
+for a handful of bytes I think it is an easy tradeoff.
+
+
+&gt;<i> &gt;&gt; + &#160; &#160; &#160; &#160; &#160; &#160; sprintf(svf_command_buffer, &quot;STATE RESET &quot;);
+</I>&gt;<i> &gt;&gt; + &#160; &#160; &#160; &#160; &#160; &#160; svf_run_command(CMD_CTX, svf_command_buffer);
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; sprintf() is not a friend. :) Yes, the commands are short, but still,
+</I>&gt;<i> &gt; it would feel better with snprintf(cmd, sizeof(cmd), ..).
+</I>&gt;<i> 
+</I>&gt;<i> I'll look into that, I've not used snprintf so don't really know the
+</I>&gt;<i> difference. It's obviously only a google away. I'm just used to
+</I>&gt;<i> sprintf from embedded devices when you often don't have a choice of
+</I>&gt;<i> using a better alternative (depending on compiler).
+</I>
+The point of snprintf() is that it will never write beyond the given
+buffer size, yet always terminate the string with a \0. The return
+value can be used to check if the buffer was large enough. This works
+together to avoid possible buffer overrun conditions, which are quite
+frequently exploited to inject code via data, and break security of
+the program or product.
+
+
+&gt;<i> &gt; will svf_run_command() take a const char[]? Then just do:
+</I>&gt;<i> &gt; svf_run_command(CMD_CTX, &quot;STATE RESET&quot;);
+</I>&gt;<i> 
+</I>&gt;<i> they resulted in a smiley face character being printed on console
+</I>&gt;<i> and system beep
+</I>
+Unfortunately changing svf_run_command() would not be a simple task,
+it first tokenizes the input string into an array, then it also makes
+some further modifications within the input command string..
+
+
+&gt;<i> &gt; reuse .. existing handling of head/tail
+</I>&gt;<i> 
+</I>&gt;<i> looks like maybe it'll be quite straightforward.
+</I>
+.. but it looks like we can ignore that for now thanks to your other
+changes. Great!
+
+
+Andrew Leech wrote:
+&gt;<i> Note newer patch attached. This is made directly against current
+</I>&gt;<i> git, use instead of original patch.
+</I>
+(A note that you can send patches easily by first committing and then
+using the git send-email command.)
+
+
+&gt;<i> &gt;&gt; usage: svf [-tap device.tap] &lt;file&gt; [quiet]
+</I>&gt;<i> 
+</I>&gt;<i> Yep I rewrote the command line parser, so the usage is now:
+</I>&gt;<i> &quot;usage: svf [-tap device.tap] [-quiet] &lt;file&gt;&quot;
+</I>&gt;<i> 
+</I>&gt;<i> Arguments are checked in a loop so it will accept switches and &lt;file&gt;
+</I>&gt;<i> in any order. quiet or -quiet are both recognised. And of course, -tap
+</I>&gt;<i> is optional. As such it is now back compatible, much nicer and more
+</I>&gt;<i> flexible. There's also a help switch that simply prints usage in case
+</I>&gt;<i> anyone tries it.
+</I>
+Good stuff! I just have one very minor request for the help text:
+
+usage: svf [[-]help] [-tap device.tap] &lt;file&gt; [[-]quiet]
+
+If [-]help is common in other commands then it is good to have here,
+but otherwise I think it might be redundant. If I just enter svf
+(without further options) then I will get the same output, right?
+
+Also, I'd like quiet to still be at the end, to signal a little more
+that this is still backwards compatible.
+
+Are you sure about the dash in -quiet?
+
+I would feel best about this:
+
+usage: svf [-tap device.tap] &lt;file&gt; [quiet]
+
+Because quiet can be treated specially, and it is even possible to
+reliably allow a -tap filename by careful evaluation of the
+arguments. I would be happy to make this change if you're OK with
+that.
+
+
+&gt;<i> &gt;&gt; reuse .. existing handling of head/tail
+</I>..
+&gt;<i> I dug deep enough to figure out how it works, it uses array's that it
+</I>&gt;<i> dynamically sets the size of, so it's a little convoluted to set them.
+</I>
+I'd like to suggest a function to handle the setting, see below.
+
+
+&gt;<i> It's debatable whether this newer code is neater to understand, but
+</I>&gt;<i> it is certainly far more efficient to run, and avoids all the extra
+</I>&gt;<i> string handling.
+</I>
+I like the new approach very much!
+
+
+&gt;<i> Other than that it seems to run fine, I've tested the command line in
+</I>&gt;<i> pretty much every direction and it works well. The operation of
+</I>&gt;<i> header/trailer padding certainly seems to be completely compatible
+</I>&gt;<i> with my first effort, I don't think I've missed anything of left out
+</I>&gt;<i> any important steps.
+</I>
+Lovely.
+
+
+&gt;<i> +static int svf_adjust_array_length(uint8_t **arr, int orig_bit_len, int new_bit_len, int set);
+</I>
+I would suggest adding a function with a new name that takes the
+extra parameter, and renaming the existing function, and adding the
+parameter to it. Then add a one-line function with the original name
+that calls the new function with the last parameter set to 0. This
+way, each previous call site for the existing function does not need
+to be touched by this patch. The new call sites invoke the renamed
+function and specify values as needed for the extra parameter.
+
+
+&gt;<i> +		else if ((svf_fd = open(CMD_ARGV[i], O_RDONLY)) &lt; 0)
+</I>&gt;<i>  		{
+</I>&gt;<i> -			LOG_ERROR(&quot;unknown variant for svf: %s&quot;, CMD_ARGV[i]);
+</I>&gt;<i> -
+</I>&gt;<i> +			command_print(CMD_CTX, USAGE);
+</I>&gt;<i> +			command_print(CMD_CTX, &quot;file \&quot;%s\&quot; not found&quot;, CMD_ARGV[i]);
+</I>
+I know this was already in here before, but open() can fail for many
+reasons. It would be nice to not assume that the file is missing, and
+e.g. call strerror() to get the specific error message:
+
+else if ((svf_fd = open(CMD_ARGV[i], O_RDONLY)) &lt; 0)
+{
+  int err = errno;
+  LOG.. 
+  print usage ..
+  command_print(CMD_CTX, &quot;open(\&quot;%s\&quot;): %s&quot;, CMD_ARGV[i], strerror(err));
+
+Also, I'm surprised that open() is used instead of fopen(), but that
+doesn't matter as long as this works. Are you testing on a Windows or
+Linux system?
+
+
+&gt;<i> +		// HDR %d TDI (0) 
+</I>&gt;<i> +		error |= svf_adjust_array_length(&amp;svf_para.hdr_para.tdi, svf_para.hdr_para.len, header_dr_len, 0);
+</I>&gt;<i> +		error |= svf_adjust_array_length(&amp;svf_para.hdr_para.tdo, svf_para.hdr_para.len, header_dr_len, 0);
+</I>&gt;<i> +		error |= svf_adjust_array_length(&amp;svf_para.hdr_para.mask, svf_para.hdr_para.len, header_dr_len, 0);
+</I>&gt;<i> +		svf_para.hdr_para.len = header_dr_len;
+</I>&gt;<i> +		svf_para.hdr_para.data_mask = XXR_TDI;	
+</I>
+Watch out for trailing whitespace, in the last line quoted above.
+
+These blocks of code are somewhat repetitive, maybe they could be
+refactored into a nice function:
+
+unsigned int set_xxr_para(struct svf_xxr_para *p, unsigned int len, unsigned char tdi) {
+  int ret = 0;
+  ret |= svf_adjust_array_length(&amp;p-&gt;tdi, p-&gt;len, len, tdi);
+  ret |= svf_adjust_array_length(&amp;p-&gt;tdo, p-&gt;len, len, 0);
+  ret |= svf_adjust_array_length(&amp;p-&gt;mask, p-&gt;len, len, 0);
+  p-&gt;len = len;
+  p-&gt;data_mask = XXR_TDI;
+  return ret;
+}
+
+The blocks would then become:
+
+  error |= set_xxr_para(&amp;svf_para.hdr_para, header_dr_len, 0);
+  error |= set_xxr_para(&amp;svf_para.hir_para, header_ir_len, 0xff);
+  error |= set_xxr_para(&amp;svf_para.tdr_para, trailer_dr_len, 0);
+  error |= set_xxr_para(&amp;svf_para.tir_para, trailer_ir_len, 0xff);
+
+
+&gt;<i> -static int svf_adjust_array_length(uint8_t **arr, int orig_bit_len, int new_bit_len)
+</I>&gt;<i> +static int svf_adjust_array_length(uint8_t **arr, int orig_bit_len, int new_bit_len, int set)
+</I>
+Right, please do change the name of the function as mentioned above.
+I think it's fairly important that all existing call sites do not
+have to change, when they are not really relevant for this change.
+
+
+&gt;<i>  	case HDR:
+</I>&gt;<i> +		if (svf_tap_is_specified)
+</I>&gt;<i> +			break;
+</I>&gt;<i>  		xxr_para_tmp = &amp;svf_para.hdr_para;
+</I>&gt;<i>  		goto XXR_common;
+</I>
+Maybe add a message when breaking here, so that the user is informed
+why the commands in the file are being ignored? I'm not sure.
+
+
+Really good stuff!
+
+
+//Peter
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017180.html">[Openocd-development] [PATCH] SVF Chain Handling (was: lpc3131 and Actel FPGA chain programming)
+</A></li>
+	<LI>Next message: <A HREF="017191.html">[Openocd-development] [PATCH] SVF Chain Handling (was: lpc3131 and Actel FPGA chain programming)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17189">[ date ]</a>
+              <a href="thread.html#17189">[ thread ]</a>
+              <a href="subject.html#17189">[ subject ]</a>
+              <a href="author.html#17189">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

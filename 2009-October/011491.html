@@ -1,0 +1,447 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc 3/3] jtag: support &quot;minimal&quot; TMS	paths
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%203/3%5D%20jtag%3A%20support%20%22minimal%22%20TMS%0A%09paths&In-Reply-To=%3C200910230124.55962.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011490.html">
+   <LINK REL="Next"  HREF="011488.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc 3/3] jtag: support &quot;minimal&quot; TMS	paths</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%203/3%5D%20jtag%3A%20support%20%22minimal%22%20TMS%0A%09paths&In-Reply-To=%3C200910230124.55962.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc 3/3] jtag: support &quot;minimal&quot; TMS	paths">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Oct 23 10:24:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011490.html">[Openocd-development] [patch 2/3] jtag: clean up TAP state name	handling
+</A></li>
+        <LI>Next message: <A HREF="011488.html">[Openocd-development] arm7/9 embedded ice vector catch register
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11491">[ date ]</a>
+              <a href="thread.html#11491">[ thread ]</a>
+              <a href="subject.html#11491">[ subject ]</a>
+              <a href="author.html#11491">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This defines another table of TMS paths, where many paths are shorter
+than the current &quot;short&quot; paths.  It's not enabled by default; the
+still-undocumented &quot;tms_sequence&quot; path gets a new &quot;minimal&quot; option.
+(Sometime after 0.3.x ships we might change that default...)
+
+It also adds some new infrastructure:
+
+ - Initialize the table of TMS paths *symbolically* instead of
+   through cryptic bit-streams.  Among other things, this gets
+   us documentation about what the paths actually are...
+
+ - Optional startup-time symbolic dump of the various path tables.
+   Again, this lets us see what the darn things really are.
+
+# NYET ready to merge ... didn't even sanity test the new tables yet!
+# Evidently some of the longer paths are there because JLink is more
+# stable that way ... if so, update Jlink (e.g. for more TCK clocks
+# on TLR).  And it might be worth making two of the paths match SVF,
+# so there are no exceptions:  all PAUSE/SHIFT --&gt; PAUSE/SHIFT paths
+# go through UPDATE, *except* for xPAUSE back to xSHIFT (resuming a
+# transfer).
+---
+ src/jtag/interface.c |  276 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ src/jtag/interface.h |   10 +
+ src/jtag/tcl.c       |   22 ++-
+ 3 files changed, 293 insertions(+), 15 deletions(-)
+
+--- a/src/jtag/interface.c
++++ b/src/jtag/interface.c
+@@ -192,6 +192,9 @@ static const struct tms_sequences short_
+ 
+ };
+ 
++/* Minimal table -- initialized later, from non-cryptic tables */
++static struct tms_sequences minimal_tms_seqs[6][6];
++
+ typedef const struct tms_sequences tms_table[6][6];
+ 
+ static tms_table *tms_seqs=&amp;short_tms_seqs;
+@@ -468,12 +471,277 @@ tap_state_t jtag_debug_state_machine(con
+ }
+ #endif // _DEBUG_JTAG_IO_
+ 
+-void tap_use_new_tms_table(bool use_new)
++void tap_use_tms_table(enum tms_paths type)
+ {
+-	tms_seqs = use_new ? &amp;short_tms_seqs : &amp;old_tms_seqs;
++	switch (type) {
++	case TMS_NEW:
++		tms_seqs = &amp;short_tms_seqs;
++		break;
++	case TMS_OLD:
++		tms_seqs = &amp;old_tms_seqs;
++		break;
++	default:
++		tms_seqs = (tms_table *) &amp;minimal_tms_seqs;
++		break;
++	}
+ }
+-bool tap_uses_new_tms_table(void)
++
++enum tms_paths tap_tms_table_type(void)
+ {
+-	return tms_seqs == &amp;short_tms_seqs;
++	if (tms_seqs == &amp;short_tms_seqs)
++		return TMS_NEW;
++	if (tms_seqs == &amp;old_tms_seqs)
++		return TMS_OLD;
++	return TMS_MINIMAL;
++}
++
++/*-----------------------------------------------------------------*/
++
++// #define DUMP_TAP_TABLES
++
++#ifdef DUMP_TAP_TABLES
++
++static void dump_tap_seq(enum tap_state cur, enum tap_state end)
++{
++	unsigned path = tap_get_tms_path(cur, end);
++	unsigned len = tap_get_tms_path_len(cur, end);
++
++	printf(&quot;  { %s&quot;, tap_state_name(cur));
++	while (len--) {
++		cur = tap_state_transition(cur, (path &amp; 1) == 1);
++		path &gt;&gt;= 1;
++		printf(&quot;, %s&quot;, tap_state_name(cur));
++	}
++	printf(&quot; }\n&quot;);
++}
++
++static void dump_tap_table(const char *label, tms_table *table)
++{
++	static const enum tap_state stable[6] = {
++		TAP_RESET, TAP_IDLE,
++		TAP_DRSHIFT, TAP_DRPAUSE,
++		TAP_IRSHIFT, TAP_IRPAUSE,
++	};
++
++	tms_seqs = table;
++	printf(&quot;TMS Table: %s\n&quot;, label);
++
++	for (int i = 0; i &lt; 6; i++) {
++		printf(&quot;  /* from %s */\n&quot;, tap_state_name(stable[i]));
++		for (int j = 0; j &lt; 6; j++)
++			dump_tap_seq(stable[i], stable[j]);
++	}
++	printf(&quot;\n&quot;);
++}
++
++#else /* !DUMP_TAP_TABLES */
++
++static void dump_tap_table(const char *label, tms_table *table)
++{
++	/* NOP */
++}
++
++#endif /* check DUMP_TAP_TABLES */
++
++/*-----------------------------------------------------------------*/
++
++/* Compile one path { start ... end } into a series of TMS values,
++ * and store the sequence and its length into the specified table.
++ */
++static int
++tap_seq_compile(const enum tap_state *path, struct tms_sequences table[6][6])
++{
++	unsigned i;
++	unsigned bitseq;
++	enum tap_state start, end;
++	enum tap_state cur, next;
++	struct tms_sequences *out;
++
++	start = end = *path;
++
++	/* convert path into a TMS sequence */
++	for (i = 0, bitseq = 0, cur = end;
++			(next = *++path) != TAP_INVALID &amp;&amp; i &lt; 8;
++			i++, cur = next, end = cur) {
++
++		/* TMS=0; or TMS=1; else fail */
++		if (tap_state_transition(cur, 0) == next)
++			continue;
++		else if (tap_state_transition(cur, 1) == next)
++			bitseq |= 1 &lt;&lt; i;
++		else
++			return ERROR_FAIL;
++	}
++	if (next != TAP_INVALID)
++		return ERROR_FAIL;
++
++	/* update table appropriately */
++	out = &amp;table[tap_move_ndx(start)][tap_move_ndx(end)];
++	out-&gt;bits = bitseq;
++	out-&gt;bit_count = i;
++
++	/* return how many tap_statet values we consumed */
++	return i;
++}
++
++/* The tap_paths data structures lets us specify TAP transitions using
++ * TAP names instead of requiring some binary encryption scheme.
++ *
++ * REVISIT:  we can halve the minimal table size by using a flat array...
++ */
++typedef const enum tap_state tap_paths[36][9];
++
++/*
++ * Note that most transitions from PAUSE or SHIFT are required to use
++ * UPDATE ... and entry to RESET _always_ uses five TMS=1 cycles, just
++ * in case the &quot;current state&quot; is not what we think it is.
++ */
++static const tap_paths minimal_paths = {
++	/* from RESET */
++	{ TAP_RESET, TAP_RESET, TAP_RESET, TAP_RESET, TAP_RESET, TAP_RESET,
++		TAP_INVALID, },
++	{ TAP_RESET, TAP_IDLE,
++		TAP_INVALID, },
++	{ TAP_RESET, TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE,
++		TAP_DRSHIFT,
++		TAP_INVALID, },
++	{ TAP_RESET, TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE,
++		TAP_DREXIT1, TAP_DRPAUSE,
++		TAP_INVALID, },
++	{ TAP_RESET, TAP_IDLE, TAP_DRSELECT, TAP_IRSELECT, TAP_IRCAPTURE,
++		TAP_IRSHIFT,
++		TAP_INVALID, },
++	{ TAP_RESET, TAP_IDLE, TAP_DRSELECT, TAP_IRSELECT, TAP_IRCAPTURE,
++		TAP_IREXIT1, TAP_IRPAUSE,
++		TAP_INVALID, },
++
++	/* from IDLE */
++	{ TAP_IDLE, TAP_DRSELECT, TAP_IRSELECT, TAP_RESET, TAP_RESET, TAP_RESET,
++		TAP_INVALID, },
++	{ TAP_IDLE,
++		/* NOP ... use runtest() to force clocks */
++		TAP_INVALID, },
++	{ TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE,
++		TAP_DRSHIFT,
++		TAP_INVALID, },
++	{ TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE,
++		TAP_DREXIT1, TAP_DRPAUSE,
++		TAP_INVALID, },
++	{ TAP_IDLE, TAP_DRSELECT, TAP_IRSELECT, TAP_IRCAPTURE,
++		TAP_IRSHIFT,
++		TAP_INVALID, },
++	{ TAP_IDLE, TAP_DRSELECT, TAP_IRSELECT, TAP_IRCAPTURE,
++		TAP_IREXIT1, TAP_IRPAUSE,
++		TAP_INVALID, },
++
++	/* from DRSHIFT */
++	{ TAP_DRSHIFT, TAP_DREXIT1, TAP_DRUPDATE,
++		TAP_DRSELECT, TAP_IRSELECT, TAP_RESET,
++		TAP_INVALID, },
++	{ TAP_DRSHIFT, TAP_DREXIT1, TAP_DRUPDATE,
++		TAP_IDLE,
++		TAP_INVALID, },
++	{ TAP_DRSHIFT, TAP_DREXIT1, TAP_DRUPDATE, TAP_DRSELECT,
++		TAP_DRCAPTURE, TAP_DRSHIFT,
++		TAP_INVALID, },
++	{ TAP_DRSHIFT, TAP_DREXIT1, TAP_DRPAUSE,
++		/* no UPDATE */
++		TAP_INVALID, },
++	{ TAP_DRSHIFT, TAP_DREXIT1, TAP_DRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_IRCAPTURE, TAP_IRSHIFT,
++		TAP_INVALID, },
++	{ TAP_DRSHIFT, TAP_DREXIT1, TAP_DRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_IRCAPTURE, TAP_IREXIT1, TAP_IRPAUSE,
++		/* note: long! */
++		TAP_INVALID, },
++
++	/* from DRPAUSE */
++	{ TAP_DRPAUSE, TAP_DREXIT2, TAP_DRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_RESET,
++		TAP_INVALID, },
++	{ TAP_DRPAUSE, TAP_DREXIT2, TAP_DRUPDATE,
++		TAP_IDLE,
++		TAP_INVALID, },
++	{ TAP_DRPAUSE, TAP_DREXIT2, TAP_DRSHIFT,
++		/* no UPDATE */
++		TAP_INVALID, },
++	{ TAP_DRPAUSE,
++		/* NOP ... note, SVF forces an UPDATE */
++		TAP_INVALID, },
++	{ TAP_DRPAUSE, TAP_DREXIT2, TAP_DRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_IRCAPTURE, TAP_IRSHIFT,
++		TAP_INVALID, },
++	{ TAP_DRPAUSE, TAP_DREXIT2, TAP_DRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_IRCAPTURE, TAP_IREXIT1, TAP_IRPAUSE,
++		/* note: long! */
++		TAP_INVALID, },
++
++	/* from IRSHIFT */
++	{ TAP_IRSHIFT, TAP_IREXIT1, TAP_IRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_RESET,
++		TAP_INVALID, },
++	{ TAP_IRSHIFT, TAP_IREXIT1, TAP_IRUPDATE, TAP_IDLE,
++		TAP_INVALID, },
++	{ TAP_IRSHIFT, TAP_IREXIT1, TAP_IRUPDATE, TAP_DRSELECT,
++		TAP_DRCAPTURE, TAP_DRSHIFT,
++		TAP_INVALID, },
++	{ TAP_IRSHIFT, TAP_IREXIT1, TAP_IRUPDATE, TAP_DRSELECT,
++		TAP_DRCAPTURE, TAP_DREXIT1, TAP_DRPAUSE,
++		TAP_INVALID, },
++	{ TAP_IRSHIFT, TAP_IREXIT1, TAP_IRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_IRCAPTURE, TAP_IRSHIFT,
++		TAP_INVALID, },
++	{ TAP_IRSHIFT, TAP_IREXIT1, TAP_IRPAUSE,
++		/* no UPDATE */
++		TAP_INVALID, },
++
++	/* from IRPAUSE */
++	{ TAP_IRPAUSE, TAP_IREXIT2, TAP_IRUPDATE, TAP_DRSELECT,
++		TAP_IRSELECT, TAP_RESET,
++		TAP_INVALID, },
++	{ TAP_IRPAUSE, TAP_IREXIT2, TAP_IRUPDATE,
++		TAP_IDLE,
++		TAP_INVALID, },
++	{ TAP_IRPAUSE, TAP_IREXIT2, TAP_IRUPDATE, TAP_DRSELECT,
++		TAP_DRCAPTURE, TAP_DRSHIFT,
++		TAP_INVALID, },
++	{ TAP_IRPAUSE, TAP_IREXIT2, TAP_IRUPDATE, TAP_DRSELECT,
++		TAP_DRCAPTURE, TAP_DREXIT1, TAP_DRPAUSE,
++		TAP_INVALID, },
++	{ TAP_IRPAUSE, TAP_IREXIT2, TAP_IRSHIFT,
++		/* no UPDATE */
++		TAP_INVALID, },
++	{ TAP_IRPAUSE,
++		/* NOP ... note, SVF forces an UPDATE */
++		TAP_INVALID, },
++};
++
++/* Compile a set of paths { start ... end } into a path table.  */
++static int
++tap_table_compile(const tap_paths paths, struct tms_sequences table[6][6])
++{
++	int retval;
++	unsigned i;
++
++	memset(table, 0, sizeof(*table));
++	for (i = 0; i &lt; 36; i++) {
++		retval = tap_seq_compile(paths[i], table);
++		if (retval &lt; 0)
++			return retval;
++	}
++	return ERROR_OK;
++}
++
++static void tap_table_setup(void) __attribute__ ((constructor));
++
++static void tap_table_setup(void)
++{
++	tap_table_compile(minimal_paths, minimal_tms_seqs);
++
++	/* for debug */
++	dump_tap_table(&quot;minimal&quot;, (tms_table *)&amp;minimal_tms_seqs);
++	dump_tap_table(&quot;old&quot;, &amp;old_tms_seqs);
++	dump_tap_table(&quot;short(er)&quot;, &amp;short_tms_seqs);
++	fflush(stdout);
+ }
+ 
+--- a/src/jtag/interface.h
++++ b/src/jtag/interface.h
+@@ -160,10 +160,12 @@ bool tap_is_state_stable(tap_state_t ast
+  */
+ tap_state_t tap_state_transition(tap_state_t current_state, bool tms);
+ 
+-/// Allow switching between old and new TMS tables. @see tap_get_tms_path
+-void tap_use_new_tms_table(bool use_new);
+-/// @returns True if new TMS table is active; false otherwise.
+-bool tap_uses_new_tms_table(void);
++enum tms_paths { TMS_NEW = 0, TMS_OLD, TMS_MINIMAL };
++
++/// Allow switching between TMS tables. @see tap_get_tms_path
++void tap_use_tms_table(enum tms_paths type);
++/// @returns which TMS table is being used
++enum tms_paths tap_tms_table_type(void);
+ 
+ #ifdef _DEBUG_JTAG_IO_
+ /**
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -663,8 +663,9 @@ int jtag_register_commands(struct comman
+ 		COMMAND_ANY, &quot;verify value captured during Capture-IR &lt;enable | disable&gt;&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;verify_jtag&quot;, handle_verify_jtag_command,
+ 		COMMAND_ANY, &quot;verify value capture &lt;enable | disable&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;tms_sequence&quot;, handle_tms_sequence_command,
+-		COMMAND_ANY, &quot;choose short(default) or long tms_sequence &lt;short | long&gt;&quot;);
++	register_command(cmd_ctx, NULL, &quot;tms_sequence&quot;,
++		handle_tms_sequence_command, COMMAND_ANY,
++		&quot;choose 'short' (default), 'minimal' or 'long' JTAG paths&quot;);
+ 	return ERROR_OK;
+ }
+ 
+@@ -1640,19 +1641,26 @@ static int handle_tms_sequence_command(s
+ 
+ 	if (argc == 1)
+ 	{
+-		bool use_new_table;
++		enum tms_paths type;
++
+ 		if (strcmp(args[0], &quot;short&quot;) == 0)
+-			use_new_table = true;
++			type = TMS_NEW;
+ 		else if (strcmp(args[0], &quot;long&quot;) == 0)
+-			use_new_table = false;
++			type = TMS_OLD;
++		else if (strcmp(args[0], &quot;minimal&quot;) == 0)
++			type = TMS_MINIMAL;
+ 		else
+ 			return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+-		tap_use_new_tms_table(use_new_table);
++		tap_use_tms_table(type);
+ 	}
+ 
+ 	command_print(cmd_ctx, &quot;tms sequence is  %s&quot;,
+-			tap_uses_new_tms_table() ? &quot;short&quot;: &quot;long&quot;);
++			({ char *s; switch (tap_tms_table_type()) {
++			case TMS_NEW: s = &quot;short&quot;; break;
++			case TMS_OLD: s = &quot;long&quot;; break;
++			default: s = &quot;minimal&quot;; break;
++			}; s; }));
+ 
+ 	return ERROR_OK;
+ }
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011490.html">[Openocd-development] [patch 2/3] jtag: clean up TAP state name	handling
+</A></li>
+	<LI>Next message: <A HREF="011488.html">[Openocd-development] arm7/9 embedded ice vector catch register
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11491">[ date ]</a>
+              <a href="thread.html#11491">[ thread ]</a>
+              <a href="subject.html#11491">[ subject ]</a>
+              <a href="author.html#11491">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS target, big endian host
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3CCAEk6gTD9Pw__OTA%2B44-4E8Se3sG4EVpRnAbD9X%3D41T4yEOZMtg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020128.html">
+   <LINK REL="Next"  HREF="020147.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS target, big endian host</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3CCAEk6gTD9Pw__OTA%2B44-4E8Se3sG4EVpRnAbD9X%3D41T4yEOZMtg%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] MIPS target, big endian host">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Mon Jul 11 01:42:09 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020128.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+        <LI>Next message: <A HREF="020147.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20144">[ date ]</a>
+              <a href="thread.html#20144">[ thread ]</a>
+              <a href="subject.html#20144">[ subject ]</a>
+              <a href="author.html#20144">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, Jul 9, 2011 at 10:44 AM, Mahr, Stefan &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Stefan.Mahr at sphairon.com</A>&gt; wrote:
+&gt;&gt;&gt;&gt;&gt;&gt;<i> How do they convert then, when they do not know from which endianes to
+</I>&gt;&gt;&gt;&gt;&gt;&gt;<i> convert from ?
+</I>&gt;&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;&gt;<i> Conversion is done from byte array of jtag chain.
+</I>&gt;&gt;&gt;&gt;<i> How ?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> buf_get_u32 does conversion from uint8* array
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> example:
+</I>&gt;&gt;&gt;<i> mips_ejtag_get_impcode (mips_ejtag.c)
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> &#160;field.in_value is filled by jtag_add_dr_scan with 4 times uint8.
+</I>&gt;&gt;&gt;<i> &#160;buf_get_u32 converts byte array to host endian uint32
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> How ? It does not convert anything. It just takes the data and puts it
+</I>&gt;&gt;<i> into array, in the order that it comes.
+</I>&gt;<i>
+</I>&gt;<i> No, you do *arithmetical* operations on host, so it is ensured that result is always in host endianness.
+</I>&gt;<i>
+</I>&gt;<i> buf_get_u32:
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return (((uint32_t)buffer[3]) &lt;&lt; 24) |
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;(((uint32_t)buffer[2]) &lt;&lt; 16) |
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;(((uint32_t)buffer[1]) &lt;&lt; 8) |
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;(((uint32_t)buffer[0]) &lt;&lt; 0);
+</I>&gt;<i>
+</I>
+I do not get this function at all... What I see is that it is presumed
+that host executing this code must be in the same endianess as the
+target who filled this buffer. Otherwise bytes get flipped.
+
+Here is an experiment :
+Let's imagine that target is BE. Then it will put word 0x12345678 read
+from the it's (target's) mem like this :
+buffer[0] = 0x12
+buffer [1] = 0x34
+buffer[2] = 0x56
+buffer[3] = 0x78
+
+Because BE keeps MSB on lower addr.
+
+On the LE host, function buf_get_u32() will shift 0x78 to addr 0x3,
+0x56 to addr 0x2, etc and you will get :
+ | 78 | 56 | 34  | 12 | &lt;--- value (hex)
+ |  3  |  2  |  1  | 0   | &lt;--- addr
+
+i.e, you will have 0x78453412 as a return on a LE host, which is, ay
+you see, flipped value.
+It is because you kept MSB part put by the target in beuffer[0] on
+your host's addr 0x0, i.e. you did not shift it you addr 0x3.
+On LE arch MSB is kept on higher addresses.
+
+Similar will happen if you have LE target and BE host.
+
+That's why I do not think that this function was ever meant to do any
+conversion to host's endianess, as you say. What I thing is that it is
+a function that *must* be used locally on the host, and *only* on the
+data filled by the host, because then we are guaranteed that the
+person who fills the buffer[] is the same who reads it, i.e. endianess
+is same for the reader and for the writer.
+
+Do you agree with me on this, or am I missing something ?
+
+
+What is funny however, is that I have BE target and LE host, and MIPS
+code seems to be working fine... Which would say that EJTAG somehow
+speaks LE with my host. Crazy thing.
+
+
+
+&gt;&gt;&gt;&gt;&gt;<i> The endianness of MIPS EJTAG tap seems to have always the same endianness,
+</I>&gt;&gt;&gt;&gt;&gt;<i> no matter of MIPS CPU memory endianness.
+</I>&gt;&gt;&gt;&gt;<i> What makes you think so ?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Because openocd works in all combinations of BE and LE host and target. (If you
+</I>&gt;&gt;&gt;<i> revert commit 2482244b0788c007dd789c21a4416379c229ea5c.) So yes, it's just a guess.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Which might mean that all commands are sent to EJTAG in appropriate
+</I>&gt;&gt;<i> target format in which CPU expects them (be it BE or LE, depends in
+</I>&gt;&gt;<i> which mode it runs).
+</I>&gt;<i>
+</I>&gt;<i> I can't find code that swaps target endianness in mips32_pracc.c or mips_ejtag.c
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;&gt;<i> Could this be the explanation:
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> <A HREF="http://downloads.buffalo.nas-central.org/LS2_MIPSel/DevelopmentTools/JTAG/MD00047-2B-EJTAG-SPC-03.10.pdf">http://downloads.buffalo.nas-central.org/LS2_MIPSel/DevelopmentTools/JTAG/MD00047-2B-EJTAG-SPC-03.10.pdf</A>
+</I>&gt;&gt;&gt;<i> Page 97:
+</I>&gt;&gt;&gt;<i> Byte 0 refers to bits 7:0, byte 1 refers to bits 15:8, byte 2 refers to bits 23:16, and byte 3 refers to bits
+</I>&gt;&gt;&gt;<i> 31:24, independent of endianess.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i> This is _always_ the case in _all_ architectures. But, as you see,
+</I>&gt;&gt;<i> this Byte0 is put to lower addresses for LE and to higher for BE. This
+</I>&gt;&gt;<i> is always the case.
+</I>&gt;<i>
+</I>&gt;<i> &quot;Byte 0 refers to bits 7:0, byte 1 refers to bits 15:8, byte 2 refers to bits 23:16, and byte 3 refers to bits
+</I>&gt;<i> 31:24, independent of endianess.&quot;
+</I>&gt;<i>
+</I>&gt;<i> My guess is, if you read out a 32bit value, target endianness doesn't matter.
+</I>
+This is the only sane solution I can think of. It would say that EJTAG
+is a bi-endian machine that can read both BE and LE if we feed it
+fixed instr. size.
+
+Do you know some examples of architectures (bi-endian) like this ? How
+can it exactly guess the endianess of the program and adopt itself
+appropriately ?
+
+&gt;<i> If a 8bit value is read out, you get byte0 for address 0 in LE mode and byte3 at address 0 in BE mode.
+</I>
+OK, but this does not change anything for any architecture in the
+world, as I said - this chapter is just the MIPS terminology, theirs
+notation, nothing significant there, IMHO.
+
+As I said, for value 0x12345678, on BE byte0 is bits 7..0 = 0x78.
+Reading addr 0x0 you will get MSB on BE, as it stores MSB on lower
+addr, so you will get 0x12, which is in MIPS (or any other notation)
+byte3 of the 4-byte value, as it holds MSB, i.e. bits 31..28.
+
+As I said, I do not see nothing special there, but it might be that I
+am missing something you want to point out.
+
+BR,
+Drasko
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020128.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+	<LI>Next message: <A HREF="020147.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20144">[ date ]</a>
+              <a href="thread.html#20144">[ thread ]</a>
+              <a href="subject.html#20144">[ subject ]</a>
+              <a href="author.html#20144">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

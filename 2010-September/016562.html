@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] flash: fix error handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20flash%3A%20fix%20error%20handling&In-Reply-To=%3C1284967366-15052-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016559.html">
+   <LINK REL="Next"  HREF="016563.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] flash: fix error handling</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20flash%3A%20fix%20error%20handling&In-Reply-To=%3C1284967366-15052-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] flash: fix error handling">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Sep 20 09:22:46 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016559.html">[Openocd-development] ./tcl/readable.tcl
+</A></li>
+        <LI>Next message: <A HREF="016563.html">[Openocd-development] [PATCH] embeddedice: fix error handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16562">[ date ]</a>
+              <a href="thread.html#16562">[ thread ]</a>
+              <a href="subject.html#16562">[ subject ]</a>
+              <a href="author.html#16562">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>sensible error must be reported at failure site
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nand/tcl.c |   32 +++-----------------------------
+ src/flash/nor/tcl.c  |   13 ++-----------
+ 2 files changed, 5 insertions(+), 40 deletions(-)
+
+diff --git a/src/flash/nand/tcl.c b/src/flash/nand/tcl.c
+index 7b84888..57bbe00 100644
+--- a/src/flash/nand/tcl.c
++++ b/src/flash/nand/tcl.c
+@@ -150,16 +150,8 @@ COMMAND_HANDLER(handle_nand_probe_command)
+ 		command_print(CMD_CTX, &quot;NAND flash device '%s (%s)' found&quot;,
+ 				p-&gt;device-&gt;name, p-&gt;manufacturer-&gt;name);
+ 	}
+-	else if (retval == ERROR_NAND_OPERATION_FAILED)
+-	{
+-		command_print(CMD_CTX, &quot;probing failed for NAND flash device&quot;);
+-	}
+-	else
+-	{
+-		command_print(CMD_CTX, &quot;unknown error when probing NAND flash device&quot;);
+-	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ COMMAND_HANDLER(handle_nand_erase_command)
+@@ -206,16 +198,8 @@ COMMAND_HANDLER(handle_nand_erase_command)
+ 				offset, offset + length,
+ 				CMD_ARGV[0], p-&gt;device-&gt;name);
+ 	}
+-	else if (retval == ERROR_NAND_OPERATION_FAILED)
+-	{
+-		command_print(CMD_CTX, &quot;erase failed&quot;);
+-	}
+-	else
+-	{
+-		command_print(CMD_CTX, &quot;unknown error when erasing NAND flash device&quot;);
+-	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ COMMAND_HANDLER(handle_nand_check_bad_blocks_command)
+@@ -261,18 +245,8 @@ COMMAND_HANDLER(handle_nand_check_bad_blocks_command)
+ 		command_print(CMD_CTX, &quot;checked NAND flash device for bad blocks, &quot;
+ 				&quot;use \&quot;nand info\&quot; command to list blocks&quot;);
+ 	}
+-	else if (retval == ERROR_NAND_OPERATION_FAILED)
+-	{
+-		command_print(CMD_CTX, &quot;error when checking for bad blocks on &quot;
+-				&quot;NAND flash device&quot;);
+-	}
+-	else
+-	{
+-		command_print(CMD_CTX, &quot;unknown error when checking for bad &quot;
+-				&quot;blocks on NAND flash device&quot;);
+-	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ COMMAND_HANDLER(handle_nand_write_command)
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index 3dc6cff..8604b4b 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -132,23 +132,14 @@ COMMAND_HANDLER(handle_flash_probe_command)
+ 		{
+ 			command_print(CMD_CTX, &quot;flash '%s' found at 0x%8.8&quot; PRIx32, p-&gt;driver-&gt;name, p-&gt;base);
+ 		}
+-		else if (retval == ERROR_FLASH_BANK_INVALID)
+-		{
+-			command_print(CMD_CTX, &quot;probing failed for flash bank '#%s' at 0x%8.8&quot; PRIx32,
+-						  CMD_ARGV[0], p-&gt;base);
+-		}
+-		else
+-		{
+-			command_print(CMD_CTX, &quot;unknown error when probing flash bank '#%s' at 0x%8.8&quot; PRIx32,
+-						  CMD_ARGV[0], p-&gt;base);
+-		}
+ 	}
+ 	else
+ 	{
+ 		command_print(CMD_CTX, &quot;flash bank '#%s' is out of bounds&quot;, CMD_ARGV[0]);
++		retval = ERROR_FAIL;
+ 	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ COMMAND_HANDLER(handle_flash_erase_check_command)
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016559.html">[Openocd-development] ./tcl/readable.tcl
+</A></li>
+	<LI>Next message: <A HREF="016563.html">[Openocd-development] [PATCH] embeddedice: fix error handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16562">[ date ]</a>
+              <a href="thread.html#16562">[ thread ]</a>
+              <a href="subject.html#16562">[ subject ]</a>
+              <a href="author.html#16562">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

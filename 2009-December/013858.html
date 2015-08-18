@@ -1,0 +1,256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] Fix Luminary FT2232 layout	docs/configs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Fix%20Luminary%20FT2232%20layout%0A%09docs/configs&In-Reply-To=%3C200912281253.15103.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013859.html">
+   <LINK REL="Next"  HREF="013669.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] Fix Luminary FT2232 layout	docs/configs</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Fix%20Luminary%20FT2232%20layout%0A%09docs/configs&In-Reply-To=%3C200912281253.15103.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] Fix Luminary FT2232 layout	docs/configs">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Dec 28 21:53:14 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013859.html">[Openocd-development] All ones when connecting to LM3S811	Evaluation Board (Chip Revision C2)
+</A></li>
+        <LI>Next message: <A HREF="013669.html">[Openocd-development] malloc: Vote what to do
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13858">[ date ]</a>
+              <a href="thread.html#13858">[ thread ]</a>
+              <a href="subject.html#13858">[ subject ]</a>
+              <a href="author.html#13858">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Most of this patch updates documentation and comments for various
+Luminary boards, supporting two bug fixes by making sense of the
+current mess:
+
+ - Recent rev C lm3s811 eval boards didn't work.  They must use
+   the ICDI layout, which sets up some signals that the older
+   boards didn't need.  This is actually safe and appropriate
+   for *all* recent boards ... so just make &quot;luminary.cfg&quot; use
+   the ICDI layout.
+
+ - &quot;luminary-lm3s811.cfg&quot;, was previously unusable!  No VID/PID;
+   and the wrong vendor string.  Make it work, but reserve it
+   for older boards where the ICDI layout is wrong.
+
+ - Default the LM3748 eval board to &quot;luminary.cfg&quot;, like the
+   other boards.  If someone uses an external JTAG adapter, all
+   boards will use the same workaround (override that default).
+
+The difference between the two FT2232 layouts is that eventually
+the EVB layout will fail cleanly when asked to enable SWO trace,
+but the ICDI layout will as cleanly be able to enable it.  Folk
+using &quot;luminary.cfg&quot; with Rev B boards won't see anything going
+wrong until SWO support is (someday) added.
+---
+I'll just merge this.  If any problems turn up, we can fix them
+later.  Thanks to Charles for the initial bugreport and diagnosis,
+and Yegor for the Rev B identifiers!
+
+ NEWS                               |    3 +++
+ doc/openocd.texi                   |   22 +++++++++++++++++-----
+ src/jtag/drivers/ft2232.c          |    8 ++++++++
+ tcl/board/ek-lm3s3748.cfg          |    4 ++--
+ tcl/interface/luminary-icdi.cfg    |    5 +++++
+ tcl/interface/luminary-lm3s811.cfg |   10 +++++++++-
+ tcl/interface/luminary.cfg         |   26 +++++++++++++++++++++++---
+ 7 files changed, 67 insertions(+), 11 deletions(-)
+
+--- a/NEWS
++++ b/NEWS
+@@ -52,6 +52,9 @@ Board, Target, and Interface Configurati
+ 	ARM9
+ 		- ETM and ETB hookup for iMX2* targets
+ 	Add $HOME/.openocd to the search path.
++	Handle Rev C of LM3S811 eval boards.
++		- use &quot;luminary-lm3s811.cfg&quot; for older boards
++		- use &quot;luminary.cfg&quot; for RevC and newer
+ 
+ Core Jim/TCL Scripting:
+ 	New 'usage' command to provide terse command help.
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -288,10 +288,17 @@ chips are starting to become available i
+ @* See: @url{<A HREF="http://www.oocdlink.com">http://www.oocdlink.com</A>} By Joern Kaipf
+ @item @b{signalyzer}
+ @* See: @url{<A HREF="http://www.signalyzer.com">http://www.signalyzer.com</A>}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> @b{evb_lm3s811}
+-@* See: @url{<A HREF="http://www.luminarymicro.com">http://www.luminarymicro.com</A>} - The Stellaris LM3S811 eval board has an FTD2232C chip built in.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> @b{luminary_icdi}
+-@* See: @url{<A HREF="http://www.luminarymicro.com">http://www.luminarymicro.com</A>} - Luminary In-Circuit Debug Interface (ICDI) Board, included in the Stellaris LM3S9B90 and LM3S9B92 Evaluation Kits.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{Stellaris Eval Boards}
++@* See: @url{<A HREF="http://www.luminarymicro.com">http://www.luminarymicro.com</A>} - The Stellaris eval boards
++bundle FT2232-based JTAG and SWD support, which can be used to debug
++the Stellaris chips.  Using separate JTAG adapters is optional.
++These boards can also be used as JTAG adapters to other target boards,
++disabling the Stellaris chip.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{Luminary ICDI}
++@* See: @url{<A HREF="http://www.luminarymicro.com">http://www.luminarymicro.com</A>} - Luminary In-Circuit Debug
++Interface (ICDI) Boards are included in Stellaris LM3S9B90 and LM3S9B92
++Evaluation Kits.  Like the non-detachable FT2232 support on the other
++Stellaris eval boards, they can be used to debug other target boards.
+ @item @b{olimex-jtag}
+ @* See: @url{<A HREF="http://www.olimex.com">http://www.olimex.com</A>}
+ @item @b{flyswatter}
+@@ -1962,7 +1969,12 @@ Currently valid layout @var{name} values
+ @item @b{evb_lm3s811} Luminary Micro EVB_LM3S811 as a JTAG interface,
+ either for the local Cortex-M3 (SRST only)
+ or in a passthrough mode (neither SRST nor TRST)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> @b{luminary_icdi} Luminary In-Circuit Debug Interface (ICDI) Board
++This layout can not support the SWO trace mechanism, and should be
++used only for older boards (before rev C).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{luminary_icdi} This layout should be used with most Luminary
++eval boards, including Rev C LM3S811 eval boards and the eponymous
++ICDI boards, to debug either the local Cortex-M3 or in passthrough mode
++to debug some other target.  It can support the SWO trace mechanism.
+ @item @b{flyswatter} Tin Can Tools Flyswatter
+ @item @b{icebear} ICEbear JTAG adapter from Section 5
+ @item @b{jtagkey} Amontec JTAGkey and JTAGkey-Tiny (and compatibles)
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -2182,6 +2182,11 @@ static int usbjtag_init(void)
+ 	}
+ 	else if (strcmp(ft2232_layout, &quot;evb_lm3s811&quot;) == 0)
+ 	{
++		/* There are multiple revisions of LM3S811 eval boards:
++		 * - Rev B (and older?) boards have no SWO trace support.
++		 * - Rev C boards add ADBUS_6 DBG_ENn and BDBUS_4 SWO_EN;
++		 *   they should use the &quot;luminary_icdi&quot; layout instead.
++		 */
+ 		nTRST = 0x0;
+ 		nTRSTnOE = 0x00;
+ 		nSRST = 0x20;
+@@ -2191,6 +2196,9 @@ static int usbjtag_init(void)
+ 	}
+ 	else if (strcmp(ft2232_layout, &quot;luminary_icdi&quot;) == 0)
+ 	{
++		/* Most Luminary eval boards support SWO trace output,
++		 * and should use this &quot;luminary_icdi&quot; layout.
++		 */
+ 		nTRST = 0x0;
+ 		nTRSTnOE = 0x00;
+ 		nSRST = 0x20;
+--- a/tcl/board/ek-lm3s3748.cfg
++++ b/tcl/board/ek-lm3s3748.cfg
+@@ -1,8 +1,8 @@
+ # Stellaris lm3s3748 Evaluation Kit
+ #  <A HREF="http://www.luminarymicro.com/products/lm3s3748_usb_h_d_evaluation_kits.html">http://www.luminarymicro.com/products/lm3s3748_usb_h_d_evaluation_kits.html</A>
+ 
+-# NOTE:  to use the on-board FT2232 JTAG interface:
+-#  source [find interface/luminary.cfg]
++# NOTE:  using the on-board FT2232 JTAG/SWD/SWO interface is optional!
++source [find interface/luminary.cfg]
+ 
+ source [find target/stellaris.cfg]
+ 
+--- a/tcl/interface/luminary-icdi.cfg
++++ b/tcl/interface/luminary-icdi.cfg
+@@ -2,6 +2,11 @@
+ # Luminary Micro Stellaris LM3S9B9x Evaluation Kits
+ # In-Circuit Debug Interface (ICDI) Board
+ #
++# This is a discrete FT2232 based debug board which supports ARM's
++# JTAG/SWD connectors in both backwards-compatible 20-pin format and
++# in the new-style compact 10-pin.  There's also an 8-pin connector
++# with serial port support.  It's included with LM3S9B9x eval boards.
++#
+ # <A HREF="http://www.luminarymicro.com/products/ek-lm3s9b90.html">http://www.luminarymicro.com/products/ek-lm3s9b90.html</A>
+ # <A HREF="http://www.luminarymicro.com/products/ek-lm3s9b92.html">http://www.luminarymicro.com/products/ek-lm3s9b92.html</A>
+ #
+--- a/tcl/interface/luminary-lm3s811.cfg
++++ b/tcl/interface/luminary-lm3s811.cfg
+@@ -3,8 +3,16 @@
+ #
+ # <A HREF="http://www.luminarymicro.com/products/stellaris_811_evaluation_kits.html">http://www.luminarymicro.com/products/stellaris_811_evaluation_kits.html</A>
+ #
++# NOTE:  this is only for boards *before* Rev C, which adds support
++# for SWO tracing with ADBUS_6 DBG_ENn and BDBUS_4 SWO_EN signals.
++# The &quot;evb_lm3s811&quot; layout doesn't set up those signals.
++#
++# Rev C boards work more like the other Stellaris eval boards.  They
++# need to use the &quot;luminary_icdi&quot; layout to work correctly.
++#
+ 
+ interface ft2232
+-ft2232_device_desc &quot;LM3S811 Evaluation Board&quot;
++ft2232_device_desc &quot;Stellaris Evaluation Board&quot;
+ ft2232_layout evb_lm3s811
++ft2232_vid_pid 0x0403 0xbcd9
+ 
+--- a/tcl/interface/luminary.cfg
++++ b/tcl/interface/luminary.cfg
+@@ -1,11 +1,31 @@
+ #
+-# Luminary Micro Stellaris LM3S811 Evaluation Kit
++# Luminary Micro Stellaris Evaluation Kits
+ #
+-# <A HREF="http://www.luminarymicro.com/products/stellaris_811_evaluation_kits.html">http://www.luminarymicro.com/products/stellaris_811_evaluation_kits.html</A>
++# <A HREF="http://www.luminarymicro.com/products/evaluation_kits.html">http://www.luminarymicro.com/products/evaluation_kits.html</A>
++#
++# There are a number of evaluation kits for Stellaris Cortex-M3 chips.
++# Currently they all bundle FT2232 based debug support.  When that is
++# used (instead of an external adapter), use this config file in one
++# of these two modes:
++#
++# - Eval board debug ... debug of the Stellaris chip via port A.
++#
++# - Other board debug ... same thing, but the board acts as a debug
++#   adapter for another board (using a standard ARM JTAG connector).
++#   The Stellaris chip stays in reset.
++#
++# Those support both JTAG and SWD.  SWD is an ARM-only two-wire debug
++# protocol; in 2009, OpenOCD does not support SWD.
++#
++# Port B of the FT2232 chip is normally used as a serial link to the
++# Stellaris chip.  On most boards (but not older LM3S811 eval boards),
++# when SWD is used Port B may instead be used to read low-bandwidth
++# &quot;SWO trace&quot; data, including so-called &quot;printf style&quot; output from
++# firmware via the ITM module as well as profile data.
+ #
+ 
+ interface ft2232
+ ft2232_device_desc &quot;Stellaris Evaluation Board&quot;
+-ft2232_layout evb_lm3s811
++ft2232_layout luminary_icdi
+ ft2232_vid_pid 0x0403 0xbcd9
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013859.html">[Openocd-development] All ones when connecting to LM3S811	Evaluation Board (Chip Revision C2)
+</A></li>
+	<LI>Next message: <A HREF="013669.html">[Openocd-development] malloc: Vote what to do
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13858">[ date ]</a>
+              <a href="thread.html#13858">[ thread ]</a>
+              <a href="subject.html#13858">[ subject ]</a>
+              <a href="author.html#13858">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

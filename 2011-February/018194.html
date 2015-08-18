@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] dsp568013 - switching/disabling taps
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20dsp568013%20-%20switching/disabling%20taps&In-Reply-To=%3CAANLkTinzP4ozbX3d6geBomE153LDM1kErzKnKmXU-CzO%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018213.html">
+   <LINK REL="Next"  HREF="018195.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] dsp568013 - switching/disabling taps</H1>
+    <B>Rodrigo Rosa</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20dsp568013%20-%20switching/disabling%20taps&In-Reply-To=%3CAANLkTinzP4ozbX3d6geBomE153LDM1kErzKnKmXU-CzO%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] dsp568013 - switching/disabling taps">rodrigorosa.lg at gmail.com
+       </A><BR>
+    <I>Tue Feb 15 02:28:53 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018213.html">[Openocd-development] [PATCH] arm_adi_v5: add/move apsel member in struct adiv5_dap
+</A></li>
+        <LI>Next message: <A HREF="018195.html">[Openocd-development] dsp568013 - switching/disabling taps
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18194">[ date ]</a>
+              <a href="thread.html#18194">[ thread ]</a>
+              <a href="subject.html#18194">[ subject ]</a>
+              <a href="author.html#18194">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+We've been trying to communicate via JTAG (through a signalyzer H2)
+with a freescale 568013.
+Modifying the code for the dsp56321 we were able to communicate with
+our chip. It has two taps, a MASTER tap and a CORE tap.
+
+The default tap is the MASTER tap, and by default the CORE tap is
+disabled. There is a command to switch from the MASTER tap to the CORE
+tap and vice versa. Since it is a switch, only ONE tap is connected at
+a time.
+We need to make openocd know that the command that switches from
+MASTER to CORE disables MASTER (and the command to switch from CORE to
+MASTER disables CORE).
+The config file (see below) shows the hack we are currently using
+(empty disable functions).
+
+#-----------------------------------------------------------------
+#-----------------------------------------------------------------
+# Script for freescale DSP568013
+#
+source [find interface/signalyzer-h2.cfg]
+
+if { [info exists CHIPNAME] } {	
+   set  _CHIPNAME $CHIPNAME
+} else {	
+   set  _CHIPNAME dsp568013
+}
+
+if { [info exists ENDIAN] } {	
+   set  _ENDIAN $ENDIAN
+} else {	
+  # this defaults to a big endian
+   set  _ENDIAN big
+}
+
+if { [info exists CPUTAPID ] } {
+   set _CPUTAPID $CPUTAPID
+} else {
+  # force an error till we get a good number
+   set _CPUTAPID 0x01f2801d
+}
+
+#jtag speed
+adapter_khz 10
+
+#has only trst
+reset_config trst_only
+
+#MASTER tap
+jtag newtap $_CHIPNAME chp -irlen 8 -ircapture 1 -irmask 0x03
+-expected-id $_CPUTAPID
+
+#CORE tap
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 1 -irmask 0x03 -disable
+-expected-id 0x02211004
+
+#target configuration
+set _TARGETNAME $_CHIPNAME.cpu
+#target create $_TARGETNAME dsp5680xx -endian $_ENDIAN -chain-position
+$_TARGETNAME
+
+#select CORE tap by modifying the TLM register.
+#to be used when MASTER tap is selected.
+jtag configure $_TARGETNAME -event tap-enable &quot;
+     irscan $_CHIPNAME.chp 0x05;
+     drscan $_CHIPNAME.chp 4 0x02;
+     jtag tapdisable $_CHIPNAME.chp;
+&quot;
+
+#select MASTER tap by modifying the TLM register.
+#to be used when CORE tap is selected.
+jtag configure $_CHIPNAME.chp -event tap-enable &quot;
+     irscan $_TARGETNAME 0x4;
+     drscan $_TARGETNAME 4 0x1;
+     jtag tapdisable $_TARGETNAME;
+&quot;
+
+jtag configure $_TARGETNAME -event tap-disable {
+}
+
+jtag configure $_CHIPNAME.chp -event tap-disable {
+}
+
+#working area at base of ram
+#$_TARGETNAME configure -work-area-virt 0
+
+#-----------------------------------------------------------------
+#-----------------------------------------------------------------
+
+The tap seems to switch. After switching we can get what we believe is
+the CORE tap's IDCODE by executing:
+
+&gt;<i> scan_chain
+</I>   TapName             Enabled  IdCode     Expected   IrLen IrCap IrMask
+-- ------------------- -------- ---------- ---------- ----- ----- ------
+ 0 dsp568013.chp          Y     0x01f2801d 0x01f2801d     8 0x01  0x03
+ 1 dsp568013.cpu          n     0x00000000 0x02211004     4 0x01  0x03
+&gt;<i> jtag tapenable dsp568013.cpu
+</I>JTAG tap: dsp568013.chp disabled
+JTAG tap: dsp568013.cpu enabled
+1
+&gt;<i> scan_chain
+</I>   TapName             Enabled  IdCode     Expected   IrLen IrCap IrMask
+-- ------------------- -------- ---------- ---------- ----- ----- ------
+ 0 dsp568013.chp          n     0x01f2801d 0x01f2801d     8 0x01  0x03
+ 1 dsp568013.cpu          Y     0x00000000 0x02211004     4 0x01  0x03
+&gt;<i> irscan dsp568013.cpu 0x2
+</I>&gt;<i> drscan dsp568013.cpu 32 0
+</I>02211004
+&gt;<i>
+</I>
+Switching back to the MASTER tap does not seem to work correctly.
+After switching to the CORE tap and back to the MASTER tap we cannot
+execute IDCODE successfully.
+We get the following on telnet:
+
+&gt;<i> jtag tapenable dsp568013.chp
+</I>JTAG tap: dsp568013.cpu disabled
+JTAG tap: dsp568013.chp enabled
+1
+&gt;<i> irscan dsp568013.chp 0x02
+</I>&gt;<i> drscan dsp568013.chp 32 0
+</I>00000000
+&gt;<i> drscan dsp568013.chp 32 0
+</I>00000000
+&gt;<i> drscan dsp568013.chp 32 2
+</I>00000004
+
+looks like the tap is working in BYPASS. if we run &quot;pathmove RESET&quot;
+everything works fine again:
+
+&gt;<i> pathmove RESET
+</I>&gt;<i> irscan dsp568013.chp 0x02
+</I>&gt;<i> drscan dsp568013.chp 32 0
+</I>01F2801D
+
+What is the correct way to do the switching?
+
+Also, is there any way to get irscan to show what was shifted in?
+
+Thanks!
+
+--
+Rodrigo.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018213.html">[Openocd-development] [PATCH] arm_adi_v5: add/move apsel member in struct adiv5_dap
+</A></li>
+	<LI>Next message: <A HREF="018195.html">[Openocd-development] dsp568013 - switching/disabling taps
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18194">[ date ]</a>
+              <a href="thread.html#18194">[ thread ]</a>
+              <a href="subject.html#18194">[ subject ]</a>
+              <a href="author.html#18194">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

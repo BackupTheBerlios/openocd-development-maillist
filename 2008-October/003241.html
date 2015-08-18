@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Support for Spansion buffer flash mode (patch	for cfi.c)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Support%20for%20Spansion%20buffer%20flash%20mode%20%28patch%0A%09for%20cfi.c%29&In-Reply-To=%3C20081005222336.GA5220%40braindead1.acher%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003240.html">
+   <LINK REL="Next"  HREF="003243.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Support for Spansion buffer flash mode (patch	for cfi.c)</H1>
+    <B>Georg Acher</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Support%20for%20Spansion%20buffer%20flash%20mode%20%28patch%0A%09for%20cfi.c%29&In-Reply-To=%3C20081005222336.GA5220%40braindead1.acher%3E"
+       TITLE="[Openocd-development] Support for Spansion buffer flash mode (patch	for cfi.c)">acher at in.tum.de
+       </A><BR>
+    <I>Mon Oct  6 00:23:36 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003240.html">[Openocd-development] Patch for bitbang.c
+</A></li>
+        <LI>Next message: <A HREF="003243.html">[Openocd-development] Support for Spansion buffer flash mode	(patch for cfi.c)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3241">[ date ]</a>
+              <a href="thread.html#3241">[ thread ]</a>
+              <a href="subject.html#3241">[ subject ]</a>
+              <a href="author.html#3241">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+attached a patch for cfi.c. It implements the buffer flash mode for Spansion
+flashes. It's basically a clone of the Intel version, just a few details
+differ. I've tested it only with a S29GL128P (128Mbits, 16bit bus), so it's
+maybe buggy for other variants.
+
+Also included is a small formating fix for printing the buffer size in bytes... 
+-- 
+         Georg Acher, <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">acher at in.tum.de</A>         
+         <A HREF="http://www.lrr.in.tum.de/~acher">http://www.lrr.in.tum.de/~acher</A>
+         &quot;Oh no, not again !&quot; The bowl of petunias          
+-------------- next part --------------
+Index: cfi.c
+===================================================================
+--- cfi.c	(revision 1014)
++++ cfi.c	(working copy)
+@@ -1595,6 +1596,75 @@
+ 	return ERROR_OK;
+ }
+ 
++int cfi_spansion_write_words(struct flash_bank_s *bank, u8 *word, u32 wordcount, u32 address)
++{
++	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
++	target_t *target = bank-&gt;target;
++	u8 command[8];
++	int sector;
++	cfi_spansion_pri_ext_t *pri_ext = cfi_info-&gt;pri_ext;
++
++	/* Calculate buffer size and boundary mask */
++	u32 buffersize = 1UL &lt;&lt; cfi_info-&gt;max_buf_write_size;
++	u32 buffermask = buffersize-1;
++	u32 bufferwsize;
++
++	/* Check for valid range */
++	if (address &amp; buffermask)
++	{
++		LOG_ERROR(&quot;Write address at base 0x%x, address %x not aligned to 2^%d boundary&quot;, bank-&gt;base, address, cfi_info-&gt;max_buf_write_size);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++	switch(bank-&gt;chip_width)
++	{
++	case 4 : bufferwsize = buffersize / 4; break;
++	case 2 : bufferwsize = buffersize / 2; break;
++	case 1 : bufferwsize = buffersize; break;
++	default:
++		LOG_ERROR(&quot;Unsupported chip width %d&quot;, bank-&gt;chip_width);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* Check for valid size */
++	if (wordcount &gt; bufferwsize)
++	{
++		LOG_ERROR(&quot;Number of data words %d exceeds available buffersize %d&quot;, wordcount, buffersize);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	// Unlock
++	cfi_command(bank, 0xaa, command);
++	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command);
++
++	cfi_command(bank, 0x55, command);
++	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command);
++
++	// Buffer load command
++	cfi_command(bank, 0x25, command);
++	target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command);
++
++	/* Write buffer wordcount-1 and data words */
++	cfi_command(bank, bufferwsize-1, command);
++	target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command);
++
++	target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, bufferwsize, word);
++
++	/* Commit write operation */
++	cfi_command(bank, 0x29, command);
++	target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command);
++
++	if (cfi_spansion_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != ERROR_OK)
++	{
++		cfi_command(bank, 0xf0, command);
++		target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
++
++		LOG_ERROR(&quot;couldn't write block at base 0x%x, address %x, size %x&quot;, bank-&gt;base, address, bufferwsize);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
+ int cfi_write_word(struct flash_bank_s *bank, u8 *word, u32 address)
+ {
+ 	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
+@@ -1627,8 +1697,7 @@
+ 			return cfi_intel_write_words(bank, word, wordcount, address);
+ 			break;
+ 		case 2:
+-			/* return cfi_spansion_write_words(bank, word, address); */
+-			LOG_ERROR(&quot;cfi primary command set %i unimplemented - FIXME&quot;, cfi_info-&gt;pri_id);
++			return cfi_spansion_write_words(bank, word, wordcount, address); 
+ 			break;
+ 		default:
+ 			LOG_ERROR(&quot;cfi primary command set %i unsupported&quot;, cfi_info-&gt;pri_id);
+@@ -2261,7 +2330,7 @@
+ 		printed = snprintf(buf, buf_size, &quot;size: 0x%x, interface desc: %i, max buffer write size: %x\n&quot;,
+ 		                   1 &lt;&lt; cfi_info-&gt;dev_size,
+ 		                   cfi_info-&gt;interface_desc,
+-		                   cfi_info-&gt;max_buf_write_size);
++		                   1 &lt;&lt; cfi_info-&gt;max_buf_write_size);
+ 	buf += printed;
+ 	buf_size -= printed;
+ 
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003240.html">[Openocd-development] Patch for bitbang.c
+</A></li>
+	<LI>Next message: <A HREF="003243.html">[Openocd-development] Support for Spansion buffer flash mode	(patch for cfi.c)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3241">[ date ]</a>
+              <a href="thread.html#3241">[ thread ]</a>
+              <a href="subject.html#3241">[ subject ]</a>
+              <a href="author.html#3241">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

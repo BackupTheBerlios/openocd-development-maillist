@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] SPI flash support with ARM926
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SPI%20flash%20support%20with%20ARM926&In-Reply-To=%3C48F92A83.2030507%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003436.html">
+   <LINK REL="Next"  HREF="003440.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] SPI flash support with ARM926</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SPI%20flash%20support%20with%20ARM926&In-Reply-To=%3C48F92A83.2030507%40duaneellis.com%3E"
+       TITLE="[Openocd-development] SPI flash support with ARM926">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Oct 18 02:14:59 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003436.html">[Openocd-development] SPI flash support with ARM926
+</A></li>
+        <LI>Next message: <A HREF="003440.html">[Openocd-development] SPI flash support with ARM926
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3437">[ date ]</a>
+              <a href="thread.html#3437">[ thread ]</a>
+              <a href="subject.html#3437">[ subject ]</a>
+              <a href="author.html#3437">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>John McCarthy&gt;  I've got an ARM926EJ-S
+
+A bit more detail about the actual chip would be helpful. (arm926 is the 
+core) but who makes the chip?
+Only thing I find that names &quot;flash integration unit&quot; is a freescale thing.
+
+John McCarthy&gt;  Could anyone give me a high level description on what 
+would be needed to add this support and how it should be integrated into 
+OpenOCD?
+
+Hmm, generally OpenOCD sees memory as having an address and data bus.
+
+SPI flash - is not a traditional &quot;bus&quot; - it is a serial protocol. But 
+you say this:
+
+John McCarthy&gt;  The FIU on the ARM926EJ-S maps the SPI flash to the ARM 
+address space
+John McCarthy&gt; starting at address 0x40000000 so it reads like ordinary 
+memory.
+
+Sounds like a hardware state machine of some sort. - Quit strange.
+
+John McCarthy&gt;Is this a common way to interface SPI flash to a processor?
+
+no - it is not a standard in way that I am familiar with - ie:  on 
+pic32, arm, blackfin, in some ways it sounds like the &quot;one-nand&quot; that 
+has a small XIP buffer for booting - but not really.
+
+John McCarthy&gt; [ so how do I hook it up to openocd? ]
+
+Good question. This FIU mode is going to be silicon vendor specific 
+beyond all possible ways.
+
+You are correct - from the stand point of the spi flash - the commands 
+should be mostly generic. However :-( the SPI controller is different on 
+every platform and every platform implementation, for example I might 
+connect it to SPI port 2, using GPIO 42 as the chip select - and you 
+might use the *SAME* arm chip as me - but use SPI port 1 - and SPICS3 as 
+the control signal.
+
+All hope is not lost - there is a way - I think - but it will seem ass 
+backwards to JTAG - but it would work.
+
+====================================
+Step #1 - Look at this Xilinx app note about programing SPI flash chips 
+on the PCB.
+
+<A HREF="http://www.xilinx.com/support/documentation/application_notes/xapp951.pdf">http://www.xilinx.com/support/documentation/application_notes/xapp951.pdf</A>
+
+See the schematic on page 4, see note #(3) &quot;PROG_B&quot; should be held LOW 
+during the direct programing of the SPI lash.
+In effect, that holds the XILINX in RESET - we could do the same - with 
+either RESET or TRST.
+
+====================================
+Step #2 - You probably need &quot;flying leads&quot; to do this
+
+<A HREF="http://toolbox.xilinx.com/docsan/xilinx5/data/docs/pac/pac0020_6.html">http://toolbox.xilinx.com/docsan/xilinx5/data/docs/pac/pac0020_6.html</A>
+
+See the bottom portion of the above web page.
+
+====================================
+
+Step 3 - Put the JTAG tap in a funny mode...
+
+Then I believe it is a simple matter of walking the JTAG tap through 
+this sequence:
+
+1)   make Reset=SPI-CS=high.
+2)   Goto state: Shift DR - but do not shift yet.
+3)   Reset=SPI-CS=Low
+4)   Now shift data in Shift DR state.
+        TDI =&gt; data to the spi flash.
+       TDO =&gt; data from the spi flash.
+5)    Repeat #4 until data is complete
+6)   make Reset=SPI-CS=high.
+7)   Return to jtag state Test Logic Reset.
+
+====================================
+All it will take is somebody with the time to fiddle with it and make it 
+happen.
+
+And - we have a GENERIC SPI flash programmer  :-)
+
+
+-Duane.
+
+
+
+
+ - and table 5- page 10.
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003436.html">[Openocd-development] SPI flash support with ARM926
+</A></li>
+	<LI>Next message: <A HREF="003440.html">[Openocd-development] SPI flash support with ARM926
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3437">[ date ]</a>
+              <a href="thread.html#3437">[ thread ]</a>
+              <a href="subject.html#3437">[ subject ]</a>
+              <a href="author.html#3437">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

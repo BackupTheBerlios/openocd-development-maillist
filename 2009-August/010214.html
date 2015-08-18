@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Improving Cortex-A8 support...
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Improving%20Cortex-A8%20support...&In-Reply-To=%3C4A988CE8.2010804%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010213.html">
+   <LINK REL="Next"  HREF="010217.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Improving Cortex-A8 support...</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Improving%20Cortex-A8%20support...&In-Reply-To=%3C4A988CE8.2010804%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] [PATCH] Improving Cortex-A8 support...">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Sat Aug 29 04:05:28 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010213.html">[Openocd-development] [PATCH] Improving Cortex-A8 support...
+</A></li>
+        <LI>Next message: <A HREF="010217.html">[Openocd-development] [PATCH] Improving Cortex-A8 support...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10214">[ date ]</a>
+              <a href="thread.html#10214">[ thread ]</a>
+              <a href="subject.html#10214">[ subject ]</a>
+              <a href="author.html#10214">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Holger Freyther wrote:
+&gt;<i> On Friday 28 August 2009 19:28:50 Magnus Lundin wrote:
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> The usual way for OpenOCD targets to check if a PROCESSOR_HALTED flag
+</I>&gt;&gt;<i> has been set is not to do it in the halt command but rather in the poll
+</I>&gt;&gt;<i> command.
+</I>&gt;&gt;<i> This in general improves performance when using long roundtrip
+</I>&gt;&gt;<i> interfaces like USB.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Okay, I was not sure about the state transitions and such, I can remove that 
+</I>&gt;<i> part and plant some asserts in the other paths to make sure they are not 
+</I>&gt;<i> called before the core is paused.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> This does not affect stability but  only moves the actual run state
+</I>&gt;&gt;<i> detection, and affect the halt and resume commands.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Some other checks lite testing for DTRRXfull and wait for previous
+</I>&gt;&gt;<i> instruction patch definetly improves stability but they are performance
+</I>&gt;&gt;<i> killer especially for debug work like single stepping.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> I sincerely disagree here. These bits directly come out of the Cortex A8 
+</I>&gt;<i> Technical Reference Manual and not following them is not making things fast 
+</I>&gt;<i> but it makes them unreliable.
+</I>&gt;<i>
+</I>&gt;<i> In other words, why would ever want to read half of the result?
+</I>&gt;<i>   
+</I>To speed up debugging !! I did read the Cortex_A8 TRM when I first 
+started to work on that code :), and I also tested if things were 
+reasonably stable without the checks.
+
+In many situations it is not necessary to check those flag bits and 
+instead rely on bus/instruction timing. The core is inhalted debug and 
+only exectuing opcodes that we have pushed to it for single instruction 
+execution.  So we can make educated guesses about the time it takes 
+before the results will be available or the preceding instruction 
+finishes ecxecution. This timing is related to the swjdp-&gt;memaccess_tck 
+field that was added to all cortex targets.
+
+So it is not unresonable to let crazy people make their own  choise to 
+trust fate and speed up dubgging by not always checking theese flags. 
+Thus  different debug modes SAFE/FAST , but I do agree there should a 
+safe mode and the original code did not have that.
+ 
+&gt;&gt;<i> Perhaps we need a debugmode=FAST / debugmode = STABLE  flag to control
+</I>&gt;&gt;<i> speed vs stability.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> When developing the cortex_a8 code I had the &quot;enable ITR for code
+</I>&gt;&gt;<i> execution&quot; in the init script. In general we try put put this kind of
+</I>&gt;&gt;<i> target initialisations in TCL setup/reset scripts.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Ah great, from my understanding the code running on the core can access the L3 
+</I>&gt;<i> and L4 registers as well. So in theory and practice the code running on the 
+</I>&gt;<i> core has changed the ITR flag. This is why I put it into the debug_entry right 
+</I>&gt;<i> after saving the old DSCR to make sure it is enabled.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> maybe this clear things up, I will need to single step through linux to see 
+</I>&gt;<i> when stuff breaks in OpenOCD... my assumption is enabling the MMU but I will 
+</I>&gt;<i> find this out next week.
+</I>&gt;<i>
+</I>&gt;<i> 	z,
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>
+The really important thing now is  that there are several  people 
+working on and testing these things.  I am not saying I am right but  I 
+do have some experince whith this code and I hope my comments can help 
+in directing further work.
+
+Thank you for Your (several of you :) ) work with this code.
+
+Best regards
+Magnus
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010213.html">[Openocd-development] [PATCH] Improving Cortex-A8 support...
+</A></li>
+	<LI>Next message: <A HREF="010217.html">[Openocd-development] [PATCH] Improving Cortex-A8 support...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10214">[ date ]</a>
+              <a href="thread.html#10214">[ thread ]</a>
+              <a href="subject.html#10214">[ subject ]</a>
+              <a href="author.html#10214">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Bug: Can't flash STM32
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Bug%3A%20Can%27t%20flash%20STM32&In-Reply-To=%3C200911091312.49444.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012119.html">
+   <LINK REL="Next"  HREF="012121.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Bug: Can't flash STM32</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Bug%3A%20Can%27t%20flash%20STM32&In-Reply-To=%3C200911091312.49444.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Bug: Can't flash STM32">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Nov  9 22:12:49 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012119.html">[Openocd-development] Bug: Can't flash STM32
+</A></li>
+        <LI>Next message: <A HREF="012121.html">[Openocd-development] Bug: Can't flash STM32
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12120">[ date ]</a>
+              <a href="thread.html#12120">[ thread ]</a>
+              <a href="subject.html#12120">[ subject ]</a>
+              <a href="author.html#12120">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 09 November 2009, &#216;yvind Harboe wrote:
+&gt;<i> On Mon, Nov 9, 2009 at 8:23 PM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+</I>&gt;<i> &gt; On Monday 09 November 2009, Thomas Kindler wrote:
+</I>&gt;<i> &gt;&gt; btw: the current git-master still has the problem.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Does it work if you replace that patch with
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &#160;git show d269122f91efaf2f745424c215fabb758b7e7ea0 |patch -p1 -R
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I don't like that patch at all. &#160;It adds needless clutter;
+</I>&gt;<i> &gt; the same effect can be had without adding all those methods
+</I>&gt;<i> &gt; and defaults. &#160;And it's the cause of this bug.
+</I>&gt;<i> 
+</I>&gt;<i> The only problem I see with going down the road of providing
+</I>&gt;<i> silent no-op defaults for generic MMU methods is that there may
+</I>&gt;<i> be methods that have a non-trivial &quot;no-op&quot;.
+</I>
+My issue with that patch is that it should not be needed!
+
+If there is no mmu() method ... that's sufficient to
+know that has_mmu() == false.  Etc.
+
+
+&gt;<i> Some generic MMU/cache methods: virtual to physical translation,
+</I>&gt;<i> mmu enabled, flush cache line, flush data cache, generic
+</I>&gt;<i> embedded trace buffer fn's, more specifically mrc/mcr, etc.
+</I>
+You're mixing in *ALL KINDS* of stuff that's not MMU-related.
+Cache isn't.  ETB isn't.  Coprocessor access isn't.
+
+ 
+&gt;<i> What does virt2phys translation mean when no MMU
+</I>&gt;<i> is present or MMU is disabled?
+</I>
+Simplest answer:  it's an identity mapping.  If there
+is *ever* a question, treat a no-MMU target as if it's
+an MMU-enabled target with a permanently installed
+memory mapping equating virtual and physical addresses.
+
+ 
+&gt;<i> Are addresses for a machine that has no MMU virtual/logic
+</I>&gt;<i> or physical? I'd say the answer is pick one to this particular
+</I>&gt;<i> question. My interpretation is that only an MMU can have
+</I>&gt;<i> logical/virtual addresses and that a non-MMU CPU has
+</I>&gt;<i> only physical addresses. This interpretation broke OpenOCD...
+</I>
+That's part of why I suggested that simpler answer.
+
+Really ... unless there's an active MMU, why even
+bother asking that question?  The &quot;break&quot; came from
+trying to draw a needless distinction.
+
+
+&gt;<i> Should read/write to physical memory fail or succeed when
+</I>&gt;<i> the CPU has no MMU? I'd say fail.
+</I>
+Where I'd say &quot;succeed&quot; ... there is *ONLY* physical memory
+in such cases.  (Note, that answer is consistent with the
+interpretation you gave above ... unlike a &quot;fail&quot; answer.)
+
+Any special casing should be for virtual addressing, and
+should boil down to that implicit identity mapping.
+
+
+&gt;<i> Say we provide default implementations that do &quot;safe
+</I>&gt;<i> no-op&quot; for all fn's instead of failing.
+</I>
+What would a NOP be though?  How could it ever be &quot;safe&quot;
+if it tried to hide real errors, which must be handled?
+
+Treating virtual and physical addresses as being the
+same (for no-MMU targets) wouldn't be a NOP.
+
+ 
+&gt;<i> If you now invoke some higher level functionality that
+</I>&gt;<i> builds on these &quot;safe no-op&quot;'s you end up with a
+</I>&gt;<i> compound behavior that we can't really account for.
+</I>&gt;<i> I fear ending up in a situation where nobody dares
+</I>&gt;<i> touch the  default &quot;successful no-op&quot; fn's because nobody
+</I>&gt;<i> knows what relies on their &quot;no-op&quot;...
+</I>
+I don't follow.  Disregarding all non-MMU stuff,
+and presuming the above commit gets reverted, what
+are the &quot;no-ops&quot; you refer to?
+
+
+&gt;<i> Sorry for breaking the release(again) though.
+</I>
+Are you saying there's some other bug related to the
+MMU stuff, which made it into the v0.3.1 branch?
+
+You might have lost some context.  The above patch,
+which caused $SUBJECT bug, is newer than that.
+
+I suspect the MMU stuff does need more thinking,
+but I can't see any way for it to cause trouble
+for no-MMU targets (like $SUBJECT) unless some
+kind of inappropriate distinction gets made.  But
+unfortunately that patch (which I want to revert)
+does make such a distinction.
+
+- Dave
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012119.html">[Openocd-development] Bug: Can't flash STM32
+</A></li>
+	<LI>Next message: <A HREF="012121.html">[Openocd-development] Bug: Can't flash STM32
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12120">[ date ]</a>
+              <a href="thread.html#12120">[ thread ]</a>
+              <a href="subject.html#12120">[ subject ]</a>
+              <a href="author.html#12120">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 6/8] rlink: use jtag_usb_open helper
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/8%5D%20rlink%3A%20use%20jtag_usb_open%20helper&In-Reply-To=%3C1258671214-31773-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012575.html">
+   <LINK REL="Next"  HREF="012578.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 6/8] rlink: use jtag_usb_open helper</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/8%5D%20rlink%3A%20use%20jtag_usb_open%20helper&In-Reply-To=%3C1258671214-31773-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 6/8] rlink: use jtag_usb_open helper">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 19 23:53:32 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012575.html">[Openocd-development] [PATCH 5/8] rlink: eliminate spurious	indentation
+</A></li>
+        <LI>Next message: <A HREF="012578.html">[Openocd-development] [PATCH 7/8] jlink: remove superfluous	indentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12580">[ date ]</a>
+              <a href="thread.html#12580">[ thread ]</a>
+              <a href="subject.html#12580">[ subject ]</a>
+              <a href="author.html#12580">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Rewrite rlink_init routine to use jtag_usb_open helper.  Eliminates
+some spurious calls to exit().
+
+Wraps a tremendously long line of comment to fit 80 columns too.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/jtag/rlink/rlink.c |  131 ++++++++++++++++++------------------------------
+ 1 files changed, 49 insertions(+), 82 deletions(-)
+
+diff --git a/src/jtag/rlink/rlink.c b/src/jtag/rlink/rlink.c
+index 2cdc70a..6fb721d 100644
+--- a/src/jtag/rlink/rlink.c
++++ b/src/jtag/rlink/rlink.c
+@@ -34,9 +34,7 @@
+ #include &quot;st7.h&quot;
+ #include &quot;ep1_cmd.h&quot;
+ #include &quot;dtc_cmd.h&quot;
+-
+-/* system includes */
+-#include &lt;usb.h&gt;
++#include &quot;usb_common.h&quot;
+ 
+ 
+ /* This feature is made useless by running the DTC all the time.  When automatic, the LED is on whenever the DTC is running.  Otherwise, USB messages are sent to turn it on and off. */
+@@ -1616,103 +1614,72 @@ int rlink_register_commands(struct command_context *cmd_ctx)
+ static
+ int rlink_init(void)
+ {
+-	struct usb_bus *busses;
+-	struct usb_bus *bus;
+ 	int i, j, retries;
+-	int found = 0;
+-	int success = 0;
+ 	uint8_t reply_buffer[USB_EP1IN_SIZE];
+ 
+ 	usb_init();
+-	usb_find_busses();
+-	usb_find_devices();
+-
+-	busses = usb_get_busses();
++	const uint16_t vids[] = { USB_IDVENDOR, 0 };
++	const uint16_t pids[] = { USB_IDPRODUCT, 0 };
++	if (jtag_usb_open(vids, pids, &amp;pHDev) != ERROR_OK)
++		return ERROR_FAIL;
+ 
+-	for (bus = busses; bus; bus = bus-&gt;next)
++	struct usb_device *dev = usb_device(pHDev);
++	if (dev-&gt;descriptor.bNumConfigurations &gt; 1)
+ 	{
+-		struct usb_device *dev;
+-
+-		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+-		{
+-			if ((dev-&gt;descriptor.idVendor != USB_IDVENDOR) ||
+-				(dev-&gt;descriptor.idProduct != USB_IDPRODUCT))
+-			{
+-				continue;
+-			}
+-			found = 1;
+-			LOG_DEBUG(&quot;Found device on bus.\n&quot;);
+-
+-			if (dev-&gt;descriptor.bNumConfigurations &gt; 1)
+-			{
+-				LOG_ERROR(&quot;Whoops! NumConfigurations is not 1, don't know what to do...\n&quot;);
+-				break;
+-			}
+-			if (dev-&gt;config-&gt;bNumInterfaces &gt; 1)
+-			{
+-				LOG_ERROR(&quot;Whoops! NumInterfaces is not 1, don't know what to do...\n&quot;);
+-				break;
+-			}
++		LOG_ERROR(&quot;Whoops! NumConfigurations is not 1, don't know what to do...\n&quot;);
++		return ERROR_FAIL;
++	}
++	if (dev-&gt;config-&gt;bNumInterfaces &gt; 1)
++	{
++		LOG_ERROR(&quot;Whoops! NumInterfaces is not 1, don't know what to do...\n&quot;);
++		return ERROR_FAIL;
++	}
+ 
+-			pHDev = usb_open(dev);
+-			if (!pHDev)
+-			{
+-				LOG_ERROR (&quot;Failed to open device.\n&quot;);
+-				break;
+-			}
+-			LOG_DEBUG(&quot;Opened device, pHDev = %p\n&quot;,pHDev);
++	LOG_DEBUG(&quot;Opened device, pHDev = %p\n&quot;, pHDev);
+ 
+-			/* usb_set_configuration required under win32 */
+-			usb_set_configuration(pHDev, dev-&gt;config[0].bConfigurationValue);
++	/* usb_set_configuration required under win32 */
++	usb_set_configuration(pHDev, dev-&gt;config[0].bConfigurationValue);
+ 
+-			retries = 3;
+-			do
+-			{
+-				i = usb_claim_interface(pHDev,0);
+-				if (i)
+-				{
+-					LOG_ERROR(&quot;usb_claim_interface: %s&quot;, usb_strerror());
++	retries = 3;
++	do
++	{
++		i = usb_claim_interface(pHDev,0);
++		if (i)
++		{
++			LOG_ERROR(&quot;usb_claim_interface: %s&quot;, usb_strerror());
+ #ifdef LIBUSB_HAS_DETACH_KERNEL_DRIVER_NP
+-					j = usb_detach_kernel_driver_np(pHDev, 0);
+-					if (j)
+-						LOG_ERROR(&quot;detach kernel driver: %s&quot;, usb_strerror());
++			j = usb_detach_kernel_driver_np(pHDev, 0);
++			if (j)
++				LOG_ERROR(&quot;detach kernel driver: %s&quot;, usb_strerror());
+ #endif
+-				}
+-				else
+-				{
+-					LOG_DEBUG(&quot;interface claimed!\n&quot;);
+-					break;
+-				}
+-			} while (--retries);
+-
+-			if (!i)
+-			{
+-				if (usb_set_altinterface(pHDev,0))
+-				{
+-					LOG_ERROR(&quot;Failed to set interface.\n&quot;);
+-					break;
+-				}
+-				else
+-					success = 1;
+-			}
+ 		}
+-	}
++		else
++		{
++			LOG_DEBUG(&quot;interface claimed!\n&quot;);
++			break;
++		}
++	} while (--retries);
+ 
+-	if (!found)
++	if (i)
+ 	{
+-		LOG_ERROR(&quot;No device found on bus.\n&quot;);
+-		exit(1);
++		LOG_ERROR(&quot;Initialisation failed.&quot;);
++		return ERROR_FAIL;
+ 	}
+-
+-	if (!success)
++	if (usb_set_altinterface(pHDev,0) != 0)
+ 	{
+-		LOG_ERROR(&quot;Initialisation failed.&quot;);
+-		exit(1);
++		LOG_ERROR(&quot;Failed to set interface.\n&quot;);
++		return ERROR_FAIL;
+ 	}
+ 
+-
+-	/* The device starts out in an unknown state on open.  As such, result reads time out, and it's not even known whether the command was accepted.  So, for this first command, we issue it repeatedly until its response doesn't time out.  Also, if sending a command is going to time out, we'll find that out here. */
+-	/* It must be possible to open the device in such a way that this special magic isn't needed, but, so far, it escapes us. */
++	/* The device starts out in an unknown state on open.  As such,
++	 * result reads time out, and it's not even known whether the
++	 * command was accepted.  So, for this first command, we issue
++	 * it repeatedly until its response doesn't time out.  Also, if
++	 * sending a command is going to time out, we find that out here.
++	 *
++	 * It must be possible to open the device in such a way that
++	 * this special magic isn't needed, but, so far, it escapes us.
++	 */
+ 	for (i = 0; i &lt; 5; i++) {
+ 		j = ep1_generic_commandl(
+ 			pHDev, 1,
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012575.html">[Openocd-development] [PATCH 5/8] rlink: eliminate spurious	indentation
+</A></li>
+	<LI>Next message: <A HREF="012578.html">[Openocd-development] [PATCH 7/8] jlink: remove superfluous	indentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12580">[ date ]</a>
+              <a href="thread.html#12580">[ thread ]</a>
+              <a href="subject.html#12580">[ subject ]</a>
+              <a href="author.html#12580">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

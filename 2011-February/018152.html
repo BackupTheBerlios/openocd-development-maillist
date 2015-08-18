@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] cortex_a9: implement read/write memory through APB-AP
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex_a9%3A%20implement%20read/write%0A%20memory%20through%20APB-AP&In-Reply-To=%3C4D554F13.4060900%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018139.html">
+   <LINK REL="Next"  HREF="018140.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] cortex_a9: implement read/write memory through APB-AP</H1>
+    <B>luca ellero</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex_a9%3A%20implement%20read/write%0A%20memory%20through%20APB-AP&In-Reply-To=%3C4D554F13.4060900%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] cortex_a9: implement read/write memory through APB-AP">lroluk at gmail.com
+       </A><BR>
+    <I>Fri Feb 11 16:00:35 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018139.html">[Openocd-development] [PATCH] cortex_a9: implement read/write memory through APB-AP
+</A></li>
+        <LI>Next message: <A HREF="018140.html">[Openocd-development] JTAG_STABLECLOCKS for jlink
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18152">[ date ]</a>
+              <a href="thread.html#18152">[ thread ]</a>
+              <a href="subject.html#18152">[ subject ]</a>
+              <a href="author.html#18152">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 11/02/2011 1.26, Aaron Carroll wrote:
+&gt;<i> Hi Luca,
+</I>&gt;<i>
+</I>&gt;<i> On 11 February 2011 02:00, <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dummy at dummy.com</A>&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dummy at dummy.com</A>&gt;  wrote:
+</I>&gt;&gt;<i> On 10/02/2011 11.10, Aaron Carroll wrote:
+</I>&gt;&gt;&gt;<i> On 10 February 2011 06:19, Luca Ellero&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">lroluk at gmail.com</A>&gt;    wrote:
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> This patch adds read/write capability to memory addresses not
+</I>&gt;&gt;&gt;&gt;<i> accessible through AHB-AP (for example &quot;boot ROM code&quot;).
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> To select between AHB and APB, a &quot;dap apsel&quot; command must be issued:
+</I>&gt;&gt;&gt;&gt;<i> dap apsel 0 -&gt;    following memory accesses are throuhg AHB
+</I>&gt;&gt;&gt;&gt;<i> dap apsel 1 -&gt;    following memory accesses are throuhg APB
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Seems a weird usage of apsel.  Could this be made more general, say a
+</I>&gt;&gt;&gt;<i> command to set the memory access type (core, hostbus, etc).  &quot;dap
+</I>&gt;&gt;&gt;<i> apsel 0&quot; isn't very informative to users.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> ...well, yes, it is. But I didn't find a better way, without heavily
+</I>&gt;&gt;<i> impacting other architectures.
+</I>&gt;&gt;<i> Anyway, apart from getting some info on AP (which actually is wrong on
+</I>&gt;&gt;<i> cortex_A9) what is the exact usefulness of &quot;dap apsel&quot;?
+</I>&gt;<i>
+</I>&gt;<i> Good question, I have no idea.  Regarding incorrect &quot;dap info&quot;, I
+</I>&gt;<i> think actually it's a correct interpretation... the APB-AP ROM is
+</I>&gt;<i> empty on all the omap4430's I've tried.
+</I>&gt;<i>
+</I>&gt;&gt;<i> Maybe it has to be set at dap level (in arm_adi_v5.c), but here it will
+</I>&gt;&gt;<i> eventually end-up in something like &quot;dap apsel&quot;?
+</I>&gt;&gt;<i> Have you any suggestions?
+</I>&gt;<i>
+</I>&gt;<i> Firstly, I don't think this is really a DAP or even an ARM issue.  In
+</I>&gt;<i> general, there may be multiple ways to access main memory (through the
+</I>&gt;<i> core, through any number of direct bus connections... perhaps there
+</I>&gt;<i> are others), and this should be configurable.  I think the right
+</I>&gt;<i> solution is some combination of:
+</I>&gt;<i>   1) a flag to the memory-accessing commands;
+</I>&gt;<i>   2) a table of memory regions to access methods.  Probably this has
+</I>&gt;<i> some per-SoC/board defaults which can be amended/overridden in .cfgs.
+</I>&gt;<i>   3) a global user-configurable default.
+</I>&gt;<i>
+</I>&gt;<i> (3) is more-or-less what you've done.  If we have a per-target
+</I>&gt;<i> configuration parameter (memtype_default, memaccess_default, something
+</I>&gt;<i> like that?), then the relevant target code can check it before
+</I>&gt;<i> performing the access.
+</I>&gt;<i>
+</I>&gt;<i> Maybe the best way of doing it is a per-target callback.  This way,
+</I>&gt;<i> the memory access types don't need to be defined globally, targets can
+</I>&gt;<i> check that valid access types are specified, and it provides a nice
+</I>&gt;<i> transition... empty callback means it isn't supported.
+</I>&gt;<i>
+</I>
+I agree, I'll investigate a bit to see if we can find a good solution. 
+Anyway I think that this is a decision that must be approved by the 
+majority of developers, because it impacts heavily all the source code 
+and documentation. We have to keep in mind that also other commands use 
+memory access, for example &quot;arm disassemble&quot;, &quot;dump_image&quot;, &quot;load_image&quot;
+I'm quite new in developing openocd, so I think I'm not the right one to 
+take this decision ;-)
+cheers
+luca ellero
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018139.html">[Openocd-development] [PATCH] cortex_a9: implement read/write memory through APB-AP
+</A></li>
+	<LI>Next message: <A HREF="018140.html">[Openocd-development] JTAG_STABLECLOCKS for jlink
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18152">[ date ]</a>
+              <a href="thread.html#18152">[ thread ]</a>
+              <a href="subject.html#18152">[ subject ]</a>
+              <a href="author.html#18152">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

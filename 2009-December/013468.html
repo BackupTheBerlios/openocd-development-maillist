@@ -1,0 +1,223 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/4] embedded hosts: optimize common	code path for core arm operations
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20embedded%20hosts%3A%20optimize%20common%0A%09code%20path%20for%20core%20arm%20operations&In-Reply-To=%3C1260469897-28285-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013463.html">
+   <LINK REL="Next"  HREF="013479.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/4] embedded hosts: optimize common	code path for core arm operations</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20embedded%20hosts%3A%20optimize%20common%0A%09code%20path%20for%20core%20arm%20operations&In-Reply-To=%3C1260469897-28285-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/4] embedded hosts: optimize common	code path for core arm operations">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Dec 10 19:31:34 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013463.html">[PATCH 2/2] server: add server_preinit which is called before config file is parsed. This fixes the issue under native win32 of the socket interface not being enabled (via WSAStartup) before init is called from a script.
+</A></li>
+        <LI>Next message: <A HREF="013479.html">[Openocd-development] [PATCH 1/4] embedded hosts: optimize	common code path for core arm operations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13468">[ date ]</a>
+              <a href="thread.html#13468">[ thread ]</a>
+              <a href="subject.html#13468">[ subject ]</a>
+              <a href="author.html#13468">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>avoid fn call for the if check on whether anything needs
+to be done.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/arm_jtag.c |   75 +++++++++++++++++++++----------------------------
+ src/target/arm_jtag.h |   37 ++++++++++++++++++++++--
+ 2 files changed, 66 insertions(+), 46 deletions(-)
+
+diff --git a/src/target/arm_jtag.c b/src/target/arm_jtag.c
+index af626ec..f7a540a 100644
+--- a/src/target/arm_jtag.c
++++ b/src/target/arm_jtag.c
+@@ -31,65 +31,54 @@
+ #define _ARM_JTAG_SCAN_N_CHECK_
+ #endif
+ 
+-int arm_jtag_set_instr(struct arm_jtag *jtag_info, uint32_t new_instr,  void *no_verify_capture)
++int arm_jtag_set_instr_inner(struct arm_jtag *jtag_info, uint32_t new_instr,  void *no_verify_capture)
+ {
+ 	struct jtag_tap *tap;
+ 	tap = jtag_info-&gt;tap;
+-	if (tap == NULL)
+-		return ERROR_FAIL;
++	struct scan_field field;
++	uint8_t t[4];
+ 
+-	if (buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length) != new_instr)
++	field.tap = tap;
++	field.num_bits = tap-&gt;ir_length;
++	field.out_value = t;
++	buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
++	field.in_value = NULL;
++
++	if (no_verify_capture == NULL)
++	{
++		jtag_add_ir_scan(1, &amp;field, jtag_get_end_state());
++	} else
+ 	{
+-		struct scan_field field;
+-		uint8_t t[4];
+-
+-		field.tap = tap;
+-		field.num_bits = tap-&gt;ir_length;
+-		field.out_value = t;
+-		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+-		field.in_value = NULL;
+-
+-
+-
+-		if (no_verify_capture == NULL)
+-		{
+-			jtag_add_ir_scan(1, &amp;field, jtag_get_end_state());
+-		} else
+-		{
+-			/* FIX!!!! this is a kludge!!! arm926ejs.c should reimplement this arm_jtag_set_instr to
+-			 * have special verification code.
+-			 */
+-			jtag_add_ir_scan_noverify(1, &amp;field, jtag_get_end_state());
+-		}
++		/* FIX!!!! this is a kludge!!! arm926ejs.c should reimplement this arm_jtag_set_instr to
++		 * have special verification code.
++		 */
++		jtag_add_ir_scan_noverify(1, &amp;field, jtag_get_end_state());
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-int arm_jtag_scann(struct arm_jtag *jtag_info, uint32_t new_scan_chain)
++int arm_jtag_scann_inner(struct arm_jtag *jtag_info, uint32_t new_scan_chain)
+ {
+ 	int retval = ERROR_OK;
+-	if (jtag_info-&gt;cur_scan_chain != new_scan_chain)
+-	{
+-		uint32_t values[1];
+-		int num_bits[1];
++	uint32_t values[1];
++	int num_bits[1];
+ 
+-		values[0]=new_scan_chain;
+-		num_bits[0]=jtag_info-&gt;scann_size;
++	values[0]=new_scan_chain;
++	num_bits[0]=jtag_info-&gt;scann_size;
+ 
+-		if ((retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;scann_instr, NULL)) != ERROR_OK)
+-		{
+-			return retval;
+-		}
++	if ((retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;scann_instr, NULL)) != ERROR_OK)
++	{
++		return retval;
++	}
+ 
+-		jtag_add_dr_out(jtag_info-&gt;tap,
+-				1,
+-				num_bits,
+-				values,
+-				jtag_get_end_state());
++	jtag_add_dr_out(jtag_info-&gt;tap,
++			1,
++			num_bits,
++			values,
++			jtag_get_end_state());
+ 
+-		jtag_info-&gt;cur_scan_chain = new_scan_chain;
+-	}
++	jtag_info-&gt;cur_scan_chain = new_scan_chain;
+ 
+ 	return retval;
+ }
+diff --git a/src/target/arm_jtag.h b/src/target/arm_jtag.h
+index 6f03fc6..cf230b4 100644
+--- a/src/target/arm_jtag.h
++++ b/src/target/arm_jtag.h
+@@ -36,9 +36,40 @@ struct arm_jtag
+ 	uint32_t intest_instr;
+ };
+ 
+-int arm_jtag_set_instr(struct arm_jtag *jtag_info,
+-		uint32_t new_instr, void *verify_capture);
+-int arm_jtag_scann(struct arm_jtag *jtag_info, uint32_t new_scan_chain);
++int arm_jtag_set_instr_inner(struct arm_jtag *jtag_info, uint32_t new_instr,  void *no_verify_capture);
++static inline int arm_jtag_set_instr(struct arm_jtag *jtag_info,
++		uint32_t new_instr, void *no_verify_capture)
++{
++	/* inline most common code path */
++	struct jtag_tap *tap;
++	tap = jtag_info-&gt;tap;
++	if (tap == NULL)
++		return ERROR_FAIL;
++
++	if (buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length) != new_instr)
++	{
++		return arm_jtag_set_instr_inner(jtag_info, new_instr, no_verify_capture);
++	}
++
++	return ERROR_OK;
++
++}
++
++
++int arm_jtag_scann_inner(struct arm_jtag *jtag_info, uint32_t new_scan_chain);
++static inline int arm_jtag_scann(struct arm_jtag *jtag_info, uint32_t new_scan_chain)
++{
++	/* inline most common code path */
++	int retval = ERROR_OK;
++	if (jtag_info-&gt;cur_scan_chain != new_scan_chain)
++	{
++		return arm_jtag_scann_inner(jtag_info, new_scan_chain);
++	}
++
++	return retval;
++}
++
++
+ int arm_jtag_setup_connection(struct arm_jtag *jtag_info);
+ 
+ /* use this as a static so we can inline it in -O3 and refer to it via a pointer  */
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013463.html">[PATCH 2/2] server: add server_preinit which is called before config file is parsed. This fixes the issue under native win32 of the socket interface not being enabled (via WSAStartup) before init is called from a script.
+</A></li>
+	<LI>Next message: <A HREF="013479.html">[Openocd-development] [PATCH 1/4] embedded hosts: optimize	common code path for core arm operations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13468">[ date ]</a>
+              <a href="thread.html#13468">[ thread ]</a>
+              <a href="subject.html#13468">[ subject ]</a>
+              <a href="author.html#13468">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

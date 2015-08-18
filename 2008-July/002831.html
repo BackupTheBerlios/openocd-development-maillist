@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%27flash%20write_image%27%20and%20%27verify_image%27%0A%09commands%20fail%20if%20there%20are%20no%20more%20hardware%20breakpoints%20available&In-Reply-To=%3C004501c8f2fd%2480440c10%24e207fea9%40MatchPoint%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002829.html">
+   <LINK REL="Next"  HREF="002832.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available</H1>
+    <B>Dario Vecchio</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%27flash%20write_image%27%20and%20%27verify_image%27%0A%09commands%20fail%20if%20there%20are%20no%20more%20hardware%20breakpoints%20available&In-Reply-To=%3C004501c8f2fd%2480440c10%24e207fea9%40MatchPoint%3E"
+       TITLE="[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available">dariovecchio at tiscali.it
+       </A><BR>
+    <I>Thu Jul 31 13:06:36 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002829.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+        <LI>Next message: <A HREF="002832.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2831">[ date ]</a>
+              <a href="thread.html#2831">[ thread ]</a>
+              <a href="subject.html#2831">[ subject ]</a>
+              <a href="author.html#2831">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> You could define a few step/breakpoint commands in tcl that has this
+</I>&gt;<i> functionality. The existing functions would then be the low level implementation
+</I>&gt;<i> of hardware/software breakpoints.
+</I>
+with the &quot;breakpoints list/save/restore&quot; patch one can use a similar script:
+
+----------------------------------------------------------------------------
+reset
+sleep 1000
+
+arm7_9 fast_memory_access enable
+arm7_9 dcc_downloads enable
+str9x flash_config 0 4 2 0 0x80000
+
+# save breakpoints
+bpsave bp.bpt
+# remove all breakpoints
+rbp
+
+flash protect 0 0 7 off
+flash write_image erase prog.elf
+flash protect 0 0 7 on
+
+verify_image prog.elf
+
+# restore breakpoints
+script bp.bpt
+
+resume
+
+----------------------------------------------------------------------------
+
+&gt;<i> This isn't a problem when debugging with GDB, is it?
+</I>
+no
+
+&gt;<i> How do you propose to deal with this from a users point of view?
+</I>
+The first issue for users (like me) is to be aware of risks and problems.
+When a user execute:
+
+&gt;<i> load_image zero.img 0x50000000 bin
+</I>256 byte written at address 0x50000000
+downloaded 256 byte in 0.015625s
+
+openocd says everything is ok but is not (not always) true.
+
+Some idea can be:
+
+- In the default scripts add a comment like &quot;this area is reserved for the
+  debugger and should not be used by the application&quot;
+- Set 'backup' as default
+- In the default scripts set a 'working_area' at the end of internal SRAM
+  (where is the stack? where is the heap?)
+- chek overlapping of 'working_area' and image load in the load_image implementation (this should be 
+easy and mandatory)
+  - if possible, allocate the 'working_area' needed for the algorithm outside
+    of the loading image space (but inside the 'working_area' defined in the config file)
+  - if not enough space (e.g. the loading image space completely overlaps the
+    'working_area' defined in the config file) give an error and do not load
+    or load without dcc (or at least tell the user to disable dcc)
+
+Regards,
+        Dario 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002829.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+	<LI>Next message: <A HREF="002832.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2831">[ date ]</a>
+              <a href="thread.html#2831">[ thread ]</a>
+              <a href="subject.html#2831">[ subject ]</a>
+              <a href="author.html#2831">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

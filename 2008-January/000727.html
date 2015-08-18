@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] AT91SAM9260(arm926ejs) halt or reset then	resume failure
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20AT91SAM9260%28arm926ejs%29%20halt%20or%20reset%20then%0A%09resume%20failure&In-Reply-To=%3CD9FA823BCAF9684F94CD715D466A63DF083203CA%40webmail.psitek.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000726.html">
+   <LINK REL="Next"  HREF="000728.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] AT91SAM9260(arm926ejs) halt or reset then	resume failure</H1>
+    <B>Pieter Conradie</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20AT91SAM9260%28arm926ejs%29%20halt%20or%20reset%20then%0A%09resume%20failure&In-Reply-To=%3CD9FA823BCAF9684F94CD715D466A63DF083203CA%40webmail.psitek.com%3E"
+       TITLE="[Openocd-development] AT91SAM9260(arm926ejs) halt or reset then	resume failure">Pieter.Conradie at psitek.com
+       </A><BR>
+    <I>Mon Jan 28 11:50:12 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000726.html">[Openocd-development] New version available, r278
+</A></li>
+        <LI>Next message: <A HREF="000728.html">[Openocd-development] access to cp15 registers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#727">[ date ]</a>
+              <a href="thread.html#727">[ thread ]</a>
+              <a href="subject.html#727">[ subject ]</a>
+              <a href="author.html#727">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi list,
+
+I do not have the in-depth knowledge required to solve the problem, but
+here is what I have found so far to expedite matters:
+
+If I halt the target and then resume it with OpenOCD rev 247, everything
+seems OK. For rev 272, 276 and 278, OpenOCD exits without any warning.
+The line that causes the exit(-1) is:
+
+File: arm7_9_common.c
+Function: arm7_9_restart_core(...)
+Line 1391
+
+By tracing back on the stack, it seems that a write to CP15 fails:
+
+Stack:
+* handle_resume_command
+* arm7_9_resume
+* arm7_9_restore_context
+* arm926ejs_pre_restore_context
+* arm926ejs_write_cp15
+* jtag_execute_queue
+* ft2232_execute_queue
+* ft2232_send_and_recv
+* jtag_read_buffer
+
+File: jtag.c
+Function: jtag_read_buffer(...)
+Line 1053: WARNING(&quot;in_handler reported a failed check&quot;);
+
+It seems that Dominic addressed this issue in revision 142 (&quot;catch
+apparently broken JTAG IR scan after ARM926EJ-S CP15 operations&quot;). Rev
+247 reports the following debug message, which rev 278 does not:
+
+Debug:   arm926ejs.c:104 arm926ejs_catch_broken_irscan(): caught
+ARM926EJ-S invalid Capture-IR result after CP15 access
+
+Has anyone else experienced the same problem? My target hardware is an
+Atmel AT91SAM9260-EK. I want to reset the target, initialize it so that
+I can upload FW to SDRAM and then resume the target, but resuming fails,
+even in Rev 247 with the following error message after resuming:
+
+Error:   arm_jtag.c:38 arm_jtag_set_instr_error_handler(): setting the
+new JTAG instruction failed, debugging is likely to be broken
+
+Thanks for your time and patience!
+Pieter Conradie
+
+P.S Here is my configuration script:
+
+######################################
+# OpenOCD Configuration Script
+#
+# Interface: Olimex JTAG USB OCD Tiny
+# Target:    Atmel AT91SAM9260
+# Hardware:  Atmel AT91SAM9260-EK
+######################################
+
+
+######################
+# Daemon configuration
+######################
+
+telnet_port 4444
+gdb_port 3333
+gdb_detach resume
+gdb_memory_map disable
+gdb_flash_program disable
+daemon_startup attach
+
+
+##############################
+# JTAG interface configuration
+##############################
+
+interface ft2232
+jtag_speed 1200
+
+#reset_config &lt;signals&gt; [combination] [trst type] [srst type]
+reset_config trst_and_srst separate trst_push_pull srst_open_drain
+
+#jtag_device &lt;IR length&gt; &lt;IR capture&gt; &lt;IR mask&gt; &lt;IDCODE instruction&gt;
+jtag_device 4 0x1 0xf 0xe
+
+jtag_nsrst_delay 200
+jtag_ntrst_delay 0
+
+
+################
+# ft2232 options
+################
+
+ft2232_device_desc &quot;Olimex OpenOCD JTAG TINY A&quot;
+ft2232_layout &quot;olimex-jtag&quot;
+ft2232_vid_pid 0x15BA 0x0004
+ft2232_latency 2
+
+
+######################
+# Target configuration
+######################
+
+#target &lt;type&gt; &lt;endianess&gt; &lt;reset mode&gt; &lt;JTAG pos&gt; &lt;variant&gt;
+target arm926ejs little reset_init 0 arm926ejs
+
+target_script 0 reset at91sam9260_reset_script.ocd
+run_and_halt_time 0 30
+
+#working area &lt;target#&gt; &lt;address&gt; &lt;size&gt; &lt;backup|nobackup&gt;
+working_area 0 0x00200000 0x1000 backup
+
+P.S.S. Here is my reset script:
+
+wait_halt                         # Wait for processor to halt
+mww 0xfffffd08 0xa5000401         # RSTC_MR : enable user reset
+mww 0xfffffd00 0xa5000004         # RSTC_CR : reset peripherals
+sleep 10                          # Wait at least 3 slow clock cycles
+mww 0xfffffd44 0x00008000         # WDT_MR : disable watchdog
+mww 0xfffffc20 0x00004001         # CKGR_MOR : enable the main
+oscillator
+sleep 100                         # wait 100 ms
+mww 0xfffffc30 0x00000001         # PMC_MCKR : switch to main oscillator
+sleep 100                         # wait 100 ms
+mww 0xfffffc28 0x2060bf09         # CKGR_PLLAR: Set PLLA Register for
+198,656MHz
+sleep 100                         # wait 100 ms
+mww 0xfffffc30 0x00000101         # PMC_MCKR : Select prescaler
+sleep 100                         # wait 100 ms
+mww 0xfffffc30 0x00000102         # PMC_MCKR : Clock from PLLA is
+selected
+sleep 100                         # wait 100 ms
+jtag_speed 0                      # Increase JTAG Speed to 6MHz
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000726.html">[Openocd-development] New version available, r278
+</A></li>
+	<LI>Next message: <A HREF="000728.html">[Openocd-development] access to cp15 registers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#727">[ date ]</a>
+              <a href="thread.html#727">[ thread ]</a>
+              <a href="subject.html#727">[ subject ]</a>
+              <a href="author.html#727">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

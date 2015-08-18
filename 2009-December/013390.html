@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/4] improve command_done() API and docs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20improve%20command_done%28%29%20API%0A%20and%20docs&In-Reply-To=%3C1260053317.27619.11202.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013388.html">
+   <LINK REL="Next"  HREF="013389.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/4] improve command_done() API and docs</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20improve%20command_done%28%29%20API%0A%20and%20docs&In-Reply-To=%3C1260053317.27619.11202.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH 1/4] improve command_done() API and docs">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Dec  5 23:48:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013388.html">[Openocd-development] [PATCH 1/4] improve command_done() API	and docs
+</A></li>
+        <LI>Next message: <A HREF="013389.html">[Openocd-development] svn code review part 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13390">[ date ]</a>
+              <a href="thread.html#13390">[ thread ]</a>
+              <a href="subject.html#13390">[ subject ]</a>
+              <a href="author.html#13390">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, 2009-12-05 at 13:26 -0800, David Brownell wrote:
+&gt;<i> On Sunday 29 November 2009, Zachary T Welch wrote:
+</I>&gt;<i> &gt; Note: this audit revealed some potential bugs with the command context
+</I>&gt;<i> &gt; implementation.  There was a reason that commands were added at the
+</I>&gt;<i> &gt; end of the list.  Shallow copying of command_context means that
+</I>&gt;<i> &gt; the list is shared between them.
+</I>&gt;<i> 
+</I>&gt;<i> When does OpenOCD do shallow copying of such contexts?  That
+</I>&gt;<i> kind of detail is stuff I've not had to observe... :)
+</I>
+See copy_command_context(). :)
+
+&gt;<i> &gt; And commands added at the top-level 
+</I>&gt;<i> &gt; before the pre-existing commands will not be available in the shared
+</I>&gt;<i> &gt; context as they were before.  Yikes!
+</I>&gt;<i> 
+</I>&gt;<i> Hmm ... this sounds like a mechanism not being used well!
+</I>
+I have looked to improve it, but there could be a lot of work for
+relatively little reward.
+
+&gt;<i> Lexical scoping is a Good Thing, and builds on such hiding.
+</I>&gt;<i> Requiring everything to be globally scoped ... not ideal.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Have you thought about having a tree of command contexts?
+</I>&gt;<i> Possibly modeled with stack push/pop type primitives.  Have
+</I>&gt;<i> builtin Jim primitives in the base context, various OpenOCD
+</I>&gt;<i> addons next, and then a scan chain ... with each target its
+</I>&gt;<i> own context, with unique operations.
+</I>
+I am very much interested in more encapsulation, but your proposal
+implies a lot of work with the current command set.  I think it will be
+better to finish separating mechanism and policy, implementing these
+extensions in a parallel command language, and making a flag day of it.
+
+&gt;<i> I confess to not having dived into this part of the code, but
+</I>&gt;<i> at a glance it seems like &quot;command context&quot; might be the most
+</I>&gt;<i> natural structuring tool that lets us get away from globals.
+</I>
+Yes.  I have been looking at adding generic context mechanisms to solve
+these problems.  I have not found a solution that will KISS.
+
+&gt;<i> (Previous hand-wavey comments from me said &quot;interpreter&quot;, which
+</I>&gt;<i> was the appropriate abstraction in one system I used.  And in
+</I>&gt;<i> this one, it's not unrelated -- interpreters do have private
+</I>&gt;<i> state.  But, it seems, just for Jim stuff; not for all the
+</I>&gt;<i> OpenOCD machinery.)
+</I>
+Right... I intend to piggyback on the Jim stuff, but in a way that
+encapsulates it from the rest of the system.  Under the hood, this
+should be portable to Lua, Scheme, etc.... ;)
+
+&gt;<i> That is, while there can be $TARGETNAME objects in a context
+</I>&gt;<i> with subcommands ... having $TARGETNAME be the current target
+</I>&gt;<i> might be the same as just stacking it as a context.  Its sundry
+</I>&gt;<i> commands might then be accessible without a $TARGETNAME prefix.
+</I>&gt;<i> Likewise, scan chain (or board) specific scopes, and commands
+</I>&gt;<i> needed to work with that chain/board.  A &quot;proc ...&quot; declaration
+</I>&gt;<i> would go into the current context
+</I>
+Did you see my proposal to have 'command proc foo bar baz {} {}' syntax?
+Does the same thing you're saying, but with less context. ;)
+And you could 'eval' such a statement to dynamically scope it....
+
+I am not keen on the idea of the user being able to specify a &quot;current
+context&quot; that temporarily changes the implied root of the command tree,
+which seems to be what you're suggesting.  I would rather have us
+standardize on a idiomatic nomenclature that provides a unified syntax
+for single target systems that meshes with complex configurations too.
+
+&gt;<i> If you're keen on growing OpenOCD to support multiple JTAG
+</I>&gt;<i> adapters, and thus multiple scan chains ... I would think
+</I>&gt;<i> that having a clean way to scope things would be near the
+</I>&gt;<i> top of the list of necessary structural changes.
+</I>
+Yeah, clearly there remain some missing bells and whistles.
+
+[[Rant about how new features would pay better than cleanup deleted.]]
+
+--Z
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013388.html">[Openocd-development] [PATCH 1/4] improve command_done() API	and docs
+</A></li>
+	<LI>Next message: <A HREF="013389.html">[Openocd-development] svn code review part 2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13390">[ date ]</a>
+              <a href="thread.html#13390">[ thread ]</a>
+              <a href="subject.html#13390">[ subject ]</a>
+              <a href="author.html#13390">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

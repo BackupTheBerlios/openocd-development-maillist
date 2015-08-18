@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH:fix SIGSEGV
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3Afix%20SIGSEGV&In-Reply-To=%3C6678FEEF-65D4-41CF-B680-52C17068692D%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003866.html">
+   <LINK REL="Next"  HREF="003879.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH:fix SIGSEGV</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3Afix%20SIGSEGV&In-Reply-To=%3C6678FEEF-65D4-41CF-B680-52C17068692D%40kc8apf.net%3E"
+       TITLE="[Openocd-development] PATCH:fix SIGSEGV">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Tue Dec  2 18:34:15 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003866.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+        <LI>Next message: <A HREF="003879.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3869">[ date ]</a>
+              <a href="thread.html#3869">[ thread ]</a>
+              <a href="subject.html#3869">[ subject ]</a>
+              <a href="author.html#3869">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I think a combination of your two approaches might be more  
+appropriate.  Let's introduce a new function  
+cmd_queue_allocate_aligned() that does the alignment as well as the  
+allocation.  The benefit is that only cases where alignment is  
+necessary can use the new function, but they still only need a single  
+function rather than a pair.
+
+Rick
+
+
+On Dec 2, 2008, at 2:33 AM, Hiroshi Ito wrote:
+
+&gt;&gt;&gt;<i> How about this patch. this also works.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Is it acceptable ?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I change the code.
+</I>&gt;&gt;<i> this is more readable.
+</I>&gt;<i>
+</I>&gt;<i> same, but revert unnecessary change.
+</I>&gt;<i>
+</I>&gt;<i> --------
+</I>&gt;<i> Hiroshi Ito
+</I>&gt;<i> Media Lab. Inc.,
+</I>&gt;<i> URL <A HREF="http://www.mlb.co.jp">http://www.mlb.co.jp</A> ( Sorry, Japanese only. )
+</I>&gt;<i> TEL +81-3-5294-7255  FAX +81-3-5294-7256
+</I>&gt;<i> Index: src/jtag/jtag.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/jtag/jtag.c	(&#12522;&#12499;&#12472;&#12519;&#12531; 1183)
+</I>&gt;<i> +++ src/jtag/jtag.c	(&#20316;&#26989;&#12467;&#12500;&#12540;)
+</I>&gt;<i> @@ -401,6 +401,21 @@
+</I>&gt;<i> 	return t + offset;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> +void cmd_queue_make_align(void)
+</I>&gt;<i> +{
+</I>&gt;<i> +    cmd_queue_page_t *p_page = cmd_queue_pages;
+</I>&gt;<i> +    if (!p_page) return;
+</I>&gt;<i> +
+</I>&gt;<i> +    while (p_page-&gt;next)
+</I>&gt;<i> +	p_page = p_page-&gt;next;
+</I>&gt;<i> +
+</I>&gt;<i> +    if ( p_page-&gt;used &amp; (sizeof(void*)-1) ) {
+</I>&gt;<i> +	p_page-&gt;used += sizeof(void*) - (p_page-&gt;used &amp; (sizeof(void*)-1));
+</I>&gt;<i> +	if ( p_page-&gt;used &gt;= CMD_QUEUE_PAGE_SIZE )
+</I>&gt;<i> +	    p_page-&gt;used = CMD_QUEUE_PAGE_SIZE;
+</I>&gt;<i> +    }
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> void cmd_queue_free(void)
+</I>&gt;<i> {
+</I>&gt;<i> 	cmd_queue_page_t *page = cmd_queue_pages;
+</I>&gt;<i> @@ -461,6 +476,7 @@
+</I>&gt;<i> 	last_cmd = jtag_get_last_command_p();
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> @@ -550,6 +566,7 @@
+</I>&gt;<i> 	last_cmd = jtag_get_last_command_p();
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> @@ -614,6 +631,7 @@
+</I>&gt;<i> 	}
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> @@ -704,6 +722,7 @@
+</I>&gt;<i> 	}
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> @@ -785,6 +804,7 @@
+</I>&gt;<i> 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> @@ -831,6 +851,7 @@
+</I>&gt;<i> 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> @@ -887,6 +908,7 @@
+</I>&gt;<i> 	int i;
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> @@ -907,6 +929,7 @@
+</I>&gt;<i> 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> @@ -1039,6 +1062,7 @@
+</I>&gt;<i> 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> @@ -1065,6 +1089,7 @@
+</I>&gt;<i> 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+</I>&gt;<i>
+</I>&gt;<i> 	/* allocate memory for a new list member */
+</I>&gt;<i> +	cmd_queue_make_align();
+</I>&gt;<i> 	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;<i> 	(*last_cmd)-&gt;next = NULL;
+</I>&gt;<i> 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/308192db/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/308192db/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003866.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+	<LI>Next message: <A HREF="003879.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3869">[ date ]</a>
+              <a href="thread.html#3869">[ thread ]</a>
+              <a href="subject.html#3869">[ subject ]</a>
+              <a href="author.html#3869">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

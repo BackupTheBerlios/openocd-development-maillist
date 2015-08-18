@@ -1,0 +1,111 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] NULL ptr exception in jtag.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20NULL%20ptr%20exception%20in%20jtag.c&In-Reply-To=%3C48051BB9.2060303%40mit.edu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001848.html">
+   <LINK REL="Next"  HREF="001850.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] NULL ptr exception in jtag.c</H1>
+    <B>Edwin Olson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20NULL%20ptr%20exception%20in%20jtag.c&In-Reply-To=%3C48051BB9.2060303%40mit.edu%3E"
+       TITLE="[Openocd-development] NULL ptr exception in jtag.c">eolson at mit.edu
+       </A><BR>
+    <I>Tue Apr 15 23:18:49 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001848.html">[Openocd-development] More TRST + embedded ice cleanup
+</A></li>
+        <LI>Next message: <A HREF="001850.html">[Openocd-development] NULL ptr exception in jtag.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1849">[ date ]</a>
+              <a href="thread.html#1849">[ thread ]</a>
+              <a href="subject.html#1849">[ subject ]</a>
+              <a href="author.html#1849">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There's a regression somewhere between r=550 and head I get a NULL ptr 
+exception upon startup. I'm invoking with openocd -f flash.cfg (config 
+file attached).
+
+#0  interface_jtag_execute_queue () at jtag.c:1257
+#1  0x0000000000433c89 in jtag_execute_queue () at jtag.c:1269
+#2  0x000000000042562c in ahbap_debugport_init (swjdp=0x6947b0) at 
+cortex_swjdp.c:958
+#3  0x000000000042254c in cortex_m3_init_target (cmd_ctx=&lt;value 
+optimized out&gt;, target=0x6945f0) at cortex_m3.c:1239
+#4  0x0000000000406aac in target_init (cmd_ctx=0x691010) at target.c:544
+#5  0x0000000000401d76 in handle_init_command (cmd_ctx=0x691010, 
+cmd=&lt;value optimized out&gt;, args=&lt;value optimized out&gt;, argc=&lt;value 
+optimized out&gt;) at openocd.c:100
+#6  0x000000000043c131 in find_and_run_command (context=0x691010, 
+commands=0x0, words=0x7fff5e763a30, num_words=1, start_word=&lt;value 
+optimized out&gt;) at command.c:330
+#7  0x000000000043c36b in command_run_line (context=0x0, line=0x459bb0 
+&quot;init&quot;) at command.c:388
+#8  0x0000000000401cdc in main (argc=3, argv=0x7fff5e763f68) at 
+openocd.c:216
+
+In short, we're landing in this function, and the global variable jtag 
+is NULL. We die when its dereferenced via execute_query:
+
+int MINIDRIVER(interface_jtag_execute_queue)(void)
+{
+    int retval;
+
+    retval = jtag-&gt;execute_queue();
+   
+    cmd_queue_free();
+
+    jtag_command_queue = NULL;
+    last_comand_pointer = &amp;jtag_command_queue;
+
+    return retval;
+}
+
+I set a breakpoint at jtag_interface_init, assuming that's where the 
+jtag variable should have been initialized, and it does not seem to be 
+getting called (but I might not understand the code flow!)
+
+For now, I've reverted to r550!
+
+-Ed
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: flash.cfg
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080415/cff331ad/attachment.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20080415/cff331ad/attachment.ksh</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001848.html">[Openocd-development] More TRST + embedded ice cleanup
+</A></li>
+	<LI>Next message: <A HREF="001850.html">[Openocd-development] NULL ptr exception in jtag.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1849">[ date ]</a>
+              <a href="thread.html#1849">[ thread ]</a>
+              <a href="subject.html#1849">[ subject ]</a>
+              <a href="author.html#1849">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

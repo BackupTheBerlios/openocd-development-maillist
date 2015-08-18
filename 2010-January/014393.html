@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD on MX51
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20on%20MX51&In-Reply-To=%3C201001251333.25842.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014386.html">
+   <LINK REL="Next"  HREF="014220.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD on MX51</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20on%20MX51&In-Reply-To=%3C201001251333.25842.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] OpenOCD on MX51">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Jan 25 22:33:25 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014386.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+        <LI>Next message: <A HREF="014220.html">[Openocd-development] How to cross-compile a 64-bit version for Windows with ftd2xx?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14393">[ date ]</a>
+              <a href="thread.html#14393">[ thread ]</a>
+              <a href="subject.html#14393">[ subject ]</a>
+              <a href="author.html#14393">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 25 January 2010, Alan Carvalho de Assis wrote:
+&gt;<i> Hi Dave,
+</I>&gt;<i> 
+</I>&gt;<i> On 1/23/10, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+</I>&gt;<i> &gt; On Monday 18 January 2010, Alan Carvalho de Assis wrote:
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; What could I investigate now to fix this error?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Unfortunately I think you're starting to hit some of the ways
+</I>&gt;<i> &gt; that the DAP code is ... a bit flakey.  Especially with respect
+</I>&gt;<i> &gt; to how it handles errors reported by the DP or AP; it triggers
+</I>&gt;<i> &gt; faults a bit more often (and randomly) than I would expect, and
+</I>&gt;<i> &gt; the cleanup -- and mode selection -- looks a bit iffy to me.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I attach a couple patches which I've been using, which might
+</I>&gt;<i> &gt; change things (or might not).  If they help, good. ...
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; If not, then there's something else you could build on top
+</I>&gt;<i> &gt; of these.  ...
+</I>&gt;<i> &gt;
+</I>&gt;<i> 
+</I>&gt;<i> It doesn't work. Even I putting the memaccess_tck cycles after
+</I>&gt;<i> adi_jtag_dp_scan() I still getting the same error:
+</I>&gt;<i> 
+</I>&gt;<i> $ telnet 127.0.0.1 4444
+</I>&gt;<i> Trying 127.0.0.1...
+</I>&gt;<i> Connected to 127.0.0.1.
+</I>&gt;<i> Escape character is '^]'.
+</I>&gt;<i> Open On-Chip Debugger
+</I>&gt;<i> &gt; reset
+</I>&gt;<i> JTAG tap: imx51.DAP tap/device found: 0x1ba00477 (mfg: 0x23b, part:
+</I>&gt;<i> 0xba00, ver: 0x1)
+</I>&gt;<i> TAP imx51.SDMA does not have IDCODE
+</I>&gt;<i> JTAG tap: imx51.SJC tap/device found: 0x1190c01d (mfg: 0x00e, part:
+</I>&gt;<i> 0x190c, ver: 0x1)
+</I>&gt;<i> imx51.cpu: how to reset?
+</I>
+You should fix that.  Is SRST wired?  If not, try to find out
+how to issue a JTAG level reset ... maybe some SJC operations
+will do the job, that's a common approach.
+
+
+&gt;<i> Command handler execution failed
+</I>&gt;<i> in procedure 'reset' called at file &quot;command.c&quot;, line 647
+</I>&gt;<i> called at file &quot;command.c&quot;, line 361
+</I>
+And from here on, I'd expect various failures caused by not
+having reset that core.  (On top of any other issues!)
+
+
+&gt;<i> &gt; halt
+</I>&gt;<i> AHBAP Cached values: dp_select 0x10, ap_csw 0xa2000002, ap_tar 0x54011080
+</I>&gt;<i> JTAG-DP OVERRUN - check clock or reduce jtag speed
+</I>&gt;<i> Read MEM_AP_CSW 0x80000042, MEM_AP_TAR 0x54011080
+</I>
+You're just going to have to find what causes that.
+
+As I noted, the DAP code is a bit iffy, especially
+with respect to fault handling.  There are periodic
+reports of similar problems; they're not especially
+reproducible.  Those are symptoms of timing-related
+bugs; but if you look at the code and spec, you'll
+probably end up scratching your head about various
+things.  In the 0.5 series it's going to get some
+reworking to support SWD transport, which I think
+will likely shake out some of that flakiness.
+
+
+&gt;<i> &gt; The OVERRUN error comes from throwing data at the MEM-AP
+</I>&gt;<i> &gt; faster than it can handle it.  MEM-AP speed is a system
+</I>&gt;<i> &gt; specific issue.  Exactly the sort of thing MX51 could very
+</I>&gt;<i> &gt; reasonably do differently from the other Cortex parts which
+</I>&gt;<i> &gt; now mostly work.  (I'm not quite clear on how much of that
+</I>&gt;<i> &gt; is driven by the JTAG clock vs by whatever core clock your
+</I>&gt;<i> &gt; chip may be using.)  There are two issues I'd wonder about:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  * First, whether the code is correct ... ergo the
+</I>&gt;<i> &gt;    attached patches and that REVISIT comment.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  * Second, whether you need a different memaccess_tck
+</I>&gt;<i> &gt;    value.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; The ADIv5 spec will be useful to sort out such issues.
+</I>&gt;<i> &gt;
+</I>&gt;<i> 
+</I>&gt;<i> I tested memaccess_tck with small values as 8, 80, 100 and big values
+</I>&gt;<i> as 100000. In all tests it returns same error message above. I just
+</I>&gt;<i> noticied it delay a little more time to show this error msg when I use
+</I>&gt;<i> 100000.
+</I>
+OK, so the memaccess_tck issue doesn't seem to be the main
+problem here.
+
+It's clearly time for you to pull out the ADIv5 spec and
+start working with that and the code ...
+
+That's pretty low level work, and will often not be very
+straightforward.  Prepare for some frustration, and be
+patient!
+
+- Dave
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014386.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+	<LI>Next message: <A HREF="014220.html">[Openocd-development] How to cross-compile a 64-bit version for Windows with ftd2xx?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14393">[ date ]</a>
+              <a href="thread.html#14393">[ thread ]</a>
+              <a href="subject.html#14393">[ subject ]</a>
+              <a href="author.html#14393">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

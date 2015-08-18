@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/4] target: $_TARGET mdw now has a	phys option
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/4%5D%20target%3A%20%24_TARGET%20mdw%20now%20has%20a%0A%09phys%20option&In-Reply-To=%3C1277203994-18167-2-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015942.html">
+   <LINK REL="Next"  HREF="015940.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/4] target: $_TARGET mdw now has a	phys option</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/4%5D%20target%3A%20%24_TARGET%20mdw%20now%20has%20a%0A%09phys%20option&In-Reply-To=%3C1277203994-18167-2-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/4] target: $_TARGET mdw now has a	phys option">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Jun 22 12:53:12 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015942.html">[Openocd-development] [PATCH 1/4] target: mwX on target object now	supporst phys argument
+</A></li>
+        <LI>Next message: <A HREF="015940.html">[Openocd-development] [PATCH 3/4] cortex a8: only physical	read/write's are available when target is running
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15943">[ date ]</a>
+              <a href="thread.html#15943">[ thread ]</a>
+              <a href="subject.html#15943">[ subject ]</a>
+              <a href="author.html#15943">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>just like the mdw command
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/target.c |   36 ++++++++++++++++++++++++++++--------
+ 1 files changed, 28 insertions(+), 8 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index d6efe5b..3bf6824 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -4021,23 +4021,36 @@ static int jim_target_md(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	Jim_GetOptInfo goi;
+ 	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
+ 
+-	/* danger! goi.argc will be modified below! */
+-	argc = goi.argc;
+-
+-	if ((argc != 1) &amp;&amp; (argc != 2))
++	if ((goi.argc &lt; 1) || (goi.argc &gt; 3))
+ 	{
+ 		Jim_SetResult_sprintf(goi.interp,
+-				&quot;usage: %s &lt;address&gt; [&lt;count&gt;]&quot;, cmd_name);
++				&quot;usage: %s [phys] &lt;address&gt; [&lt;count&gt;]&quot;, cmd_name);
+ 		return JIM_ERR;
+ 	}
+ 
++	int (*fn)(struct target *target,
++			uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	fn=target_read_memory;
++
++	int e;
++	if (strcmp(Jim_GetString(argv[1], NULL), &quot;phys&quot;) == 0)
++	{
++		/* consume it */
++		struct Jim_Obj *obj;
++		e = Jim_GetOpt_Obj(&amp;goi, &amp;obj);
++		if (e != JIM_OK)
++			return e;
++
++		fn=target_read_phys_memory;
++	}
++
+ 	jim_wide a;
+-	int e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+ 	if (e != JIM_OK) {
+ 		return JIM_ERR;
+ 	}
+ 	jim_wide c;
+-	if (argc == 2) {
++	if (goi.argc == 1) {
+ 		e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+ 		if (e != JIM_OK) {
+ 			return JIM_ERR;
+@@ -4045,6 +4058,13 @@ static int jim_target_md(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	} else {
+ 		c = 1;
+ 	}
++
++	/* all args must be consumed */
++	if (goi.argc != 0)
++	{
++		return JIM_ERR;
++	}
++
+ 	jim_wide b = 1; /* shut up gcc */
+ 	if (strcasecmp(cmd_name, &quot;mdw&quot;) == 0)
+ 		b = 4;
+@@ -4068,7 +4088,7 @@ static int jim_target_md(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 		if (y &gt; 16) {
+ 			y = 16;
+ 		}
+-		e = target_read_memory(target, a, b, y / b, target_buf);
++		e = fn(target, a, b, y / b, target_buf);
+ 		if (e != ERROR_OK) {
+ 			Jim_SetResult_sprintf(interp, &quot;error reading target @ 0x%08lx&quot;, (int)(a));
+ 			return JIM_ERR;
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015942.html">[Openocd-development] [PATCH 1/4] target: mwX on target object now	supporst phys argument
+</A></li>
+	<LI>Next message: <A HREF="015940.html">[Openocd-development] [PATCH 3/4] cortex a8: only physical	read/write's are available when target is running
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15943">[ date ]</a>
+              <a href="thread.html#15943">[ thread ]</a>
+              <a href="subject.html#15943">[ subject ]</a>
+              <a href="author.html#15943">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

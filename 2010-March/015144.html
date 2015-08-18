@@ -1,0 +1,406 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] jtag: jtag_add_ir_scan() now	takes a single field
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20jtag%3A%20jtag_add_ir_scan%28%29%20now%0A%09takes%20a%20single%20field&In-Reply-To=%3C1267784480-12908-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015145.html">
+   <LINK REL="Next"  HREF="015148.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] jtag: jtag_add_ir_scan() now	takes a single field</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20jtag%3A%20jtag_add_ir_scan%28%29%20now%0A%09takes%20a%20single%20field&In-Reply-To=%3C1267784480-12908-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] jtag: jtag_add_ir_scan() now	takes a single field">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Mar  5 11:21:20 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015145.html">[Openocd-development] [PATCH 1/2] jtag: retire tap field
+</A></li>
+        <LI>Next message: <A HREF="015148.html">[Openocd-development] [PATCH] CFI: review print of Voltage values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15144">[ date ]</a>
+              <a href="thread.html#15144">[ thread ]</a>
+              <a href="subject.html#15144">[ subject ]</a>
+              <a href="author.html#15144">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>In the code a single field was all that was ever used. Makes
+jtag_add_ir_scan() simpler and leaves more complicated stuff
+to jtag_add_plain_ir_scan().
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nor/str9xpec.c       |    2 +-
+ src/jtag/core.c                |   31 +++++++++++++++++--------------
+ src/jtag/drivers/driver.c      |    5 ++---
+ src/jtag/jtag.h                |    4 ++--
+ src/jtag/minidriver.h          |    2 +-
+ src/jtag/minidummy/minidummy.c |    2 +-
+ src/jtag/tcl.c                 |   11 ++++++++++-
+ src/jtag/zy1000/zy1000.c       |    6 ++----
+ src/pld/virtex2.c              |    2 +-
+ src/target/arm11_dbgtap.c      |    6 +++---
+ src/target/arm_jtag.c          |    4 ++--
+ src/target/etb.c               |    2 +-
+ src/target/mips_ejtag.c        |    2 +-
+ src/target/xscale.c            |    2 +-
+ src/xsvf/xsvf.c                |    2 +-
+ 15 files changed, 46 insertions(+), 37 deletions(-)
+
+diff --git a/src/flash/nor/str9xpec.c b/src/flash/nor/str9xpec.c
+index 3796a4b..b6d24f5 100644
+--- a/src/flash/nor/str9xpec.c
++++ b/src/flash/nor/str9xpec.c
+@@ -48,7 +48,7 @@ int str9xpec_set_instr(struct jtag_tap *tap, uint32_t new_instr, tap_state_t end
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+ 		field.in_value = NULL;
+ 
+-		jtag_add_ir_scan(tap, 1, &amp;field, end_state);
++		jtag_add_ir_scan(tap, &amp;field, end_state);
+ 
+ 		free(field.out_value);
+ 	}
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 2e09cb6..bce332f 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -42,7 +42,8 @@
+ /// The number of JTAG queue flushes (for profiling and debugging purposes).
+ static int jtag_flush_queue_count;
+ 
+-static void jtag_add_scan_check(struct jtag_tap *active, void (*jtag_add_scan)(struct jtag_tap *active, int in_num_fields, const struct scan_field *in_fields, tap_state_t state),
++static void jtag_add_scan_check(struct jtag_tap *active,
++		void (*jtag_add_scan)(struct jtag_tap *active, int in_num_fields, const struct scan_field *in_fields, tap_state_t state),
+ 		int in_num_fields, struct scan_field *in_fields, tap_state_t state);
+ 
+ /**
+@@ -352,17 +353,22 @@ void jtag_alloc_in_value32(struct scan_field *field)
+ 	interface_jtag_alloc_in_value32(field);
+ }
+ 
+-void jtag_add_ir_scan_noverify(struct jtag_tap *active, int in_count, const struct scan_field *in_fields,
++void jtag_add_ir_scan_noverify(struct jtag_tap *active, const struct scan_field *in_fields,
+ 		tap_state_t state)
+ {
+ 	jtag_prelude(state);
+ 
+-	int retval = interface_jtag_add_ir_scan(active, in_count, in_fields, state);
++	int retval = interface_jtag_add_ir_scan(active, in_fields, state);
+ 	jtag_set_error(retval);
+ }
+ 
++static void jtag_add_ir_scan_noverify_callback(struct jtag_tap *active, int dummy, const struct scan_field *in_fields,
++		tap_state_t state)
++{
++	jtag_add_ir_scan_noverify(active, in_fields, state);
++}
+ 
+-void jtag_add_ir_scan(struct jtag_tap *active, int in_num_fields, struct scan_field *in_fields, tap_state_t state)
++void jtag_add_ir_scan(struct jtag_tap *active, struct scan_field *in_fields, tap_state_t state)
+ {
+ 	assert(state != TAP_RESET);
+ 
+@@ -370,18 +376,15 @@ void jtag_add_ir_scan(struct jtag_tap *active, int in_num_fields, struct scan_fi
+ 	{
+ 		/* 8 x 32 bit id's is enough for all invocations */
+ 
+-		for (int j = 0; j &lt; in_num_fields; j++)
+-		{
+-			/* if we are to run a verification of the ir scan, we need to get the input back.
+-			 * We may have to allocate space if the caller didn't ask for the input back.
+-			 */
+-			in_fields[j].check_value = active-&gt;expected;
+-			in_fields[j].check_mask = active-&gt;expected_mask;
+-		}
+-		jtag_add_scan_check(active, jtag_add_ir_scan_noverify, in_num_fields, in_fields, state);
++		/* if we are to run a verification of the ir scan, we need to get the input back.
++		 * We may have to allocate space if the caller didn't ask for the input back.
++		 */
++		in_fields-&gt;check_value = active-&gt;expected;
++		in_fields-&gt;check_mask = active-&gt;expected_mask;
++		jtag_add_scan_check(active, jtag_add_ir_scan_noverify_callback, 1, in_fields, state);
+ 	} else
+ 	{
+-		jtag_add_ir_scan_noverify(active, in_num_fields, in_fields, state);
++		jtag_add_ir_scan_noverify(active, in_fields, state);
+ 	}
+ }
+ 
+diff --git a/src/jtag/drivers/driver.c b/src/jtag/drivers/driver.c
+index 673d191..57bc28d 100644
+--- a/src/jtag/drivers/driver.c
++++ b/src/jtag/drivers/driver.c
+@@ -74,7 +74,7 @@ static void cmd_queue_scan_field_clone(struct scan_field * dst, const struct sca
+  * see jtag_add_ir_scan()
+  *
+  */
+-int interface_jtag_add_ir_scan(struct jtag_tap* active, int in_num_fields, const struct scan_field *in_fields, tap_state_t state)
++int interface_jtag_add_ir_scan(struct jtag_tap* active, const struct scan_field *in_fields, tap_state_t state)
+ {
+ 	size_t num_taps = jtag_tap_count_enabled();
+ 
+@@ -106,8 +106,7 @@ int interface_jtag_add_ir_scan(struct jtag_tap* active, int in_num_fields, const
+ 			/* if TAP is listed in input fields, copy the value */
+ 			tap-&gt;bypass = 0;
+ 
+-			for (int j = 0; j &lt; in_num_fields; j++)
+-				cmd_queue_scan_field_clone(field, in_fields + j);
++			cmd_queue_scan_field_clone(field, in_fields);
+ 		} else
+ 		{
+ 			/* if a TAP isn't listed in input fields, set it to BYPASS */
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index 6e21024..fe57db1 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -350,13 +350,13 @@ int jtag_init_inner(struct command_context *cmd_ctx);
+  * subsequent DR SCANs.
+  *
+  */
+-void jtag_add_ir_scan(struct jtag_tap* tap, int num_fields,
++void jtag_add_ir_scan(struct jtag_tap* tap,
+ 		struct scan_field* fields, tap_state_t endstate);
+ /**
+  * The same as jtag_add_ir_scan except no verification is performed out
+  * the output values.
+  */
+-void jtag_add_ir_scan_noverify(struct jtag_tap* tap, int num_fields,
++void jtag_add_ir_scan_noverify(struct jtag_tap* tap,
+ 		const struct scan_field *fields, tap_state_t state);
+ /**
+  * Duplicate the scan fields passed into the function into an IR SCAN
+diff --git a/src/jtag/minidriver.h b/src/jtag/minidriver.h
+index a417216..4631593 100644
+--- a/src/jtag/minidriver.h
++++ b/src/jtag/minidriver.h
+@@ -50,7 +50,7 @@
+ #include &lt;jtag/minidriver_imp.h&gt;
+ 
+ int interface_jtag_add_ir_scan(struct jtag_tap* active,
+-		int num_fields, const struct scan_field* fields,
++		const struct scan_field* fields,
+ 		tap_state_t endstate);
+ int interface_jtag_add_plain_ir_scan(
+ 		int num_fields, const struct scan_field* fields,
+diff --git a/src/jtag/minidummy/minidummy.c b/src/jtag/minidummy/minidummy.c
+index 98b449f..1eef087 100644
+--- a/src/jtag/minidummy/minidummy.c
++++ b/src/jtag/minidummy/minidummy.c
+@@ -46,7 +46,7 @@ int interface_jtag_execute_queue(void)
+ 	return ERROR_OK;
+ }
+ 
+-int interface_jtag_add_ir_scan(struct jtag_tap *active, int num_fields, const struct scan_field *fields, tap_state_t state)
++int interface_jtag_add_ir_scan(struct jtag_tap *active, const struct scan_field *fields, tap_state_t state)
+ {
+ 	/* synchronously do the operation here */
+ 
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index da01f81..1073abc 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1490,6 +1490,15 @@ COMMAND_HANDLER(handle_irscan_command)
+ 	}
+ 
+ 	int num_fields = CMD_ARGC / 2;
++	if (num_fields &gt; 1)
++	{
++		/* we really should be looking at plain_ir_scan if we want
++		 * anything more fancy.
++		 */
++		LOG_ERROR(&quot;Specify a single value for tap&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
+ 	size_t fields_len = sizeof(struct scan_field) * num_fields;
+ 	fields = malloc(fields_len);
+ 	memset(fields, 0, fields_len);
+@@ -1521,7 +1530,7 @@ COMMAND_HANDLER(handle_irscan_command)
+ 	}
+ 
+ 	/* did we have an endstate? */
+-	jtag_add_ir_scan(tap, num_fields, fields, endstate);
++	jtag_add_ir_scan(tap, fields, endstate);
+ 
+ 	retval = jtag_execute_queue();
+ 
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 0b11258..391d8f2 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -574,13 +574,11 @@ static __inline void scanFields(int num_fields, const struct scan_field *fields,
+ 	}
+ }
+ 
+-int interface_jtag_add_ir_scan(struct jtag_tap *active, int num_fields, const struct scan_field *fields, tap_state_t state)
++int interface_jtag_add_ir_scan(struct jtag_tap *active, const struct scan_field *fields, tap_state_t state)
+ {
+ 	int scan_size = 0;
+ 	struct jtag_tap *tap, *nextTap;
+ 
+-	assert(num_fields == 1);
+-
+ 	for (tap = jtag_tap_next_enabled(NULL); tap!= NULL; tap = nextTap)
+ 	{
+ 		nextTap = jtag_tap_next_enabled(tap);
+@@ -590,7 +588,7 @@ int interface_jtag_add_ir_scan(struct jtag_tap *active, int num_fields, const st
+ 		/* search the list */
+ 		if (tap == active)
+ 		{
+-			scanFields(num_fields, fields, TAP_IRSHIFT, pause);
++			scanFields(1, fields, TAP_IRSHIFT, pause);
+ 			/* update device information */
+ 			buf_cpy(fields[0].out_value, tap-&gt;cur_instr, scan_size);
+ 
+diff --git a/src/pld/virtex2.c b/src/pld/virtex2.c
+index 15685e6..976535b 100644
+--- a/src/pld/virtex2.c
++++ b/src/pld/virtex2.c
+@@ -40,7 +40,7 @@ static int virtex2_set_instr(struct jtag_tap *tap, uint32_t new_instr)
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+ 		field.in_value = NULL;
+ 
+-		jtag_add_ir_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++		jtag_add_ir_scan(tap, &amp;field, jtag_set_end_state(TAP_IDLE));
+ 
+ 		free(field.out_value);
+ 	}
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index f049059..2b7b4e4 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -49,13 +49,13 @@ static const tap_state_t arm11_move_pi_to_si_via_ci[] =
+ 
+ 
+ /* REVISIT no error handling here! */
+-static void arm11_add_ir_scan_vc(struct jtag_tap *tap, int num_fields, struct scan_field *fields,
++static void arm11_add_ir_scan_vc(struct jtag_tap *tap, struct scan_field *fields,
+ 		tap_state_t state)
+ {
+ 	if (cmd_queue_cur_state == TAP_IRPAUSE)
+ 		jtag_add_pathmove(ARRAY_SIZE(arm11_move_pi_to_si_via_ci), arm11_move_pi_to_si_via_ci);
+ 
+-	jtag_add_ir_scan(tap, num_fields, fields, state);
++	jtag_add_ir_scan(tap, fields, state);
+ }
+ 
+ static const tap_state_t arm11_move_pd_to_sd_via_cd[] =
+@@ -149,7 +149,7 @@ void arm11_add_IR(struct arm11_common * arm11, uint8_t instr, tap_state_t state)
+ 
+ 	arm11_setup_field(arm11, 5, &amp;instr, NULL, &amp;field);
+ 
+-	arm11_add_ir_scan_vc(arm11-&gt;arm.target-&gt;tap, 1, &amp;field, state == ARM11_TAP_DEFAULT ? TAP_IRPAUSE : state);
++	arm11_add_ir_scan_vc(arm11-&gt;arm.target-&gt;tap, &amp;field, state == ARM11_TAP_DEFAULT ? TAP_IRPAUSE : state);
+ }
+ 
+ /** Verify data shifted out from Scan Chain Register (SCREG). */
+diff --git a/src/target/arm_jtag.c b/src/target/arm_jtag.c
+index 3e27b76..5ed104c 100644
+--- a/src/target/arm_jtag.c
++++ b/src/target/arm_jtag.c
+@@ -45,13 +45,13 @@ int arm_jtag_set_instr_inner(struct arm_jtag *jtag_info, uint32_t new_instr,  vo
+ 
+ 	if (no_verify_capture == NULL)
+ 	{
+-		jtag_add_ir_scan(tap, 1, &amp;field, jtag_get_end_state());
++		jtag_add_ir_scan(tap, &amp;field, jtag_get_end_state());
+ 	} else
+ 	{
+ 		/* FIX!!!! this is a kludge!!! arm926ejs.c should reimplement this arm_jtag_set_instr to
+ 		 * have special verification code.
+ 		 */
+-		jtag_add_ir_scan_noverify(tap, 1, &amp;field, jtag_get_end_state());
++		jtag_add_ir_scan_noverify(tap, &amp;field, jtag_get_end_state());
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/etb.c b/src/target/etb.c
+index 1f73ff5..2c4e3eb 100644
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -60,7 +60,7 @@ static int etb_set_instr(struct etb *etb, uint32_t new_instr)
+ 
+ 		field.in_value = NULL;
+ 
+-		jtag_add_ir_scan(tap, 1, &amp;field, jtag_get_end_state());
++		jtag_add_ir_scan(tap, &amp;field, jtag_get_end_state());
+ 
+ 		free(field.out_value);
+ 	}
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 79160fc..e0550a8 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -46,7 +46,7 @@ int mips_ejtag_set_instr(struct mips_ejtag *ejtag_info, int new_instr, void *del
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+ 		field.in_value = NULL;
+ 
+-		jtag_add_ir_scan(tap, 1, &amp;field, jtag_get_end_state());
++		jtag_add_ir_scan(tap, &amp;field, jtag_get_end_state());
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 4973898..602034e 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -173,7 +173,7 @@ static int xscale_jtag_set_instr(struct jtag_tap *tap, uint32_t new_instr)
+ 		field.out_value = scratch;
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+ 
+-		jtag_add_ir_scan(tap, 1, &amp;field, jtag_get_end_state());
++		jtag_add_ir_scan(tap, &amp;field, jtag_get_end_state());
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/xsvf/xsvf.c b/src/xsvf/xsvf.c
+index faa5542..14bed8e 100644
+--- a/src/xsvf/xsvf.c
++++ b/src/xsvf/xsvf.c
+@@ -704,7 +704,7 @@ COMMAND_HANDLER(handle_xsvf_command)
+ 					if (tap == NULL)
+ 						jtag_add_plain_ir_scan(1, &amp;field, my_end_state);
+ 					else
+-						jtag_add_ir_scan(tap, 1, &amp;field, my_end_state);
++						jtag_add_ir_scan(tap, &amp;field, my_end_state);
+ 
+ 					if (xruntest)
+ 					{
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015145.html">[Openocd-development] [PATCH 1/2] jtag: retire tap field
+</A></li>
+	<LI>Next message: <A HREF="015148.html">[Openocd-development] [PATCH] CFI: review print of Voltage values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15144">[ date ]</a>
+              <a href="thread.html#15144">[ thread ]</a>
+              <a href="subject.html#15144">[ subject ]</a>
+              <a href="author.html#15144">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

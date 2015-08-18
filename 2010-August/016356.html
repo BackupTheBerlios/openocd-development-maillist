@@ -1,0 +1,385 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/3] cortex m3: add cortex_m3	reset_config cmd
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20cortex%20m3%3A%20add%20cortex_m3%0A%09reset_config%20cmd&In-Reply-To=%3C1282764910-348-4-git-send-email-spen%40spen-soft.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016357.html">
+   <LINK REL="Next"  HREF="016360.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/3] cortex m3: add cortex_m3	reset_config cmd</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20cortex%20m3%3A%20add%20cortex_m3%0A%09reset_config%20cmd&In-Reply-To=%3C1282764910-348-4-git-send-email-spen%40spen-soft.co.uk%3E"
+       TITLE="[Openocd-development] [PATCH 3/3] cortex m3: add cortex_m3	reset_config cmd">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Wed Aug 25 21:35:10 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016357.html">[Openocd-development] [PATCH 2/3] flash: increase stellaris flash	loader buffer
+</A></li>
+        <LI>Next message: <A HREF="016360.html">[Openocd-development] Problems using gdb with Olimex stm32h103 (and IAR Jlink lite) - JTAG-DP STICKY ERROR
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16356">[ date ]</a>
+              <a href="thread.html#16356">[ thread ]</a>
+              <a href="subject.html#16356">[ subject ]</a>
+              <a href="author.html#16356">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+
+This new cmd adds the ability to choose the Cortex-M3
+reset method used.
+It defaults to using SRST for reset if available otherwise
+it falls back to using NVIC VECTRESET. This is known to work
+on all cores.
+
+Move any luminary specific reset handling to the stellaris cfg file.
+
+Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+ doc/openocd.texi         |   15 ++++++
+ src/target/cortex_m3.c   |  126 +++++++++++++++++++++++++++-------------------
+ src/target/cortex_m3.h   |    9 +++
+ tcl/target/stellaris.cfg |   43 +++++++++++++--
+ 4 files changed, 136 insertions(+), 57 deletions(-)
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index cbb9c14..bc026b9 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -6592,6 +6592,21 @@ must also be explicitly enabled.
+ This finishes by listing the current vector catch configuration.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {cortex_m3 reset_config} (@option{srst}|@option{sysresetreq}|@option{vectreset})
++Control reset handling. The default @option{srst} is to use srst if fitted,
++otherwise fallback to @option{vectreset}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at itemize</A> @minus
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @option{srst} use hardware srst if fitted otherwise fallback to @option{vectreset}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @option{sysresetreq} use NVIC SYSRESETREQ to reset system.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @option{vectreset} use NVIC VECTRESET to reset system.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> itemize
++Using @option{vectreset} is a safe option for all current Cortex-M3 cores.
++This however has the disadvantage of only resetting the core, all peripherals
++are uneffected. A solution would be to use a @code{reset-init} event handler to manually reset
++the peripherals.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at xref</A>{Target Events}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ @anchor{Software Debug Messages and Tracing}
+ @section Software Debug Messages and Tracing
+ @cindex Linux-ARM DCC support
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 2a58f5b..f87c3e0 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -913,7 +913,7 @@ static int cortex_m3_assert_reset(struct target *target)
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+-	int assert_srst = 1;
++	enum cortex_m3_soft_reset_config reset_config = cortex_m3-&gt;soft_reset_config;
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		target_state_name(target));
+@@ -925,8 +925,10 @@ static int cortex_m3_assert_reset(struct target *target)
+ 	 * requiring SRST, getting a SoC reset (or a core-only reset)
+ 	 * instead of a system reset.
+ 	 */
+-	if (!(jtag_reset_config &amp; RESET_HAS_SRST))
+-		assert_srst = 0;
++	if (!(jtag_reset_config &amp; RESET_HAS_SRST) &amp;&amp;
++			(cortex_m3-&gt;soft_reset_config == CORTEX_M3_RESET_SRST)) {
++		reset_config = CORTEX_M3_RESET_VECTRESET;
++	}
+ 
+ 	/* Enable debug requests */
+ 	int retval;
+@@ -975,49 +977,7 @@ static int cortex_m3_assert_reset(struct target *target)
+ 			return retval;
+ 	}
+ 
+-	/*
+-	 * When nRST is asserted on most Stellaris devices, it clears some of
+-	 * the debug state.  The ARMv7M and Cortex-M3 TRMs say that's wrong;
+-	 * and OpenOCD depends on those TRMs.  So we won't use SRST on those
+-	 * chips.  (Only power-on reset should affect debug state, beyond a
+-	 * few specified bits; not the chip's nRST input, wired to SRST.)
+-	 *
+-	 * REVISIT current errata specs don't seem to cover this issue.
+-	 * Do we have more details than this email?
+-	 *   <A HREF="https://lists.berlios.de/pipermail">https://lists.berlios.de/pipermail</A>
+-	 *	/openocd-development/2008-August/003065.html
+-	 */
+-	if (strcmp(target-&gt;variant, &quot;lm3s&quot;) == 0)
+-	{
+-		/* Check for silicon revisions with the issue. */
+-		uint32_t did0;
+-
+-		if (target_read_u32(target, 0x400fe000, &amp;did0) == ERROR_OK)
+-		{
+-			switch ((did0 &gt;&gt; 16) &amp; 0xff)
+-			{
+-				case 0:
+-					/* all Sandstorm suffer issue */
+-					assert_srst = 0;
+-					break;
+-
+-				case 1:
+-				case 3:
+-					/* Fury and DustDevil rev A have
+-					 * this nRST problem.  It should
+-					 * be fixed in rev B silicon.
+-					 */
+-					if (((did0 &gt;&gt; 8) &amp; 0xff) == 0)
+-						assert_srst = 0;
+-					break;
+-				case 4:
+-					/* Tempest should be fine. */
+-					break;
+-			}
+-		}
+-	}
+-
+-	if (assert_srst)
++	if (reset_config == CORTEX_M3_RESET_SRST)
+ 	{
+ 		/* default to asserting srst */
+ 		if (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)
+@@ -1032,15 +992,23 @@ static int cortex_m3_assert_reset(struct target *target)
+ 	else
+ 	{
+ 		/* Use a standard Cortex-M3 software reset mechanism.
+-		 * SYSRESETREQ will reset SoC peripherals outside the
+-		 * core, like watchdog timers, if the SoC wires it up
+-		 * correctly.  Else VECRESET can reset just the core.
++		 * We default to using VECRESET as it is supported on all current cores.
++		 * This has the disadvantage of not resetting the peripherals, so a
++		 * reset-init event handler is needed to perform any peripheral resets.
+ 		 */
+ 		retval = mem_ap_write_atomic_u32(swjdp, NVIC_AIRCR,
+-				AIRCR_VECTKEY | AIRCR_SYSRESETREQ);
++				AIRCR_VECTKEY | ((reset_config == CORTEX_M3_RESET_SYSRESETREQ)
++				? AIRCR_SYSRESETREQ : AIRCR_VECTRESET));
+ 		if (retval != ERROR_OK)
+ 			return retval;
+-		LOG_DEBUG(&quot;Using Cortex-M3 SYSRESETREQ&quot;);
++
++		LOG_DEBUG(&quot;Using Cortex-M3 %s&quot;, (reset_config == CORTEX_M3_RESET_SYSRESETREQ)
++				? &quot;SYSRESETREQ&quot; : &quot;VECTRESET&quot;);
++
++		if (reset_config == CORTEX_M3_RESET_VECTRESET) {
++			LOG_WARNING(&quot;Only resetting the Cortex-M3 core, use a reset-init event &quot;
++					&quot;handler to reset any peripherals&quot;);
++		}
+ 
+ 		{
+ 			/* I do not know why this is necessary, but it
+@@ -1969,6 +1937,10 @@ static int cortex_m3_init_arch_info(struct target *target,
+ 	cortex_m3-&gt;jtag_info.tap = tap;
+ 	cortex_m3-&gt;jtag_info.scann_size = 4;
+ 
++	/* default reset mode is to use srst if fitted
++	 * if not it will use CORTEX_M3_RESET_VECTRESET */
++	cortex_m3-&gt;soft_reset_config = CORTEX_M3_RESET_SRST;
++
+ 	armv7m-&gt;arm.dap = &amp;armv7m-&gt;dap;
+ 
+ 	/* Leave (only) generic DAP stuff for debugport_init(); */
+@@ -2143,6 +2115,51 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(handle_cortex_m3_reset_config_command)
++{
++	struct target *target = get_current_target(CMD_CTX);
++	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
++	int retval;
++	char *reset_config;
++
++	retval = cortex_m3_verify_pointer(CMD_CTX, cortex_m3);
++	if (retval != ERROR_OK)
++		return retval;
++
++	if (CMD_ARGC &gt; 0)
++	{
++		if (strcmp(*CMD_ARGV, &quot;systesetreq&quot;) == 0)
++			cortex_m3-&gt;soft_reset_config = CORTEX_M3_RESET_SYSRESETREQ;
++		else if (strcmp(*CMD_ARGV, &quot;vectreset&quot;) == 0)
++			cortex_m3-&gt;soft_reset_config = CORTEX_M3_RESET_VECTRESET;
++		else
++			cortex_m3-&gt;soft_reset_config = CORTEX_M3_RESET_SRST;
++	}
++
++	switch (cortex_m3-&gt;soft_reset_config)
++	{
++		case CORTEX_M3_RESET_SRST:
++			reset_config = &quot;srst&quot;;
++			break;
++
++		case CORTEX_M3_RESET_SYSRESETREQ:
++			reset_config = &quot;sysresetreq&quot;;
++			break;
++
++		case CORTEX_M3_RESET_VECTRESET:
++			reset_config = &quot;vectreset&quot;;
++			break;
++
++		default:
++			reset_config = &quot;unknown&quot;;
++			break;
++	}
++
++	command_print(CMD_CTX, &quot;cortex_m3 reset_config %s&quot;, reset_config);
++
++	return ERROR_OK;
++}
++
+ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 	{
+ 		.name = &quot;maskisr&quot;,
+@@ -2158,6 +2175,13 @@ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 		.help = &quot;configure hardware vectors to trigger debug entry&quot;,
+ 		.usage = &quot;['all'|'none'|('bus_err'|'chk_err'|...)*]&quot;,
+ 	},
++	{
++		.name = &quot;reset_config&quot;,
++		.handler = handle_cortex_m3_reset_config_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;configure software reset handling&quot;,
++		.usage = &quot;['srst'|'sysresetreq'|'vectreset']&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ static const struct command_registration cortex_m3_command_handlers[] = {
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index 7ce8901..db80711 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -134,6 +134,13 @@ struct cortex_m3_dwt_comparator
+ 	uint32_t dwt_comparator_address;
+ };
+ 
++enum cortex_m3_soft_reset_config
++{
++	CORTEX_M3_RESET_SRST,
++	CORTEX_M3_RESET_SYSRESETREQ,
++	CORTEX_M3_RESET_VECTRESET,
++};
++
+ struct cortex_m3_common
+ {
+ 	int common_magic;
+@@ -158,6 +165,8 @@ struct cortex_m3_common
+ 	struct cortex_m3_dwt_comparator *dwt_comparator_list;
+ 	struct reg_cache *dwt_cache;
+ 
++	enum cortex_m3_soft_reset_config soft_reset_config;
++
+ 	struct armv7m_common armv7m;
+ };
+ 
+diff --git a/tcl/target/stellaris.cfg b/tcl/target/stellaris.cfg
+index 4235f91..6ba5f14 100644
+--- a/tcl/target/stellaris.cfg
++++ b/tcl/target/stellaris.cfg
+@@ -21,18 +21,15 @@ if { [info exists CPUTAPID ] } {
+ if { [info exists WORKAREASIZE ] } {
+    set _WORKAREASIZE $WORKAREASIZE
+ } else {
++   # default to 8K working area
+    set _WORKAREASIZE 0x2000
+ }
+ 
+ jtag newtap $_CHIPNAME cpu -irlen 4 -irmask 0xf \
+ 	-expected-id $_CPUTAPID -ignore-version
+ 
+-# The &quot;lm3s&quot; variant uses a software reset rather than SRST.
+-# This stops the debug registers from being cleared; it works
+-# around an erratum which should be fixed in later silicon.
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu \
+-	-variant lm3s
++target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu
+ 
+ # 8K working area at base of ram, not backed up
+ #
+@@ -48,7 +45,41 @@ $_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size $_WORKAREASIZE
+ # configures and enables the PLL.  Or you might need to decrease
+ # this, if you're using a slower clock.
+ adapter_khz 500
+-$_TARGETNAME configure -event reset-start {adapter_khz 500}
++
++# mrw: &quot;memory read word&quot;, returns value of $reg
++proc mrw {reg} {
++	set value &quot;&quot;
++	mem2array value 32 $reg 1
++	return $value(0)
++}
++
++$_TARGETNAME configure -event reset-start {
++	adapter_khz 500
++
++	#	
++	# When nRST is asserted on most Stellaris devices, it clears some of
++	# the debug state.  The ARMv7M and Cortex-M3 TRMs say that's wrong;
++	# and OpenOCD depends on those TRMs.  So we won't use SRST on those
++	# chips.  (Only power-on reset should affect debug state, beyond a
++	# few specified bits; not the chip's nRST input, wired to SRST.)
++	#
++	# REVISIT current errata specs don't seem to cover this issue.
++	# Do we have more details than this email?
++	#   <A HREF="https://lists.berlios.de/pipermail">https://lists.berlios.de/pipermail</A>
++	#	/openocd-development/2008-August/003065.html
++	#
++
++	set device_class [expr (([mrw 0x400fe000] &gt;&gt; 16) &amp; 0xff)]
++	if {$device_class == 0 || $device_class == 1 || $device_class == 3} {
++		# Sandstorm, Fury and DustDevil are able to use NVIC SYSRESETREQ
++		cortex_m3 reset_config systesetreq
++	} else {
++		# Tempest and newer default to using NVIC VECTRESET
++		# this does mean a reset-init event handler is required to reset
++		# any peripherals
++		cortex_m3 reset_config vectreset
++	}
++}
+ 
+ # flash configuration ... autodetects sizes, autoprobed
+ flash bank $_CHIPNAME.flash stellaris 0 0 0 0 $_TARGETNAME
+-- 
+1.7.1
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016357.html">[Openocd-development] [PATCH 2/3] flash: increase stellaris flash	loader buffer
+</A></li>
+	<LI>Next message: <A HREF="016360.html">[Openocd-development] Problems using gdb with Olimex stm32h103 (and IAR Jlink lite) - JTAG-DP STICKY ERROR
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16356">[ date ]</a>
+              <a href="thread.html#16356">[ thread ]</a>
+              <a href="subject.html#16356">[ subject ]</a>
+              <a href="author.html#16356">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

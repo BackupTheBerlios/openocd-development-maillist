@@ -1,0 +1,110 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] TAP state transitions (Was Re: Further XScale target issues and adapter comparisons)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20TAP%20state%20transitions%20%28Was%20Re%3A%20Further%20XScale%0A%20target%20issues%20and%20adapter%20comparisons%29&In-Reply-To=%3CPine.LNX.4.64.0903082050510.13238%40marshadder.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004923.html">
+   <LINK REL="Next"  HREF="004918.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] TAP state transitions (Was Re: Further XScale target issues and adapter comparisons)</H1>
+    <B>Peter Denison</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20TAP%20state%20transitions%20%28Was%20Re%3A%20Further%20XScale%0A%20target%20issues%20and%20adapter%20comparisons%29&In-Reply-To=%3CPine.LNX.4.64.0903082050510.13238%40marshadder.org%3E"
+       TITLE="[Openocd-development] TAP state transitions (Was Re: Further XScale target issues and adapter comparisons)">openwrt at marshadder.org
+       </A><BR>
+    <I>Sun Mar  8 22:58:42 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004923.html">[Openocd-development] Further XScale target issues and adapter comparisons
+</A></li>
+        <LI>Next message: <A HREF="004918.html">[Openocd-development] Cortex target_write_memory() performance /STM32 flash programming
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4936">[ date ]</a>
+              <a href="thread.html#4936">[ thread ]</a>
+              <a href="subject.html#4936">[ subject ]</a>
+              <a href="author.html#4936">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, 7 Mar 2009, Peter Denison wrote:
+
+&gt;<i> This write to DCSR should then let the target run (the debug code just 
+</I>&gt;<i> loaded into the cache), and then the next read is from TX, which the 
+</I>&gt;<i> debug handler should have written to. However, the 3 guard bits in 
+</I>&gt;<i> fields[0].in_value[3] should be 010 or 011 (from the hardware), and they 
+</I>&gt;<i> aren't, which is why I think it's an extra bit clocked somewhere.
+</I>
+I've been looking more closely at the TAP state transtition table in 
+src/jtag/jtag.c, in tap_get_tms_path(), and first of all there are some 
+assumptions I must query:
+
+1) Should a transition from one {DR,IR}SHIFT or {DR,IR}PAUSE to another 
+always make the transtion through {DR,IR}CAPTURE?
+
+Currently some do and some don't
+
+2) Should a transition into {DR,IR}SHIFT always guarantee to arrive at 
+that state on the last clock of the fixed 7?
+
+Currently most do, but some don't.
+
+3) At the end of a known number of bits in {DR,IR}SHIFT, are the adapter 
+codes expected to exit into {DR,IR}EXIT1, or to stay in SHIFT? This 
+assumption is crucial to the subsequent transitions required to update the 
+register. Is this up to the adapter specific code to know and compensate 
+for?
+
+At least one adapter implementation automatically comes out into EXIT1.
+
+
+Of the 36 transitions in the table, I think that 8 are suspect, and of 
+those, 2 plain wrong:
+
+DRSHIFT -&gt; DRSHIFT: is 00, depends on answer to 1), but could be 13 or 1D
+DRPAUSE -&gt; DRSHIFT: is 20, depends on answer to 1), but could be 13,16,1C
+IRSHIFT -&gt; DRSHIFT: is 07, which clocks DR twice, should be 13 or 1D
+
+DRSHIFT -&gt; DRPAUSE: is 01, depends on answer to 1), but could be 17 or 2B
+
+DRSHIFT -&gt; IRSHIFT: is 0F, which clocks IR once, should be 1B
+IRSHIFT -&gt; IRSHIFT: is 00, depends on answer to 1), but could be 1B
+IRPAUSE -&gt; IRSHIFT: is 20, depends on answer to 1), but could be 1B or 1E
+
+IRSHIFT -&gt; IRPAUSE: is 01, depends on answer to 1), but could be 2F
+
+It's the IRSHIFT-&gt;DRSHIFT and vice versa that are definitely wrong.
+
+This may not be a real issue, but it's worth correcting.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004923.html">[Openocd-development] Further XScale target issues and adapter comparisons
+</A></li>
+	<LI>Next message: <A HREF="004918.html">[Openocd-development] Cortex target_write_memory() performance /STM32 flash programming
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4936">[ date ]</a>
+              <a href="thread.html#4936">[ thread ]</a>
+              <a href="subject.html#4936">[ subject ]</a>
+              <a href="author.html#4936">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

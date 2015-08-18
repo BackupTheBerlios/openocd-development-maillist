@@ -1,0 +1,273 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] AT91SAM7 flash issues
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20AT91SAM7%20flash%20issues&In-Reply-To=%3C533c97030808150958m75e312d6v3a29de6c4e2df72b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002924.html">
+   <LINK REL="Next"  HREF="002923.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] AT91SAM7 flash issues</H1>
+    <B>Jason Gallicchio</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20AT91SAM7%20flash%20issues&In-Reply-To=%3C533c97030808150958m75e312d6v3a29de6c4e2df72b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] AT91SAM7 flash issues">jason.gallicchio at gmail.com
+       </A><BR>
+    <I>Fri Aug 15 18:58:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002924.html">[Openocd-development] bug in flash image preparation (patch)
+</A></li>
+        <LI>Next message: <A HREF="002923.html">[Openocd-development] AT91SAM7 flash issues
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2921">[ date ]</a>
+              <a href="thread.html#2921">[ thread ]</a>
+              <a href="subject.html#2921">[ subject ]</a>
+              <a href="author.html#2921">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'm new to OpenOCD and had it debugging out of RAM beautifully. I've
+been getting sporadic errors verifying binary images I write to flash. This
+got me interested in OpenOCD and its code. The rest of this email is a
+long list of issues I encountered, some of which are probably due to
+my own misunderstandings. I'd be happy to help in any way I can,
+including contributing patches, but it would be nice to have somebody
+orient me on some of these things first. I'd love to see OpenOCD be a
+robust and widely adopted tool. My setup:
+
+OpenOCD svn version 921 built today on Cygwin
+Olimex ARM-USB-OCD
+Olimex SAM7-EX256 board with at91sam7x256 processor
+Default config files (see command line below)
+
+----
+
+This is the flash verification error that got this whole thing started. It
+verifies properly maybe 10% of the time. When I go through SAM-BA
+it's always perfect, making me think it's not a chip problem.
+
+&gt;<i> reset
+</I>JTAG device found: 0x3f0f0f0f (Manufacturer: 0x787, Part: 0xf0f0, Version:
+0x3)
+target state: halted
+target halted in ARM state due to breakpoint, current mode: Supervisor
+cpsr: 0x600000d3 pc: 0x002058c0
+&gt;<i> flash write_image main_flash.bin 0x00100000 bin
+</I>wrote 35108 byte from file main_flash.bin in 1465.177002s (0.023400 kb/s)
+&gt;<i> verify_image main_flash.bin 0x00100000 bin
+</I>checksum mismatch - attempting binary compare
+Verify operation failed address 0x00106e88. Was 0xe9 instead of 0xeb
+
+Trying jtag_khz settings of 100, 10, and 1 just take longer and longer to
+give the same error. I'm running the board from an external supply and
+the ARM-USB-OCD through a powered hub, but this doesn't make a
+difference. It often fails at 0x00106e88 or at 0x001074ab. It doesn't
+seem to matter if &quot;arm7_9 dcc_downloads&quot; is enabled or disabled.
+Several different MC_FMR flash mode settings (wait states and master
+clock cycles) were tried from examples I found on the web, all with the
+same results. Using the clock and flash settings that SAM-BA uses also
+gave same results. Increasing nsrst_delay and ntrst_delay made no
+difference. If it verifies once, it verifies over and over again.
+
+----
+
+Now some other issues.
+First, I can't create Wiki account -- server error. Where is the most up
+to date documentation? The Wiki? The doc directory? Are these
+synchronized?
+
+----
+
+Comments at the end of lines do not work in telnet, which makes
+pasting pieces of .cfg files in difficult.
+
+----
+
+Paths and command line: It seems that ideally you'd run it to use
+the configuration files supplied for your interface and target like this:
+
+./openocd -f interface/olimex-arm-usb-ocd.cfg -f target/sam7x256.cfg
+
+When I build it, the executable ends up in src directory. It seems it
+should either end up in the top directory or end up in the src/target
+directory where it can find the .cfg files in interface/ and target/
+directories. (Why is there a target subdirectory of target?)
+
+It should be able to find paths to interface and target directory, but both
+are under an &quot;extra&quot; target directory compared to the YAGARTO install.
+
+----
+
+It would be nice to have robust configuration files for all interfaces and
+targets that work &quot;as is,&quot; but maybe the intention is to have these be only
+examples. Is the OpenOCD_scripts page on the Wiki duplicating
+information in svn and therefore subject to becoming out of sync (as they
+are)? Should this page just link to the relevant files in svn?
+
+-----
+
+My old command-line from r717:
+
+./openocd -f interface/olimex-arm-usb-ocd.cfg -f target/sam7x256.cfg -c init
+-c reset
+
+This quits. If I leave off the &quot;-c reset&quot;, the program stays alive and I can
+
+telnet to it. This is different than how r717 behaved. I'm not sure why it
+should quit, especially since adding &quot;-c reset&quot; is suggested all over the
+documentation.
+
+-----
+
+Interface config files: arm-usb-ocd.cfg and olimex-arm-usb-ocd.cfg are
+redundant, but different. In fact, the one starting with &quot;olimex-&quot; seems
+like it should be the preferred one, but it doesn't work. The difference is
+in the ft2232_device_desc: &quot;Olimex OpenOCD JTAG A&quot; (which works) vs
+&quot;Olimex OpenOCD JTAG&quot; (which doesn't). Even without including
+the &quot; A&quot; it still finds it (debug output below). Maybe if it only finds one
+device, it should assume that's the one you want to use.
+
+...
+Error: 63 109 ft2232.c:1419 ft2232_init_ftd2xx(): unable to open ftdi
+device: 2
+Error: 64 109 ft2232.c:1434 ft2232_init_ftd2xx(): ListDevices: 1
+
+Error: 65 109 ft2232.c:1436 ft2232_init_ftd2xx(): 0: Olimex OpenOCD JTAG A
+...
+
+I don't own an olimex-jtag-tiny device, but its config includes no
+&quot;ft2232_vid_pid&quot; line. The arm-usb-ocd config files don't seem to need it
+either (I assume you're auto-detecting or something now.) If this is the
+case, these lines should probably be removed to simplify all of the .cfg
+files.
+
+-----
+
+The .cfg files for the chips are also non-uniform. Some atmel parts have
+file names that start with at91 and others just launch right into the sam7.
+The readme.txt file says that a target/xxx.cfg file can invoke another
+target/yyy.cfg file, but doesn't describe how.
+
+I'm not actually sure how it finds the sam7x256_reset.script file since I
+didn't include an absolute path anywhere and it had trouble finding other
+things.
+
+The sam7x and sam7s configurations are identical except for calling
+different reset scripts. But the reset scripts are identical except for
+extra
+spaces at the end of some lines (violating your style rules.)
+
+-----
+
+When I start up and do a &quot;flash info 0&quot; I get an error. I think it's because
+
+the target needed to be halted:
+
+Debug: 87 9360 command.c:79 script_command(): script_command - info
+Debug: 88 9360 command.c:96 script_command(): script_command - info,
+argv[0]=ocd_flash_info
+Debug: 89 9360 command.c:96 script_command(): script_command - info,
+argv[1]=0
+Debug: 90 9360 command.c:404 run_command(): Command failed with error code
+-304
+
+After I halt, it works. This code -304 is ERROR_TARGET_NOT_HALTED,
+but other places it's actually reported back in text.
+
+----
+
+The info it displays looks like it could use some work:
+
+&gt;<i> flash info 0
+</I>#0: at91sam7 at 0x00100000, size 0x00040000, buswidth 4, chipwidth 0
+#0: 0x00000000 (0x40000 256kB) protection state unknown
+
+at91sam7 information: Chip is AT91SAM7X256
+cidr: 0x275b0940, arch: 0x0075, eproc: ARM7TDMI, version:0x000, flashsize:
+0x00040000
+master clock(estimated): 49696kHz
+pagesize: 256, lockbits: 16 0x0000, pages in lock region: 64
+securitybit: 0, nvmbits(3): 0x4
+
+Does the second line indicate that the same flash is also mapped to
+location 0x00000000? (It is, in fact, the case for me.) It says the
+protection state is unknown, but below it correctly displays the lockbits
+indicating that none of the 64 pages are protected. How is the master
+clock estimated? (After an erase, it gets estimated as zero.) 256 byte
+pagesize times 64 &quot;pages in lock region&quot; gives only 1/16 of the 0x40000
+256kB flash size. num_pages is correct in at91sam7.c I think I'm
+missing something:
+
+----
+
+For flash, what's the difference between a bank, a sector, a plane, and a
+page?
+The flash info and flash commands do not make this clear.
+
+----
+
+When you do &quot;flash banks&quot; it doesn't know about the location and size
+until you do a &quot;flash probe 0&quot; This is not in the documentation.
+
+&quot;flash erase_check&quot; doesn't work -- erase state unknown
+
+&quot;flash erase_sector 0 0 0&quot; works
+&quot;flash erase_sector 0 0 1&quot; returns mysterious
+&quot;failed erasing sectors 0 to 1 (-901)&quot;
+rather than &quot;ERROR_FLASH_SECTOR_INVALID&quot; which it corresponds to.
+
+----
+
+&quot;flash protect_check 0&quot; returns &quot;successfully checked protect state&quot;
+but then &quot;flash info 0&quot; still says &quot;protection state unknown&quot;
+&quot;flash protect 0 0 0 off&quot; for the sam7
+
+----
+
+When I manually set the lockbits by writing to the right memory address,
+&quot;flash erase_sector&quot; returns an appropriate error, but &quot;flash info 0&quot; still
+says they are not set. In fact, I need to &quot;shutdown&quot; and restart openocd
+before &quot;flash info&quot; will report the correct lockbits. When does this
+information get set? Why doesn't get it rechecked when you do another
+&quot;flash info&quot;?
+
+----
+
+PS I also posted this to the SparkFun forum, but it seems like it's also a
+development thing, and I'm willing to help write patches once my background
+knowledge gets cleared up.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080815/9d0e504c/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080815/9d0e504c/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002924.html">[Openocd-development] bug in flash image preparation (patch)
+</A></li>
+	<LI>Next message: <A HREF="002923.html">[Openocd-development] AT91SAM7 flash issues
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2921">[ date ]</a>
+              <a href="thread.html#2921">[ thread ]</a>
+              <a href="subject.html#2921">[ subject ]</a>
+              <a href="author.html#2921">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

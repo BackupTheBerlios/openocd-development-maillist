@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] jtag: add '-ignore-version' option
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20jtag%3A%20add%20%27-ignore-version%27%20option&In-Reply-To=%3C200912131439.50119.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013526.html">
+   <LINK REL="Next"  HREF="013568.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] jtag: add '-ignore-version' option</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20jtag%3A%20add%20%27-ignore-version%27%20option&In-Reply-To=%3C200912131439.50119.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] jtag: add '-ignore-version' option">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Dec 13 23:39:50 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013526.html">[Openocd-development] [patch 2/2] target files shouldn't #include	&lt;target/...h&gt;
+</A></li>
+        <LI>Next message: <A HREF="013568.html">[Openocd-development] [patch/rfc] jtag: add '-ignore-version'	option
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13537">[ date ]</a>
+              <a href="thread.html#13537">[ thread ]</a>
+              <a href="subject.html#13537">[ subject ]</a>
+              <a href="author.html#13537">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add a &quot;-ignore-version&quot; to &quot;jtag newtap&quot; which makes the IDCODE
+comparison logic optionally ignore version differences.
+
+Update the &quot;scan_chain&quot; command to illustrate this by showing
+a &quot;*&quot; character instead of the (ignored) version nibble.
+---
+Various folk have mentioned this idea, and I figured it would
+make the &quot;unified luminary chip&quot; patch be much cleaner.  Plus
+surely a few other target config files.  :)
+
+ doc/openocd.texi |    6 ++++++
+ src/jtag/core.c  |   13 +++++++++++--
+ src/jtag/jtag.h  |    3 +++
+ src/jtag/tcl.c   |   28 ++++++++++++++++++++++++----
+ 4 files changed, 44 insertions(+), 6 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2763,6 +2763,12 @@ are provided in vendors' chip documentat
+ reference manual.  Sometimes you may need to probe the JTAG
+ hardware to find these values.
+ @xref{Autoprobing}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @code{-ignore-version}
++@*Specify this to ignore the JTAG version field in the @code{-expected-id}
++option.  When vendors put out multiple versions of a chip, or use the same
++JTAG-level ID for several largely-compatible chips, it may be more practical
++to ignore the version field than to update config files to handle all of
++the various chip IDs.
+ @item @code{-ircapture} @var{NUMBER}
+ @*The bit pattern loaded by the TAP into the JTAG shift register
+ on entry to the @sc{ircapture} state, such as 0x01.
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -958,16 +958,25 @@ static bool jtag_examine_chain_end(uint8
+ 
+ static bool jtag_examine_chain_match_tap(const struct jtag_tap *tap)
+ {
++	uint32_t idcode = tap-&gt;idcode;
++
+ 	/* ignore expected BYPASS codes; warn otherwise */
+-	if (0 == tap-&gt;expected_ids_cnt &amp;&amp; !tap-&gt;idcode)
++	if (0 == tap-&gt;expected_ids_cnt &amp;&amp; !idcode)
+ 		return true;
+ 
++	/* optionally ignore the JTAG version field */
++	uint32_t mask = tap-&gt;ignore_version ? ~(0xff &lt;&lt; 24) : ~0;
++
++	idcode &amp;= mask;
++
+ 	/* Loop over the expected identification codes and test for a match */
+ 	unsigned ii, limit = tap-&gt;expected_ids_cnt;
+ 
+ 	for (ii = 0; ii &lt; limit; ii++)
+ 	{
+-		if (tap-&gt;idcode == tap-&gt;expected_ids[ii])
++		uint32_t expected = tap-&gt;expected_ids[ii] &amp; mask;
++
++		if (idcode == expected)
+ 			return true;
+ 
+ 		/* treat &quot;-expected-id 0&quot; as a &quot;don't-warn&quot; wildcard */
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -156,6 +156,9 @@ struct jtag_tap {
+ 	/// Number of expected identification codes
+ 	uint8_t expected_ids_cnt;
+ 
++	/// Flag saying whether to ignore version field in expected_ids[]
++	bool ignore_version;
++
+ 	/// current instruction
+ 	uint8_t* cur_instr;
+ 	/// Bypass register selected
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -454,6 +454,7 @@ static int jim_newtap_expected_id(Jim_Nv
+ #define NTAP_OPT_ENABLED   3
+ #define NTAP_OPT_DISABLED  4
+ #define NTAP_OPT_EXPECTED_ID 5
++#define NTAP_OPT_VERSION   6
+ 
+ static int jim_newtap_ir_param(Jim_Nvp *n, Jim_GetOptInfo *goi,
+ 		struct jtag_tap *pTap)
+@@ -520,6 +521,7 @@ static int jim_newtap_cmd(Jim_GetOptInfo
+ 		{ .name = &quot;-enable&quot;			,	.value = NTAP_OPT_ENABLED },
+ 		{ .name = &quot;-disable&quot;		,	.value = NTAP_OPT_DISABLED },
+ 		{ .name = &quot;-expected-id&quot;	,	.value = NTAP_OPT_EXPECTED_ID },
++		{ .name = &quot;-ignore-version&quot;	,	.value = NTAP_OPT_VERSION },
+ 		{ .name = NULL				,	.value = -1 },
+ 	};
+ 
+@@ -595,6 +597,9 @@ static int jim_newtap_cmd(Jim_GetOptInfo
+ 				return e;
+ 			}
+ 			break;
++		case NTAP_OPT_VERSION:
++			pTap-&gt;ignore_version = true;
++			break;
+ 		} /* switch (n-&gt;value) */
+ 	} /* while (goi-&gt;argc) */
+ 
+@@ -1013,6 +1018,7 @@ COMMAND_HANDLER(handle_interface_command
+ COMMAND_HANDLER(handle_scan_chain_command)
+ {
+ 	struct jtag_tap *tap;
++	char expected_id[12];
+ 
+ 	tap = jtag_all_taps();
+ 	command_print(CMD_CTX, &quot;     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     &quot;);
+@@ -1020,25 +1026,39 @@ COMMAND_HANDLER(handle_scan_chain_comman
+ 
+ 	while (tap) {
+ 		uint32_t expected, expected_mask, cur_instr, ii;
++
++		snprintf(expected_id, sizeof expected_id, &quot;%#08x&quot;,
++				(unsigned)((tap-&gt;expected_ids_cnt &gt; 0)
++					? tap-&gt;expected_ids[0]
++					: 0));
++		if (tap-&gt;ignore_version)
++			expected_id[2] = '*';
++
+ 		expected = buf_get_u32(tap-&gt;expected, 0, tap-&gt;ir_length);
+ 		expected_mask = buf_get_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length);
+ 		cur_instr = buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length);
+ 
+ 		command_print(CMD_CTX,
+-					  &quot;%2d | %-18s |    %c    | 0x%08x | 0x%08x | 0x%02x | 0x%02x | 0x%02x | 0x%02x&quot;,
++	&quot;%2d | %-18s |    %c    | 0x%08x | %s | 0x%02x | 0x%02x | 0x%02x | 0x%02x&quot;,
+ 					  tap-&gt;abs_chain_position,
+ 					  tap-&gt;dotted_name,
+ 					  tap-&gt;enabled ? 'Y' : 'n',
+ 					  (unsigned int)(tap-&gt;idcode),
+-					  (unsigned int)(tap-&gt;expected_ids_cnt &gt; 0 ? tap-&gt;expected_ids[0] : 0),
++					  expected_id,
+ 					  (unsigned int)(tap-&gt;ir_length),
+ 					  (unsigned int)(expected),
+ 					  (unsigned int)(expected_mask),
+ 					  (unsigned int)(cur_instr));
+ 
+ 		for (ii = 1; ii &lt; tap-&gt;expected_ids_cnt; ii++) {
+-			command_print(CMD_CTX, &quot;   |                    |         |            | 0x%08x |      |      |      |         &quot;,
+-						  (unsigned int)(tap-&gt;expected_ids[ii]));
++			snprintf(expected_id, sizeof expected_id, &quot;%#08x&quot;,
++					(unsigned) tap-&gt;expected_ids[1]);
++			if (tap-&gt;ignore_version)
++				expected_id[2] = '*';
++
++			command_print(CMD_CTX,
++	&quot;   |                    |         |            | %s |      |      |      |         &quot;,
++						  expected_id);
+ 		}
+ 
+ 		tap = tap-&gt;next_tap;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013526.html">[Openocd-development] [patch 2/2] target files shouldn't #include	&lt;target/...h&gt;
+</A></li>
+	<LI>Next message: <A HREF="013568.html">[Openocd-development] [patch/rfc] jtag: add '-ignore-version'	option
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13537">[ date ]</a>
+              <a href="thread.html#13537">[ thread ]</a>
+              <a href="subject.html#13537">[ subject ]</a>
+              <a href="author.html#13537">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

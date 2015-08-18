@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD on MX51
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20on%20MX51&In-Reply-To=%3C37367b3a1001250533t4fa32616nced19437c62aa0e1%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014373.html">
+   <LINK REL="Next"  HREF="014393.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD on MX51</H1>
+    <B>Alan Carvalho de Assis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20on%20MX51&In-Reply-To=%3C37367b3a1001250533t4fa32616nced19437c62aa0e1%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] OpenOCD on MX51">acassis at gmail.com
+       </A><BR>
+    <I>Mon Jan 25 14:33:52 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014373.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+        <LI>Next message: <A HREF="014393.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14386">[ date ]</a>
+              <a href="thread.html#14386">[ thread ]</a>
+              <a href="subject.html#14386">[ subject ]</a>
+              <a href="author.html#14386">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Dave,
+
+On 1/23/10, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+&gt;<i> On Monday 18 January 2010, Alan Carvalho de Assis wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> When I type halt the prompt get blocked and about 1 minute after I
+</I>&gt;&gt;<i> receive this error:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> &gt; halt
+</I>&gt;&gt;<i> AHBAP Cached values: dp_select 0x10, ap_csw 0xa2000002, ap_tar 0x54011080
+</I>&gt;&gt;<i> JTAG-DP OVERRUN - check clock or reduce jtag speed
+</I>&gt;&gt;<i> Read MEM_AP_CSW 0x80000042, MEM_AP_TAR 0x54011080
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I already reduced the jtag speed to 500khz and this error remain.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> What could I investigate now to fix this error?
+</I>&gt;<i>
+</I>&gt;<i> Unfortunately I think you're starting to hit some of the ways
+</I>&gt;<i> that the DAP code is ... a bit flakey.  Especially with respect
+</I>&gt;<i> to how it handles errors reported by the DP or AP; it triggers
+</I>&gt;<i> faults a bit more often (and randomly) than I would expect, and
+</I>&gt;<i> the cleanup -- and mode selection -- looks a bit iffy to me.
+</I>&gt;<i>
+</I>&gt;<i> I attach a couple patches which I've been using, which might
+</I>&gt;<i> change things (or might not).  If they help, good.
+</I>&gt;<i>
+</I>&gt;<i>  - adi-shrink.patch ... code shrinkage and fault path fixes
+</I>&gt;<i>
+</I>&gt;<i>  - adi-write.patch ... goes over that, basically just cleanup
+</I>&gt;<i>
+</I>&gt;<i> If not, then there's something else you could build on top
+</I>&gt;<i> of these.  Basically, after adi-shrink.patch there is ONE
+</I>&gt;<i> &quot;REVISIT&quot; comment about putting the memaccess_tck cycles in
+</I>&gt;<i> the proper place.  Fix that issue -- just put those cycles
+</I>&gt;<i> at the end of adi_jtag_dp_scan() not the beginning, after
+</I>&gt;<i> the jtag_add_dr_scan().  (Before that patch, that was done
+</I>&gt;<i> wrong in *two* places.)
+</I>&gt;<i>
+</I>
+It doesn't work. Even I putting the memaccess_tck cycles after
+adi_jtag_dp_scan() I still getting the same error:
+
+$ telnet 127.0.0.1 4444
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+Open On-Chip Debugger
+&gt;<i> reset
+</I>JTAG tap: imx51.DAP tap/device found: 0x1ba00477 (mfg: 0x23b, part:
+0xba00, ver: 0x1)
+TAP imx51.SDMA does not have IDCODE
+JTAG tap: imx51.SJC tap/device found: 0x1190c01d (mfg: 0x00e, part:
+0x190c, ver: 0x1)
+imx51.cpu: how to reset?
+
+Command handler execution failed
+in procedure 'reset' called at file &quot;command.c&quot;, line 647
+called at file &quot;command.c&quot;, line 361
+&gt;<i> halt
+</I>AHBAP Cached values: dp_select 0x10, ap_csw 0xa2000002, ap_tar 0x54011080
+JTAG-DP OVERRUN - check clock or reduce jtag speed
+Read MEM_AP_CSW 0x80000042, MEM_AP_TAR 0x54011080
+
+&gt;<i> The OVERRUN error comes from throwing data at the MEM-AP
+</I>&gt;<i> faster than it can handle it.  MEM-AP speed is a system
+</I>&gt;<i> specific issue.  Exactly the sort of thing MX51 could very
+</I>&gt;<i> reasonably do differently from the other Cortex parts which
+</I>&gt;<i> now mostly work.  (I'm not quite clear on how much of that
+</I>&gt;<i> is driven by the JTAG clock vs by whatever core clock your
+</I>&gt;<i> chip may be using.)  There are two issues I'd wonder about:
+</I>&gt;<i>
+</I>&gt;<i>  * First, whether the code is correct ... ergo the
+</I>&gt;<i>    attached patches and that REVISIT comment.
+</I>&gt;<i>
+</I>&gt;<i>  * Second, whether you need a different memaccess_tck
+</I>&gt;<i>    value.
+</I>&gt;<i>
+</I>&gt;<i> The ADIv5 spec will be useful to sort out such issues.
+</I>&gt;<i>
+</I>
+I tested memaccess_tck with small values as 8, 80, 100 and big values
+as 100000. In all tests it returns same error message above. I just
+noticied it delay a little more time to show this error msg when I use
+100000.
+
+Best Regards,
+
+Alan
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014373.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+	<LI>Next message: <A HREF="014393.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14386">[ date ]</a>
+              <a href="thread.html#14386">[ thread ]</a>
+              <a href="subject.html#14386">[ subject ]</a>
+              <a href="author.html#14386">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

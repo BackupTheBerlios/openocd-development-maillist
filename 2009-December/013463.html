@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH 2/2] server: add server_preinit which is called before config file is parsed. This fixes the issue under native win32 of the socket interface not being enabled (via WSAStartup) before init is called from a script.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%202/2%5D%20server%3A%20add%20server_preinit%20which%20is%20called%20before%20config%20file%20is%20parsed.%0A%20This%20fixes%20the%20issue%20under%20native%20win32%20of%20the%20socket%20interface%20not%20being%0A%20enabled%20%28via%20WSAStartup%29%20before%20init%20is%20called%20from%20a%20script.&In-Reply-To=%3Cmailman.90.1331735944.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013459.html">
+   <LINK REL="Next"  HREF="013468.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH 2/2] server: add server_preinit which is called before config file is parsed. This fixes the issue under native win32 of the socket interface not being enabled (via WSAStartup) before init is called from a script.</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%202/2%5D%20server%3A%20add%20server_preinit%20which%20is%20called%20before%20config%20file%20is%20parsed.%0A%20This%20fixes%20the%20issue%20under%20native%20win32%20of%20the%20socket%20interface%20not%20being%0A%20enabled%20%28via%20WSAStartup%29%20before%20init%20is%20called%20from%20a%20script.&In-Reply-To=%3Cmailman.90.1331735944.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH 2/2] server: add server_preinit which is called before config file is parsed. This fixes the issue under native win32 of the socket interface not being enabled (via WSAStartup) before init is called from a script.">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Thu Dec 10 14:07:18 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013459.html">[Openocd-development] Please welcome Nicolas Pitre as a maintainer
+</A></li>
+        <LI>Next message: <A HREF="013468.html">[Openocd-development] [PATCH 1/4] embedded hosts: optimize common	code path for core arm operations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13463">[ date ]</a>
+              <a href="thread.html#13463">[ thread ]</a>
+              <a href="subject.html#13463">[ subject ]</a>
+              <a href="author.html#13463">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+ src/openocd.c       |    5 +++--
+ src/server/server.c |   11 ++++++++++-
+ src/server/server.h |    1 +
+ 3 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 8cb8674..1105d2a 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -62,7 +62,6 @@ COMMAND_HANDLER(handle_version_command)
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int log_target_callback_event_handler(struct target *target, enum target_event event, void *priv)
+ {
+ 	switch (event)
+@@ -255,13 +254,15 @@ int openocd_main(int argc, char *argv[])
+ 		&quot;<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>&quot;
+ 		&quot;\n&quot;);
+ 
+-
+ 	command_context_mode(cmd_ctx, COMMAND_CONFIG);
+ 	command_set_output_handler(cmd_ctx, configuration_output_handler, NULL);
+ 
+ 	if (parse_cmdline_args(cmd_ctx, argc, argv) != ERROR_OK)
+ 		return EXIT_FAILURE;
+ 
++	if (server_preinit() != ERROR_OK)
++		return EXIT_FAILURE;
++
+ 	ret = parse_config_file(cmd_ctx);
+ 	if (ret != ERROR_OK)
+ 		return EXIT_FAILURE;
+diff --git a/src/server/server.c b/src/server/server.c
+index 2f4bfb0..75a6bed 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -487,8 +487,12 @@ void sig_handler(int sig) {
+ }
+ #endif
+ 
+-int server_init(struct command_context *cmd_ctx)
++int server_preinit(void)
+ {
++	/* this currently only calls WSAStartup on native win32 systems
++	 * before any socket operations are performed.
++	 * This is an issue if you call init in your config script */
++
+ #ifdef _WIN32
+ 	WORD wVersionRequested;
+ 	WSADATA wsaData;
+@@ -518,6 +522,11 @@ int server_init(struct command_context *cmd_ctx)
+ 	signal(SIGABRT, sig_handler);
+ #endif
+ 
++	return ERROR_OK;
++}
++
++int server_init(struct command_context *cmd_ctx)
++{
+ 	int ret = tcl_init(cmd_ctx);
+ 	if (ERROR_OK != ret)
+ 		return ret;
+diff --git a/src/server/server.h b/src/server/server.h
+index be1afbe..a25920e 100644
+--- a/src/server/server.h
++++ b/src/server/server.h
+@@ -74,6 +74,7 @@ int add_service(char *name, enum connection_type type, unsigned short port,
+ 		input_handler_t in_handler, connection_closed_handler_t close_handler,
+ 		void *priv);
+ 
++int server_preinit(void);
+ int server_init(struct command_context *cmd_ctx);
+ int server_quit(void);
+ 
+-- 
+1.6.1.2
+
+
+--------------090204050806040103010601--
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013459.html">[Openocd-development] Please welcome Nicolas Pitre as a maintainer
+</A></li>
+	<LI>Next message: <A HREF="013468.html">[Openocd-development] [PATCH 1/4] embedded hosts: optimize common	code path for core arm operations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13463">[ date ]</a>
+              <a href="thread.html#13463">[ thread ]</a>
+              <a href="subject.html#13463">[ subject ]</a>
+              <a href="author.html#13463">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

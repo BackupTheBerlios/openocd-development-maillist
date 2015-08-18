@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Improving command error/progress output from	commands
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Improving%20command%20error/progress%20output%20from%0A%09commands&In-Reply-To=%3Cc09652430712181414w642a4440r78a8ece9af8bd12%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000483.html">
+   <LINK REL="Next"  HREF="000508.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Improving command error/progress output from	commands</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Improving%20command%20error/progress%20output%20from%0A%09commands&In-Reply-To=%3Cc09652430712181414w642a4440r78a8ece9af8bd12%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Improving command error/progress output from	commands">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Dec 18 23:14:00 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000483.html">[Openocd-development] Added patches, now r240.
+</A></li>
+        <LI>Next message: <A HREF="000508.html">[Openocd-development] Improving command error/progress output	fromcommands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#488">[ date ]</a>
+              <a href="thread.html#488">[ thread ]</a>
+              <a href="subject.html#488">[ subject ]</a>
+              <a href="author.html#488">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>One major problem with OpenOCD is that a commands do not give
+feedback from the lower levels about what want went wrong and similarly
+outputting progress text is difficult. E.g. flash erase/programming could do
+with a bit of progress output.
+
+Excellent error messages/progress output that point users in the right
+direction is a killer feature.
+
+There are a couple of ways the problem of error output/progress info
+is adressed today:
+
+- push cmd_ctx to lower lower levels that really have nothing to do
+with cmd_ctx(e.g. flash functions). This pollutes the API and
+it's cmd_ctx is still not available from all the places where it would
+be useful.
+- translate return codes to strings. This gives very generic and
+misleading error messages without e.g. filename for a missing file.
+- allocate and return a string in API functions. This is complicated
+and pollutes the API.
+- the information is available in the log, but it can be pretty difficult
+to find the connection between the log statements and command
+executed. Ideally it shouldn't be necessary to break out the log.
+
+
+What I think is needed is some generic mechanism to deal with error/progress
+output in a way that simplifies the code and allows better progress/error
+messages. The attached patch hopes to do so without making the source
+completely unrecognizable and reusing existing concepts.
+
+In the attached patch, I leverage the existing logging mechanism to address
+the problems above.
+
+
+Basically it becomes possible for the caller of command_run_line() to capture
+the log produced while the command was executed.
+
+
+One use of this capture mechanism is to output the what is logged during
+command_run_line() to the telnet session.
+
+Some thoughts about this:
+
+- currently OpenOCD is single threaded. Therefore the simple
+implementation does the
+trick.
+- if OpenOCD grows multithreading(not at all unthinkable), then the
+current capture
+scheme still works. The short explanation here is that the logging
+capture would
+only log statements from the current thread.
+- gdb_server should be similarly modified
+- config scripts can stick to outputting only to the log as they are
+&quot;background tasks&quot;.
+- the timer callback should also capture output and output it to
+telnet, e.g. there might be
+important info w.r.t. how an asynchronous reset was handled.
+- there are API functions that can be cleaned up, e.g. returning
+allocated error strings
+is now unnecessarily complicated and not very flexible.
+- the use of error codes should be scaled back. Possibly to a boolean success
+return value. If an API needs to tell the caller how to behave afterwards then
+generic return codes is not a good way to go.
+- today it is only possible to log lines. It would be nice to be able
+to output e.g. a &quot;.&quot;
+for each sector written in flash programming.
+- we can incrementally improve OpenOCD without upsetting other work. The code is
+still very much recognizable.
+
+About the patch: the OpenOCD source we're using has a raft of patches
+that are not
+in OpenOCD trunk(yet ;-), so I backported the patch. Hopefully it will
+compile &amp; work
+out of the box, but I haven't tried it.
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA  developer kit
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: captureoutput.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20071218/0574f3da/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20071218/0574f3da/attachment.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000483.html">[Openocd-development] Added patches, now r240.
+</A></li>
+	<LI>Next message: <A HREF="000508.html">[Openocd-development] Improving command error/progress output	fromcommands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#488">[ date ]</a>
+              <a href="thread.html#488">[ thread ]</a>
+              <a href="subject.html#488">[ subject ]</a>
+              <a href="author.html#488">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

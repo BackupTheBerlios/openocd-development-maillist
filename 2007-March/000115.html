@@ -1,0 +1,649 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Add support for SAMSUNG S3C2410A NAND Flash	Controller
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Add%20support%20for%20SAMSUNG%20S3C2410A%20NAND%20Flash%0A%09Controller&In-Reply-To=%3C20070301211507.GA16776%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000116.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Add support for SAMSUNG S3C2410A NAND Flash	Controller</H1>
+    <B>Robert Fitzsimons</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Add%20support%20for%20SAMSUNG%20S3C2410A%20NAND%20Flash%0A%09Controller&In-Reply-To=%3C20070301211507.GA16776%40localhost%3E"
+       TITLE="[Openocd-development] Add support for SAMSUNG S3C2410A NAND Flash	Controller">robfitz at 273k.net
+       </A><BR>
+    <I>Thu Mar  1 22:15:07 CET 2007</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000116.html">[Openocd-development] Compatibility with OpenOCD / Experiences with	some ARM CPUs and OpenOCD
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#115">[ date ]</a>
+              <a href="thread.html#115">[ thread ]</a>
+              <a href="subject.html#115">[ subject ]</a>
+              <a href="author.html#115">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello
+
+The following patch adds flash driver support for the NAND flash
+controller in the SAMSUNG S3C2410A microprocessor.  This driver includes
+support for a 64 MB SAMSUNG K9F1208 flash memory, but the memory code is
+relatively generic and it should be easy to add support for other flash
+memory's.
+
+I've tested this with an Amontec JTAGkey-Tiny and Embest SBC2410-III
+single board computer.
+
+Hopefully you find it useful.
+
+Robert
+
+
+Index: src/flash/Makefile.am
+===================================================================
+--- src/flash/Makefile.am	(revision 131)
++++ src/flash/Makefile.am	(working copy)
+@@ -1,5 +1,5 @@
+ INCLUDES = -I$(top_srcdir)/src/helper -I$(top_srcdir)/src/jtag -I$(top_srcdir)/src/target $(all_includes)
+ METASOURCES = AUTO
+ noinst_LIBRARIES = libflash.a
+-libflash_a_SOURCES = flash.c lpc2000.c cfi.c at91sam7.c str7x.c str9x.c
+-noinst_HEADERS = flash.h lpc2000.h cfi.h at91sam7.h str7x.h str9x.h
++libflash_a_SOURCES = flash.c lpc2000.c cfi.c at91sam7.c str7x.c str9x.c s3c2410a.c
++noinst_HEADERS = flash.h lpc2000.h cfi.h at91sam7.h str7x.h str9x.h s3c2410a.h
+Index: src/flash/flash.c
+===================================================================
+--- src/flash/flash.c	(revision 131)
++++ src/flash/flash.c	(working copy)
+@@ -52,6 +52,7 @@
+ extern flash_driver_t at91sam7_flash;
+ extern flash_driver_t str7x_flash;
+ extern flash_driver_t str9x_flash;
++extern flash_driver_t s3c2410a_flash;
+ 
+ flash_driver_t *flash_drivers[] =
+ {
+@@ -60,6 +61,7 @@
+ 	&amp;at91sam7_flash,
+ 	&amp;str7x_flash,
+ 	&amp;str9x_flash,
++	&amp;s3c2410a_flash,
+ 	NULL,
+ };
+ 
+Index: src/flash/s3c2410a.h
+===================================================================
+--- src/flash/s3c2410a.h	(revision 0)
++++ src/flash/s3c2410a.h	(revision 0)
+@@ -0,0 +1,61 @@
++/***************************************************************************
++ *   Copyright (C) 2007 by Robert Fitzsimons                               *
++ *   robfitz at 273k dot net                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++/***************************************************************************
++ *   SAMSUNG S3C2410A NAND Flash Controller Driver                         *
++ *     Includes support for:                                               *
++ *     - SAMSUNG K9F1208 64M x 8 Bit NAND Flash Memory (K9F1208R0B,        *
++ *       K9F1208B0B, K9F1208U0B).  Tested with K9F1208U0B.                 *
++ ***************************************************************************/
++#ifndef S3C2410A_H
++#define S3C2410A_H
++
++#include &quot;flash.h&quot;
++#include &quot;target.h&quot;
++
++enum s3c2410a_device
++{
++	UNKNOWN_DEVICE = 0,
++	K9F1208 = 1,
++};
++
++typedef struct s3c2410a_flash_bank_s
++{
++	struct target_s *target;
++	int probed;
++	enum s3c2410a_device device;
++	int sectors_per_page;
++	int pages_per_block;
++	int blocks_per_device;
++} s3c2410a_flash_bank_t;
++
++/*
++ * S3C2410A NAND Flash Controller
++ * Special Function Registers
++ */
++
++#define S3C2410A_NFCONF		0x4E000000		/* Configuration Register  */
++#define S3C2410A_NFCMD		0x4E000004		/* Command Set Register    */
++#define S3C2410A_NFADDR		0x4E000008		/* Address Set Register    */
++#define S3C2410A_NFDATA		0x4E00000C		/* Data Register           */
++#define S3C2410A_NFSTAT		0x4E000010		/* Status Register         */
++#define S3C2410A_NFECC		0x4E000014		/* ECC Register            */
++
++#endif /* S3C2410A_H */
++
+Index: src/flash/s3c2410a.c
+===================================================================
+--- src/flash/s3c2410a.c	(revision 0)
++++ src/flash/s3c2410a.c	(revision 0)
+@@ -0,0 +1,471 @@
++/***************************************************************************
++ *   Copyright (C) 2007 by Robert Fitzsimons                               *
++ *   robfitz at 273k dot net                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;replacements.h&quot;
++
++#include &quot;s3c2410a.h&quot;
++#include &quot;flash.h&quot;
++#include &quot;target.h&quot;
++#include &quot;log.h&quot;
++
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++#include &lt;unistd.h&gt;
++
++int s3c2410a_register_commands(struct command_context_s *cmd_ctx);
++int s3c2410a_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, struct flash_bank_s *bank);
++int s3c2410a_info(struct flash_bank_s *bank, char *buf, int buf_size);
++int s3c2410a_erase(struct flash_bank_s *bank, int first, int last);
++int s3c2410a_protect(struct flash_bank_s *bank, int set, int first, int last);
++int s3c2410a_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count);
++int s3c2410a_probe(struct flash_bank_s *bank);
++int s3c2410a_protect_check(struct flash_bank_s *bank);
++int s3c2410a_erase_check(struct flash_bank_s *bank);
++
++static void s3c2410a_start(target_t *target, u16 *config);
++static void s3c2410a_end(target_t *target, u16 *config);
++static void s3c2410a_status_wait(target_t *target);
++static void s3c2410a_read_page(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, u32 address, u8 *page, u8 *extra);
++static int s3c2410a_check_write_success(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info);
++static int s3c2410a_check_bad_block(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, int sector);
++static void s3c2410a_write_bad_block(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, int sector);
++static void s3c2410a_address_col(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, u32 address);
++static void s3c2410a_address_row(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, u32 address);
++static const char * s3c2410a_device_name(s3c2410a_flash_bank_t *s3c2410a_info);
++
++flash_driver_t s3c2410a_flash =
++{
++	.name = &quot;s3c2410a&quot;,
++	.register_commands = s3c2410a_register_commands,
++	.flash_bank_command = s3c2410a_flash_bank_command,
++	.info = s3c2410a_info,
++	.probe = s3c2410a_probe,
++	.erase = s3c2410a_erase,
++	.write = s3c2410a_write,
++	.protect = s3c2410a_protect,
++	.erase_check = s3c2410a_erase_check,
++	.protect_check = s3c2410a_protect_check,
++};
++
++int s3c2410a_register_commands(struct command_context_s *cmd_ctx)
++{
++	return ERROR_OK;
++}
++
++int s3c2410a_protect(struct flash_bank_s *bank, int set, int first, int last)
++{
++	return ERROR_OK;
++}
++
++int s3c2410a_protect_check(struct flash_bank_s *bank)
++{
++	return ERROR_OK;
++}
++
++int s3c2410a_erase_check(struct flash_bank_s *bank)
++{
++	return ERROR_OK;
++}
++
++
++int s3c2410a_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, struct flash_bank_s *bank)
++{
++	s3c2410a_flash_bank_t *s3c2410a_info;
++
++	if (argc &lt; 6)
++	{
++		WARNING(&quot;incomplete flash_bank s3c2410a configuration&quot;);
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	s3c2410a_info = calloc(1, sizeof(s3c2410a_flash_bank_t));
++	bank-&gt;driver_priv = s3c2410a_info;
++
++	s3c2410a_info-&gt;target = get_target_by_num(strtoul(args[5], NULL, 0));
++	if (!s3c2410a_info-&gt;target)
++	{
++		ERROR(&quot;no target '%s' configured&quot;, args[5]);
++		exit(-1);
++	}
++
++	return ERROR_OK;
++}
++
++int s3c2410a_info(struct flash_bank_s *bank, char *buf, int buf_size)
++{
++	s3c2410a_flash_bank_t *s3c2410a_info = bank-&gt;driver_priv;
++
++	if (s3c2410a_info-&gt;probed)
++	{
++		snprintf(buf, buf_size,
++			&quot;s3c2410a flash driver info\ndevice: %s\nsectors per block: %d\ntotal sectors: %d&quot;,
++			s3c2410a_device_name(s3c2410a_info),
++			(s3c2410a_info-&gt;sectors_per_page * s3c2410a_info-&gt;pages_per_block),
++			(s3c2410a_info-&gt;sectors_per_page * s3c2410a_info-&gt;pages_per_block * s3c2410a_info-&gt;blocks_per_device));
++	}
++	else
++	{
++		snprintf(buf, buf_size, &quot;s3c2410a flash driver unknown device&quot;);
++	}
++
++	return ERROR_OK;
++}
++
++int s3c2410a_probe(struct flash_bank_s *bank)
++{
++	s3c2410a_flash_bank_t *s3c2410a_info = bank-&gt;driver_priv;
++	target_t *target = s3c2410a_info-&gt;target;
++	u16 config;
++	u16 data;
++	u16 maker;
++	u16 device;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	s3c2410a_start(target, &amp;config);
++
++	target_write_u16(target, S3C2410A_NFCMD, 0x90);
++
++	target_write_u16(target, S3C2410A_NFADDR, 0x00);
++
++	s3c2410a_status_wait(target);
++
++	target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++	maker = (u8)data;
++	target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++	device = (u8)data;
++	target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++	target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++
++	s3c2410a_end(target, &amp;config);
++
++	switch (maker)
++	{
++	/* SAMSUNG */
++	case 0xEC:
++		switch (device)
++		{
++		/* SAMSUNG K9F1208 64M x 8 Bit NAND Flash Memory */
++		case 0x36:
++		case 0x76:
++			s3c2410a_info-&gt;device = K9F1208;
++			s3c2410a_info-&gt;sectors_per_page = 1;
++			s3c2410a_info-&gt;pages_per_block = 32;
++			s3c2410a_info-&gt;blocks_per_device = 4096;
++			break;
++		}
++		break;
++	}
++
++	if (s3c2410a_info-&gt;device == UNKNOWN_DEVICE)
++	{
++		WARNING(&quot;unknown device (0x%x, 0x%x)&quot;, maker, device);
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++
++	s3c2410a_info-&gt;probed = 1;
++
++	return ERROR_OK;
++}
++
++int s3c2410a_erase(struct flash_bank_s *bank, int first, int last)
++{
++	s3c2410a_flash_bank_t *s3c2410a_info = bank-&gt;driver_priv;
++	target_t *target = s3c2410a_info-&gt;target;
++	u16 config;
++	u32 sec;
++	int sectors_per_block;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	if (!s3c2410a_info-&gt;probed)
++	{
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++
++	sectors_per_block = s3c2410a_info-&gt;sectors_per_page * s3c2410a_info-&gt;pages_per_block;
++	if ((first &lt; 0) || (last &lt; first) || (first % sectors_per_block) || ((last + 1) % sectors_per_block) || (last &gt; (sectors_per_block * s3c2410a_info-&gt;blocks_per_device)))
++	{
++		return ERROR_FLASH_SECTOR_INVALID;
++	}
++
++	s3c2410a_start(target, &amp;config);
++
++	for (sec = first; sec &lt;= last; sec += sectors_per_block)
++	{
++		INFO(&quot;block erase at sector %d&quot;, sec);
++
++		if (!s3c2410a_check_bad_block(target, s3c2410a_info, sec)) {
++			return ERROR_FLASH_SECTOR_NOT_ERASED;
++		}
++
++		target_write_u16(target, S3C2410A_NFCMD, 0x60);
++
++		s3c2410a_address_row(target, s3c2410a_info, sec * 512);
++
++		target_write_u16(target, S3C2410A_NFCMD, 0xD0);
++
++		s3c2410a_status_wait(target);
++
++		if (!s3c2410a_check_write_success(target, s3c2410a_info))
++		{
++			s3c2410a_write_bad_block(target, s3c2410a_info, sec);
++			return ERROR_FLASH_SECTOR_NOT_ERASED;
++		}
++	}
++
++	s3c2410a_end(target, &amp;config);
++
++	return ERROR_OK;
++}
++
++int s3c2410a_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
++{
++	s3c2410a_flash_bank_t *s3c2410a_info = bank-&gt;driver_priv;
++	target_t *target = s3c2410a_info-&gt;target;
++	u16 config;
++	u32 offset_end = offset + count;
++	int i = 0;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	if (!s3c2410a_info-&gt;probed)
++	{
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++
++	INFO(&quot;write at 0x%x, %d&quot;, offset, count);
++
++	s3c2410a_start(target, &amp;config);
++
++	while (offset &lt; offset_end)
++	{
++		u32 offset_page_end = offset + 512;
++		offset_page_end = (offset_page_end / 512) * 512;
++		if (offset_page_end &gt; offset_end)
++		{
++			offset_page_end = offset_end;
++		}
++
++		INFO(&quot;page write at 0x%x to 0x%x&quot;, offset, offset_page_end);
++
++		if (!s3c2410a_check_bad_block(target, s3c2410a_info, (offset_page_end - 1) / 512)) {
++			return ERROR_FLASH_SECTOR_NOT_ERASED;
++		}
++
++		target_write_u16(target, S3C2410A_NFCMD, 0x00);
++		target_write_u16(target, S3C2410A_NFCMD, 0x80);
++
++		s3c2410a_address_col(target, s3c2410a_info, offset);
++		s3c2410a_address_row(target, s3c2410a_info, offset);
++
++		while (offset &lt; offset_page_end)
++		{
++			target_write_u16(target, S3C2410A_NFDATA, buffer[i++]);
++			offset++;
++		}
++
++		target_write_u16(target, S3C2410A_NFCMD, 0x10);
++
++		s3c2410a_status_wait(target);
++
++		if (!s3c2410a_check_write_success(target, s3c2410a_info))
++		{
++			s3c2410a_write_bad_block(target, s3c2410a_info, (offset_page_end - 1) / 512);
++			return ERROR_FLASH_OPERATION_FAILED;
++		}
++	}
++
++	s3c2410a_end(target, &amp;config);
++
++	return ERROR_OK;
++}
++
++static void s3c2410a_start(target_t *target, u16 *config)
++{
++	// Enable NAND Flash Controller, NAND flash active
++	target_read_u16(target, S3C2410A_NFCONF, config);
++	*config |= (1 &lt;&lt; 15);
++	*config &amp;= ~(1 &lt;&lt; 11);
++	target_write_u16(target, S3C2410A_NFCONF, *config);
++}
++
++static void s3c2410a_end(target_t *target, u16 *config)
++{
++	// Disable NAND Flash Controller, NAND flash inactive
++	*config &amp;= ~(1 &lt;&lt; 15);
++	*config |= (1 &lt;&lt; 11);
++	target_write_u16(target, S3C2410A_NFCONF, *config);
++}
++
++static void s3c2410a_status_wait(target_t *target)
++{
++	u16 status;
++	// Status, RnB
++	do {
++		target_read_u16(target, S3C2410A_NFSTAT, &amp;status);
++	} while (!(status &amp; (1 &lt;&lt; 0)));
++}
++
++static void s3c2410a_read_page(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, u32 address, u8 *page, u8 *extra)
++{
++	int i;
++	u16 data;
++	switch (s3c2410a_info-&gt;device)
++	{
++	case K9F1208:
++		target_write_u16(target, S3C2410A_NFCMD, 0x00);
++
++		s3c2410a_address_col(target, s3c2410a_info, address);
++		s3c2410a_address_row(target, s3c2410a_info, address);
++
++		s3c2410a_status_wait(target);
++
++		for (i = 0; i &lt; 512; i++)
++		{
++			target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++			page[i] = data;
++		}
++		for (i = 0; i &lt; 16; i++)
++		{
++			target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++			extra[i] = data;
++		}
++	}
++}
++
++static int s3c2410a_check_write_success(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info)
++{
++	u16 data;
++
++	switch (s3c2410a_info-&gt;device)
++	{
++	case K9F1208:
++		target_write_u16(target, S3C2410A_NFCMD, 0x70);
++		target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++		if (data &amp; (1 &lt;&lt; 0))
++		{
++			INFO(&quot;write error (0x%x)&quot;, data);
++			return 0;
++		}
++		return 1;
++	}
++
++	return 0;
++}
++
++static int s3c2410a_check_bad_block(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, int sector)
++{
++	u16 data;
++
++	switch (s3c2410a_info-&gt;device)
++	{
++	case K9F1208:
++		target_write_u16(target, S3C2410A_NFCMD, 0x50);
++
++		s3c2410a_address_col(target, s3c2410a_info, 5);
++		s3c2410a_address_row(target, s3c2410a_info, (((sector / 32) * 32) * 512));
++
++		s3c2410a_status_wait(target);
++
++		target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++		if (data != 0xFF)
++		{
++			INFO(&quot;bad block (0x%x)&quot;, data);
++			return 0;
++		}
++		return 1;
++	}
++
++	return 0;
++}
++
++static void s3c2410a_write_bad_block(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, int sector)
++{
++	u16 data;
++
++	switch (s3c2410a_info-&gt;device)
++	{
++	case K9F1208:
++		target_write_u16(target, S3C2410A_NFCMD, 0x50);
++		target_write_u16(target, S3C2410A_NFCMD, 0x80);
++
++		s3c2410a_address_col(target, s3c2410a_info, 5);
++		s3c2410a_address_row(target, s3c2410a_info, (((sector / 32) * 32) * 512));
++
++		target_write_u16(target, S3C2410A_NFDATA, 0xA5);
++
++		target_write_u16(target, S3C2410A_NFCMD, 0x10);
++
++		s3c2410a_status_wait(target);
++
++		target_write_u16(target, S3C2410A_NFCMD, 0x70);
++		target_read_u16(target, S3C2410A_NFDATA, &amp;data);
++		if (data &amp; (1 &lt;&lt; 0))
++		{
++			INFO(&quot;write bad block error (0x%x)&quot;, data);
++		}
++	}
++}
++
++static void s3c2410a_address_col(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, u32 address)
++{
++	switch (s3c2410a_info-&gt;device)
++	{
++	case K9F1208:
++		target_write_u16(target, S3C2410A_NFADDR, (address &gt;&gt; 0) &amp; 0xFF); // A0 - A7
++		break;
++	}
++}
++
++static void s3c2410a_address_row(target_t *target, s3c2410a_flash_bank_t *s3c2410a_info, u32 address)
++{
++	switch (s3c2410a_info-&gt;device)
++	{
++	case K9F1208:
++		target_write_u16(target, S3C2410A_NFADDR, (address &gt;&gt; 9) &amp; 0xFF); // A9 - A16
++		target_write_u16(target, S3C2410A_NFADDR, (address &gt;&gt; 17) &amp; 0xFF); // A17 - A24
++		target_write_u16(target, S3C2410A_NFADDR, (address &gt;&gt; 25) &amp; 0x01); // A25 - A25
++		break;
++	}
++}
++
++static const char * s3c2410a_device_name(s3c2410a_flash_bank_t *s3c2410a_info)
++{
++	switch (s3c2410a_info-&gt;device)
++	{
++	case K9F1208:
++		return &quot;SAMSUNG K9F1208&quot;;
++	}
++	return NULL;
++}
++
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000116.html">[Openocd-development] Compatibility with OpenOCD / Experiences with	some ARM CPUs and OpenOCD
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#115">[ date ]</a>
+              <a href="thread.html#115">[ thread ]</a>
+              <a href="subject.html#115">[ subject ]</a>
+              <a href="author.html#115">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

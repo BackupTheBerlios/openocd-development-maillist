@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/5] command output capture: do not	use interp global
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/5%5D%20command%20output%20capture%3A%20do%20not%0A%09use%20interp%20global&In-Reply-To=%3C1259550185-25916-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013068.html">
+   <LINK REL="Next"  HREF="013069.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/5] command output capture: do not	use interp global</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/5%5D%20command%20output%20capture%3A%20do%20not%0A%09use%20interp%20global&In-Reply-To=%3C1259550185-25916-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/5] command output capture: do not	use interp global">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Nov 30 04:03:04 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013068.html">[Openocd-development] [PATCH 3/5] do not extern 'interp' from	command.c
+</A></li>
+        <LI>Next message: <A HREF="013069.html">[Openocd-development] [PATCH 5/5] remove interp global variable!
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13066">[ date ]</a>
+              <a href="thread.html#13066">[ thread ]</a>
+              <a href="subject.html#13066">[ subject ]</a>
+              <a href="author.html#13066">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Adds a log_capture_state structure to pass to the log capture
+callback used by the command module.  Ensures that the capture occurs
+in the proper context.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   49 ++++++++++++++++++++++++++++++++++---------------
+ 1 files changed, 34 insertions(+), 15 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 5df4a45..607693c 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -52,30 +52,50 @@ Jim_Interp *interp = NULL;
+ static int run_command(struct command_context *context,
+ 		struct command *c, const char *words[], unsigned num_words);
+ 
++struct log_capture_state {
++	Jim_Interp *interp;
++	Jim_Obj *output;
++};
++
+ static void tcl_output(void *privData, const char *file, unsigned line,
+ 		const char *function, const char *string)
+ {
+-	Jim_Obj *tclOutput = (Jim_Obj *)privData;
+-	Jim_AppendString(interp, tclOutput, string, strlen(string));
++	struct log_capture_state *state = (struct log_capture_state *)privData;
++	Jim_AppendString(state-&gt;interp, state-&gt;output, string, strlen(string));
+ }
+ 
+-static Jim_Obj *command_log_capture_start(Jim_Interp *interp)
++static struct log_capture_state *command_log_capture_start(Jim_Interp *interp)
+ {
+ 	/* capture log output and return it. A garbage collect can
+ 	 * happen, so we need a reference count to this object */
+ 	Jim_Obj *tclOutput = Jim_NewStringObj(interp, &quot;&quot;, 0);
+ 	if (NULL == tclOutput)
+ 		return NULL;
++
++	struct log_capture_state *state = malloc(sizeof(*state));
++	if (NULL == state)
++		return NULL;
++
++	state-&gt;interp = interp;
+ 	Jim_IncrRefCount(tclOutput);
+-	log_add_callback(tcl_output, tclOutput);
+-	return tclOutput;
++	state-&gt;output = tclOutput;
++
++	log_add_callback(tcl_output, state);
++
++	return state;
+ }
+ 
+-static void command_log_capture_finish(Jim_Interp *interp, Jim_Obj *tclOutput)
++static void command_log_capture_finish(struct log_capture_state *state)
+ {
+-	log_remove_callback(tcl_output, tclOutput);
+-	Jim_SetResult(interp, tclOutput);
+-	Jim_DecrRefCount(interp, tclOutput);
++	if (NULL == state)
++		return;
++
++	log_remove_callback(tcl_output, state);
++
++	Jim_SetResult(state-&gt;interp, state-&gt;output);
++	Jim_DecrRefCount(state-&gt;interp, state-&gt;output);
++
++	free(state);
+ }
+ 
+ static int command_retval_set(Jim_Interp *interp, int retval)
+@@ -164,15 +184,14 @@ static int script_command_run(Jim_Interp *interp,
+ 	if (NULL == words)
+ 		return JIM_ERR;
+ 
+-	Jim_Obj *tclOutput = NULL;
++	struct log_capture_state *state = NULL;
+ 	if (capture)
+-		tclOutput = command_log_capture_start(interp);
++		state = command_log_capture_start(interp);
+ 
+ 	struct command_context *cmd_ctx = current_command_context();
+ 	int retval = run_command(cmd_ctx, c, (const char **)words, nwords);
+ 
+-	if (capture)
+-		command_log_capture_finish(interp, tclOutput);
++	command_log_capture_finish(state);
+ 
+ 	script_command_args_free(words, nwords);
+ 	return command_retval_set(interp, retval);
+@@ -804,12 +823,12 @@ static int jim_capture(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	if (argc != 2)
+ 		return JIM_ERR;
+ 
+-	Jim_Obj *tclOutput = command_log_capture_start(interp);
++	struct log_capture_state *state = command_log_capture_start(interp);
+ 
+ 	const char *str = Jim_GetString(argv[1], NULL);
+ 	int retcode = Jim_Eval_Named(interp, str, __THIS__FILE__, __LINE__);
+ 
+-	command_log_capture_finish(interp, tclOutput);
++	command_log_capture_finish(state);
+ 
+ 	return retcode;
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013068.html">[Openocd-development] [PATCH 3/5] do not extern 'interp' from	command.c
+</A></li>
+	<LI>Next message: <A HREF="013069.html">[Openocd-development] [PATCH 5/5] remove interp global variable!
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13066">[ date ]</a>
+              <a href="thread.html#13066">[ thread ]</a>
+              <a href="subject.html#13066">[ subject ]</a>
+              <a href="author.html#13066">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

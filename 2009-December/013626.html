@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/FYI 1/5] JTAG: shrink &quot;scan_chain&quot;	output
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/FYI%201/5%5D%20JTAG%3A%20shrink%20%22scan_chain%22%0A%09output&In-Reply-To=%3C200912161252.07782.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013625.html">
+   <LINK REL="Next"  HREF="013627.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/FYI 1/5] JTAG: shrink &quot;scan_chain&quot;	output</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/FYI%201/5%5D%20JTAG%3A%20shrink%20%22scan_chain%22%0A%09output&In-Reply-To=%3C200912161252.07782.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/FYI 1/5] JTAG: shrink &quot;scan_chain&quot;	output">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Dec 16 21:52:07 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013625.html">[Openocd-development] [patch/FYI 0/5] misc cleanup pages
+</A></li>
+        <LI>Next message: <A HREF="013627.html">[Openocd-development] [patch/FYI 2/5] stellaris: avoid chip writes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13626">[ date ]</a>
+              <a href="thread.html#13626">[ thread ]</a>
+              <a href="subject.html#13626">[ subject ]</a>
+              <a href="author.html#13626">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Tweak the &quot;scan_chain&quot; output by removing column separators.  Also
+remove the &quot;current instruction&quot; state ... which changes constantly.
+
+Now its style resembles the &quot;targets&quot; output, and can even fit on
+one line in standard terminals and in the PDF docs.
+---
+ doc/openocd.texi |   14 +++++++-------
+ src/jtag/tcl.c   |   16 ++++++++--------
+ 2 files changed, 15 insertions(+), 15 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2592,13 +2592,15 @@ debugging targets.)
+ Here's what the scan chain might look like for a chip more than one TAP:
+ 
+ @verbatim
+-   TapName            Enabled IdCode     Expected   IrLen IrCap IrMask Instr
+--- ------------------ ------- ---------- ---------- ----- ----- ------ -----
+- 0 omap5912.dsp          Y    0x03df1d81 0x03df1d81 38    0     0      0x...
+- 1 omap5912.arm          Y    0x0692602f 0x0692602f 4     0x1   0      0xc
+- 2 omap5912.unknown      Y    0x00000000 0x00000000 8     0     0      0xff
++   TapName            Enabled IdCode     Expected   IrLen IrCap IrMask
++-- ------------------ ------- ---------- ---------- ----- ----- ------
++ 0 omap5912.dsp          Y    0x03df1d81 0x03df1d81    38 0x01  0x03
++ 1 omap5912.arm          Y    0x0692602f 0x0692602f     4 0x01  0x0f
++ 2 omap5912.unknown      Y    0x00000000 0x00000000     8 0x01  0x03
+ @end verbatim
+ 
++OpenOCD can detect some of that information, but not all
++of it.  @xref{Autoprobing}.
+ Unfortunately those TAPs can't always be autoconfigured,
+ because not all devices provide good support for that.
+ JTAG doesn't require supporting IDCODE instructions, and
+@@ -2659,8 +2661,6 @@ The set of TAPs listed by this command i
+ exiting the OpenOCD configuration stage,
+ but systems with a JTAG router can
+ enable or disable TAPs dynamically.
+-In addition to the enable/disable status, the contents of
+-each TAP's instruction register can also change.
+ @end deffn
+ 
+ @c FIXME!  &quot;jtag cget&quot; should be able to return all TAP
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1021,11 +1021,13 @@ COMMAND_HANDLER(handle_scan_chain_comman
+ 	char expected_id[12];
+ 
+ 	tap = jtag_all_taps();
+-	command_print(CMD_CTX, &quot;     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     &quot;);
+-	command_print(CMD_CTX, &quot;---|--------------------|---------|------------|------------|------|------|------|---------&quot;);
++	command_print(CMD_CTX,
++&quot;   TapName             Enabled  IdCode     Expected   IrLen IrCap IrMask&quot;);
++	command_print(CMD_CTX,
++&quot;-- ------------------- -------- ---------- ---------- ----- ----- ------&quot;);
+ 
+ 	while (tap) {
+-		uint32_t expected, expected_mask, cur_instr, ii;
++		uint32_t expected, expected_mask, ii;
+ 
+ 		snprintf(expected_id, sizeof expected_id, &quot;0x%08x&quot;,
+ 				(unsigned)((tap-&gt;expected_ids_cnt &gt; 0)
+@@ -1036,10 +1038,9 @@ COMMAND_HANDLER(handle_scan_chain_comman
+ 
+ 		expected = buf_get_u32(tap-&gt;expected, 0, tap-&gt;ir_length);
+ 		expected_mask = buf_get_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length);
+-		cur_instr = buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length);
+ 
+ 		command_print(CMD_CTX,
+-	&quot;%2d | %-18s |    %c    | 0x%08x | %s | 0x%02x | 0x%02x | 0x%02x | 0x%02x&quot;,
++	&quot;%2d %-18s     %c     0x%08x %s %5d 0x%02x  0x%02x&quot;,
+ 					  tap-&gt;abs_chain_position,
+ 					  tap-&gt;dotted_name,
+ 					  tap-&gt;enabled ? 'Y' : 'n',
+@@ -1047,8 +1048,7 @@ COMMAND_HANDLER(handle_scan_chain_comman
+ 					  expected_id,
+ 					  (unsigned int)(tap-&gt;ir_length),
+ 					  (unsigned int)(expected),
+-					  (unsigned int)(expected_mask),
+-					  (unsigned int)(cur_instr));
++					  (unsigned int)(expected_mask));
+ 
+ 		for (ii = 1; ii &lt; tap-&gt;expected_ids_cnt; ii++) {
+ 			snprintf(expected_id, sizeof expected_id, &quot;0x%08x&quot;,
+@@ -1057,7 +1057,7 @@ COMMAND_HANDLER(handle_scan_chain_comman
+ 				expected_id[2] = '*';
+ 
+ 			command_print(CMD_CTX,
+-	&quot;   |                    |         |            | %s |      |      |      |         &quot;,
++	&quot;                                           %s&quot;,
+ 						  expected_id);
+ 		}
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013625.html">[Openocd-development] [patch/FYI 0/5] misc cleanup pages
+</A></li>
+	<LI>Next message: <A HREF="013627.html">[Openocd-development] [patch/FYI 2/5] stellaris: avoid chip writes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13626">[ date ]</a>
+              <a href="thread.html#13626">[ thread ]</a>
+              <a href="subject.html#13626">[ subject ]</a>
+              <a href="author.html#13626">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] flash info patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20flash%20info%20patch&In-Reply-To=%3C47B2B391.8020907%40asix.cz%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000831.html">
+   <LINK REL="Next"  HREF="000824.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] flash info patch</H1>
+    <B>Pavel Chromy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20flash%20info%20patch&In-Reply-To=%3C47B2B391.8020907%40asix.cz%3E"
+       TITLE="[Openocd-development] flash info patch">chromy at asix.cz
+       </A><BR>
+    <I>Wed Feb 13 10:08:33 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000831.html">[Openocd-development] flash info patch
+</A></li>
+        <LI>Next message: <A HREF="000824.html">[Openocd-development] Improving progress/error output for telnet &amp;	GDB monitor commands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#832">[ date ]</a>
+              <a href="thread.html#832">[ thread ]</a>
+              <a href="subject.html#832">[ subject ]</a>
+              <a href="author.html#832">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Hello Spen, &#216;yvind and the list!
+
+Spen wrote:
+&gt;&gt;<i> Yes. Polymorphism. The driver can now decide *not* to implement autoprobe,
+</I>&gt;&gt;<i> i.e. require explict probe.
+</I>&gt;&gt;<i> I'd like to see it kept as is . 
+</I>&gt;<i> 
+</I>&gt;<i> That's a fair point, but what flash drivers have a probe without autoprobe
+</I>&gt;<i> function?
+</I>
+This has been discussed already, please search back through the list history.
+Some drivers (may) need certain specific prerequisites, e.g. clock settings, target (not) running etc...
+
+&gt;<i> Keeping it in is fine with me, just having a hard time understanding why
+</I>&gt;<i> something like the following could not be added to flash.c
+</I>&gt;<i> 
+</I>&gt;<i> int flash_auto_probe(struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i> 	int retval;
+</I>&gt;<i> 	
+</I>&gt;<i> 	if (bank-&gt;probed)
+</I>&gt;<i> 		return ERROR_OK;
+</I>&gt;<i> 	bank-&gt;probed = 0;
+</I>&gt;<i> 	if ((retval = bank-&gt;driver-&gt;probe(bank)) == ERROR_OK)
+</I>&gt;<i> 		bank-&gt;probed = 1;
+</I>&gt;<i> 	return retval;
+</I>&gt;<i> }
+</I>
+Generally not bad, but I would slightly modify it:
+
+int flash_auto_probe(struct flash_bank_s *bank)
+{
+	if (bank-&gt;probed)
+		return ERROR_OK;
+	if (bank-&gt;driver-&gt;autoprobe==NULL)
+		return ERROR_FLASH_BANK_NOT_PROBED;
+  	return bank-&gt;driver-&gt;autoprobe(bank);
+}
+
+Comments:
+1) If bank-&gt;probed is true just return, otherwise there is no need to set it to zero (as it already is).
+2) Check whether autoprobing is supported/implemented by the driver at all.
+3) Do not call normal probe but autoprobe so that the driver knows whether probing was induced explicitly
+or automatically and issue a warning or whatever if it does not support autoprobing or need specific conditions.
+4) let the drivers probe/autoprobe function decide on its own whether it sets bank-&gt;probed.
+This would allow the autoprobe to be called every time flash is accessed not just once (if desired, drivers choice).
+5) The drivers probe/autoprobe functions would be responsible for setting (or resetting) bank-&gt;probed variable.
+6) No other code but this one should rely on bank-&gt;probed nor set it, it is intended just for autoprobing and
+driver internals (if applicable).
+
+This would provide enough flexibility for any real scenario I can imagine, while not pushing the drivers
+to reimplement the same stuff over and over.
+I support the idea to have the &quot;probed&quot; variable in the bank struct as such state variable is (in certain form)
+typically used by most of the drivers anyway, with similar conditional probing as in the code snippet above.
+
+For drivers which do not care about any special prerequisites for probing it would be trivial to implement autoprobe
+just as a call to regular probe, or even better, to initialize bank-&gt;autoprobe with pointer to regular probe routine,
+no additional function or state variable in the driver required!
+Sounds good?
+
+Regards,
+   Pavel
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000831.html">[Openocd-development] flash info patch
+</A></li>
+	<LI>Next message: <A HREF="000824.html">[Openocd-development] Improving progress/error output for telnet &amp;	GDB monitor commands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#832">[ date ]</a>
+              <a href="thread.html#832">[ thread ]</a>
+              <a href="subject.html#832">[ subject ]</a>
+              <a href="author.html#832">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

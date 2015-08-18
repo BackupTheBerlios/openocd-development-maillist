@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/fyi] ADIv5 DAP ops switching to	JTAG or SWD modes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%5D%20ADIv5%20DAP%20ops%20switching%20to%0A%09JTAG%20or%20SWD%20modes&In-Reply-To=%3C63034c041003021449o2ee54ad6g483c480a0b2e5700%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015102.html">
+   <LINK REL="Next"  HREF="015105.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/fyi] ADIv5 DAP ops switching to	JTAG or SWD modes</H1>
+    <B>simon qian</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%5D%20ADIv5%20DAP%20ops%20switching%20to%0A%09JTAG%20or%20SWD%20modes&In-Reply-To=%3C63034c041003021449o2ee54ad6g483c480a0b2e5700%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [patch/fyi] ADIv5 DAP ops switching to	JTAG or SWD modes">simonqian.openocd at gmail.com
+       </A><BR>
+    <I>Tue Mar  2 23:49:13 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015102.html">[Openocd-development] problems with openocd 0.4.0 and olimex	arm-usb-tiny-h
+</A></li>
+        <LI>Next message: <A HREF="015105.html">[Openocd-development] [patch/fyi] ADIv5 DAP ops switching to	JTAG or SWD modes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15103">[ date ]</a>
+              <a href="thread.html#15103">[ thread ]</a>
+              <a href="subject.html#15103">[ subject ]</a>
+              <a href="author.html#15103">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>For JTAG operation:
+JTAG_Initialize
+dap_to_jtag --&gt; jtag_add_tms_seq
+......
+JTAG_Finialize
+
+For SWD operation:
+SWD_Initialize
+dap_to_swd -&gt; jtag_add_tms_seq
+......
+SWD_Finialize
+Shouldn't it use swd_add_tms_seq in SWD operation?
+
+2010/2/27 David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt;
+
+&gt;<i>
+</I>&gt;<i> Define two new DAP operations which use the new jtag_add_tms_seq()
+</I>&gt;<i> calls to put the DAP's transport into either SWD or JTAG mode, when
+</I>&gt;<i> the hardware allows.
+</I>&gt;<i>
+</I>&gt;<i> Tested with the Stellaris 'Recovering a &quot;Locked&quot; Device' procedure,
+</I>&gt;<i> which loops five times over both of these.
+</I>&gt;<i> --
+</I>&gt;<i> I merged this along with the patches adding that call and
+</I>&gt;<i> implementing it for FT2232 based hardware.  &#216;yvind and I
+</I>&gt;<i> have had a bit of off-list discussion on that ... he thinks
+</I>&gt;<i> those are at least a good enough start, and that (as like
+</I>&gt;<i> with other Free Software projects) we can fix goofage later.
+</I>&gt;<i>
+</I>&gt;<i> If we start seeing JTAG/SWD adapter hardware which needs
+</I>&gt;<i> a different kind of primitive for mode switching we can
+</I>&gt;<i> change how we do this.  But this approach can clearly work
+</I>&gt;<i> on FT2232 and bitbangers (parport and friends).  It's also
+</I>&gt;<i> very similar to what Simon sent around for Versaloon late
+</I>&gt;<i> last year.  (And ZY1000 looks like it bitbangs TMS too.)
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> --- a/src/target/arm_adi_v5.c
+</I>&gt;<i> +++ b/src/target/arm_adi_v5.c
+</I>&gt;<i> @@ -1716,3 +1716,116 @@ DAP_COMMAND_HANDLER(dap_apid_command)
+</I>&gt;<i>
+</I>&gt;<i>        return retval;
+</I>&gt;<i>  }
+</I>&gt;<i> +
+</I>&gt;<i> +/*
+</I>&gt;<i> + * This represents the bits which must be sent out on TMS/SWDIO to
+</I>&gt;<i> + * switch a DAP implemented using an SWJ-DP module into SWD mode.
+</I>&gt;<i> + * These bits are stored (and transmitted) LSB-first.
+</I>&gt;<i> + *
+</I>&gt;<i> + * See the DAP-Lite specification, section 2.2.5 for information
+</I>&gt;<i> + * about making the debug link select SWD or JTAG.  (Similar info
+</I>&gt;<i> + * is in a few other ARM documents.)
+</I>&gt;<i> + */
+</I>&gt;<i> +static const uint8_t jtag2swd_bitseq[] = {
+</I>&gt;<i> +       /* More than 50 TCK/SWCLK cycles with TMS/SWDIO high,
+</I>&gt;<i> +        * putting both JTAG and SWD logic into reset state.
+</I>&gt;<i> +        */
+</I>&gt;<i> +       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+</I>&gt;<i> +       /* Switching sequence enables SWD and disables JTAG
+</I>&gt;<i> +        * NOTE: bits in the DP's IDCODE may expose the need for
+</I>&gt;<i> +        * an old/deprecated sequence (0xb6 0xed).
+</I>&gt;<i> +        */
+</I>&gt;<i> +       0x9e, 0xe7,
+</I>&gt;<i> +       /* More than 50 TCK/SWCLK cycles with TMS/SWDIO high,
+</I>&gt;<i> +        * putting both JTAG and SWD logic into reset state.
+</I>&gt;<i> +        */
+</I>&gt;<i> +       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +/**
+</I>&gt;<i> + * Put the debug link into SWD mode, if the target supports it.
+</I>&gt;<i> + * The link's initial mode may be either JTAG (for example,
+</I>&gt;<i> + * with SWJ-DP after reset) or SWD.
+</I>&gt;<i> + *
+</I>&gt;<i> + * @param target Enters SWD mode (if possible).
+</I>&gt;<i> + *
+</I>&gt;<i> + * Note that targets using the JTAG-DP do not support SWD, and that
+</I>&gt;<i> + * some targets which could otherwise support it may have have been
+</I>&gt;<i> + * configured to disable SWD signaling
+</I>&gt;<i> + *
+</I>&gt;<i> + * @return ERROR_OK or else a fault code.
+</I>&gt;<i> + */
+</I>&gt;<i> +int dap_to_swd(struct target *target)
+</I>&gt;<i> +{
+</I>&gt;<i> +       int retval;
+</I>&gt;<i> +
+</I>&gt;<i> +       LOG_DEBUG(&quot;Enter SWD mode&quot;);
+</I>&gt;<i> +
+</I>&gt;<i> +       /* REVISIT it's nasty to need to make calls to a &quot;jtag&quot;
+</I>&gt;<i> +        * subsystem if the link isn't in JTAG mode...
+</I>&gt;<i> +        */
+</I>&gt;<i> +
+</I>&gt;<i> +       retval =  jtag_add_tms_seq(8 * sizeof(jtag2swd_bitseq),
+</I>&gt;<i> +                       jtag2swd_bitseq, TAP_INVALID);
+</I>&gt;<i> +       if (retval == ERROR_OK)
+</I>&gt;<i> +               retval = jtag_execute_queue();
+</I>&gt;<i> +
+</I>&gt;<i> +       /* REVISIT set up the DAP's ops vector for SWD mode. */
+</I>&gt;<i> +
+</I>&gt;<i> +       return retval;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +/**
+</I>&gt;<i> + * This represents the bits which must be sent out on TMS/SWDIO to
+</I>&gt;<i> + * switch a DAP implemented using an SWJ-DP module into JTAG mode.
+</I>&gt;<i> + * These bits are stored (and transmitted) LSB-first.
+</I>&gt;<i> + *
+</I>&gt;<i> + * These bits are stored (and transmitted) LSB-first.
+</I>&gt;<i> + */
+</I>&gt;<i> +static const uint8_t swd2jtag_bitseq[] = {
+</I>&gt;<i> +       /* More than 50 TCK/SWCLK cycles with TMS/SWDIO high,
+</I>&gt;<i> +        * putting both JTAG and SWD logic into reset state.
+</I>&gt;<i> +        */
+</I>&gt;<i> +       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+</I>&gt;<i> +       /* Switching equence disables SWD and enables JTAG
+</I>&gt;<i> +        * NOTE: bits in the DP's IDCODE can expose the need for
+</I>&gt;<i> +        * the old/deprecated sequence (0xae 0xde).
+</I>&gt;<i> +        */
+</I>&gt;<i> +       0x3c, 0xe7,
+</I>&gt;<i> +       /* At least 50 TCK/SWCLK cycles with TMS/SWDIO high,
+</I>&gt;<i> +        * putting both JTAG and SWD logic into reset state.
+</I>&gt;<i> +        * NOTE:  some docs say &quot;at least 5&quot;.
+</I>&gt;<i> +        */
+</I>&gt;<i> +       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +/** Put the debug link into JTAG mode, if the target supports it.
+</I>&gt;<i> + * The link's initial mode may be either SWD or JTAG.
+</I>&gt;<i> + *
+</I>&gt;<i> + * @param target Enters JTAG mode (if possible).
+</I>&gt;<i> + *
+</I>&gt;<i> + * Note that targets implemented with SW-DP do not support JTAG, and
+</I>&gt;<i> + * that some targets which could otherwise support it may have been
+</I>&gt;<i> + * configured to disable JTAG signaling
+</I>&gt;<i> + *
+</I>&gt;<i> + * @return ERROR_OK or else a fault code.
+</I>&gt;<i> + */
+</I>&gt;<i> +int dap_to_jtag(struct target *target)
+</I>&gt;<i> +{
+</I>&gt;<i> +       int retval;
+</I>&gt;<i> +
+</I>&gt;<i> +       LOG_DEBUG(&quot;Enter JTAG mode&quot;);
+</I>&gt;<i> +
+</I>&gt;<i> +       /* REVISIT it's nasty to need to make calls to a &quot;jtag&quot;
+</I>&gt;<i> +        * subsystem if the link isn't in JTAG mode...
+</I>&gt;<i> +        */
+</I>&gt;<i> +
+</I>&gt;<i> +       retval = jtag_add_tms_seq(8 * sizeof(swd2jtag_bitseq),
+</I>&gt;<i> +                       swd2jtag_bitseq, TAP_RESET);
+</I>&gt;<i> +       if (retval == ERROR_OK)
+</I>&gt;<i> +               retval = jtag_execute_queue();
+</I>&gt;<i> +
+</I>&gt;<i> +       /* REVISIT set up the DAP's ops vector for JTAG mode. */
+</I>&gt;<i> +
+</I>&gt;<i> +       return retval;
+</I>&gt;<i> +}
+</I>&gt;<i> --- a/src/target/arm_adi_v5.h
+</I>&gt;<i> +++ b/src/target/arm_adi_v5.h
+</I>&gt;<i> @@ -235,4 +235,12 @@ DAP_COMMAND_HANDLER(dap_memaccess_comman
+</I>&gt;<i>  DAP_COMMAND_HANDLER(dap_apsel_command);
+</I>&gt;<i>  DAP_COMMAND_HANDLER(dap_apid_command);
+</I>&gt;<i>
+</I>&gt;<i> +struct target;
+</I>&gt;<i> +
+</I>&gt;<i> +/* Put debug link into SWD mode */
+</I>&gt;<i> +int dap_to_swd(struct target *target);
+</I>&gt;<i> +
+</I>&gt;<i> +/* Put debug link into JTAG mode */
+</I>&gt;<i> +int dap_to_jtag(struct target *target);
+</I>&gt;<i> +
+</I>&gt;<i>  #endif
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+
+
+-- 
+Best Regards, SimonQian
+<A HREF="http://www.SimonQian.com">http://www.SimonQian.com</A>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20100303/814dd561/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20100303/814dd561/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015102.html">[Openocd-development] problems with openocd 0.4.0 and olimex	arm-usb-tiny-h
+</A></li>
+	<LI>Next message: <A HREF="015105.html">[Openocd-development] [patch/fyi] ADIv5 DAP ops switching to	JTAG or SWD modes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15103">[ date ]</a>
+              <a href="thread.html#15103">[ thread ]</a>
+              <a href="subject.html#15103">[ subject ]</a>
+              <a href="author.html#15103">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

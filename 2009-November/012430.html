@@ -1,0 +1,520 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 6/6] fileio: improve API types
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/6%5D%20fileio%3A%20improve%20API%20types&In-Reply-To=%3C1258393003-7916-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012431.html">
+   <LINK REL="Next"  HREF="012432.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 6/6] fileio: improve API types</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/6%5D%20fileio%3A%20improve%20API%20types&In-Reply-To=%3C1258393003-7916-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 6/6] fileio: improve API types">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Nov 16 18:36:43 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012431.html">[Openocd-development] [PATCH 5/6] struct fileio: improve member	types
+</A></li>
+        <LI>Next message: <A HREF="012432.html">[Openocd-development] types.h Errors from Doxygen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12430">[ date ]</a>
+              <a href="thread.html#12430">[ thread ]</a>
+              <a href="subject.html#12430">[ subject ]</a>
+              <a href="author.html#12430">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Use size_t instead of uint32_t when specifying file sizes.  Update all
+consumers up through the layers to use size_t when required.  These
+changes should be safe, but the higher-levels will need to be updated
+further to receive the intended benefits (i.e. large file support).
+
+Add error checking for fileio_read and file_write.  Previously, all
+errors were being silently ignored, so this change might cause some
+problems for some people in some cases.  However, it gives us the chance
+to handle any errors that do occur at higher-levels, rather than burying
+our heads in the sand.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/ecos.c    |    7 +++--
+ src/flash/flash.c   |    4 +-
+ src/flash/lpc2900.c |    4 +-
+ src/flash/mflash.c  |    6 +++-
+ src/flash/nand.c    |    6 ++--
+ src/helper/fileio.c |   65 +++++++++++++++++++++++++--------------------------
+ src/helper/fileio.h |    8 +++---
+ src/target/etm.c    |    2 +-
+ src/target/image.c  |   14 +++++-----
+ src/target/image.h  |    2 +-
+ src/target/target.c |   10 ++++----
+ src/target/xscale.c |    2 +-
+ 12 files changed, 66 insertions(+), 64 deletions(-)
+
+diff --git a/src/flash/ecos.c b/src/flash/ecos.c
+index c12ed9d..b2ffadf 100644
+--- a/src/flash/ecos.c
++++ b/src/flash/ecos.c
+@@ -152,8 +152,8 @@ FLASH_BANK_COMMAND_HANDLER(ecosflash_flash_bank_command)
+ 
+ static int loadDriver(struct ecosflash_flash_bank *info)
+ {
+-	uint32_t buf_cnt;
+-	uint32_t image_size;
++	size_t buf_cnt;
++	size_t image_size;
+ 	struct image image;
+ 
+ 	image.base_address_set = 0;
+@@ -182,7 +182,8 @@ static int loadDriver(struct ecosflash_flash_bank *info)
+ 		}
+ 		target_write_buffer(target, image.sections[i].base_address, buf_cnt, buffer);
+ 		image_size += buf_cnt;
+-		LOG_DEBUG(&quot;%&quot; PRIu32 &quot; byte written at address 0x%8.8&quot; PRIx32 &quot;&quot;, buf_cnt, image.sections[i].base_address);
++		LOG_DEBUG(&quot;%zu bytes written at address 0x%8.8&quot; PRIx32 &quot;&quot;,
++				buf_cnt, image.sections[i].base_address);
+ 
+ 		free(buffer);
+ 	}
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index 03d4547..adc1411 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -811,7 +811,6 @@ COMMAND_HANDLER(handle_flash_write_bank_command)
+ {
+ 	uint32_t offset;
+ 	uint8_t *buffer;
+-	uint32_t buf_cnt;
+ 	struct fileio fileio;
+ 
+ 	if (argc != 3)
+@@ -833,6 +832,7 @@ COMMAND_HANDLER(handle_flash_write_bank_command)
+ 	}
+ 
+ 	buffer = malloc(fileio.size);
++	size_t buf_cnt;
+ 	if (fileio_read(&amp;fileio, fileio.size, buffer, &amp;buf_cnt) != ERROR_OK)
+ 	{
+ 		free(buffer);
+@@ -1059,7 +1059,7 @@ static int flash_write_unlock(struct target *target, struct image *image, uint32
+ 		/* read sections to the buffer */
+ 		while (buffer_size &lt; run_size)
+ 		{
+-			uint32_t size_read;
++			size_t size_read;
+ 
+ 			size_read = run_size - buffer_size;
+ 			if (size_read &gt; image-&gt;sections[section].size - section_offset)
+diff --git a/src/flash/lpc2900.c b/src/flash/lpc2900.c
+index b80079d..dc91668 100644
+--- a/src/flash/lpc2900.c
++++ b/src/flash/lpc2900.c
+@@ -631,7 +631,7 @@ COMMAND_HANDLER(lpc2900_handle_read_custom_command)
+ 		return ret;
+ 	}
+ 
+-	uint32_t nwritten;
++	size_t nwritten;
+ 	ret = fileio_write( &amp;fileio, sizeof(customer),
+                         (const uint8_t *)customer, &amp;nwritten );
+ 	if( ret != ERROR_OK )
+@@ -755,7 +755,7 @@ COMMAND_HANDLER(lpc2900_handle_write_custom_command)
+ 	/* Page 4 */
+ 	uint32_t offset = ISS_CUSTOMER_START1 % FLASH_PAGE_SIZE;
+ 	memset( page, 0xff, FLASH_PAGE_SIZE );
+-	uint32_t size_read;
++	size_t size_read;
+ 	retval = image_read_section( &amp;image, 0, 0,
+ 	                             ISS_CUSTOMER_SIZE1, &amp;page[offset], &amp;size_read);
+ 	if( retval != ERROR_OK )
+diff --git a/src/flash/mflash.c b/src/flash/mflash.c
+index 4356f27..0620642 100644
+--- a/src/flash/mflash.c
++++ b/src/flash/mflash.c
+@@ -705,7 +705,7 @@ static int mg_mflash_write(uint32_t addr, uint8_t *buff, uint32_t len)
+ 
+ COMMAND_HANDLER(mg_write_cmd)
+ {
+-	uint32_t address, buf_cnt, cnt, res, i;
++	uint32_t address, cnt, res, i;
+ 	uint8_t *buffer;
+ 	struct fileio fileio;
+ 	int ret;
+@@ -732,6 +732,7 @@ COMMAND_HANDLER(mg_write_cmd)
+ 	struct duration bench;
+ 	duration_start(&amp;bench);
+ 
++	size_t buf_cnt;
+ 	for (i = 0; i &lt; cnt; i++) {
+ 		if ((ret = fileio_read(&amp;fileio, MG_FILEIO_CHUNK, buffer, &amp;buf_cnt)) !=
+ 				ERROR_OK)
+@@ -769,7 +770,7 @@ mg_write_cmd_err:
+ 
+ COMMAND_HANDLER(mg_dump_cmd)
+ {
+-	uint32_t address, size_written, size, cnt, res, i;
++	uint32_t address, size, cnt, res, i;
+ 	uint8_t *buffer;
+ 	struct fileio fileio;
+ 	int ret;
+@@ -797,6 +798,7 @@ COMMAND_HANDLER(mg_dump_cmd)
+ 	struct duration bench;
+ 	duration_start(&amp;bench);
+ 
++	size_t size_written;
+ 	for (i = 0; i &lt; cnt; i++) {
+ 		if ((ret = mg_mflash_read(address, buffer, MG_FILEIO_CHUNK)) != ERROR_OK)
+ 			goto mg_dump_cmd_err;
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 9d997fa..71a67c4 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -1453,8 +1453,8 @@ static COMMAND_HELPER(nand_fileio_parse_args, struct nand_fileio_state *state,
+ static int nand_fileio_read(struct nand_device *nand,
+ 		struct nand_fileio_state *s)
+ {
+-	uint32_t total_read = 0;
+-	uint32_t one_read;
++	size_t total_read = 0;
++	size_t one_read;
+ 
+ 	if (NULL != s-&gt;page)
+ 	{
+@@ -1616,7 +1616,7 @@ COMMAND_HANDLER(handle_nand_dump_command)
+ 
+ 	while (s.size &gt; 0)
+ 	{
+-		uint32_t size_written;
++		size_t size_written;
+ 		int retval = nand_read_page(nand, s.address / nand-&gt;page_size,
+ 				s.page, s.page_size, s.oob, s.oob_size);
+ 		if (ERROR_OK != retval)
+diff --git a/src/helper/fileio.c b/src/helper/fileio.c
+index 84d46bd..8f2ce22 100644
+--- a/src/helper/fileio.c
++++ b/src/helper/fileio.c
+@@ -143,7 +143,7 @@ int fileio_close(struct fileio *fileio)
+ 	return retval;
+ }
+ 
+-int fileio_seek(struct fileio *fileio, uint32_t position)
++int fileio_seek(struct fileio *fileio, size_t position)
+ {
+ 	int retval;
+ 	if ((retval = fseek(fileio-&gt;file, position, SEEK_SET)) != 0)
+@@ -155,14 +155,16 @@ int fileio_seek(struct fileio *fileio, uint32_t position)
+ 	return ERROR_OK;
+ }
+ 
+-static inline int fileio_local_read(struct fileio *fileio, uint32_t size, uint8_t *buffer, uint32_t *size_read)
++static int fileio_local_read(struct fileio *fileio,
++		size_t size, void *buffer, size_t *size_read)
+ {
+-	*size_read = fread(buffer, 1, size, fileio-&gt;file);
+-
+-	return ERROR_OK;
++	ssize_t retval = fread(buffer, 1, size, fileio-&gt;file);
++	*size_read = (retval &gt;= 0) ? retval : 0;
++	return (retval &lt; 0) ? retval : ERROR_OK;
+ }
+ 
+-int fileio_read(struct fileio *fileio, uint32_t size, uint8_t *buffer, uint32_t *size_read)
++int fileio_read(struct fileio *fileio, size_t size, void *buffer,
++		size_t *size_read)
+ {
+ 	return fileio_local_read(fileio, size, buffer, size_read);
+ }
+@@ -170,17 +172,17 @@ int fileio_read(struct fileio *fileio, uint32_t size, uint8_t *buffer, uint32_t
+ int fileio_read_u32(struct fileio *fileio, uint32_t *data)
+ {
+ 	uint8_t buf[4];
+-	uint32_t size_read;
+-	int retval;
+-
+-	if ((retval = fileio_local_read(fileio, 4, buf, &amp;size_read)) != ERROR_OK)
+-		return retval;
+-	*data = be_to_h_u32(buf);
+-
+-	return ERROR_OK;
++	size_t size_read;
++	int retval = fileio_local_read(fileio, sizeof(uint32_t), buf, &amp;size_read);
++	if (ERROR_OK == retval &amp;&amp; sizeof(uint32_t) != size_read)
++		retval = -EIO;
++	if (ERROR_OK == retval)
++		*data = be_to_h_u32(buf);
++	return retval;
+ }
+ 
+-static inline int fileio_local_fgets(struct fileio *fileio, uint32_t size, char *buffer)
++static int fileio_local_fgets(struct fileio *fileio,
++		size_t size, void *buffer)
+ {
+ 	if (fgets(buffer, size, fileio-&gt;file) == NULL)
+ 		return ERROR_FILEIO_OPERATION_FAILED;
+@@ -188,40 +190,37 @@ static inline int fileio_local_fgets(struct fileio *fileio, uint32_t size, char
+ 	return ERROR_OK;
+ }
+ 
+-int fileio_fgets(struct fileio *fileio, uint32_t size, char *buffer)
++int fileio_fgets(struct fileio *fileio, size_t size, void *buffer)
+ {
+ 	return fileio_local_fgets(fileio, size, buffer);
+ }
+ 
+-static inline int fileio_local_write(struct fileio *fileio, uint32_t size, const uint8_t *buffer, uint32_t *size_written)
++static int fileio_local_write(struct fileio *fileio,
++		size_t size, const void *buffer, size_t *size_written)
+ {
+-	*size_written = fwrite(buffer, 1, size, fileio-&gt;file);
+-
+-	return ERROR_OK;
++	ssize_t retval = fwrite(buffer, 1, size, fileio-&gt;file);
++	*size_written = (retval &gt;= 0) ? retval : 0;
++	return (retval &lt; 0) ? retval : ERROR_OK;
+ }
+ 
+-int fileio_write(struct fileio *fileio, uint32_t size, const uint8_t *buffer, uint32_t *size_written)
++int fileio_write(struct fileio *fileio,
++		size_t size, const void *buffer, size_t *size_written)
+ {
+-	int retval;
+-
+-	retval = fileio_local_write(fileio, size, buffer, size_written);
+-
++	int retval = fileio_local_write(fileio, size, buffer, size_written);
+ 	if (retval == ERROR_OK)
+ 		fileio-&gt;size += *size_written;
+-
+-	return retval;;
++	return retval;
+ }
+ 
+ int fileio_write_u32(struct fileio *fileio, uint32_t data)
+ {
+ 	uint8_t buf[4];
+-	uint32_t size_written;
+-	int retval;
+-
+ 	h_u32_to_be(buf, data);
+ 
+-	if ((retval = fileio_local_write(fileio, 4, buf, &amp;size_written)) != ERROR_OK)
+-		return retval;
++	size_t size_written;
++	int retval = fileio_write(fileio, 4, buf, &amp;size_written);
++	if (ERROR_OK == retval &amp;&amp; size_written != sizeof(uint32_t))
++		retval = -EIO;
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+diff --git a/src/helper/fileio.h b/src/helper/fileio.h
+index 6ed6fe4..325b441 100644
+--- a/src/helper/fileio.h
++++ b/src/helper/fileio.h
+@@ -58,13 +58,13 @@ int fileio_open(struct fileio *fileio,
+ 	const char *url, enum fileio_access access, enum fileio_type type);
+ int fileio_close(struct fileio *fileio);
+ 
+-int fileio_seek(struct fileio *fileio, uint32_t position);
+-int fileio_fgets(struct fileio *fileio, uint32_t size, char *buffer);
++int fileio_seek(struct fileio *fileio, size_t position);
++int fileio_fgets(struct fileio *fileio, size_t size, void *buffer);
+ 
+ int fileio_read(struct fileio *fileio,
+-		uint32_t size, uint8_t *buffer, uint32_t *size_read);
++		size_t size, void *buffer, size_t *size_read);
+ int fileio_write(struct fileio *fileio,
+-		uint32_t size, const uint8_t *buffer, uint32_t *size_written);
++		size_t size, const void *buffer, size_t *size_written);
+ 
+ int fileio_read_u32(struct fileio *fileio, uint32_t *data);
+ int fileio_write_u32(struct fileio *fileio, uint32_t data);
+diff --git a/src/target/etm.c b/src/target/etm.c
+index e70df10..29ce10e 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -641,7 +641,7 @@ static int etm_read_instruction(struct etm_context *ctx, struct arm_instruction
+ {
+ 	int i;
+ 	int section = -1;
+-	uint32_t size_read;
++	size_t size_read;
+ 	uint32_t opcode;
+ 	int retval;
+ 
+diff --git a/src/target/image.c b/src/target/image.c
+index bba4675..8774c25 100644
+--- a/src/target/image.c
++++ b/src/target/image.c
+@@ -48,7 +48,7 @@ static int autodetect_image_type(struct image *image, const char *url)
+ {
+ 	int retval;
+ 	struct fileio fileio;
+-	uint32_t read_bytes;
++	size_t read_bytes;
+ 	uint8_t buffer[9];
+ 
+ 	/* read the first 4 bytes of image */
+@@ -175,7 +175,7 @@ static int image_ihex_buffer_complete(struct image *image)
+ 		uint32_t record_type;
+ 		uint32_t checksum;
+ 		uint8_t cal_checksum = 0;
+-		uint32_t bytes_read = 0;
++		size_t bytes_read = 0;
+ 
+ 		if (sscanf(&amp;lpszLine[bytes_read], &quot;:%2&quot; SCNx32 &quot;%4&quot; SCNx32 &quot;%2&quot; SCNx32 , &amp;count, &amp;address, &amp;record_type) != 3)
+ 		{
+@@ -360,7 +360,7 @@ static int image_ihex_buffer_complete(struct image *image)
+ static int image_elf_read_headers(struct image *image)
+ {
+ 	struct image_elf *elf = image-&gt;type_private;
+-	uint32_t read_bytes;
++	size_t read_bytes;
+ 	uint32_t i,j;
+ 	int retval;
+ 
+@@ -458,11 +458,11 @@ static int image_elf_read_headers(struct image *image)
+ 	return ERROR_OK;
+ }
+ 
+-static int image_elf_read_section(struct image *image, int section, uint32_t offset, uint32_t size, uint8_t *buffer, uint32_t *size_read)
++static int image_elf_read_section(struct image *image, int section, uint32_t offset, uint32_t size, uint8_t *buffer, size_t *size_read)
+ {
+ 	struct image_elf *elf = image-&gt;type_private;
+ 	Elf32_Phdr *segment = (Elf32_Phdr *)image-&gt;sections[section].private;
+-	uint32_t read_size,really_read;
++	size_t read_size,really_read;
+ 	int retval;
+ 
+ 	*size_read = 0;
+@@ -474,7 +474,7 @@ static int image_elf_read_section(struct image *image, int section, uint32_t off
+ 	{
+ 		/* maximal size present in file for the current segment */
+ 		read_size = MIN(size, field32(elf,segment-&gt;p_filesz)-offset);
+-		LOG_DEBUG(&quot;read elf: size = 0x%&quot; PRIx32 &quot; at 0x%&quot; PRIx32 &quot;&quot;,read_size,
++		LOG_DEBUG(&quot;read elf: size = 0x%zu at 0x%&quot; PRIx32 &quot;&quot;, read_size,
+ 			field32(elf,segment-&gt;p_offset) + offset);
+ 		/* read initialized area of the segment */
+ 		if ((retval = fileio_seek(&amp;elf-&gt;fileio, field32(elf,segment-&gt;p_offset) + offset)) != ERROR_OK)
+@@ -797,7 +797,7 @@ int image_open(struct image *image, const char *url, const char *type_string)
+ 	return retval;
+ };
+ 
+-int image_read_section(struct image *image, int section, uint32_t offset, uint32_t size, uint8_t *buffer, uint32_t *size_read)
++int image_read_section(struct image *image, int section, uint32_t offset, uint32_t size, uint8_t *buffer, size_t *size_read)
+ {
+ 	int retval;
+ 
+diff --git a/src/target/image.h b/src/target/image.h
+index 06d47bf..0dac5ba 100644
+--- a/src/target/image.h
++++ b/src/target/image.h
+@@ -102,7 +102,7 @@ struct image_mot
+ 
+ int image_open(struct image *image, const char *url, const char *type_string);
+ int image_read_section(struct image *image, int section, uint32_t offset,
+-		uint32_t size, uint8_t *buffer, uint32_t *size_read);
++		uint32_t size, uint8_t *buffer, size_t *size_read);
+ void image_close(struct image *image);
+ 
+ int image_add_section(struct image *image, uint32_t base, uint32_t size,
+diff --git a/src/target/target.c b/src/target/target.c
+index 5c17087..8291251 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2399,7 +2399,7 @@ static COMMAND_HELPER(parse_load_image_command_args, struct image *image,
+ COMMAND_HANDLER(handle_load_image_command)
+ {
+ 	uint8_t *buffer;
+-	uint32_t buf_cnt;
++	size_t buf_cnt;
+ 	uint32_t image_size;
+ 	uint32_t min_address = 0;
+ 	uint32_t max_address = 0xffffffff;
+@@ -2519,7 +2519,7 @@ COMMAND_HANDLER(handle_dump_image_command)
+ 	int retval = ERROR_OK;
+ 	while (size &gt; 0)
+ 	{
+-		uint32_t size_written;
++		size_t size_written;
+ 		uint32_t this_run_size = (size &gt; 560) ? 560 : size;
+ 		retval = target_read_buffer(target, address, this_run_size, buffer);
+ 		if (retval != ERROR_OK)
+@@ -2553,7 +2553,7 @@ COMMAND_HANDLER(handle_dump_image_command)
+ static COMMAND_HELPER(handle_verify_image_command_internal, int verify)
+ {
+ 	uint8_t *buffer;
+-	uint32_t buf_cnt;
++	size_t buf_cnt;
+ 	uint32_t image_size;
+ 	int i;
+ 	int retval;
+@@ -2674,7 +2674,7 @@ static COMMAND_HELPER(handle_verify_image_command_internal, int verify)
+ 			}
+ 		} else
+ 		{
+-			command_print(cmd_ctx, &quot;address 0x%08&quot; PRIx32 &quot; length 0x%08&quot; PRIx32 &quot;&quot;,
++			command_print(cmd_ctx, &quot;address 0x%08&quot; PRIx32 &quot; length 0x%08zx&quot;,
+ 						  image.sections[i].base_address,
+ 						  buf_cnt);
+ 		}
+@@ -4537,7 +4537,7 @@ static void free_fastload(void)
+ COMMAND_HANDLER(handle_fast_load_image_command)
+ {
+ 	uint8_t *buffer;
+-	uint32_t buf_cnt;
++	size_t buf_cnt;
+ 	uint32_t image_size;
+ 	uint32_t min_address = 0;
+ 	uint32_t max_address = 0xffffffff;
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 30ca3bf..9e93c02 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2557,7 +2557,7 @@ static int xscale_read_instruction(struct target *target,
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 	int i;
+ 	int section = -1;
+-	uint32_t size_read;
++	size_t size_read;
+ 	uint32_t opcode;
+ 	int retval;
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012431.html">[Openocd-development] [PATCH 5/6] struct fileio: improve member	types
+</A></li>
+	<LI>Next message: <A HREF="012432.html">[Openocd-development] types.h Errors from Doxygen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12430">[ date ]</a>
+              <a href="thread.html#12430">[ thread ]</a>
+              <a href="subject.html#12430">[ subject ]</a>
+              <a href="author.html#12430">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

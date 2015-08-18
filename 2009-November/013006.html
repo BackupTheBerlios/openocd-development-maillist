@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] improve command handler wrapper	script
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20improve%20command%20handler%20wrapper%0A%09script&In-Reply-To=%3C1259378916-25509-1-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013004.html">
+   <LINK REL="Next"  HREF="013007.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] improve command handler wrapper	script</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20improve%20command%20handler%20wrapper%0A%09script&In-Reply-To=%3C1259378916-25509-1-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] improve command handler wrapper	script">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Nov 28 04:28:36 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013004.html">[Openocd-development] [PATCH 1/2] add 'command type' introspective	handler
+</A></li>
+        <LI>Next message: <A HREF="013007.html">[Openocd-development] [RFC] proposal to fix another regression
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13006">[ date ]</a>
+              <a href="thread.html#13006">[ thread ]</a>
+              <a href="subject.html#13006">[ subject ]</a>
+              <a href="author.html#13006">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Adds 'ocd_bouncer' in startup.tcl that is called as a helper for
+all command handlers, shrinking the embedded C wrapper to a mere stub.
+
+Jim handlers are called directly, simple handlers get called with the
+wrapper to capture and discard their output on error, and placeholders
+call help directly (though the unknown handler still does this too).
+It attempts to improve the quality of the error messages as well.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c   |    5 ++---
+ src/helper/startup.tcl |   24 ++++++++++++++++++++++++
+ 2 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index b34847b..64db95d 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -314,9 +314,8 @@ static int register_command_handler(struct command *c)
+ 	}
+ 
+ 	/* we now need to add an overrideable proc */
+-	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
+-			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
+-			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
++	const char *override_name = alloc_printf(
++			&quot;proc %s {args} {eval ocd_bouncer %s $args}&quot;,
+ 			full_name, full_name);
+ 	if (NULL == override_name)
+ 		goto free_full_name;
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index f11d5b6..cb5fb02 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -10,6 +10,30 @@ proc exit {} {
+ 	ocd_throw exit
+ }
+ 
++# All commands are registered with an 'ocd_' prefix, while the &quot;real&quot;
++# command is a wrapper that calls this function.  Its primary purpose is
++# to discard 'handler' command output,
++proc ocd_bouncer {name args} {
++	set cmd [format &quot;ocd_%s&quot; $name]
++	set type [eval command type $cmd $args]
++	if {$type == &quot;native&quot;} {
++		return [eval $cmd $args]
++	} else {if {$type == &quot;simple&quot;} {
++		if {[catch {eval $cmd $args}] == 0} {
++			return &quot;&quot;
++		} else {
++			set errmsg &quot;Command handler execution failed&quot;
++		}
++	} else {if {$type == &quot;group&quot;} {
++		catch {eval help $name $args}
++		set errmsg [format &quot;%s: command requires more arguments&quot; \
++			[concat $name &quot; &quot; $args]]
++	} else {
++		set errmsg [format &quot;Unknown command type: %s&quot; $type]
++	}}}
++	return -code error $errmsg
++}
++
+ # Try flipping / and \ to find file if the filename does not
+ # match the precise spelling
+ proc find {filename} {
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013004.html">[Openocd-development] [PATCH 1/2] add 'command type' introspective	handler
+</A></li>
+	<LI>Next message: <A HREF="013007.html">[Openocd-development] [RFC] proposal to fix another regression
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13006">[ date ]</a>
+              <a href="thread.html#13006">[ thread ]</a>
+              <a href="subject.html#13006">[ subject ]</a>
+              <a href="author.html#13006">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

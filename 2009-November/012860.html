@@ -1,0 +1,481 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 02/10] add jim_handler to	command_registration
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2002/10%5D%20add%20jim_handler%20to%0A%09command_registration&In-Reply-To=%3C1259100329-14549-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012856.html">
+   <LINK REL="Next"  HREF="012862.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 02/10] add jim_handler to	command_registration</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2002/10%5D%20add%20jim_handler%20to%0A%09command_registration&In-Reply-To=%3C1259100329-14549-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 02/10] add jim_handler to	command_registration">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012856.html">[Openocd-development] [PATCH 22/22] remove register_commands from	etm_capture_driver
+</A></li>
+        <LI>Next message: <A HREF="012862.html">[Openocd-development] [PATCH 03/10] httpd: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12860">[ date ]</a>
+              <a href="thread.html#12860">[ thread ]</a>
+              <a href="subject.html#12860">[ subject ]</a>
+              <a href="author.html#12860">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Adding jim_handler field to command_registration allows removing the
+register_jim helper.  All command registrations now go through the
+register_command{,s}() functions.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/flash.c    |    9 ++++--
+ src/helper/command.c |   42 ++++++++++++++++--------------
+ src/helper/command.h |    7 +++--
+ src/helper/ioutil.c  |   60 ++++++++++++++++++++++++++++++-------------
+ src/jtag/tcl.c       |   43 ++++++++++++++++++++-----------
+ src/target/target.c  |   68 +++++++++++++++++++++++++++++++++-----------------
+ 6 files changed, 146 insertions(+), 83 deletions(-)
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index 4584c5d..bbdbaa8 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -1368,8 +1368,6 @@ static const struct command_registration flash_exec_command_handlers[] = {
+ 
+ int flash_init_drivers(struct command_context *cmd_ctx)
+ {
+-	register_jim(cmd_ctx, &quot;ocd_flash_banks&quot;,
+-			jim_flash_banks, &quot;return information about the flash banks&quot;);
+ 	if (!flash_banks)
+ 		return ERROR_OK;
+ 
+@@ -1377,7 +1375,6 @@ int flash_init_drivers(struct command_context *cmd_ctx)
+ 	return register_commands(cmd_ctx, parent, flash_exec_command_handlers);
+ }
+ 
+-
+ static const struct command_registration flash_config_command_handlers[] = {
+ 	{
+ 		.name = &quot;bank&quot;,
+@@ -1389,6 +1386,12 @@ static const struct command_registration flash_config_command_handlers[] = {
+ 		.help = &quot;Define a new bank with the given name, &quot;
+ 			&quot;using the specified NOR flash driver.&quot;,
+ 	},
++	{
++		.name = &quot;banks&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_flash_banks,
++		.help = &quot;return information about the flash banks&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ static const struct command_registration flash_command_handlers[] = {
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 8d710c9..3cb36ea 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -252,6 +252,8 @@ static struct command *command_new(struct command_context *cmd_ctx,
+ 		c-&gt;usage = strdup(cr-&gt;usage);
+ 	c-&gt;parent = parent;
+ 	c-&gt;handler = cr-&gt;handler;
++	c-&gt;jim_handler = cr-&gt;jim_handler;
++	c-&gt;jim_handler_data = cr-&gt;jim_handler_data;
+ 	c-&gt;mode = cr-&gt;mode;
+ 
+ 	command_add_child(command_list_for_parent(cmd_ctx, parent), c);
+@@ -327,16 +329,22 @@ struct command* register_command(struct command_context *context,
+ 	}
+ 
+ 	c = command_new(context, parent, cr);
+-	/* if allocation failed or it is a placeholder (no handler), we're done */
+-	if (NULL == c || NULL == c-&gt;handler)
+-		return c;
++	if (NULL == c)
++		return NULL;
+ 
+-	int retval = register_command_handler(c);
+-	if (ERROR_OK != retval)
++	if (NULL != c-&gt;handler)
+ 	{
+-		unregister_command(context, parent, name);
+-		c = NULL;
++		int retval = register_command_handler(c);
++		if (ERROR_OK != retval)
++		{
++			unregister_command(context, parent, name);
++			return NULL;
++		}
+ 	}
++
++	if (NULL != cr-&gt;jim_handler &amp;&amp; NULL == parent)
++		Jim_CreateCommand(interp, cr-&gt;name, cr-&gt;jim_handler, cr-&gt;jim_handler_data, NULL);
++
+ 	return c;
+ }
+ 
+@@ -882,7 +890,7 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	bool found = true;
+ 	Jim_Obj *const *start;
+ 	unsigned count;
+-	if (c-&gt;handler)
++	if (c-&gt;handler || c-&gt;jim_handler)
+ 	{
+ 		// include the command name in the list
+ 		count = remaining + 1;
+@@ -900,6 +908,12 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 		start = argv;
+ 		found = false;
+ 	}
++	// pass the command through to the intended handler
++	if (c-&gt;jim_handler)
++	{
++		interp-&gt;cmdPrivData = c-&gt;jim_handler_data;
++		return (*c-&gt;jim_handler)(interp, count, start);
++	}
+ 
+ 	unsigned nwords;
+ 	const char **words = script_command_args_alloc(count, start, &amp;nwords);
+@@ -1149,18 +1163,6 @@ void process_jim_events(void)
+ #endif
+ }
+ 
+-void register_jim(struct command_context *cmd_ctx, const char *name,
+-		Jim_CmdProc cmd, const char *help)
+-{
+-	Jim_CreateCommand(interp, name, cmd, NULL, NULL);
+-
+-	Jim_Obj *cmd_list = Jim_NewListObj(interp, NULL, 0);
+-	Jim_ListAppendElement(interp, cmd_list,
+-			Jim_NewStringObj(interp, name, -1));
+-
+-	help_add_command(cmd_ctx, NULL, name, help, NULL);
+-}
+-
+ #define DEFINE_PARSE_NUM_TYPE(name, type, func, min, max) \
+ 	int parse##name(const char *str, type *ul) \
+ 	{ \
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 2edeca9..84bdb71 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -164,6 +164,8 @@ struct command
+ 	struct command *parent;
+ 	struct command *children;
+ 	command_handler_t handler;
++	Jim_CmdProc jim_handler;
++	void *jim_handler_data;
+ 	enum command_mode mode;
+ 	struct command *next;
+ };
+@@ -198,6 +200,8 @@ char *command_name(struct command *c, char delim);
+ struct command_registration {
+ 	const char *name;
+ 	command_handler_t handler;
++	Jim_CmdProc jim_handler;
++	void *jim_handler_data;
+ 	enum command_mode mode;
+ 	const char *help;
+ 	/// a string listing the options and arguments, required or optional
+@@ -319,9 +323,6 @@ void process_jim_events(void);
+ 
+ extern Jim_Interp *interp;
+ 
+-void register_jim(struct command_context *context, const char *name,
+-		Jim_CmdProc cmd, const char *help);
+-
+ int parse_ulong(const char *str, unsigned long *ul);
+ int parse_ullong(const char *str, unsigned long long *ul);
+ 
+diff --git a/src/helper/ioutil.c b/src/helper/ioutil.c
+index 58521ee..e13f590 100644
+--- a/src/helper/ioutil.c
++++ b/src/helper/ioutil.c
+@@ -685,27 +685,51 @@ static const struct command_registration ioutil_command_handlers[] = {
+ 		.mode = COMMAND_ANY,
+ 		.help = &quot;display available ram memory&quot;,
+ 	},
++	// jim handlers
++	{
++		.name = &quot;rm&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;zylinjtag_Jim_Command_rm,
++		.help = &quot;remove a file&quot;,
++		.usage = &quot;&lt;file&gt;&quot;,
++	},
++	{
++		.name = &quot;peek&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;zylinjtag_Jim_Command_peek,
++		.help = &quot;peek at a memory address&quot;,
++		.usage = &quot;&lt;addr&gt;&quot;,
++	},
++	{
++		.name = &quot;poke&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;zylinjtag_Jim_Command_poke,
++		.help = &quot;poke at a memory address&quot;,
++		.usage = &quot;&lt;addr&gt; &lt;value&gt;&quot;,
++	},
++	{
++		.name = &quot;ls&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;zylinjtag_Jim_Command_ls,
++		.help = &quot;show a listing of files&quot;,
++		.usage = &quot;&lt;dir&gt;&quot;,
++	},
++	{
++		.name = &quot;mac&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;zylinjtag_Jim_Command_mac,
++		.help = &quot;show MAC address&quot;,
++	},
++	{
++		.name = &quot;ip&quot;,
++		.jim_handler = &amp;zylinjtag_Jim_Command_ip,
++		.mode = COMMAND_ANY,
++		.help = &quot;show IP address&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-
+ int ioutil_init(struct command_context *cmd_ctx)
+ {
+-	register_commands(cmd_ctx, NULL, ioutil_command_handlers);
+-
+-    Jim_CreateCommand(interp, &quot;rm&quot;, zylinjtag_Jim_Command_rm, NULL, NULL);
+-
+-    Jim_CreateCommand(interp, &quot;peek&quot;, zylinjtag_Jim_Command_peek, NULL, NULL);
+-    Jim_CreateCommand(interp, &quot;poke&quot;, zylinjtag_Jim_Command_poke, NULL, NULL);
+-    Jim_CreateCommand(interp, &quot;ls&quot;, zylinjtag_Jim_Command_ls, NULL, NULL);
+-
+-	Jim_CreateCommand(interp, &quot;mac&quot;, zylinjtag_Jim_Command_mac,
+-			NULL, NULL);
+-
+-	Jim_CreateCommand(interp, &quot;ip&quot;, zylinjtag_Jim_Command_ip,
+-			NULL, NULL);
+-
+-    return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, ioutil_command_handlers);
+ }
+-
+-
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 6b42021..bc29078 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1529,26 +1529,37 @@ static const struct command_registration jtag_command_handlers[] = {
+ 		.help = &quot;choose short(default) or long tms_sequence&quot;,
+ 		.usage = &quot;&lt;short | long&gt;&quot;,
+ 	},
++	// jim commands
++	{
++		.name = &quot;jtag&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_jtag_command,
++		.help = &quot;perform jtag tap actions&quot;,
++	},
++	{
++		.name = &quot;drscan&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;Jim_Command_drscan,
++		.help = &quot;execute DR scan &lt;device&gt; &quot;
++			&quot;&lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;,
++	},
++	{
++		.name = &quot;flush_count&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;Jim_Command_flush_count,
++		.help = &quot;returns number of times the JTAG queue has been flushed&quot;,
++	},
++	{
++		.name = &quot;pathmove&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;Jim_Command_pathmove,
++		.usage = &quot;&lt;state1&gt;,&lt;state2&gt;,&lt;state3&gt;... &quot;,
++		.help = &quot;move JTAG to state1 then to state2, state3, etc.&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+ int jtag_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_jim(cmd_ctx, &quot;jtag&quot;, jim_jtag_command,
+-			&quot;perform jtag tap actions&quot;);
+-
+-	register_jim(cmd_ctx, &quot;drscan&quot;, Jim_Command_drscan,
+-			&quot;execute DR scan &lt;device&gt; &quot;
+-			&quot;&lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
+-
+-	register_jim(cmd_ctx, &quot;flush_count&quot;, Jim_Command_flush_count,
+-			&quot;returns number of times the JTAG queue has been flushed&quot;);
+-
+-	register_jim(cmd_ctx, &quot;pathmove&quot;, Jim_Command_pathmove,
+-			&quot;&lt;state1&gt;,&lt;state2&gt;,&lt;state3&gt;... &quot;
+-			&quot;- move JTAG to state1 then to state2, state3, etc.&quot;);
+-
+ 	return register_commands(cmd_ctx, NULL, jtag_command_handlers);
+ }
+-
+-
+diff --git a/src/target/target.c b/src/target/target.c
+index e999e68..4a9095a 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -777,12 +777,14 @@ int target_init(struct command_context *cmd_ctx)
+ 			target-&gt;type-&gt;mcr = default_mcr;
+ 		} else
+ 		{
+-			/* FIX! multiple targets will generally register global commands
+-			 * multiple times. Only register this one if *one* of the
+-			 * targets need the command. Hmm... make it a command on the
+-			 * Jim Tcl target object?
+-			 */
+-			register_jim(cmd_ctx, &quot;mcr&quot;, jim_mcrmrc, &quot;write coprocessor &lt;cpnum&gt; &lt;op1&gt; &lt;op2&gt; &lt;CRn&gt; &lt;CRm&gt; &lt;value&gt;&quot;);
++			const struct command_registration mcr_cmd = {
++				.name = &quot;mcr&quot;,
++				.mode = COMMAND_EXEC,
++				.jim_handler = &amp;jim_mcrmrc,
++				.help = &quot;write coprocessor&quot;,
++				.usage = &quot;&lt;cpnum&gt; &lt;op1&gt; &lt;op2&gt; &lt;CRn&gt; &lt;CRm&gt; &lt;value&gt;&quot;,
++			};
++			register_command(cmd_ctx, NULL, &amp;mcr_cmd);
+ 		}
+ 
+ 		if (target-&gt;type-&gt;mrc == NULL)
+@@ -790,7 +792,13 @@ int target_init(struct command_context *cmd_ctx)
+ 			target-&gt;type-&gt;mrc = default_mrc;
+ 		} else
+ 		{
+-			register_jim(cmd_ctx, &quot;mrc&quot;, jim_mcrmrc, &quot;read coprocessor &lt;cpnum&gt; &lt;op1&gt; &lt;op2&gt; &lt;CRn&gt; &lt;CRm&gt;&quot;);
++			const struct command_registration mrc_cmd = {
++				.name = &quot;mrc&quot;,
++				.jim_handler = &amp;jim_mcrmrc,
++				.help = &quot;read coprocessor&quot;,
++				.usage = &quot;&lt;cpnum&gt; &lt;op1&gt; &lt;op2&gt; &lt;CRn&gt; &lt;CRm&gt;&quot;,
++			};
++			register_command(cmd_ctx, NULL, &amp;mrc_cmd);
+ 		}
+ 
+ 
+@@ -4377,14 +4385,14 @@ static int target_create(Jim_GetOptInfo *goi)
+ 	}
+ 
+ 	/* now - create the new target name command */
+-	e = Jim_CreateCommand(goi-&gt;interp,
+-						   /* name */
+-						   cp,
+-						   tcl_target_func, /* C function */
+-						   target, /* private data */
+-						   NULL); /* no del proc */
+-
+-	return e;
++	const struct command_registration target_command = {
++		.name = cp,
++		.jim_handler = &amp;tcl_target_func,
++		.jim_handler_data = target,
++		.help = &quot;target command group&quot;,
++	};
++	struct command *c = register_command(cmd_ctx, NULL, &amp;target_command);
++	return (NULL != c) ? ERROR_OK : ERROR_FAIL;
+ }
+ 
+ static int jim_target(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+@@ -4773,12 +4781,17 @@ static const struct command_registration target_command_handlers[] = {
+ 			&quot;or list targets (no parameters)&quot;,
+ 		.usage = &quot;[&lt;new_current_target&gt;]&quot;,
+ 	},
++	{
++		.name = &quot;target&quot;,
++		.mode = COMMAND_CONFIG,
++		.jim_handler = &amp;jim_target,
++		.help = &quot;configure target&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+ int target_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_jim(cmd_ctx, &quot;target&quot;, jim_target, &quot;configure target&quot;);
+ 	return register_commands(cmd_ctx, NULL, target_command_handlers);
+ }
+ 
+@@ -4967,6 +4980,22 @@ static const struct command_registration target_exec_command_handlers[] = {
+ 		.mode = COMMAND_EXEC,
+ 		.usage = &quot;&lt;file&gt; [offset] [type]&quot;,
+ 	},
++	{
++		.name = &quot;ocd_mem2array&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_mem2array,
++		.help = &quot;read memory and return as a TCL array &quot;
++			&quot;for script processing&quot;,
++		.usage = &quot;&lt;arrayname&gt; &lt;width=32|16|8&gt; &lt;address&gt; &lt;count&gt;&quot;,
++	},
++	{
++		.name = &quot;ocd_array2mem&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_array2mem,
++		.help = &quot;convert a TCL array to memory locations &quot;
++			&quot;and write the values&quot;,
++		.usage = &quot;&lt;arrayname&gt; &lt;width=32|16|8&gt; &lt;address&gt; &lt;count&gt;&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ int target_register_user_commands(struct command_context *cmd_ctx)
+@@ -4978,13 +5007,6 @@ int target_register_user_commands(struct command_context *cmd_ctx)
+ 	if ((retval = trace_register_commands(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+ 
+-	register_jim(cmd_ctx, &quot;ocd_mem2array&quot;, jim_mem2array,
+-			&quot;read memory and return as a TCL array for script processing &quot;
+-			&quot;&lt;ARRAYNAME&gt; &lt;WIDTH = 32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
+-
+-	register_jim(cmd_ctx, &quot;ocd_array2mem&quot;, jim_array2mem,
+-			&quot;convert a TCL array to memory locations and write the values &quot;
+-			&quot;&lt;ARRAYNAME&gt; &lt;WIDTH = 32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
+ 
+ 	return register_commands(cmd_ctx, NULL, target_exec_command_handlers);
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012856.html">[Openocd-development] [PATCH 22/22] remove register_commands from	etm_capture_driver
+</A></li>
+	<LI>Next message: <A HREF="012862.html">[Openocd-development] [PATCH 03/10] httpd: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12860">[ date ]</a>
+              <a href="thread.html#12860">[ thread ]</a>
+              <a href="subject.html#12860">[ subject ]</a>
+              <a href="author.html#12860">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

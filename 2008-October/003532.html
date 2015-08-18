@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] lm3s6965 flashing oddity
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20lm3s6965%20flashing%20oddity&In-Reply-To=%3CE426E0C5-7F50-4267-A371-841253C9DA18%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003538.html">
+   <LINK REL="Next"  HREF="003533.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] lm3s6965 flashing oddity</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20lm3s6965%20flashing%20oddity&In-Reply-To=%3CE426E0C5-7F50-4267-A371-841253C9DA18%40kc8apf.net%3E"
+       TITLE="[Openocd-development] lm3s6965 flashing oddity">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Fri Oct 31 09:34:44 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003538.html">[Openocd-development] Having the telnet window and GDB running	atthe same time
+</A></li>
+        <LI>Next message: <A HREF="003533.html">[Openocd-development] lm3s6965 flashing oddity
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3532">[ date ]</a>
+              <a href="thread.html#3532">[ thread ]</a>
+              <a href="subject.html#3532">[ subject ]</a>
+              <a href="author.html#3532">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I've been poking at this for a few days but my understanding of JTAG  
+is limited so I'm not getting much further.  It seems that when I use  
+OpenOCD to flash an lm3s6965 it will fail under certain  
+circumstances.  I don't have any other Cortex-M3 targets to test, but  
+I believe the bug is in the run_algorithm code.
+
+It appears that the bug occurs reliably after doing the following:
+1. Start OpenOCD
+2. Start a telnet session
+3. reset
+5. halt
+6. flash write_bank 0 &lt;file&gt; 0
+
+At this point, I reliably get an error writing the first block.  It  
+appears that within armv7m_run_algorithm, target_resume() is called,  
+but the subsequent call to target_wait_state() times out.  I verified  
+that the exit instruction in the write algorithm was patched with a  
+software breakpoint instruction, so if the target had resumed and the  
+pc was the entry point of the flash algorithm, it would have hit the  
+breakpoint.  After the failure, the output of reg is:
+
+ &gt; reg
+(0) r0 (/32): 0x20000028 (dirty: 0, valid: 0)
+(1) r1 (/32): 0x00000000 (dirty: 0, valid: 0)
+(2) r2 (/32): 0x00002000 (dirty: 0, valid: 0)
+(3) r3 (/32): 0x00000000 (dirty: 0, valid: 0)
+(4) r4 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(5) r5 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(6) r6 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(7) r7 (/32): 0x20002d30 (dirty: 0, valid: 0)
+(8) r8 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(9) r9 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(10) r10 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(11) r11 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(12) r12 (/32): 0xa5a5a5a5 (dirty: 0, valid: 0)
+(13) sp (/32): 0x20002d20 (dirty: 0, valid: 0)
+(14) lr (/32): 0x0000d301 (dirty: 0, valid: 0)
+(15) pc (/32): 0x20000000 (dirty: 0, valid: 0)
+(16) xPSR (/32): 0x61000000 (dirty: 0, valid: 0)
+(17) msp (/32): 0x200083a8 (dirty: 0, valid: 0)
+(18) psp (/32): 0x20002d20 (dirty: 0, valid: 0)
+(19) primask (/32): 0x00000001 (dirty: 0, valid: 0)
+(20) basepri (/32): 0x00000000 (dirty: 0, valid: 0)
+(21) faultmask (/32): 0x00000000 (dirty: 0, valid: 0)
+(22) control (/32): 0x00000002 (dirty: 0, valid: 0)
+
+
+Attempting to resume the target manually claims that the target isn't  
+halted (technically true, the flash algorithm would have left it in  
+debug-running mode).  A halt followed by reg reveals:
+
+ &gt; reg
+(0) r0 (/32): 0x20002444 (dirty: 0, valid: 1)
+(1) r1 (/32): 0x200027cc (dirty: 0, valid: 1)
+(2) r2 (/32): 0x00000005 (dirty: 0, valid: 1)
+(3) r3 (/32): 0x00000005 (dirty: 0, valid: 1)
+(4) r4 (/32): 0x00000945 (dirty: 0, valid: 1)
+(5) r5 (/32): 0xa5a5a5a5 (dirty: 0, valid: 1)
+(6) r6 (/32): 0xa5a5a5a5 (dirty: 0, valid: 1)
+(7) r7 (/32): 0x2000291c (dirty: 0, valid: 1)
+(8) r8 (/32): 0xa5a5a5a5 (dirty: 0, valid: 1)
+(9) r9 (/32): 0xa5a5a5a5 (dirty: 0, valid: 1)
+(10) r10 (/32): 0xa5a5a5a5 (dirty: 0, valid: 1)
+(11) r11 (/32): 0xa5a5a5a5 (dirty: 0, valid: 1)
+(12) r12 (/32): 0x20000172 (dirty: 0, valid: 1)
+(13) sp (/32): 0x2000291c (dirty: 0, valid: 1)
+(14) lr (/32): 0x0000d07f (dirty: 0, valid: 1)
+(15) pc (/32): 0x0000b6b2 (dirty: 0, valid: 1)
+(16) xPSR (/32): 0x61000000 (dirty: 0, valid: 1)
+(17) msp (/32): 0x200083a8 (dirty: 0, valid: 1)
+(18) psp (/32): 0x2000291c (dirty: 0, valid: 1)
+(19) primask (/32): 0x00000000 (dirty: 0, valid: 1)
+(20) basepri (/32): 0x000000a0 (dirty: 0, valid: 1)
+(21) faultmask (/32): 0x00000000 (dirty: 0, valid: 1)
+(22) control (/32): 0x00000002 (dirty: 0, valid: 1)
+
+
+which seems to show that the target never actually ran the flash  
+algorithm.  It appears that the write to the pc never took affect so  
+when the target was resumed, it simply continued from where it was.  I  
+stepped through the code for writing the pc and everything appeared to  
+be correct, but my knowledge of JTAG is limited at best and my  
+knowledge of the Cortex-specific operations is non-existent.
+
+Interestingly, after the flash fails, bp shows that a breakpoint is  
+set at the exit point for the flash algorithm.  This is expected.   
+Running rbp on the breakpoint returns &quot;no breakpoint at address  
+0x2000001e found&quot; which is curious.  Even more curious is that the  
+flash succeeds after the rbp.  I'm not entirely certain the rbp error  
+message is accurate, but unless I've stumbled upon a compiler bug, I  
+can't see how it would end up calling that method.  Also, setting a  
+breakpoint on the log line causes the error message for rbp to change  
+to &quot;target not halted&quot;.  Interestingly enough, it does appear that the  
+target really isn't halted at that point.  Could this be a potential  
+stack smasher?
+
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Slashdot signature
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081031/67df4956/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20081031/67df4956/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003538.html">[Openocd-development] Having the telnet window and GDB running	atthe same time
+</A></li>
+	<LI>Next message: <A HREF="003533.html">[Openocd-development] lm3s6965 flashing oddity
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3532">[ date ]</a>
+              <a href="thread.html#3532">[ thread ]</a>
+              <a href="subject.html#3532">[ subject ]</a>
+              <a href="author.html#3532">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

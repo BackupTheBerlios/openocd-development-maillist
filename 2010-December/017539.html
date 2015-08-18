@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] remove srst_pulls_trst from LPC2xxx target scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20remove%20srst_pulls_trst%20from%0A%20LPC2xxx%20target%20scripts&In-Reply-To=%3C4CFE9BD4.6080408%40op.pl%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017537.html">
+   <LINK REL="Next"  HREF="017540.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] remove srst_pulls_trst from LPC2xxx target scripts</H1>
+    <B>Freddie Chopin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20remove%20srst_pulls_trst%20from%0A%20LPC2xxx%20target%20scripts&In-Reply-To=%3C4CFE9BD4.6080408%40op.pl%3E"
+       TITLE="[Openocd-development] [PATCH] remove srst_pulls_trst from LPC2xxx target scripts">freddie_chopin at op.pl
+       </A><BR>
+    <I>Tue Dec  7 21:40:52 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017537.html">[Openocd-development] [PATCH] remove srst_pulls_trst from LPC2xxx target scripts
+</A></li>
+        <LI>Next message: <A HREF="017540.html">[Openocd-development] [PATCH] remove srst_pulls_trst from LPC2xxx target scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17539">[ date ]</a>
+              <a href="thread.html#17539">[ thread ]</a>
+              <a href="subject.html#17539">[ subject ]</a>
+              <a href="author.html#17539">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I've CCed Peter Stuge, as he's another person that has different opinion 
+on this subject than official version from NXP.
+
+On 2010-12-07 20:45, Rolf Meeser wrote:
+&gt;<i> The problem is that in fact LPC2000 targets need the srst_pulls_trst
+</I>&gt;<i> option.
+</I>&gt;<i>
+</I>&gt;<i> Your claim is: &quot;The srst_pulls_trst option doesn't apply to LPC2000
+</I>&gt;<i> devices, and therefore must be removed from the target scripts.&quot;
+</I>&gt;<i> And this is your argument: &quot;I can show that I'm able to stop the CPU
+</I>&gt;<i> before it executes the first instruction of my code.&quot;
+</I>&gt;<i>
+</I>&gt;<i> I want to show that your argument is invalid.
+</I>&gt;<i>
+</I>&gt;<i> The srst_pulls_trst option must be applied to targets that reset the TAP
+</I>&gt;<i> controller when the system reset is applied. LPC2000 (except
+</I>&gt;<i> LPC28xx/29xx) is such a target. While RESET input is active, you cannot
+</I>&gt;<i> access the TAP controller.
+</I>&gt;<i>
+</I>&gt;<i> As a consequence it is not possible to keep the device in reset state,
+</I>&gt;<i> set a breakpoint at 0, release reset, and have the CPU stop at 0 before
+</I>&gt;<i> it executes the first instruction. For LPC2000 you must release the
+</I>&gt;<i> reset in order to get access to the TAP controller. As getting access
+</I>&gt;<i> takes quite a few JTAG clock cycles, the CPU will inevitably execute code.
+</I>&gt;<i>
+</I>&gt;<i> Now this is perhaps what causes some confusion: It's not the user
+</I>&gt;<i> firmware that gets executed after reset, it's *always* the primary boot
+</I>&gt;<i> code!
+</I>&gt;<i> Without looking in detail at what you've done, I admit that it is indeed
+</I>&gt;<i> possible to stop an LPC2000 before it executes the user firmware.
+</I>&gt;<i> However, it is not possible to stop the CPU before it executes *any*
+</I>&gt;<i> code. Boot code always starts running.
+</I>&gt;<i>
+</I>&gt;<i> srst_pull_trst must remain in the LPC2000 target configurations.
+</I>
+If what you say is true, than why I was able to halt the chip after 
+reset at address 0 with MEMMAP still selecting bootloader? Don't you 
+think that bootloader code would change MEMMAP value after it's 
+executed? After normal &quot;reset&quot; (after which the chip is running) and 
+halting the chip some time later at address 0 I see my code, MEMMAP is 
+changed (not by me) to 1. When I do &quot;reset halt&quot; (when reset_config is 
+separate), at address 0 I can see the code of the bootloader, MEMMAP 
+value is 0.
+
+Here a simple experiment that shows that you're wrong.
+
+ &gt; reset_config
+trst_and_srst separate srst_gates_jtag trst_push_pull srst_open_drain
+ &gt; reset halt
+JTAG tap: lpc2103.cpu tap/device found: 0x4f1f0f0f (mfg: 0x787, part: 
+0xf1f0, ver: 0x4)
+target state: halted
+target halted in ARM state due to debug-request, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000000
+NOTE! DCC downloads have not been enabled, defaulting to slow memory 
+writes. Type 'help dcc'.
+NOTE! Severe performance degradation without fast memory access enabled. 
+Type 'help fast'.
+ &gt; mdw 0xe01fc040
+0xe01fc040: 00000000
+ &gt; arm disassemble 0 16
+0x00000000      0xe59f201c      LDR r2, [r15, #0x1c]
+0x00000004      0xe3a03000      MOV r3, #0x0
+0x00000008      0xe1020093      SWP r0, r3, [r2]
+0x0000000c      0xe2822028      ADD r2, r2, #0x28
+0x00000010      0xe1021093      SWP r1, r3, [r2]
+0x00000014      0xe3c03007      BIC r3, r0, #0x7
+0x00000018      0xe5023028      STR r3, [r2, #-0x28]
+0x0000001c      0xe51ff004      LDR r15, [r15, #-0x4]
+0x00000020      0x7fffe178      SVC 0xffe178
+0x00000024      0xe002c014      AND r12, r2, r4, LSL r0
+0x00000028      0xe01fc000      ANDS r12, r15, r0
+0x0000002c      0x00000000      ANDEQ r0, r0, r0
+0x00000030      0x00000000      ANDEQ r0, r0, r0
+0x00000034      0x00000000      ANDEQ r0, r0, r0
+0x00000038      0x00000000      ANDEQ r0, r0, r0
+0x0000003c      0x00000000      ANDEQ r0, r0, r0
+ &gt; bp 0 4 hw
+breakpoint set at 0x00000000
+ &gt; resume
+target state: halted
+target halted in ARM state due to breakpoint, current mode: Supervisor
+cpsr: 0x600000d3 pc: 0x00000000
+ &gt; mdw 0xe01fc040
+0xe01fc040: 00000001
+ &gt; arm disassemble 0 16
+0x00000000      0xe59f00a4      LDR r0, [r15, #0xa4]
+0x00000004      0xe5800000      STR r0, [r0]
+0x00000008      0xea000004      B 0x00000020
+0x0000000c      0xe1a00000      NOP
+0x00000010      0xe1a00000      NOP
+0x00000014      0xc460ff58      STRGTBT r15, [r0], #-0xf58
+0x00000018      0xe1a00000      NOP
+0x0000001c      0xe1a00000      NOP
+0x00000020      0xe59fd088      LDR r13, [r15, #0x88]
+0x00000024      0xe321f0d1      MSR CPSR_c, 0x000000d1
+0x00000028      0xe59fd084      LDR r13, [r15, #0x84]
+0x0000002c      0xe321f0d2      MSR CPSR_c, 0x000000d2
+0x00000030      0xe59fd080      LDR r13, [r15, #0x80]
+0x00000034      0xe321f0d7      MSR CPSR_c, 0x000000d7
+0x00000038      0xe59fd07c      LDR r13, [r15, #0x7c]
+0x0000003c      0xe321f0db      MSR CPSR_c, 0x000000db
+ &gt;
+
+As you see I can halt the code at 0, MEMMAP is 0 (bootloader), at 
+address 0 I see bootloader code. I set the breakpoint at 0, resume, the 
+breakpoint is hit, MEMMAP is 1 (flash), at address 0 I see my code.
+
+Tell me where I'm wrong, but try to show an example that proves your 
+point, because my LPC2103 clearly behaves differently than you'd expect 
+it to. You say this option is required, I say it's not, the experiments 
+show reliable debugging etc. so where's the problem?
+
+4\/3!!
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017537.html">[Openocd-development] [PATCH] remove srst_pulls_trst from LPC2xxx target scripts
+</A></li>
+	<LI>Next message: <A HREF="017540.html">[Openocd-development] [PATCH] remove srst_pulls_trst from LPC2xxx target scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17539">[ date ]</a>
+              <a href="thread.html#17539">[ thread ]</a>
+              <a href="subject.html#17539">[ subject ]</a>
+              <a href="author.html#17539">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

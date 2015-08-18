@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 5/5] improve command registration
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/5%5D%20improve%20command%20registration&In-Reply-To=%3C1257971541-12580-6-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012239.html">
+   <LINK REL="Next"  HREF="012244.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 5/5] improve command registration</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/5%5D%20improve%20command%20registration&In-Reply-To=%3C1257971541-12580-6-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 5/5] improve command registration">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 11 21:32:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012239.html">[Openocd-development] [PATCH 4/5] add help regardless of callback
+</A></li>
+        <LI>Next message: <A HREF="012244.html">[Openocd-development] [PATCH 5/5] improve command registration
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12240">[ date ]</a>
+              <a href="thread.html#12240">[ thread ]</a>
+              <a href="subject.html#12240">[ subject ]</a>
+              <a href="author.html#12240">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Eliminate duplicate code for linking commands into a list.
+
+Adds a check to ensure the command does not already exist;
+if it does, return that one instead of creating a duplicate.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   75 +++++++++++++++++++++++++++++--------------------
+ 1 files changed, 44 insertions(+), 31 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 5ac5c30..230e6bc 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -191,13 +191,54 @@ static void command_helptext_add(Jim_Obj *cmd_list, const char *help)
+ /* nice short description of source file */
+ #define __THIS__FILE__ &quot;command.c&quot;
+ 
+-command_t* register_command(command_context_t *context, command_t *parent, char *name, int (*handler)(struct command_context_s *context, char* name, char** args, int argc), enum command_mode mode, char *help)
++/**
++ * Find a command by name from a list of commands.
++ * @returns The named command if found, or NULL.
++ */
++static struct command_s *command_find(struct command_s **head, const char *name)
++{
++	assert(head);
++	for (struct command_s *cc = *head; cc; cc = cc-&gt;next)
++	{
++		if (strcmp(cc-&gt;name, name) == 0)
++			return cc;
++	}
++	return NULL;
++}
++
++/**
++ * Add the command to the end of linked list.
++ * @returns Returns false if the named command already exists in the list.
++ * Returns true otherwise.
++ */
++static void command_add_child(struct command_s **head, struct command_s *c)
+ {
+-	command_t *c, *p;
++	assert(head);
++	if (NULL == *head)
++	{
++		*head = c;
++		return;
++	}
++	struct command_s *cc;
++	for (cc = *head; cc &amp;&amp; cc-&gt;next; cc = cc-&gt;next) ;
++	assert(cc);
++	cc-&gt;next = c;
++}
+ 
++command_t* register_command(command_context_t *context,
++		command_t *parent, char *name,
++		int (*handler)(struct command_context_s *context,
++				char* name, char** args, int argc),
++		enum command_mode mode, char *help)
++{
+ 	if (!context || !name)
+ 		return NULL;
+ 
++	struct command_s **head = parent ? &amp;parent-&gt;children : &amp;context-&gt;commands;
++	struct command_s *c = command_find(head, name);
++	if (NULL != c)
++		return c;
++
+ 	c = malloc(sizeof(command_t));
+ 
+ 	c-&gt;name = strdup(name);
+@@ -207,35 +248,7 @@ command_t* register_command(command_context_t *context, command_t *parent, char
+ 	c-&gt;mode = mode;
+ 	c-&gt;next = NULL;
+ 
+-	/* place command in tree */
+-	if (parent)
+-	{
+-		if (parent-&gt;children)
+-		{
+-			/* find last child */
+-			for (p = parent-&gt;children; p &amp;&amp; p-&gt;next; p = p-&gt;next);
+-			if (p)
+-				p-&gt;next = c;
+-		}
+-		else
+-		{
+-			parent-&gt;children = c;
+-		}
+-	}
+-	else
+-	{
+-		if (context-&gt;commands)
+-		{
+-			/* find last command */
+-			for (p = context-&gt;commands; p &amp;&amp; p-&gt;next; p = p-&gt;next);
+-			if (p)
+-				p-&gt;next = c;
+-		}
+-		else
+-		{
+-			context-&gt;commands = c;
+-		}
+-	}
++	command_add_child(head, c);
+ 
+ 	command_helptext_add(command_name_list(c), help);
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012239.html">[Openocd-development] [PATCH 4/5] add help regardless of callback
+</A></li>
+	<LI>Next message: <A HREF="012244.html">[Openocd-development] [PATCH 5/5] improve command registration
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12240">[ date ]</a>
+              <a href="thread.html#12240">[ thread ]</a>
+              <a href="subject.html#12240">[ subject ]</a>
+              <a href="author.html#12240">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

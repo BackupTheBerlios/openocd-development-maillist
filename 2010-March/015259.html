@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] gdb_server: improved gdb load	performance
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20gdb_server%3A%20improved%20gdb%20load%0A%09performance&In-Reply-To=%3C1268747352-4558-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015258.html">
+   <LINK REL="Next"  HREF="015260.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] gdb_server: improved gdb load	performance</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20gdb_server%3A%20improved%20gdb%20load%0A%09performance&In-Reply-To=%3C1268747352-4558-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] gdb_server: improved gdb load	performance">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Mar 16 14:49:12 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015258.html">[Openocd-development] [PATCH] jtag: cut down on usage of unintended	modification of global end state
+</A></li>
+        <LI>Next message: <A HREF="015260.html">[Openocd-development] jtag_set/get_end_state()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15259">[ date ]</a>
+              <a href="thread.html#15259">[ thread ]</a>
+              <a href="subject.html#15259">[ subject ]</a>
+              <a href="author.html#15259">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>by ack'ing memory writes immediately and reporting either
+at next memory write or stepi/continue time. GDB will then
+send off a new packet that is ready by the time the previous
+packet has been written to target memory.
+
+On fast adapters this can be as much as 10% or so.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/server/gdb_server.c |   45 +++++++++++++++++++++++++++++++++++++--------
+ 1 files changed, 37 insertions(+), 8 deletions(-)
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 17ca439..f46980e 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007-2009 &#216;yvind Harboe                                 *
++ *   Copyright (C) 2007-2010 &#216;yvind Harboe                                 *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+@@ -61,7 +61,12 @@ struct gdb_connection
+ 	bool sync; 	/* set flag to true if you want the next stepi to return immediately.
+ 	               allowing GDB to pick up a fresh set of register values from the target
+ 	               without modifying the target state. */
+-
++	/* We delay reporting memory write errors until next step/continue or memory
++	 * write. This improves performance of gdb load significantly as the GDB packet
++	 * can be replied immediately and a new GDB packet will be ready without delay
++	 * (ca. 10% or so...).
++	 */
++	bool mem_write_error;
+ };
+ 
+ 
+@@ -821,6 +826,7 @@ static int gdb_new_connection(struct connection *connection)
+ 	gdb_connection-&gt;busy = 0;
+ 	gdb_connection-&gt;noack_mode = 0;
+ 	gdb_connection-&gt;sync = true;
++	gdb_connection-&gt;mem_write_error = false;
+ 
+ 	/* send ACK to GDB for debug request */
+ 	gdb_write(connection, &quot;+&quot;, 1);
+@@ -1361,7 +1367,7 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
+ 	uint32_t addr = 0;
+ 	uint32_t len = 0;
+ 
+-	int retval;
++	int retval = ERROR_OK;
+ 
+ 	/* skip command character */
+ 	packet++;
+@@ -1382,14 +1388,18 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
+ 		return ERROR_SERVER_REMOTE_CLOSED;
+ 	}
+ 
+-	retval = ERROR_OK;
+-	if (len)
+-	{
+-		LOG_DEBUG(&quot;addr: 0x%8.8&quot; PRIx32 &quot;, len: 0x%8.8&quot; PRIx32 &quot;&quot;, addr, len);
++	struct gdb_connection *gdb_connection = connection-&gt;priv;
+ 
+-		retval = target_write_buffer(target, addr, len, (uint8_t*)separator);
++	if (gdb_connection-&gt;mem_write_error)
++	{
++		retval = ERROR_FAIL;
++		/* now that we have reported the memory write error, we can clear the condition */
++		gdb_connection-&gt;mem_write_error = false;
+ 	}
+ 
++	/* By replying the packet *immediately* GDB will send us a new packet
++	 * while we write the last one to the target.
++	 */
+ 	if (retval == ERROR_OK)
+ 	{
+ 		gdb_put_packet(connection, &quot;OK&quot;, 2);
+@@ -1400,6 +1410,17 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
+ 			return retval;
+ 	}
+ 
++	if (len)
++	{
++		LOG_DEBUG(&quot;addr: 0x%8.8&quot; PRIx32 &quot;, len: 0x%8.8&quot; PRIx32 &quot;&quot;, addr, len);
++
++		retval = target_write_buffer(target, addr, len, (uint8_t*)separator);
++		if (retval != ERROR_OK)
++		{
++			gdb_connection-&gt;mem_write_error = true;
++		}
++	}
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -2211,6 +2232,14 @@ static int gdb_input_inner(struct connection *connection)
+ 						struct gdb_connection *gdb_con = connection-&gt;priv;
+ 						log_add_callback(gdb_log_callback, connection);
+ 
++						if (gdb_con-&gt;mem_write_error)
++						{
++							LOG_ERROR(&quot;Memory write failure!&quot;);
++
++							/* now that we have reported the memory write error, we can clear the condition */
++							gdb_con-&gt;mem_write_error = false;
++						}
++
+ 						bool nostep = false;
+ 						bool already_running = false;
+ 						if (target-&gt;state == TARGET_RUNNING)
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015258.html">[Openocd-development] [PATCH] jtag: cut down on usage of unintended	modification of global end state
+</A></li>
+	<LI>Next message: <A HREF="015260.html">[Openocd-development] jtag_set/get_end_state()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15259">[ date ]</a>
+              <a href="thread.html#15259">[ thread ]</a>
+              <a href="subject.html#15259">[ subject ]</a>
+              <a href="author.html#15259">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,211 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] timeout with mini2440 board
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20timeout%20with%20mini2440%20board&In-Reply-To=%3CAANLkTi%3DhpiijWniCvk1f1fxxZ-6OWaZSObhBTe7__KYW%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018029.html">
+   <LINK REL="Next"  HREF="018031.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] timeout with mini2440 board</H1>
+    <B>Belisko Marek</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20timeout%20with%20mini2440%20board&In-Reply-To=%3CAANLkTi%3DhpiijWniCvk1f1fxxZ-6OWaZSObhBTe7__KYW%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] timeout with mini2440 board">marek.belisko at gmail.com
+       </A><BR>
+    <I>Mon Jan 31 12:48:15 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018029.html">[Openocd-development] NOR-flash programming using CFI is broken	on arm11
+</A></li>
+        <LI>Next message: <A HREF="018031.html">[Openocd-development] [PATCH 1/2] stm32x: add support for STM32F20x
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18030">[ date ]</a>
+              <a href="thread.html#18030">[ thread ]</a>
+              <a href="subject.html#18030">[ subject ]</a>
+              <a href="author.html#18030">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I'm new to openocd but according some recipe it should work. I try to
+debug barebox
+bootloader with openocd but aftre loading image to RAM it always fail
+with timeout.
+
+Any ideas?
+
+test.cfg :
+interface parport
+parport_port 0
+parport_cable chameleon
+
+source [find board/mini2440.cfg]
+
+telnet_port 4444
+gdb_port 3333
+
+reset_config trst_and_srst
+
+debug.cfg:
+#
+# download an image and break
+#
+
+# set parameters
+set FIRMWARE_PATH &quot;/home/open-nandra/Downloads/barebox/barebox.bin&quot;
+set CODE_ENTRY   &quot;0x30000000&quot;
+set CODE_BP   &quot;0x30000034&quot;
+
+# run the configuration steps
+init
+
+# configure polling
+puts &quot;activating poll&quot;
+poll
+sleep 1
+
+# halt board
+puts &quot;Halting CPU...&quot;
+halt
+wait_halt
+
+# reset board
+puts &quot;CPU halted, soft reset&quot;
+soft_reset_halt
+
+# download the binary image
+puts &quot;Downloading image&quot;
+load_image $FIRMWARE_PATH $CODE_ENTRY bin
+sleep 200
+puts &quot;Image downloaded&quot;
+
+# set hardware breakpoint at code start
+puts &quot;Setting hardware breakpoint at code entry=$CODE_ENTRY&quot;
+bp $CODE_BP 4 hw
+
+# resume execution
+puts &quot;Resuming execution&quot;
+resume $CODE_ENTRY
+
+# wait for breakpoint to be hit
+wait_halt
+puts &quot;CPU halted, breakpoint hit&quot;
+
+# remove previous breakpoint
+puts &quot;Removing breakpoint&quot;
+rbp $CODE_BP
+
+puts &quot;= Ready for debug =
+
+
+then run as root: openocd -f /home/open-nandra/test.cfg -f
+/home/open-nandra/debug.cfg
+
+Result is always:
+Info : s3c2440.cpu: hardware has 2 breakpoint/watchpoint units
+
+-------------------------------------------
+--- login with - telnet localhost 4444  ---
+--- then type help_2440                 ---
+-------------------------------------------
+
+trst_and_srst separate srst_gates_jtag trst_push_pull srst_open_drain
+background polling: on
+TAP: s3c2440.cpu (enabled)
+target state: running
+target state: halted
+target halted in ARM state due to debug-request, current mode: Abort
+cpsr: 0x800000d7 pc: 0x00000050
+MMU: disabled, D-Cache: disabled, I-Cache: enabled
+requesting target halt and executing a soft reset
+target state: halted
+target halted in ARM state due to debug-request, current mode: Supervisor
+cpsr: 0x800000d3 pc: 0x00000000
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+Warn : memory write caused data abort (address: 0x30000000, size: 0x4,
+count: 0x7cdb)
+Command handler execution failed
+
+With -d 3:
+User : 326 464 armv4_5.c:603 arm_arch_state(): target halted in ARM
+state due to breakpoint, current mode: Supervisor
+cpsr: 0x800000d3 pc: 0x00000000
+User : 327 464 arm920t.c:507 arm920t_arch_state(): MMU: disabled,
+D-Cache: disabled, I-Cache: disabled
+User : 329 464 command.c:824 openocd_jim_vfprintf():
+Debug: 330 464 command.c:133 script_debug(): command - ocd_command
+ocd_command type ocd_load_image
+/home/open-nandra/Downloads/barebox/barebox.bin 0x30000000 bin
+Debug: 331 464 command.c:133 script_debug(): command - load_image
+ocd_load_image /home/open-nandra/Downloads/barebox/barebox.bin
+0x30000000 bin
+Debug: 333 471 configuration.c:87 find_file(): found
+/home/open-nandra/Downloads/barebox/barebox.bin
+Debug: 334 472 target.c:1251 target_write_buffer(): writing buffer of
+127852 byte at 0x30000000
+Debug: 335 472 embeddedice.c:497 embeddedice_write_reg(): 0: 0x00000004
+Debug: 336 16579 embeddedice.c:497 embeddedice_write_reg(): 0: 0x00000005
+Warn : 337 16583 arm7_9_common.c:2573 arm7_9_write_memory(): memory
+write caused data abort (address: 0x30000000, size: 0x4, count:
+0x7cdb)
+Debug: 338 16583 arm9tdmi.c:523 arm9tdmi_write_xpsr_im8(): xpsr_im:
+d3, rot: 0, spsr: 0
+Debug: 339 16583 command.c:620 run_command(): Command failed with
+error code -307
+User : 340 16583 command.c:824 openocd_jim_vfprintf(): Command handler
+execution failed
+User : 343 16583 command.c:824 openocd_jim_vfprintf():
+User : 345 16583 command.c:824 openocd_jim_vfprintf():
+User : 348 16583 command.c:824 openocd_jim_vfprintf():
+User : 350 16583 command.c:824 openocd_jim_vfprintf():
+
+
+thanks,
+
+marek
+
+-- 
+as simple and primitive as possible
+-------------------------------------------------
+Marek Belisko - OPEN-NANDRA
+Freelance Developer
+
+Ruska Nova Ves 219 | Presov, 08005 Slovak Republic
+Tel: +421 915 052 184
+skype: marekwhite
+icq: 290551086
+web: <A HREF="http://open-nandra.com">http://open-nandra.com</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018029.html">[Openocd-development] NOR-flash programming using CFI is broken	on arm11
+</A></li>
+	<LI>Next message: <A HREF="018031.html">[Openocd-development] [PATCH 1/2] stm32x: add support for STM32F20x
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18030">[ date ]</a>
+              <a href="thread.html#18030">[ thread ]</a>
+              <a href="subject.html#18030">[ subject ]</a>
+              <a href="author.html#18030">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

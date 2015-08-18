@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] SWD interface patches,	constructive criticism needed.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SWD%20interface%20patches%2C%0A%09constructive%20criticism%20needed.&In-Reply-To=%3C200912282110.32145.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013868.html">
+   <LINK REL="Next"  HREF="013872.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] SWD interface patches,	constructive criticism needed.</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SWD%20interface%20patches%2C%0A%09constructive%20criticism%20needed.&In-Reply-To=%3C200912282110.32145.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] SWD interface patches,	constructive criticism needed.">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Dec 29 06:10:31 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013868.html">[Openocd-development] SWD, Simon's branch and git.
+</A></li>
+        <LI>Next message: <A HREF="013872.html">[Openocd-development] SWD interface patches,	constructive 	criticism needed.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13870">[ date ]</a>
+              <a href="thread.html#13870">[ thread ]</a>
+              <a href="subject.html#13870">[ subject ]</a>
+              <a href="author.html#13870">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Saturday 14 November 2009, Andrew Rogers wrote:
+&gt;<i> SWD is not finished yet, a long way to go. Adding the actual hardware
+</I>&gt;<i> drivers is a almost the last thing on my list. I want to get the
+</I>&gt;<i> framework in place first.
+</I>
+I don't entirely agree about &quot;almost the last thing&quot;, since that
+can make incremental testing painful.  On the other hand, &quot;framework
+first&quot; is reasonably correct, within limits:  coding with no design
+is A Very Bad Thing!
+
+My development often features incremental testing, bottom up, and
+allow for some &quot;whoops, this means the upper layers have to work a
+bit differently...&quot;  By the time I get to actual coding, the basic
+shape is pretty well known, and modules get tested as they're written.
+(I'm sure there's some recent buzzword/fad covering that approach.)
+
+I don't see anything wrong with getting the hardware interfaces
+done early, so we can know that they work for the JTAG/SWD adapters
+(or SWD-only adapters) we want to support.  (I think that set is at
+least:  the Raisonance stuff you're working with, Versaloon which
+Simon is using, and the Stellaris eval boards.)
+
+
+That said ... what you seem to have here is fairly close to the
+level I'd want to start:  the upper level interface to the link
+hardware, including lifecycle.  And it's true that there should
+be a focus on the debug link, which need not specifically be JTAG;
+some renaming may be appropriate, to stop assuming JTAG-only.
+
+(Other links that have come up include various ISP flavors like the
+SPI stuff used to program AVRs, and even ASCII protocols that are
+used to talk to some JTAG adapters which embed propietary knowledge
+of various chips.  Those aren't IMO near-term concerns.)
+
+
+&gt;<i> What I have done is to get a SWD interface listed when you use 'openocd
+</I>&gt;<i> -c interface_list'. There's a new struct (interface_base_t) added that
+</I>&gt;<i> holds the interface type and name. The global variable
+</I>&gt;<i> 'chosen_interface' is type cast to 'jtag_interface_t *' or
+</I>&gt;<i> 'swd_interface_t *' as needed.
+</I>
+As I said elsewhere, I'd be a lot more comfortable with just seeing
+SWD vs JTAG as a &quot;mode&quot; of an existing debug link (JTAG/SWD adapter).
+
+That matches the usage of all the hardware I happen to have seen so
+far, and also ARM's documentation about how to switch from JTAG to
+SWD and vice versa.
+
+
+Of course ... there's this little problem where the other end of
+a JTAG link is a series of TAPs, while the other end of a SWD link
+is a single non-JTAG target.  I suppose we'll have to fake that out
+somehow, to start with.
+
+
+&gt;<i> A new function called 'interface_init' is added that calls either
+</I>&gt;<i> 'jtag_interface_init' or 'swd_interface_init' as determined from the
+</I>&gt;<i> 'type' element in 'chosen_interface'.
+</I>
+Likewise, since the hardware is supposed to allow mode switching,
+I'd just have &quot;switch mode&quot; operations.  Upper level code would
+handle various nuances.  For example, the notion of recovering
+from SWD loss-of-synch by going through the reset-to-SWD sequence
+would sit there ... including do so as a part of switching from
+JTAG to SWD modes, which looks something like:
+
+	- Poke the signal routing so SWD works;
+	- Reset-to-SWD sequence ... issue:
+		* 50+ clocks with TMS high,
+		* the magic TMS sequence,
+		* (again) 50+ clocks with TMS high,
+		* a read of IDCODE
+	- Verify it all worked right, including the right IDCODE
+
+And the converse, to switch from SWD to JTAG.  Because of the
+requirement to read IDCODE, much of that logic probably belongs
+somewhere in the ADIv5 code ... I'm not entirely sure how that
+should be structured though.  It seems to inherently call for
+a small bit of layering violation:  IDCODE is associated with a
+debug target of some kind.  Hmm.  That also complicates any
+notion of autoprobing too.
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013868.html">[Openocd-development] SWD, Simon's branch and git.
+</A></li>
+	<LI>Next message: <A HREF="013872.html">[Openocd-development] SWD interface patches,	constructive 	criticism needed.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13870">[ date ]</a>
+              <a href="thread.html#13870">[ thread ]</a>
+              <a href="subject.html#13870">[ subject ]</a>
+              <a href="author.html#13870">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

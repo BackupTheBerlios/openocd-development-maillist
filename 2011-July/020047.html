@@ -1,0 +1,532 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] tcl_server TCP/IP commands usage?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20tcl_server%20TCP/IP%20commands%20usage%3F&In-Reply-To=%3C1310050346.12791.28.camel%40Vostro-V130%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020028.html">
+   <LINK REL="Next"  HREF="020052.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] tcl_server TCP/IP commands usage?</H1>
+    <B>Maxim Cournoyer</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20tcl_server%20TCP/IP%20commands%20usage%3F&In-Reply-To=%3C1310050346.12791.28.camel%40Vostro-V130%3E"
+       TITLE="[Openocd-development] tcl_server TCP/IP commands usage?">maxim.cournoyer at gmail.com
+       </A><BR>
+    <I>Thu Jul  7 16:52:26 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020028.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+        <LI>Next message: <A HREF="020052.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20047">[ date ]</a>
+              <a href="thread.html#20047">[ thread ]</a>
+              <a href="subject.html#20047">[ subject ]</a>
+              <a href="author.html#20047">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Le mercredi 06 juillet 2011 &#224; 18:50 -0700, Rodrigo Rosa a &#233;crit :
+
+&gt;<i> On Mon, Jul 4, 2011 at 4:13 PM, Maxim Cournoyer
+</I>&gt;<i> &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">maxim.cournoyer at gmail.com</A>&gt; wrote:
+</I>&gt;<i> &gt; On Jul 2, 2011 6:15 PM +0200, &#216;yvind Harboe wrote:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Use the Source Luke. The end of the command is not linefeed but 0x??. There
+</I>&gt;<i> &gt; ought to be updated docs. Patch?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Great tip!  I found it inside the tcl_server.c file; the end of character
+</I>&gt;<i> &gt; used by the openocd tcl server is 0x1a.
+</I>&gt;<i> &gt; I managed to get the result I was looking for, a simple application which
+</I>&gt;<i> &gt; usage goes like:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; program &lt;/path/to/romfile.bin&gt;
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; The objective was to automate the ROM flashing procedure from Eclipse IDE
+</I>&gt;<i> &gt; when working with the LM3S8962 kit. The app can be configured as an
+</I>&gt;<i> &gt; &quot;external tool&quot; and launched at the touch of a button. It could also be
+</I>&gt;<i> &gt; called inside a custom makefile. The use of the tcl_server is a great
+</I>&gt;<i> &gt; feature to me, because an openocd daemon is already running most of the
+</I>&gt;<i> &gt; time, to provide debugging facility.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I have made a C version and a BASH (w/ netcat) version of such a small app.
+</I>&gt;<i> &gt; I also toyed with tcl to make a telnet-like utility to test openocd's tcl
+</I>&gt;<i> &gt; server.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I also gathered a LM3S8962.cfg file on the internet and refactored it in to
+</I>&gt;<i> &gt; a similar way to what could be seen inside the /usr/share/openocd/scripts
+</I>&gt;<i> &gt; folder. I can post all that stuff if anyone is interested.
+</I>&gt;<i> &gt;
+</I>&gt;<i> 
+</I>&gt;<i> i'm working on something similar.
+</I>&gt;<i> would you mind posting your stuff?
+</I>&gt;<i> thanks!
+</I>
+
+Hello Rodrigo! I'm happy to share the small tools I made with you and
+the openocd community.
+The following scripts/program are tailored for flashing an LM3S8962
+target (except the tcl one), although they should be quite simple to
+adapt to do anything.
+
+Here's a general telnet like utility written in tcl, for quick testing
+(tclnet.tcl):
+
+
+        #!/usr/bin/tclsh
+        # Simple tcl client to test OpenOCD tcl_server
+        #
+        # Based on a script written by Charles Hardin 
+        #
+        &lt;<A HREF="../2008-July/002368.html">http://lists.berlios.de/pipermail/openocd-development/2008-July/002368.html</A>&gt;
+        #
+        # Author: Maxim Cournoyer, 2011
+        
+        # OpenOCD server settings
+        set server localhost
+        set port 6666
+        set EOC \x1a
+        set BUFSIZE 256
+        
+        puts &quot;Use empty line to exit.&quot;
+        
+        # Open TCP socket
+        set fo [socket $server $port]
+        # The following tells the 'read' command to return on EOC.
+        fconfigure $fo -eofchar $EOC
+        
+        puts -nonewline stdout &quot;&gt; &quot;
+        flush stdout
+        
+        while { [gets stdin line] &gt; 0 } {
+        	puts -nonewline &quot;Sending \&quot;$line\&quot; ... &quot;
+        	puts -nonewline $fo &quot;$line$EOC&quot;
+        	flush $fo
+        	
+        	# Server reply reception
+        	set line {}
+        	
+        	if { [catch {set line [read $fo $BUFSIZE]}] } {
+        		close $fo
+        		puts &quot;\nConnection or server error.&quot;
+        		exit 1
+        	}
+        
+        	# Server returns empty string (only EOC received) if OK. Longer
+        output is
+        	# returned in case of wrong command name or if the user
+        specified the command name
+        	# with the capture parameter, e.g.: capture { halt }
+        	if { [string equal $line {}] } {
+        		puts &quot;OK.&quot;
+        	} else {
+        		puts &quot;\nServer: $line&quot;
+        	}
+        
+        	puts -nonewline stdout &quot;&gt; &quot;
+        	flush stdout
+        }
+        
+        # We need to reconfigure the channel to normal before closing,
+        # else we'd get a TCP RST fault.
+        fconfigure $fo -eofchar \n
+        close $fo
+        exit 0
+        
+
+Next is a bash written tool to flash the binary ROM onto my LM3S8962
+board (flashROM.sh):
+
+
+        #!/bin/bash
+        #
+        # Simple script that allows flashing ROM onto LM3S8962 target
+        # by sending commands to the tcl_server of OpenOCD
+        #
+        # Author: Maxim Cournoyer, 2011
+        
+        server=localhost
+        port=6666
+        
+        #-------------------------------------------------------------------------------
+        # Function definitions
+        #-------------------------------------------------------------------------------
+        
+        # USAGE: send_commands &quot;cmd1 \&quot;cmd2 with spaces\&quot; cmd3&quot;
+        # Useful to send multiple commands with a single tcp connection.
+        # Tip : also works for single commands!
+        send_commands ()
+        {
+        	local argc=$(echo $1 | sed 's/[^,]//g' | wc -m)
+        	local cmds_string=&quot;$(echo $1 | sed 's/,/\\x1a/g')\x1a&quot;
+        	local received=$(echo -e $cmds_string | nc $server $port)
+        	local received_symbols=$(( $(echo $received | wc -m) -1 ))
+        	# Error checking: only good for command names. Wrong args to
+        commands
+        	# (e.g. the path to a .bin file) will not be detected here.
+        	if [ $received_symbols == $argc ]; then
+        		echo &quot;Success!&quot;
+        	else
+        		echo &quot;Failed. Check commands synthax.&quot;
+        		exit 1
+        	fi
+        }
+        
+        # USAGE: get_extension &quot;filepath&quot; &quot;extension_length&quot;
+        # Credits: KenJackson's post at
+        <A HREF="http://www.linuxforums.org/forum/programming-scripting/67818-get-last-three-characters-string.html">http://www.linuxforums.org/forum/programming-scripting/67818-get-last-three-characters-string.html</A>
+        get_extension()
+        {
+        	local length=$(echo $1 | wc -c)
+        	local offset=$(( $lenght - $2 ))
+        	local extension=&quot;${1:$offset}&quot;
+        	echo $extension
+        }
+        
+        #-------------------------------------------------------------------------------
+        # Main section
+        #-------------------------------------------------------------------------------
+        # Argument parsing + file path formatting for relative path
+        support
+        if [ &quot;$1&quot; ]; then
+        	if [ ! ${1##/*} ]; then
+        		ROM_path=&quot;$1&quot;
+        	else
+        		ROM_path=&quot;$(pwd)/$1&quot;
+        	fi
+        else
+        	echo &quot;USAGE: flashROM &lt;absolute ROM file path&gt;&quot;
+        	exit 1
+        fi
+        
+        # Make sure the file exists
+        if [ ! -f &quot;$ROM_path&quot; ]; then
+        	echo &quot;Error: the file specified does not exist.&quot;
+        	exit 1
+        fi
+        
+        # Verify that ROM suffix is valid
+        ROM_suffix=&quot;$(get_extension &quot;$ROM_path&quot; 4)&quot;
+        if [ &quot;$ROM_suffix&quot; != &quot;.bin&quot; ] &amp;&amp;  [ &quot;$ROM_suffix&quot; != &quot;.hex&quot; ];
+        then
+        	echo &quot;Error: the file extension is not not valid.&quot;
+        	exit 1
+        fi
+        
+        # Flash ROM routine for LM3S8962
+        command1=halt
+        command2=&quot;flash write_image erase \&quot;$ROM_path\&quot;&quot;
+        command3=reset
+        send_commands &quot;$command1,$command2,$command3&quot;
+        
+        #done
+        exit 0
+        
+
+The next listing is the same program, flashROM.c, is yet another version
+of the same program in C:
+
+
+        /* Simple ROM flash utility for the EK-LM3S8962 board
+        development kit
+         * for use with OpenOCD.
+         *
+         * Based on simple echoserver program written by David Mertz,
+        see
+         * <A HREF="http://gnosis.cx/publish/programming/sockets.html">http://gnosis.cx/publish/programming/sockets.html</A>
+         *
+         * Maxim Cournoyer, 2011
+         */
+        
+        #include &lt;stdio.h&gt;
+        #include &lt;stdlib.h&gt;
+        #include &lt;string.h&gt;
+        #include &lt;unistd.h&gt;
+        #include &lt;sys/socket.h&gt;
+        #include &lt;netinet/in.h&gt;
+        #include &lt;arpa/inet.h&gt;
+        #include &lt;netdb.h&gt;
+        
+        #define BUFFSIZE 128
+        void Die(const char *mess)
+        {
+        	perror(mess);
+        	exit(1);
+        }
+        
+        
+        int main(int argc, const char *argv[])
+        {
+        	/* server parameters */
+        	const char server_ip[] = &quot;127.0.0.1&quot;;
+        	const int server_port = 6666;
+        	/* Supported ROM suffixes */
+        	const char *suffix1 = &quot;bin&quot;;
+        	const char *suffix2 = &quot;hex&quot;;
+        	/* Base of each command */
+        	char word1[] = &quot;halt&quot;;
+        	const char word2[] = &quot;flash write_image erase &quot;;
+        	const char word3[] = &quot;reset&quot;;
+        	const char EOC[] = &quot;\x1a&quot;; /* End Of Command delimiter */
+        
+        	char command1[strlen(word1)+strlen(EOC)+1];
+        	char *command2; /* will be malloc further */
+        	char command3[strlen(word3)+strlen(EOC)+1];
+        
+        	const char *ROM_path_tmp;
+        	char *ROM_path;
+        	char *path_buf;
+        	if ((path_buf = getcwd(NULL, 0)) == NULL) /* automatic malloc
+        */
+        	{
+        		Die(&quot;Failed to allocate memory.&quot;);
+        	}
+        	int i = strlen(path_buf);
+        
+        	/* Process arguments */
+        	if (argc != 2)
+        	{
+        		fprintf(stderr, &quot;USAGE: flashrom &lt;rom_absolute_path&gt;\n&quot;);
+        		exit(1);
+        	}
+        
+        	ROM_path_tmp = argv[1];
+        
+        	/* File path formatting for relative path support */
+        	if (ROM_path_tmp[0] == '/')
+        	{
+        		ROM_path = (char *) ROM_path_tmp;
+        	}
+        	else
+        	{
+        		/* Relative path */
+        		ROM_path = (char *) malloc(i + strlen(ROM_path_tmp) + 2); /*
+        +1 for '/', +1 for '\0' = 2 */
+        		if (ROM_path == NULL)
+        		{
+        			Die(&quot;Failed to allocate memory.&quot;);
+        		}
+        		strcpy(ROM_path, path_buf);
+        		strcat(ROM_path, &quot;/&quot;);
+        		strcat(ROM_path, ROM_path_tmp);
+        	}
+        	free(path_buf);
+        
+        	/* Make sure the ROM_path points to an existing file */
+        	if( access(ROM_path, F_OK) == -1 ) {
+        	    Die(&quot;Invalid ROM file path specified&quot;);
+        	}
+        
+        	/* Make sure the last 3 chars of the file are &quot;bin&quot; */
+        	char ROM_suffix[4];
+        	int ROM_path_len = strlen(ROM_path);
+        	int tmp = 0;
+        	for (int a = ROM_path_len - 3;  a &lt; ROM_path_len; a++)
+        	{
+        		ROM_suffix[tmp] = ROM_path[a];
+        		tmp++;
+        	}
+        	ROM_suffix[tmp]='\0';
+        	if ( strcmp(ROM_suffix,suffix1) &amp;&amp; strcmp(ROM_suffix,suffix2) )
+        	{
+        		printf(&quot;File suffix is not \&quot;%s\&quot; or \&quot;%s\&quot;! Aborting.\n&quot;,
+        suffix1, suffix2);
+        		exit(1);
+        	}
+        
+        	int sock;
+        	struct sockaddr_in openocd_server;
+        	char buffer[BUFFSIZE]; /* Size of the buffer for received data
+        */
+        
+        	/* Commands definition */
+        	strcpy(command1, word1);
+        
+        	/* Allocate dynamic memory for absolute rom's path */
+        	command2 = (char*) malloc(strlen(word2) + strlen(ROM_path) +
+        strlen(EOC) + 3); /* Two double quote + '\0' = 3 */
+        	if ( command2 == NULL )
+        	{
+        		Die(&quot;Failed to allocate memory.&quot;);
+        	}
+        	strcpy(command2, word2);
+        	strcat(command2,&quot;\&quot;&quot;);
+        	strcat(command2, ROM_path);
+        	strcat(command2,&quot;\&quot;&quot;);
+        	if ( ROM_path != ROM_path_tmp )
+        	{
+        		free(ROM_path);
+        	}
+        
+        	strcpy(command3, word3);
+        
+        	/* Command sequence : commands will be sent in this order */
+        	char *command_sequence[] = { command1, command2, command3 };
+        
+        	/* Create the TCP socket */
+        	if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) &lt; 0)
+        	{
+        		Die(&quot;Failed to create socket&quot;);
+        	}
+        
+        	/* Construct the server sockaddr_in structure */
+        	memset(&amp;openocd_server, 0, sizeof(openocd_server)); /* Clear
+        struct */
+        	openocd_server.sin_family = AF_INET; /* Internet/IP */
+        	openocd_server.sin_addr.s_addr = inet_addr(server_ip); /* IP
+        address */
+        	openocd_server.sin_port = htons(server_port); /* server port */
+        
+        	/* Establish connection */
+        	if (connect(sock, (struct sockaddr *) &amp;openocd_server,
+        sizeof(openocd_server)) &lt; 0)
+        	{
+        		Die(&quot;Failed to connect with server&quot;);
+        	}
+        
+        	/* Loop for sending the commands */
+        	for (int j = 0; j &lt; 3; j++)
+        	{
+        		/* Send the word to the server */
+        		printf(&quot;Sending %s... &quot;, command_sequence[j]);
+        		/* Now we add the EOC char */
+        		strcat(command_sequence[j], EOC);
+        		int msg_len = strlen(command_sequence[j]);
+        		if (send(sock, command_sequence[j], msg_len, 0) != msg_len)
+        		{
+        			Die(&quot;Mismatch in number of sent bytes&quot;);
+        		}
+        
+        		/* Receive the word back from the server */
+        		int bytes = 0;
+        		if ((bytes = recv(sock, buffer, BUFFSIZE - 1, 0)) &lt; 1)
+        		{
+        			Die(&quot;Failed to receive bytes from server&quot;);
+        		}
+        		buffer[bytes] = '\0'; /* Assure null terminated string */
+        		if (bytes == 1 &amp;&amp; (strcmp(buffer, EOC) == 0))
+        		{
+        			printf(&quot;OK.\n&quot;);
+        		}
+        		else
+        		{
+        			printf(&quot;FAIL\n&quot;);
+        		}
+        	}
+        
+        	/* Cleanup and close socket */
+        	free(command2);
+        	close(sock);
+        	exit(0);
+        }
+
+
+Now for the OpenOCD configuration scripts (for EK-LM3S8962 dev board).
+The base of it was found on the Internet and reformatted to respect the
+presentation of other OpenOCD scripts. 
+This one would go in the &quot;target&quot; folder of openocd's scripts dir:
+
+        # file: lm3s8962.cfg
+        # Script for TI/Luminary Stellaris LM3S8962
+        
+        if { [info exists CHIPNAME] } {	
+           set  _CHIPNAME $CHIPNAME    
+        } else {	 
+           set  _CHIPNAME lm3s8962
+        }
+        
+        if { [info exists CPUTAPID ] } {
+           set _CPUTAPID $CPUTAPID
+        } else {
+           set _CPUTAPID 0x3ba00477
+        }
+        
+        #jtag scan chain
+        jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 1 -irmask 0xf
+        -expected-id $_CPUTAPID
+        
+        #gdb debug target
+        set _TARGETNAME $_CHIPNAME.cpu
+        target create $_TARGETNAME cortex_m3 -chain-position
+        $_CHIPNAME.cpu -variant lm3s
+        
+        #set a work area of 16kb starting at address 20000000 (sram
+        start)
+        $_TARGETNAME configure -work-area-phys 0x20000000
+        -work-area-size 0x4000
+        
+        set _FLASHNAME $_CHIPNAME.flash
+        flash bank $_FLASHNAME stellaris 0 0 0 0 $_TARGETNAME
+        
+
+The next one would go in the &quot;board&quot; folder:
+
+        # file: eki-lm3s8962.cfg
+        # TI/Luminary Stellaris LM3S8962 Evaluation Kits
+        #
+        <A HREF="http://www.luminarymicro.com/products/eki-lm3s8962_can_ethernet_evaluation_kit.html">http://www.luminarymicro.com/products/eki-lm3s8962_can_ethernet_evaluation_kit.html</A>
+        
+        # include the FT2232 interface config for on-board JTAG
+        interface
+        source [find interface/luminary.cfg]
+        
+        # include the target config
+        source [find target/lm3s8962.cfg]
+        
+        # jtag speed
+        jtag_khz 500
+        
+        jtag_nsrst_delay 100
+        
+        #LM3S8962 Evaluation Board has only srst
+        reset_config srst_only
+        
+
+Then the OpenOCD daemon could be launched with a simple &quot;openocd -f
+board/ek-lm3s8962.cfg&quot;
+That's a lot of info, hopefully you'll find something useful in it! I've
+attached a gunzipped tarball of these files for convenience.
+
+Have a nice day!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110707/b7666770/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110707/b7666770/attachment.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: lm3s8962_tools.tar.gz
+Type: application/x-compressed-tar
+Size: 4764 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110707/b7666770/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20110707/b7666770/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020028.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+	<LI>Next message: <A HREF="020052.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20047">[ date ]</a>
+              <a href="thread.html#20047">[ thread ]</a>
+              <a href="subject.html#20047">[ subject ]</a>
+              <a href="author.html#20047">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

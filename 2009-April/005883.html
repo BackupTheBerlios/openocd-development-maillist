@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Jeff Williams stable state table
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Jeff%20Williams%20stable%20state%20table&In-Reply-To=%3C49F74EA8.8010700%40softplc.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005878.html">
+   <LINK REL="Next"  HREF="005884.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Jeff Williams stable state table</H1>
+    <B>Dick Hollenbeck</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Jeff%20Williams%20stable%20state%20table&In-Reply-To=%3C49F74EA8.8010700%40softplc.com%3E"
+       TITLE="[Openocd-development] [PATCH] Jeff Williams stable state table">dick at softplc.com
+       </A><BR>
+    <I>Tue Apr 28 20:44:56 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005878.html">[Openocd-development] [PATCH] Jeff Williams stable state table
+</A></li>
+        <LI>Next message: <A HREF="005884.html">[Openocd-development] [PATCH] Jeff Williams stable state table
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5883">[ date ]</a>
+              <a href="thread.html#5883">[ thread ]</a>
+              <a href="subject.html#5883">[ subject ]</a>
+              <a href="author.html#5883">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Michael,
+
+&gt;<i> 1. The underlaying jtag_* layer should produce the same transitions
+</I>&gt;<i> regardless of the JTAG device. Is there a technical reason why that is
+</I>&gt;<i> not possible? 
+</I>
+Not that I am aware of.
+
+&gt;<i> The ARM11 driver is certainly programmed with that
+</I>&gt;<i> assumption in mind.
+</I>&gt;<i>
+</I>&gt;<i> I don't think the tap_get_tms_path() is a usable solution,
+</I>
+It *is* usable solution, but to a problem other than what you are 
+thinking about.   Trust me, I would not have spent two days on this 
+otherwise.
+
+Remember the tap_get_tms_path() is in the &quot;Cable helper API&quot;, it is not 
+at the same level as jtag_add_pathmove(int num_states, tap_state_t* path);
+
+jtag_add_pathmove() is at the level of your ARM concerns, and can be 
+used with confidence in my opinion.  We need to remove the comment in 
+the jtag.h that says &quot;please don't use this function&quot;.
+
+Nothing below is relevant to my current work, sorry.
+
+Dick
+
+
+&gt;<i>  i would
+</I>&gt;<i> probably just use explicit pathmove instead because the resulting code
+</I>&gt;<i> would be heavily cluttered with tons of IFs trying to figure out what
+</I>&gt;<i> the JTAG driver is doing. Plus it is not testable by those of us that
+</I>&gt;<i> don't keep piles of different JTAG devices around.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> 2. My proposal to deal with alternative paths would be as follows:
+</I>&gt;<i>
+</I>&gt;<i> All available alternatives can be encoded in a bit field and passed as
+</I>&gt;<i> extra parameter to the relevant calls or set in some sort of
+</I>&gt;<i> jtag_set_paths(u32 paths) function.
+</I>&gt;<i>
+</I>&gt;<i> For example:
+</I>&gt;<i> bit0 Capture-DR
+</I>&gt;<i> bit1 Capture-IR
+</I>&gt;<i> bit2 Exit1-DR
+</I>&gt;<i> bit3 Exit1-IR
+</I>&gt;<i> bit4 Exit2-DR
+</I>&gt;<i> bit5 Exit2-IR
+</I>&gt;<i> bit6 Update-DR
+</I>&gt;<i> bit7 Update-IR
+</I>&gt;<i>
+</I>&gt;<i> The semantics would be as follows:
+</I>&gt;<i> - If in a transition between states one of these eight states lays in
+</I>&gt;<i> the path and
+</I>&gt;<i> - if it is possible to reach the destination by choosing either 0 or 1
+</I>&gt;<i> in that state
+</I>&gt;<i> then use the value from the bit field.
+</I>&gt;<i>
+</I>&gt;<i> The shortest possible path is selected by setting all bits in the mask
+</I>&gt;<i> to 1 except for Exit2-?R.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> 3. On a mildly related note, since that was discussed here last week,
+</I>&gt;<i> the restrictions to stable states are in conflict with the actual TAPs
+</I>&gt;<i> which are usually optimized to allow maximum bang for the clock tick.
+</I>&gt;<i>
+</I>&gt;<i> As a result the driver code is not in sync with the documentation both
+</I>&gt;<i> in regards to the TAP states used and the way algorithms are wrapped
+</I>&gt;<i> into functions and the driver is layered. For example in the arm11
+</I>&gt;<i> code it is not possible for a lower layer which ends its algorithm at
+</I>&gt;<i> Update-DR to know if the layer above needs to go via RTI or not. So
+</I>&gt;<i> the lower layer leaves the TAP at Pause-DR instead thus outsourcing
+</I>&gt;<i> the move to Update-DR to an upper layer. This results in unnecessary
+</I>&gt;<i> complexity in the code and most likely in chaos when someone later
+</I>&gt;<i> touches this fragile house of cards.
+</I>&gt;<i>
+</I>&gt;<i> The stable-states-only restriction should be retired at the earliest
+</I>&gt;<i> possible opportunity. And it should weighted if the benefits of
+</I>&gt;<i> supporting severely restricted JTAG hardware outweigh the problems of
+</I>&gt;<i> adding complexity and potential for errors in the target drivers.
+</I>&gt;<i>
+</I>&gt;<i> At the least I would like to know if it would be possible to have the
+</I>&gt;<i> stable-states-only restriction applied only to the final state before
+</I>&gt;<i> jtag_execute_queue().
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Michael
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> On Tue, Apr 28, 2009 at 5:24 PM, Dick Hollenbeck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dick at softplc.com</A>&gt; wrote:
+</I>&gt;<i>   
+</I>&gt;&gt;<i> &#216;yvind Harboe wrote:
+</I>&gt;&gt;<i>     
+</I>&gt;&gt;&gt;<i> I'm concerned about backwards compatibility on this one.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> I'd like to see a compile/runtime option to switch between
+</I>&gt;&gt;&gt;<i> the old/new table.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> E.g. I suspect that ARM11 has some dependencies on
+</I>&gt;&gt;&gt;<i> the precise paths taken today and that really it should
+</I>&gt;&gt;&gt;<i> have a couple of more jtag_add_pathmove()'s...
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Once ARM11 is populated with enough jtag_add_pathmove()'s
+</I>&gt;&gt;&gt;<i> for the cases where a specific path is required, we no
+</I>&gt;&gt;&gt;<i> longer need access to the old 7 clock transitions...
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>       
+</I>&gt;&gt;<i> Yes, I share your concern.  We need a graceful migration, obviously
+</I>&gt;&gt;<i> everything needs to keep working.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Please see if my other posting would address your concern.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The key to its understanding is that
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   int tap_get_tms_path( tap_state_t from, tap_state_t to )
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> can return what each driver needs, either a 7 bit long bit vector, or a
+</I>&gt;&gt;<i> shorter bit vector.   The shorter bit vector can be returned to drivers
+</I>&gt;&gt;<i> in the know about the potential of the vector being shorter and if they
+</I>&gt;&gt;<i> are prepared to also call the get_tms_path_len() function.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Dick
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005878.html">[Openocd-development] [PATCH] Jeff Williams stable state table
+</A></li>
+	<LI>Next message: <A HREF="005884.html">[Openocd-development] [PATCH] Jeff Williams stable state table
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5883">[ date ]</a>
+              <a href="thread.html#5883">[ thread ]</a>
+              <a href="subject.html#5883">[ subject ]</a>
+              <a href="author.html#5883">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

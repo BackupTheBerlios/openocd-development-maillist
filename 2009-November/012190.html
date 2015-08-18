@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 02/10] time_support: improve use of	types
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2002/10%5D%20time_support%3A%20improve%20use%20of%0A%09types&In-Reply-To=%3C1257948720-26142-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012192.html">
+   <LINK REL="Next"  HREF="012194.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 02/10] time_support: improve use of	types</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2002/10%5D%20time_support%3A%20improve%20use%20of%0A%09types&In-Reply-To=%3C1257948720-26142-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 02/10] time_support: improve use of	types">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 11 15:11:52 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012192.html">[Openocd-development] [PATCH 01/10] makefiles: improve build order
+</A></li>
+        <LI>Next message: <A HREF="012194.html">[Openocd-development] [PATCH 03/10] log: improve log_callback_fn	signature
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12190">[ date ]</a>
+              <a href="thread.html#12190">[ thread ]</a>
+              <a href="subject.html#12190">[ subject ]</a>
+              <a href="author.html#12190">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Update timeval_add_time to use long int; implement timeval_add with it.
+Update timeval_ms to check gettimeofday return value, return int64_t.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/time_support.c |   37 +++++++++++++------------------------
+ src/helper/time_support.h |    4 ++--
+ 2 files changed, 15 insertions(+), 26 deletions(-)
+
+diff --git a/src/helper/time_support.c b/src/helper/time_support.c
+index 9b86e52..693528f 100644
+--- a/src/helper/time_support.c
++++ b/src/helper/time_support.c
+@@ -55,20 +55,11 @@ int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *
+ /* add two struct timeval values */
+ int timeval_add(struct timeval *result, struct timeval *x, struct timeval *y)
+ {
+-	result-&gt;tv_sec = x-&gt;tv_sec + y-&gt;tv_sec;
+-
+-	result-&gt;tv_usec = x-&gt;tv_usec + y-&gt;tv_usec;
+-
+-	while (result-&gt;tv_usec &gt; 1000000)
+-	{
+-		result-&gt;tv_usec -= 1000000;
+-		result-&gt;tv_sec++;
+-	}
+-
+-	return 0;
++	memcpy(result, x, sizeof(struct timeval));
++	return timeval_add_time(result, y-&gt;tv_sec, y-&gt;tv_usec);
+ }
+ 
+-int timeval_add_time(struct timeval *result, int sec, int usec)
++int timeval_add_time(struct timeval *result, long sec, long usec)
+ {
+ 	result-&gt;tv_sec += sec;
+ 	result-&gt;tv_usec += usec;
+@@ -82,6 +73,16 @@ int timeval_add_time(struct timeval *result, int sec, int usec)
+ 	return 0;
+ }
+ 
++int64_t timeval_ms()
++{
++	struct timeval now;
++	int retval = gettimeofday(&amp;now, NULL);
++	if (retval &lt; 0)
++		return retval;
++	return (int64_t)now.tv_sec * 1000 + now.tv_usec / 1000;
++}
++
++
+ int duration_start(struct duration *duration)
+ {
+ 	return gettimeofday(&amp;duration-&gt;start, NULL);
+@@ -107,15 +108,3 @@ float duration_kbps(struct duration *duration, size_t count)
+ {
+ 	return count / (1024.0 * duration_elapsed(duration));
+ }
+-
+-long long timeval_ms()
+-{
+-	struct timeval now;
+-	long long t = 0;
+-	gettimeofday(&amp;now, NULL);
+-
+-	t += now.tv_usec/1000;
+-	t += now.tv_sec*1000;
+-
+-	return t;
+-}
+diff --git a/src/helper/time_support.h b/src/helper/time_support.h
+index 9e8e61f..a2d180a 100644
+--- a/src/helper/time_support.h
++++ b/src/helper/time_support.h
+@@ -39,10 +39,10 @@
+ 
+ int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
+ int timeval_add(struct timeval *result, struct timeval *x, struct timeval *y);
+-int timeval_add_time(struct timeval *result, int sec, int usec);
++int timeval_add_time(struct timeval *result, long sec, long usec);
+ 
+ /// @returns gettimeofday() timeval as 64-bit in ms
+-long long timeval_ms(void);
++int64_t timeval_ms(void);
+ 
+ struct duration
+ {
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012192.html">[Openocd-development] [PATCH 01/10] makefiles: improve build order
+</A></li>
+	<LI>Next message: <A HREF="012194.html">[Openocd-development] [PATCH 03/10] log: improve log_callback_fn	signature
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12190">[ date ]</a>
+              <a href="thread.html#12190">[ thread ]</a>
+              <a href="subject.html#12190">[ subject ]</a>
+              <a href="author.html#12190">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

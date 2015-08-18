@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] flash programming clock,	and how it really matters for lpc2000,	although things may appear to just work
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20flash%20programming%20clock%2C%0A%09and%20how%20it%20really%20matters%20for%20lpc2000%2C%0A%09although%20things%20may%20appear%20to%20just%20work&In-Reply-To=%3C20100121092833.GY17542%40domen-work%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014360.html">
+   <LINK REL="Next"  HREF="014355.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] flash programming clock,	and how it really matters for lpc2000,	although things may appear to just work</H1>
+    <B>Domen Puncer</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20flash%20programming%20clock%2C%0A%09and%20how%20it%20really%20matters%20for%20lpc2000%2C%0A%09although%20things%20may%20appear%20to%20just%20work&In-Reply-To=%3C20100121092833.GY17542%40domen-work%3E"
+       TITLE="[Openocd-development] flash programming clock,	and how it really matters for lpc2000,	although things may appear to just work">domen at cba.si
+       </A><BR>
+    <I>Thu Jan 21 10:28:33 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014360.html">[Openocd-development] printing reason why GDB halts
+</A></li>
+        <LI>Next message: <A HREF="014355.html">[Openocd-development] [PATCH] interface: Changed parport address to	LPT1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14357">[ date ]</a>
+              <a href="thread.html#14357">[ thread ]</a>
+              <a href="subject.html#14357">[ subject ]</a>
+              <a href="author.html#14357">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello!
+
+In hope noone will deal with this issue again :-)
+
+I've never paid attention to clock parameter of &quot;flash bank&quot;, since it
+just worked... well, with some odd problems, like code jumping to random
+places, read only data being wrong etc - and that happened RARELY.
+
+So I began suspecting a flash issue, and wrote a simple crc16 checker
+app, and surely, crc16 differed (in same app run, just different crc16
+iteration), more so with higher clocks, and MAM enabled.
+
+I sought help, and Paul Curtis suggested this might be the issue
+<A HREF="http://tech.groups.yahoo.com/group/lpc2000/message/47056">http://tech.groups.yahoo.com/group/lpc2000/message/47056</A>
+
+I would never have guessed that write can be &quot;successful&quot;, and fail only
+when reading, and in different ways when reading the same area multiple
+times.
+
+So, a heads up. Flash timings matter, at least for lpc2000.
+And since you don't know how chip is set up when jtag catches it, you
+have to play with PLL setting.
+
+My current lpc2387 config, if someone finds it useful:
+
+
+# NXP LPC2387 ARM7TDMI-S with 512kB Flash and 32kB Local On-Chip SRAM (58kB total), clocked with 72MHz PLL from internal oscillator
+
+if { [info exists CHIPNAME] } {
+	set  _CHIPNAME $CHIPNAME
+} else {
+	set  _CHIPNAME lpc2387
+}
+
+if { [info exists ENDIAN] } {
+	set  _ENDIAN $ENDIAN
+} else {
+	set  _ENDIAN little
+}
+
+if { [info exists CPUTAPID ] } {
+	set _CPUTAPID $CPUTAPID
+} else {
+	set _CPUTAPID 0x4f1f0f0f
+}
+
+#delays on reset lines
+jtag_nsrst_delay 200
+jtag_ntrst_delay 200
+
+# LPC2000 -&gt; SRST causes TRST
+reset_config trst_and_srst srst_pulls_trst
+
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
+
+set _TARGETNAME $_CHIPNAME.cpu
+target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+
+# LPC2378 has 32kB of SRAM on its main system bus (so-called Local On-Chip SRAM)
+$_TARGETNAME configure -work-area-phys 0x40000000 -work-area-size 0x8000 -work-area-backup 0
+
+$_TARGETNAME configure -event reset-start {
+	jtag_khz 20
+}
+
+$_TARGETNAME configure -event reset-init {
+
+	# Force target into ARM state
+	arm core_state arm
+	#do not remap 0x0000-0x0020 to anything but the flash
+	mwb 0xE01FC040 0x01
+
+	# get it up to 72 MHz
+	mww 0xe01fc080 0x1	# PLLCON
+	mww 0xe01fc08c 0xaa	# PLLFEED
+	mww 0xe01fc08c 0x55	# PLLFEED
+
+	mww 0xe01fc080 0x0	# PLLCON
+	mww 0xe01fc08c 0xaa	# PLLFEED
+	mww 0xe01fc08c 0x55	# PLLFEED
+	mww 0xe01fc10c 0	# CLKSRCSEL &lt;- internal 4 MHz
+
+	mww 0xe01fc084 0x0023	# PLLCFG *36/1 (288)
+	mww 0xe01fc08c 0xaa	# PLLFEED
+	mww 0xe01fc08c 0x55	# PLLFEED
+
+	mww 0xe01fc080 0x1	# PLLCON enable
+	mww 0xe01fc08c 0xaa	# PLLFEED
+	mww 0xe01fc08c 0x55	# PLLFEED
+	mww 0xe01fc104 0x3	# CCLKCFG (/4 -&gt; 72)
+	sleep 200		# wait for pll lock
+
+	mww 0xe01fc080 0x3	# PLLCON enable | connect
+	mww 0xe01fc08c 0xaa	# PLLFEED
+	mww 0xe01fc08c 0x55	# PLLFEED
+
+	jtag_khz 12000
+	# 72MHz / 6 = 12MHz, so use 12000
+}
+
+# LPC2378 has 512kB of FLASH, but upper 8kB are occupied by bootloader.
+# In boot loader the clock is 14.748 MHz
+#flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt; &lt;variant&gt;
+set _FLASHNAME $_CHIPNAME.flash
+#flash bank $_FLASHNAME lpc2000 0x0 0x0007D000 0 0 $_TARGETNAME lpc2000_v2 14748 calc_checksum
+flash bank $_FLASHNAME lpc2000 0x0 0x0007D000 0 0 $_TARGETNAME lpc2000_v2 72000 calc_checksum
+
+jtag_khz 200
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014360.html">[Openocd-development] printing reason why GDB halts
+</A></li>
+	<LI>Next message: <A HREF="014355.html">[Openocd-development] [PATCH] interface: Changed parport address to	LPT1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14357">[ date ]</a>
+              <a href="thread.html#14357">[ thread ]</a>
+              <a href="subject.html#14357">[ subject ]</a>
+              <a href="author.html#14357">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

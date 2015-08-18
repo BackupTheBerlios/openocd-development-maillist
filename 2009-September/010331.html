@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FASTDATA%20bulk%20write%20optimization%20for%0A%09mips_m4k%20file%20transfers&In-Reply-To=%3C200909031111.15438.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010320.html">
+   <LINK REL="Next"  HREF="010336.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FASTDATA%20bulk%20write%20optimization%20for%0A%09mips_m4k%20file%20transfers&In-Reply-To=%3C200909031111.15438.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Sep  3 20:11:15 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010320.html">[Openocd-development] FASTDATA bulk write optimization for mips_m4k file transfers
+</A></li>
+        <LI>Next message: <A HREF="010336.html">[Openocd-development] FASTDATA bulk write optimization for mips_m4k file transfers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10331">[ date ]</a>
+              <a href="thread.html#10331">[ thread ]</a>
+              <a href="subject.html#10331">[ subject ]</a>
+              <a href="author.html#10331">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thursday 03 September 2009, David Claffey wrote:
+&gt;<i> David Brownell wrote:
+</I>&gt;<i> &gt;&gt; Committed less &quot;init + reset init&quot; which does not belong
+</I>&gt;<i> &gt;&gt; in target configuration script.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; I think the reset-init handler likely belongs in a board
+</I>&gt;<i> &gt; init script too ... :)
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Specifics of DDR and clock setup vary between boards.
+</I>&gt;<i> &gt; Also, having the &quot;reset init&quot; script recurse into the
+</I>&gt;<i> &gt; &quot;reset halt&quot; logic can't be correct...
+</I>&gt;<i> &gt; 
+</I>&gt;<i> 
+</I>&gt;<i> The reset-halt was added because the pll configuration requires a processor
+</I>&gt;<i> reset for the PLL register settings to latch. The write to 0xb8050008 resets the
+</I>&gt;<i> processor.
+</I>
+Reset to latch PLL settings?  Odd.  One would expect a reset to
+re-initialize the PLL configuration too!  That's how it's done
+on every other core I've had occasion to look at.  Such odd
+requirements rate a comment. :)
+
+Is that software-triggered reset different from SRST?  If so, how?
+
+What do boot loaders normally do with PLL setup then?  Sounds
+like they look at the settings, and if they're not appropriate
+they'll &quot;fix&quot; them and reset.  Wouldn't OpenOCD do the same?
+
+
+&gt;<i> If reset_halt is not there the processor is not halted after this new 
+</I>&gt;<i> reset.  Perhaps there is another way to do this, but it's working for me.
+</I>
+The reset sequence is a bit quirky IMO, and not yet up to some
+things that it needs to handle.  There are a lot of flavors of
+reset, many ways to trigger them, and special cases everywhere.
+
+There are event hooks for &quot;reset-assert-pre&quot; and &quot;reset-deassert-post&quot;
+logic ... the &quot;reset-init&quot; is *way* late.  Are you sure &quot;reset-init&quot;
+is the right hook to use for PLL setup on this core?
+
+(src/helper/startup.tcl has an ocd_process_reset script which
+you might not have come across ... showing the current set of
+reset events and their invocation sequence.)
+
+
+&gt;<i> The PLL settings are intentionally set to a lowest common value for all boards.
+</I>&gt;<i>  If PLL and DDR settings are board-specific
+</I>
+I think you just said there that they wouldn't normally be the
+same ... but that there could be a least-common-denominator
+applied in some cases.
+
+Does this core do the usual, and (a) require PLL to get clocks
+fast enough to run DDR, (b) include some SRAM for boot code to
+use before DDR is available?  If so, it seems reset-assert-pre
+might benefit from knowing it's prepping for reset-init (and
+thus should setup the PLL if it's not already done, before
+one of the resets) vs not (leaving that for the boot loader).
+
+
+&gt;<i>  then it is my understanding that 
+</I>&gt;<i> entire reset-init script should be removed from the target script.
+</I>
+That's my general assumption, yes.  There could be reusable
+code that provides hooks for board-specific behavior ... but
+the reset-init script is doing a lot of what first stage of
+a boot loader does, and that's *extremely* board-specific.
+
+These chips have pin/ball configuration, yes?  And have
+clock trees to set up?  And other stuff that varies based
+on how the chip is wired into a particular board?
+
+- Dave
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010320.html">[Openocd-development] FASTDATA bulk write optimization for mips_m4k file transfers
+</A></li>
+	<LI>Next message: <A HREF="010336.html">[Openocd-development] FASTDATA bulk write optimization for mips_m4k file transfers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10331">[ date ]</a>
+              <a href="thread.html#10331">[ thread ]</a>
+              <a href="subject.html#10331">[ subject ]</a>
+              <a href="author.html#10331">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

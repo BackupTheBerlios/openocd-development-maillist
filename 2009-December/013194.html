@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/3] remove BUILD_IOUTIL symbol
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20remove%20BUILD_IOUTIL%20symbol&In-Reply-To=%3C1259726822-26322-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013193.html">
+   <LINK REL="Next"  HREF="013192.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/3] remove BUILD_IOUTIL symbol</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20remove%20BUILD_IOUTIL%20symbol&In-Reply-To=%3C1259726822-26322-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/3] remove BUILD_IOUTIL symbol">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Dec  2 05:07:01 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013193.html">[Openocd-development] [PATCH 1/3] remove #if logic for	openocd_sleep_*lude
+</A></li>
+        <LI>Next message: <A HREF="013192.html">[Openocd-development] [PATCH 3/3] remove #if BUILD_HTTPD
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13194">[ date ]</a>
+              <a href="thread.html#13194">[ thread ]</a>
+              <a href="subject.html#13194">[ subject ]</a>
+              <a href="author.html#13194">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add ioutil_stubs.c to provide an empty ioutil_init() routine.
+Add ioutil.h to prevent applications from needing to declare it.
+
+Allows unconditionally calling that function during startup, and the
+resulting libocdhelper library API is now more stable.
+
+Prints a DEBUG message when the stub implementation is included.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ configure.in              |    6 ------
+ src/ecosboard.c           |    8 +-------
+ src/helper/Makefile.am    |    3 +++
+ src/helper/ioutil.h       |   27 +++++++++++++++++++++++++++
+ src/helper/ioutil_stubs.c |   29 +++++++++++++++++++++++++++++
+ src/openocd.c             |    7 +------
+ 6 files changed, 61 insertions(+), 19 deletions(-)
+ create mode 100644 src/helper/ioutil.h
+ create mode 100644 src/helper/ioutil_stubs.c
+
+diff --git a/configure.in b/configure.in
+index 81e4326..1a4299d 100644
+--- a/configure.in
++++ b/configure.in
+@@ -614,12 +614,6 @@ else
+   AC_DEFINE(BUILD_ZY1000, 0, [0 if you don't want ZY1000.])
+ fi
+ 
+-if test $build_ioutil = yes; then
+-  AC_DEFINE(BUILD_IOUTIL, 1, [1 if you want ioutils.])
+-else
+-  AC_DEFINE(BUILD_IOUTIL, 0, [0 if you don't want ioutils.])
+-fi
+-
+ if test $build_httpd = yes; then
+   AC_DEFINE(BUILD_HTTPD, 1, [1 if you want httpd.])
+ else
+diff --git a/src/ecosboard.c b/src/ecosboard.c
+index 36e807e..fe2c024 100644
+--- a/src/ecosboard.c
++++ b/src/ecosboard.c
+@@ -23,6 +23,7 @@
+ 
+ #include &quot;types.h&quot;
+ #include &quot;jtag.h&quot;
++#include &quot;ioutil.h&quot;
+ #include &quot;configuration.h&quot;
+ #include &quot;xsvf.h&quot;
+ #include &quot;svf.h&quot;
+@@ -942,8 +943,6 @@ static int add_default_dirs(void)
+ 	return ERROR_OK;
+ }
+ 
+-int ioutil_init(struct command_context *cmd_ctx);
+-
+ int main(int argc, char *argv[])
+ {
+ 	/* ramblockdevice will be the same address every time. The deflate app uses a buffer 16mBytes out, so we
+@@ -1080,13 +1079,8 @@ int main(int argc, char *argv[])
+ 	command_set_output_handler(cmd_ctx, configuration_output_handler, NULL);
+ 	command_context_mode(cmd_ctx, COMMAND_CONFIG);
+ 
+-#if BUILD_IOUTIL
+ 	if (ioutil_init(cmd_ctx) != ERROR_OK)
+-	{
+ 		return EXIT_FAILURE;
+-	}
+-#endif
+-
+ 
+ #ifdef CYGPKG_PROFILE_GPROF
+ 	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ecosboard_profile&quot;, eCosBoard_handle_eCosBoard_profile_command,
+diff --git a/src/helper/Makefile.am b/src/helper/Makefile.am
+index 22b3c33..01e805e 100644
+--- a/src/helper/Makefile.am
++++ b/src/helper/Makefile.am
+@@ -27,6 +27,8 @@ libhelper_la_SOURCES = \
+ 
+ if IOUTIL
+ libhelper_la_SOURCES += ioutil.c
++else
++libhelper_la_SOURCES += ioutil_stubs.c
+ endif
+ 
+ libhelper_la_CFLAGS =
+@@ -38,6 +40,7 @@ endif
+ noinst_HEADERS = \
+ 	binarybuffer.h \
+ 	configuration.h \
++	ioutil.h \
+ 	types.h \
+ 	log.h \
+ 	command.h \
+diff --git a/src/helper/ioutil.h b/src/helper/ioutil.h
+new file mode 100644
+index 0000000..855ae55
+--- /dev/null
++++ b/src/helper/ioutil.h
+@@ -0,0 +1,27 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef HELPER_IOUTILS_H
++#define HELPER_IOUTILS_H
++
++struct command_context;
++
++int ioutil_init(struct command_context *cmd_ctx);
++
++#endif // HELPER_IOUTILS_H
+diff --git a/src/helper/ioutil_stubs.c b/src/helper/ioutil_stubs.c
+new file mode 100644
+index 0000000..1171a6f
+--- /dev/null
++++ b/src/helper/ioutil_stubs.c
+@@ -0,0 +1,29 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &lt;config.h&gt;
++#endif
++#include &quot;ioutil.h&quot;
++
++int ioutil_init(struct command_context *cmd_ctx)
++{
++	LOG_DEBUG(&quot;libocdhelper was built without I/O utility support&quot;);
++	return ERROR_OK;
++}
+diff --git a/src/openocd.c b/src/openocd.c
+index 2043a92..1f45837 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -30,6 +30,7 @@
+ 
+ #include &quot;openocd.h&quot;
+ #include &quot;jtag.h&quot;
++#include &quot;ioutil.h&quot;
+ #include &quot;configuration.h&quot;
+ #include &quot;xsvf.h&quot;
+ #include &quot;svf.h&quot;
+@@ -85,8 +86,6 @@ static int log_target_callback_event_handler(struct target *target, enum target_
+ 	return ERROR_OK;
+ }
+ 
+-int ioutil_init(struct command_context *cmd_ctx);
+-
+ static bool init_at_startup = true;
+ 
+ COMMAND_HANDLER(handle_noinit_command)
+@@ -227,12 +226,8 @@ int openocd_main(int argc, char *argv[])
+ 
+ 	cmd_ctx = setup_command_handler(NULL);
+ 
+-#if BUILD_IOUTIL
+ 	if (ioutil_init(cmd_ctx) != ERROR_OK)
+-	{
+ 		return EXIT_FAILURE;
+-	}
+-#endif
+ 
+ 	LOG_OUTPUT(&quot;For bug reports, read\n\t&quot;
+ 		&quot;<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>&quot;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013193.html">[Openocd-development] [PATCH 1/3] remove #if logic for	openocd_sleep_*lude
+</A></li>
+	<LI>Next message: <A HREF="013192.html">[Openocd-development] [PATCH 3/3] remove #if BUILD_HTTPD
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13194">[ date ]</a>
+              <a href="thread.html#13194">[ thread ]</a>
+              <a href="subject.html#13194">[ subject ]</a>
+              <a href="author.html#13194">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

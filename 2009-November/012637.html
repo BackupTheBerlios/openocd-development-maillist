@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 6/8] command: use register_commands	for handlers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/8%5D%20command%3A%20use%20register_commands%0A%09for%20handlers&In-Reply-To=%3C1258762487-3396-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012634.html">
+   <LINK REL="Next"  HREF="012638.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 6/8] command: use register_commands	for handlers</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/8%5D%20command%3A%20use%20register_commands%0A%09for%20handlers&In-Reply-To=%3C1258762487-3396-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 6/8] command: use register_commands	for handlers">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Nov 21 01:14:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012634.html">[Openocd-development] [PATCH 5/8] add command usage,	separate from help
+</A></li>
+        <LI>Next message: <A HREF="012638.html">[Openocd-development] [PATCH 7/8] ioutil: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12637">[ date ]</a>
+              <a href="thread.html#12637">[ thread ]</a>
+              <a href="subject.html#12637">[ subject ]</a>
+              <a href="author.html#12637">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Use register_commands() to register low-level command handlers,
+adding a builtin_command_handlers declaration that is easy to understand.
+Splits help and usage information into their appropriate fields.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   52 +++++++++++++++++++++++++++++++++----------------
+ 1 files changed, 35 insertions(+), 17 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index aa97806..36ad7af 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -903,6 +903,38 @@ COMMAND_HANDLER(handle_sleep_command)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration command_builtin_handlers[] = {
++		{
++			.name = &quot;add_help_text&quot;,
++			.handler = &amp;handle_help_add_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;add new command help text&quot;,
++			.usage = &quot;&lt;command&gt; [...] &lt;help_text&gt;]&quot;,
++		},
++		{
++			.name = &quot;sleep&quot;,
++			.handler = &amp;handle_sleep_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;sleep for n milliseconds.  &quot;
++				&quot;\&quot;busy\&quot; will busy wait&quot;,
++			.usage = &quot;&lt;n&gt; [busy]&quot;,
++		},
++		{
++			.name = &quot;help&quot;,
++			.handler = &amp;handle_help_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;show built-in command help&quot;,
++			.usage = &quot;[&lt;command_name&gt; ...]&quot;,
++		},
++		{
++			.name = &quot;usage&quot;,
++			.handler = &amp;handle_usage_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;show command usage&quot;,
++			.usage = &quot;[&lt;command_name&gt; ...]&quot;,
++		},
++	};
++
+ struct command_context* command_init(const char *startup_tcl)
+ {
+ 	struct command_context* context = malloc(sizeof(struct command_context));
+@@ -962,10 +994,9 @@ struct command_context* command_init(const char *startup_tcl)
+ 	interp-&gt;cb_fflush = openocd_jim_fflush;
+ 	interp-&gt;cb_fgets = openocd_jim_fgets;
+ 
+-	COMMAND_REGISTER(context, NULL, &quot;add_help_text&quot;,
+-			handle_help_add_command, COMMAND_ANY,
+-			&quot;&lt;command&gt; [...] &lt;help_text&gt;] - &quot;
+-			&quot;add new command help text&quot;);
++	register_commands(context, NULL,
++			ARRAY_SIZE(command_builtin_handlers),
++			command_builtin_handlers);
+ 
+ #if !BUILD_ECOSBOARD
+ 	Jim_EventLoopOnLoad(interp);
+@@ -979,19 +1010,6 @@ struct command_context* command_init(const char *startup_tcl)
+ 	}
+ 	Jim_DeleteAssocData(interp, &quot;context&quot;);
+ 
+-	COMMAND_REGISTER(context, NULL, &quot;sleep&quot;,
+-			handle_sleep_command, COMMAND_ANY,
+-			&quot;&lt;n&gt; [busy] - sleep for n milliseconds. &quot;
+-			&quot;\&quot;busy\&quot; means busy wait&quot;);
+-
+-	COMMAND_REGISTER(context, NULL, &quot;help&quot;,
+-			&amp;handle_help_command, COMMAND_ANY,
+-			&quot;[&lt;command_name&gt; ...] - show built-in command help&quot;);
+-	COMMAND_REGISTER(context, NULL, &quot;usage&quot;,
+-			&amp;handle_usage_command, COMMAND_ANY,
+-			&quot;[&lt;command_name&gt; ...] | &quot;
+-			&quot;show command usage&quot;);
+-
+ 	return context;
+ }
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012634.html">[Openocd-development] [PATCH 5/8] add command usage,	separate from help
+</A></li>
+	<LI>Next message: <A HREF="012638.html">[Openocd-development] [PATCH 7/8] ioutil: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12637">[ date ]</a>
+              <a href="thread.html#12637">[ thread ]</a>
+              <a href="subject.html#12637">[ subject ]</a>
+              <a href="author.html#12637">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

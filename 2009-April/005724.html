@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Fix build errors in SVN on x86_64
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20build%20errors%20in%20SVN%20on%20x86_64&In-Reply-To=%3C20090424222735.GA12301%40cowpig.ca%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005725.html">
+   <LINK REL="Next"  HREF="005765.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Fix build errors in SVN on x86_64</H1>
+    <B>Philippe Vachon</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20build%20errors%20in%20SVN%20on%20x86_64&In-Reply-To=%3C20090424222735.GA12301%40cowpig.ca%3E"
+       TITLE="[Openocd-development] [PATCH] Fix build errors in SVN on x86_64">philippe at cowpig.ca
+       </A><BR>
+    <I>Sat Apr 25 00:27:35 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005725.html">[Openocd-development] Refactoring ft2232 like JLink driver
+</A></li>
+        <LI>Next message: <A HREF="005765.html">[Openocd-development] [PATCH] Fix build errors in SVN on x86_64
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5724">[ date ]</a>
+              <a href="thread.html#5724">[ thread ]</a>
+              <a href="subject.html#5724">[ subject ]</a>
+              <a href="author.html#5724">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+The attached patch fixes several warnings when building on an x86_64
+system. The changes are trivial.
+
+Most of the issues stem from the fact that:
+
+1) a variable of type long is 8 bytes on x86_64, but is 4 bytes on IA32
+2) hex literals with the suffix 'ul' are 8 bytes on x86_64, meaning
+several checks would never be true (due to ~0x0ul being 0xffffffff on
+IA32 but 0xffffffff_ffffffff on x86_64)
+
+I've tested the affected sections and the changes appear to have not
+affected functionality. Patch was tested on an x86_64 and IA32 system
+with recent gcc (4.3.2). Hopefully it doesn't break anything else. ;-)
+
+Cheers,
+Phil
+-------------- next part --------------
+Index: src/helper/command.c
+===================================================================
+--- src/helper/command.c	(revision 1522)
++++ src/helper/command.c	(working copy)
+@@ -782,8 +782,8 @@
+ 		busy_sleep(duration);
+ 	} else
+ 	{
+-		long long then=timeval_ms();
+-		while ((timeval_ms()-then)&lt;duration)
++		unsigned long then = timeval_ms();
++		while (timeval_ms() - then &lt; duration)
+ 		{
+ 			target_call_timer_callbacks_now();
+ 			usleep(1000);
+Index: src/target/etb.c
+===================================================================
+--- src/target/etb.c	(revision 1522)
++++ src/target/etb.c	(working copy)
+@@ -453,7 +453,7 @@
+ 		arm7_9-&gt;etm_ctx-&gt;capture_driver_priv = etb;
+ 
+ 		etb-&gt;tap  = tap;
+-		etb-&gt;cur_scan_chain = ~0UL;
++		etb-&gt;cur_scan_chain = 0xffffffff;
+ 		etb-&gt;reg_cache = NULL;
+ 		etb-&gt;ram_width = 0;
+ 		etb-&gt;ram_depth = 0;
+Index: src/target/xscale.c
+===================================================================
+--- src/target/xscale.c	(revision 1522)
++++ src/target/xscale.c	(working copy)
+@@ -2933,7 +2933,8 @@
+ 						(((instruction.type == ARM_B) ||
+ 							(instruction.type == ARM_BL) ||
+ 							(instruction.type == ARM_BLX)) &amp;&amp;
+-							(instruction.info.b_bl_bx_blx.target_address != ~0UL)))
++							(instruction.info.b_bl_bx_blx.target_address != 
++							 0xffffffff)))
+ 					{
+ 						xscale-&gt;trace.current_pc = instruction.info.b_bl_bx_blx.target_address;
+ 					}
+Index: src/target/etm.c
+===================================================================
+--- src/target/etm.c	(revision 1522)
++++ src/target/etm.c	(working copy)
+@@ -998,7 +998,7 @@
+ 			if (((instruction.type == ARM_B) ||
+ 				(instruction.type == ARM_BL) ||
+ 				(instruction.type == ARM_BLX)) &amp;&amp;
+-				(instruction.info.b_bl_bx_blx.target_address != ~0UL))
++				(instruction.info.b_bl_bx_blx.target_address != 0xffffffffUL))
+ 			{
+ 				next_pc = instruction.info.b_bl_bx_blx.target_address;
+ 			}
+Index: src/flash/mflash.c
+===================================================================
+--- src/flash/mflash.c	(revision 1522)
++++ src/flash/mflash.c	(working copy)
+@@ -473,14 +473,16 @@
+ 	residue = sect_cnt % 256;
+ 
+ 	for (i = 0; i &lt; quotient; i++) {
+-		LOG_DEBUG(&quot;sect num : %u buff : 0x%8.8x&quot;, sect_num, (u32)buff_ptr);
++		LOG_DEBUG(&quot;sect num : %u buff : 0x%0lx&quot;, sect_num, 
++			(unsigned long)buff_ptr);
+ 		mg_mflash_do_read_sects(buff_ptr, sect_num, 256);
+ 		sect_num += 256;
+ 		buff_ptr += 256 * MG_MFLASH_SECTOR_SIZE;
+ 	}
+ 
+ 	if (residue) {
+-		LOG_DEBUG(&quot;sect num : %u buff : %8.8x&quot;, sect_num, (u32)buff_ptr);
++		LOG_DEBUG(&quot;sect num : %u buff : %0lx&quot;, sect_num, 
++			(unsigned long)buff_ptr);
+ 		mg_mflash_do_read_sects(buff_ptr, sect_num, residue);
+ 	}
+ 
+@@ -542,14 +544,16 @@
+ 	residue = sect_cnt % 256;
+ 
+ 	for (i = 0; i &lt; quotient; i++) {
+-		LOG_DEBUG(&quot;sect num : %u buff : %8.8x&quot;, sect_num, (u32)buff_ptr);
++		LOG_DEBUG(&quot;sect num : %u buff : %0lx&quot;, sect_num, 
++			(unsigned long)buff_ptr);
+ 		mg_mflash_do_write_sects(buff_ptr, sect_num, 256);
+ 		sect_num += 256;
+ 		buff_ptr += 256 * MG_MFLASH_SECTOR_SIZE;
+ 	}
+ 
+ 	if (residue) {
+-		LOG_DEBUG(&quot;sect num : %u buff : %8.8x&quot;, sect_num, (u32)buff_ptr);
++		LOG_DEBUG(&quot;sect num : %u buff : %0lx&quot;, sect_num, 
++			(unsigned long)buff_ptr);
+ 		mg_mflash_do_write_sects(buff_ptr, sect_num, residue);
+ 	}
+ 
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005725.html">[Openocd-development] Refactoring ft2232 like JLink driver
+</A></li>
+	<LI>Next message: <A HREF="005765.html">[Openocd-development] [PATCH] Fix build errors in SVN on x86_64
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5724">[ date ]</a>
+              <a href="thread.html#5724">[ thread ]</a>
+              <a href="subject.html#5724">[ subject ]</a>
+              <a href="author.html#5724">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

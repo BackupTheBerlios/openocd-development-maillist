@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 core debug reset problem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20core%20debug%20reset%20problem&In-Reply-To=%3C4CCBD533.309%40martin-jones.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016884.html">
+   <LINK REL="Next"  HREF="016899.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 core debug reset problem</H1>
+    <B>Chris Jones</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20core%20debug%20reset%20problem&In-Reply-To=%3C4CCBD533.309%40martin-jones.com%3E"
+       TITLE="[Openocd-development] STM32 core debug reset problem">chris at martin-jones.com
+       </A><BR>
+    <I>Sat Oct 30 10:20:03 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016884.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+        <LI>Next message: <A HREF="016899.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16886">[ date ]</a>
+              <a href="thread.html#16886">[ thread ]</a>
+              <a href="subject.html#16886">[ subject ]</a>
+              <a href="author.html#16886">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 30/10/2010 00:15, Andreas Fritiofson wrote:
+&gt;<i> On Fri, Oct 29, 2010 at 8:58 PM, Chris Jones &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chris at martin-jones.com</A>&gt; wrote:
+</I>&gt;&gt;<i> But there's a way of breaking it semi-permanently. The application on the
+</I>&gt;&gt;<i> STM32 is one which spends most of its time with the CPU in Stop mode, waking
+</I>&gt;&gt;<i> up periodically (about every 12ms) via an RTC interrupt to do some
+</I>&gt;&gt;<i> processing. If I attempt to start OpenOCD while the microcontroller is
+</I>&gt;&gt;<i> stopping and running like this, I get messages which say,
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Warn : Timeout (1000ms) waiting for ACK=OK/FAULT in JTAG-DP transaction
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> and OpenOCD just won't work, though it finds the TAPs correctly so the JTAG
+</I>&gt;&gt;<i> hardware is clearly working to some extent.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The whole JTAG system appears to be then stuck in this state. Restarting
+</I>&gt;&gt;<i> OpenOCD, doing a hardware system reset on the microcontroller, unplugging
+</I>&gt;&gt;<i> everything including the JTAG dongle and its USB interface, all make no
+</I>&gt;&gt;<i> difference. I've even tried exercising the JTAG port using another
+</I>&gt;&gt;<i> application (XJTAG) though this only does boundary scan testing and doesn't
+</I>&gt;&gt;<i> play with the ARM debug TAP. Though boundary scan works fine.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The only thing which fixes the problem is power-cycling the STM32 chip
+</I>&gt;&gt;<i> itself. I note from its documentation and the ARM Cortex-M3 TRM that some
+</I>&gt;&gt;<i> parts of the core debug unit are only reset at power up, not in response to
+</I>&gt;&gt;<i> a system reset. The device has no TRST pin.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> However, this board is going to be permanently moulded into a plastic lump
+</I>&gt;&gt;<i> with a battery, so power cycling it is *not* an option.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Am I stuck? Or is there a way of finding out how the Cortex-M3 debug unit is
+</I>&gt;&gt;<i> wedged, if that's the case, and tickling it back to life?
+</I>&gt;<i> 
+</I>&gt;<i> The debug unit is clocked by the core clock. So, naturally, when you
+</I>&gt;<i> stop the core clock you'll lose all debug access. There's nothing
+</I>&gt;<i> OpenOCD can do about it. As Kyle said, you can flip some bits in
+</I>&gt;<i> DBGMCU_CR to keep the debug unit clocked even in sleep modes. That
+</I>&gt;<i> will enable you to debug but of course it will also drain your
+</I>&gt;<i> battery.
+</I>
+Thanks for the hint about DBGMCU_CR. I didn't know that, and it could
+prove useful. However, I don't actually want to debug in stop mode. One
+thing I failed to mention is that, after a system reset, the firmware
+puts the STM32 in run mode until it's sent a command over USB putting it
+into the stop/wake cycle. During this time in run mode, debugging
+normally works fine.
+
+The problem is that after even one attempt at debugging during stop
+mode, the debug unit appears permanently broken and doesn't work in
+*run* mode any more. Only power-cycling the STM32 fixes it. Pulling
+BOOT0 high during reset and sending the STM32 into its bootstrap loader
+doesn't help either.
+
+&gt;<i> One can also ponder why you need debug access to something molded in
+</I>&gt;<i> plastic... Wouldn't it be better to debug your application on a more
+</I>&gt;<i> lab-friendly setup?
+</I>
+Good point! This is about firmware upgrades in the field as much as
+anything. Ideally I'd have liked to use the serial bootstrap loader for
+doing that simply, but we have more than a hundred of these devices with
+an error in the hardware which means that the USART connection to the
+outside world is broken. No problem, I thought, we'll just use JTAG.
+
+I'd like to work out whether the debug unit really does break, or
+whether there's just a misunderstanding about state between it and OpenOCD.
+
+Chris
+-- 
+Chris Jones - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chris at martin-jones.com</A>
+Martin-Jones Technology Ltd
+148 Catharine Street, Cambridge, CB1 3AR, UK
+Phone +44 (0) 1223 655611 Fax +44 (0) 870 112 3908
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016884.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+	<LI>Next message: <A HREF="016899.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16886">[ date ]</a>
+              <a href="thread.html#16886">[ thread ]</a>
+              <a href="subject.html#16886">[ subject ]</a>
+              <a href="author.html#16886">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

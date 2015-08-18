@@ -1,0 +1,262 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] inverse of tap_state_transition()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20inverse%20of%20tap_state_transition%28%29&In-Reply-To=%3C200902201653.45472.hs4233%40mail.mn-solutions.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004735.html">
+   <LINK REL="Next"  HREF="004772.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] inverse of tap_state_transition()</H1>
+    <B>Holger Schurig</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20inverse%20of%20tap_state_transition%28%29&In-Reply-To=%3C200902201653.45472.hs4233%40mail.mn-solutions.de%3E"
+       TITLE="[Openocd-development] inverse of tap_state_transition()">hs4233 at mail.mn-solutions.de
+       </A><BR>
+    <I>Fri Feb 20 16:53:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004735.html">[Openocd-development] Fwd: openocd-0.1.0.mci
+</A></li>
+        <LI>Next message: <A HREF="004772.html">[Openocd-development] inverse of tap_state_transition()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4736">[ date ]</a>
+              <a href="thread.html#4736">[ thread ]</a>
+              <a href="subject.html#4736">[ subject ]</a>
+              <a href="author.html#4736">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>tap_state_transition() calculates the next state given a current
+state and a TMS setting.
+
+The attached function jtag_move_to() calulates the TMS bits given
+a *ANY* current state and a *ANY* goal state. It could be used in
+OpenOCD to replace the tms_seqs[][] table.
+
+Currently, OpenOCD always sends down 7 TMS bit transitions to go
+from a stable state to another stable state. However, with my
+function it's possible to just send down the needed bits. For
+this I wrote my own 
+
+void ft2232_tms(int bits, char tms)
+{
+        MYTRACE(&quot;ft2232_tms(%d, 0x%02x)&quot;, bits, (quint8)tms);
+        for (int i=0; i&lt;bits; i++) {
+                bool t = tms &amp; (1 &lt;&lt; i);
+                current_state = tap_state_transition(current_state, t);
+                MYVERBOSE(&quot;  tms %d, advance to %s %d&quot;, t, tap_state_name(current_state), current_state);
+        }
+        ft2232_buffer.append(0x4b);
+        ft2232_buffer.append(bits-1);
+        ft2232_buffer.append(tms);
+}
+
+
+I'm currently using both the jtag_move_to() and the jtag_tms()
+functions in a project that is outside OpenOCD, so it might need
+slight massaging if you think that this is helpful. For me, it's
+helpful, because it allows me to easily do any state transition
+the hardware wants.
+-------------- next part --------------
+void jtag_move_to(enum tap_state goal)
+{
+	LOG_DEBUG(&quot;jtag_move_to(%s)&quot;, tap_state_name(goal));
+	if (current_state == goal)
+		return;
+
+	enum tap_state s = current_state;
+	char bit[7];
+	int bits = 0;
+
+	for (int loop=0; loop&lt;2; loop++) {
+		if (s == TAP_RESET) {
+			bit[bits++] = 0;
+			s = TAP_IDLE;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_IDLE) {
+			bit[bits++] = 1;
+			s = TAP_DRSELECT;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_DRSELECT &amp;&amp; ((goal &gt;= TAP_IRSELECT) || (goal == TAP_RESET))) {
+			bit[bits++] = 1;
+			s = TAP_IRSELECT;
+		} else
+		if (s == TAP_DRSELECT) {
+			bit[bits++] = 0;
+			s = TAP_DRCAPTURE;
+		} 
+		if (s==goal) break;
+
+		if (s == TAP_IRSELECT &amp;&amp; (goal == TAP_RESET)) {
+			bit[bits++] = 1;
+			s = TAP_RESET;
+		} else
+		if (s == TAP_IRSELECT) {
+			bit[bits++] = 0;
+			s = TAP_IRCAPTURE;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_DRCAPTURE &amp;&amp; goal==TAP_DRSHIFT) {
+			bit[bits++] = 0;
+			s = TAP_DRSHIFT;
+		} else
+		if (s == TAP_DRCAPTURE) {
+			bit[bits++] = 1;
+			s = TAP_DREXIT1;
+		} else
+		if (s == TAP_IRCAPTURE &amp;&amp; goal==TAP_IRSHIFT) {
+			bit[bits++] = 0;
+			s = TAP_IRSHIFT;
+		} else
+		if (s == TAP_IRCAPTURE) {
+			bit[bits++] = 1;
+			s = TAP_IREXIT1;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_DRSHIFT) {
+			bit[bits++] = 1;
+			s = TAP_DREXIT1;
+		} else
+		if (s == TAP_IRSHIFT) {
+			bit[bits++] = 1;
+			s = TAP_IREXIT1;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_DREXIT1 &amp;&amp; (goal == TAP_DRPAUSE || goal == TAP_DREXIT2)) {
+			bit[bits++] = 0;
+			s = TAP_DRPAUSE;
+		} else
+		if (s == TAP_DREXIT1) {
+			bit[bits++] = 1;
+			s = TAP_DRUPDATE;
+		} else
+		if (s == TAP_IREXIT1 &amp;&amp; (goal == TAP_IRPAUSE || goal == TAP_IREXIT2)) {
+			bit[bits++] = 0;
+			s = TAP_IRPAUSE;
+		} else
+		if (s == TAP_IREXIT1) {
+			bit[bits++] = 1;
+			s = TAP_IRUPDATE;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_DRPAUSE) {
+			bit[bits++] = 1;
+			s = TAP_DREXIT2;
+		} else
+		if (s == TAP_IRPAUSE) {
+			bit[bits++] = 1;
+			s = TAP_IREXIT2;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_DREXIT2 &amp;&amp; goal &gt;= TAP_DRSHIFT &amp;&amp; goal &lt;= TAP_DRPAUSE) {
+			bit[bits++] = 0;
+			s = TAP_DRSHIFT;
+		} else
+		if (s == TAP_DREXIT2) {
+			bit[bits++] = 1;
+			s = TAP_DRUPDATE;
+		} else
+		if (s == TAP_IREXIT2 &amp;&amp; goal &gt;= TAP_IRSHIFT &amp;&amp; goal &lt;= TAP_IRPAUSE) {
+			bit[bits++] = 0;
+			s = TAP_IRSHIFT;
+		} else
+		if (s == TAP_IREXIT2) {
+			bit[bits++] = 1;
+			s = TAP_IRUPDATE;
+		}
+		if (s==goal) break;
+
+		if (s == TAP_DRUPDATE || s == TAP_IRUPDATE) {
+			if (goal == TAP_IDLE) {
+				bit[bits++] = 0;
+				s = TAP_IDLE;
+			} else {
+				bit[bits++] = 1;
+				s = TAP_DRSELECT;
+			}
+		}
+		if (s==goal) break;
+		
+		if (s == TAP_IDLE) {
+			bit[bits++] = 1;
+			s = TAP_DRSELECT;
+		}
+		if (s==goal) break;
+
+		if (bits &gt; sizeof(bit)) {
+			LOG_ERROR(&quot;not enougth bits&quot;);
+			break;
+		}
+	}
+
+	char trans = 0;
+	for (int i=0; i&lt;bits; i++) {
+		trans |= (bit[i] &lt;&lt; i);
+	}
+	jtag_tms(bits, trans);
+}
+
+/* Some test code:
+
+void test_move()
+{
+	enum tap_state from;
+	enum tap_state to;
+	for (from=TAP_RESET; from &lt;= TAP_IRUPDATE; from++) {
+		for (to=TAP_RESET; to &lt;= TAP_IRUPDATE; to++) {
+			LOG_DEBUG(&quot;\n%s %d -&gt; %s %d&quot;,
+				tap_state_name(from), from,
+				tap_state_name(to), to);
+			current_state = (enum tap_state)from;
+			jtag_move_to(to);
+			if (current_state != to) {
+				LOG_ERROR(&quot;dit not reach goal, now at %d, not %d&quot;,
+					current_state,
+					to);
+				exit(1);
+			}
+		}
+		LOG_DEBUG(&quot;%s&quot;,&quot;&quot;);
+	}
+}
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004735.html">[Openocd-development] Fwd: openocd-0.1.0.mci
+</A></li>
+	<LI>Next message: <A HREF="004772.html">[Openocd-development] inverse of tap_state_transition()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4736">[ date ]</a>
+              <a href="thread.html#4736">[ thread ]</a>
+              <a href="subject.html#4736">[ subject ]</a>
+              <a href="author.html#4736">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

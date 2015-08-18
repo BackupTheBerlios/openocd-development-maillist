@@ -1,0 +1,123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [OpenOCD] [PATCH 1/1] load_image should use virtual (p_vaddr) instead of physical (p_paddr) ELF segment addr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%20%5BPATCH%201/1%5D%20load_image%20should%0A%20use%20virtual%20%28p_vaddr%29%20instead%20of%20physical%20%28p_paddr%29%20ELF%20segment%20addr&In-Reply-To=%3C4E00D644.4040301%40discworld.dascon.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019745.html">
+   <LINK REL="Next"  HREF="019749.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [OpenOCD] [PATCH 1/1] load_image should use virtual (p_vaddr) instead of physical (p_paddr) ELF segment addr</H1>
+    <B>Michael Schwingen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%20%5BPATCH%201/1%5D%20load_image%20should%0A%20use%20virtual%20%28p_vaddr%29%20instead%20of%20physical%20%28p_paddr%29%20ELF%20segment%20addr&In-Reply-To=%3C4E00D644.4040301%40discworld.dascon.de%3E"
+       TITLE="[Openocd-development] [OpenOCD] [PATCH 1/1] load_image should use virtual (p_vaddr) instead of physical (p_paddr) ELF segment addr">rincewind at discworld.dascon.de
+       </A><BR>
+    <I>Tue Jun 21 19:35:00 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019745.html">[Openocd-development] [OpenOCD] [PATCH 1/1] load_image should use virtual (p_vaddr) instead of physical (p_paddr) ELF segment addr
+</A></li>
+        <LI>Next message: <A HREF="019749.html">[Openocd-development] [OpenOCD] [PATCH 1/1] load_image should use virtual (p_vaddr) instead of physical (p_paddr) ELF segment addr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19747">[ date ]</a>
+              <a href="thread.html#19747">[ thread ]</a>
+              <a href="subject.html#19747">[ subject ]</a>
+              <a href="author.html#19747">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Am 06/21/2011 07:19 PM, schrieb Drasko DRASKOVIC:
+&gt;<i>
+</I>&gt;&gt;<i> Perhaps bfd library?
+</I>&gt;<i> Yes, that would be the right place, but I hoped to avoid further digging ;).
+</I>&gt;<i>
+</I>&gt;<i> Here is something interesting, from the gdb's src/bfd/elf.c, line 963
+</I>&gt;<i> (and it is related to one of the posts I mentioned previously) :
+</I>&gt;<i>
+</I>&gt;<i> if ((flags &amp; SEC_ALLOC) != 0)
+</I>&gt;<i>     {
+</I>&gt;<i>       Elf_Internal_Phdr *phdr;
+</I>&gt;<i>       unsigned int i, nload;
+</I>&gt;<i>
+</I>&gt;<i>       /* Some ELF linkers produce binaries with all the program header
+</I>&gt;<i> 	 p_paddr fields zero.  If we have such a binary with more than
+</I>&gt;<i> 	 one PT_LOAD header, then leave the section lma equal to vma
+</I>&gt;<i> 	 so that we don't create sections with overlapping lma.  */
+</I>&gt;<i>       phdr = elf_tdata (abfd)-&gt;phdr;
+</I>&gt;<i>       for (nload = 0, i = 0; i &lt; elf_elfheader (abfd)-&gt;e_phnum; i++, phdr++)
+</I>&gt;<i> 	if (phdr-&gt;p_paddr != 0)
+</I>&gt;<i> 	  break;
+</I>&gt;<i> 	else if (phdr-&gt;p_type == PT_LOAD &amp;&amp; phdr-&gt;p_memsz != 0)
+</I>&gt;<i> 	  ++nload;
+</I>&gt;<i>       if (i &gt;= elf_elfheader (abfd)-&gt;e_phnum &amp;&amp; nload &gt; 1)
+</I>&gt;<i> 	return TRUE;
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Basically, BFD (and thus GDB) knows a workaround - which seems to be
+</I>&gt;<i> the same thing I did - if your ELF has p_paddr == 0, make it equal to
+</I>&gt;<i> p_vaddr, and use this as LMA.
+</I>Um - unless I misread the code, there is an important difference:
+In the gdb code, the workaround only kicks in if *all* p_paddr from all
+sections are zero, while your patch will kick in if a single section's
+p_paddr is zero. The gdb solution seems safer to me.
+
+&gt;<i> ARM ELF compliant linker _must_ produce ELF with p_paddr = 0.
+</I>&gt;<i> It seems like GNU ld (which probably uses these workarounds from BFD)
+</I>&gt;<i> equals p_paddr to p_vaddr, so that the problem is masked, and OpenOCD
+</I>&gt;<i> is using p_paddr.
+</I>&gt;<i> Once you stumble upon ELF linked with some ARM ELF compliant liker,
+</I>&gt;<i> OpenOCD will go wrong, while GDB will do fine by using the upper
+</I>&gt;<i> mentioned procedure.
+</I>&gt;<i>
+</I>&gt;<i> My opinion is that we currently have *broken* OpenOCD load_image
+</I>&gt;<i> behavior (works with GNU ld, though), and that we can not make it any
+</I>&gt;<i> worst with this patch.
+</I>Yes, we can: loading code at 0 may fail.
+
+&gt;<i> I also opened the question - is there a valid ELF that has p_paddr 0x0
+</I>&gt;<i> and p_vaddr != 0. Obviously, regarding the upper mentioned code from
+</I>&gt;<i> BFD, production of such ELF is not possible with GNU ld, because it
+</I>&gt;<i> will keep p_paddr_valid flag at FALSE and equalize p_paddr to p_vaddr
+</I>&gt;<i> at some point...
+</I>Address 0 is a valid starting address - I know systems with RAM or FLASH
+at 0, so code with p_paddr==0 for one section is a valid case.
+
+I have no objection against implementing the gdb workaround (checking if
+*all* sections are zero)
+
+cu
+Michael
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019745.html">[Openocd-development] [OpenOCD] [PATCH 1/1] load_image should use virtual (p_vaddr) instead of physical (p_paddr) ELF segment addr
+</A></li>
+	<LI>Next message: <A HREF="019749.html">[Openocd-development] [OpenOCD] [PATCH 1/1] load_image should use virtual (p_vaddr) instead of physical (p_paddr) ELF segment addr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19747">[ date ]</a>
+              <a href="thread.html#19747">[ thread ]</a>
+              <a href="subject.html#19747">[ subject ]</a>
+              <a href="author.html#19747">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

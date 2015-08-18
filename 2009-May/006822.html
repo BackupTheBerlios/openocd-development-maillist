@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] pxa270.cfg patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20pxa270.cfg%20patch&In-Reply-To=%3C20090519102238.GH17468%40knossos.aleph1.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006885.html">
+   <LINK REL="Next"  HREF="006827.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] pxa270.cfg patch</H1>
+    <B>Wookey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20pxa270.cfg%20patch&In-Reply-To=%3C20090519102238.GH17468%40knossos.aleph1.co.uk%3E"
+       TITLE="[Openocd-development] pxa270.cfg patch">wookey at wookware.org
+       </A><BR>
+    <I>Tue May 19 12:22:39 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006885.html">[Openocd-development] [PATCH] Further simplifications in jtag.c
+</A></li>
+        <LI>Next message: <A HREF="006827.html">[Openocd-development] pxa270.cfg patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6822">[ date ]</a>
+              <a href="thread.html#6822">[ thread ]</a>
+              <a href="subject.html#6822">[ subject ]</a>
+              <a href="author.html#6822">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi, I've been doing quite a lot of beating my head against open OCD
+over the last few weeks in order to get it working with balloonboard.
+Results detailed at
+<A HREF="http://www.balloonboard.org/balloonwiki/Balloon3OpenOCD">http://www.balloonboard.org/balloonwiki/Balloon3OpenOCD</A> and
+<A HREF="http://www.balloonboard.org/balloonwiki/BalloonJTAGing">http://www.balloonboard.org/balloonwiki/BalloonJTAGing</A>
+
+I have various comments, queries and patches as a result. I'll try to
+separate them by subject rather than one big mail. 
+
+first nice simple one. The pxa270.cfg is wrong. When I started it
+still had old-style config lines but it looks likes that's been fixed
+in svn. It still has a line for a flash chip on some random board
+which clearly shouldn't be in the generic pxa270.cfg file, so my patch
+removes it. That should be in the board config.
+
+This patch also lists the two CPU IDs I've found in testing. This leads
+on to two related points about how the CPUTAPID thing is used.
+
+1) How do I specify that a bit is don't care for -expected-id? As you
+can see pxas can be (at least) rev 7 and rev4: 0x79265013 and
+0x49265013. Either of these answers is valid, but I failed to find a
+'don't care' mask.
+
+2) Also the &lt;cpu&gt;.cfg files set a duff CPUTAPID, and seem to expect a
+CPUTAPID to be passed in from some higher-level config. But it seems
+to me that in general the user doesn't know this value and would
+expect it (or at least the default) to be supplied in the &lt;cpu&gt;.cfg
+file? Am I misunderstanding how it is supposed to be used?
+
+3) Also doesn't the reset capability depend on the
+board/dongle/interface combination and thus sadly doesn't really go in
+the cpu config file, much as we'd like it to? e.g. I get different
+reset capabilities with USB and parallel dongles onto the same board,
+so a generic pxa reset config cannot be correct. Perhaps the idea is
+that the file specifies a likely default and that is overridden later
+in the main config if it's not right for you?
+
+
+
+--- /home/wookey/balloon/openocd/svn/trunk/src/target/target/pxa270.cfg	2009-05-13 02:41:22.000000000 +0100
++++ /home/wookey/balloon/loontest/balloonsvn/trunk/utils/openocd/r1409/pxa270.cfg	2009-05-19 09:24:30.000000000 +0100
+@@ -12,6 +12,9 @@
+    set  _ENDIAN little
+ }
+ 
++#IDs for pxa270. Choose one. Are there others?#
++#set CPUTAPID 0x79265013
++#set CPUTAPID 0x49265013
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+@@ -26,10 +29,6 @@
+ # set the jtag_ntrst_delay to the delay introduced by a reset circuit
+ # the rest of the needed delays are built into the openocd program
+ jtag_ntrst_delay 0
+-#use combined on interfaces or targets that can't set TRST/SRST separately
+-reset_config trst_and_srst separate
+-#jtag scan chain
+-
+ 
+ set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+ jtag newtap $_CHIPNAME cpu -irlen 7 -ircapture 0x1 -irmask 0x7f -expected-id $_CPUTAPID
+@@ -38,7 +37,3 @@
+ # maps to PXA internal RAM. If you are using a PXA255
+ # you must initialize SDRAM or leave this option off
+ $_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x5c000000 -work-area-size 0x10000 -work-area-backup 0
+-
+-#flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt;
+-# works for P30 flash
+-flash bank cfi 0x00000000 0x1000000 2 4 0
+
+
+Wookey
+-- 
+Principal hats:  iEndian - Balloonboard - Toby Churchill - Emdebian
+<A HREF="http://wookware.org/">http://wookware.org/</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006885.html">[Openocd-development] [PATCH] Further simplifications in jtag.c
+</A></li>
+	<LI>Next message: <A HREF="006827.html">[Openocd-development] pxa270.cfg patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6822">[ date ]</a>
+              <a href="thread.html#6822">[ thread ]</a>
+              <a href="subject.html#6822">[ subject ]</a>
+              <a href="author.html#6822">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Advanced Reset Process
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Advanced%20Reset%20Process&In-Reply-To=%3C200906271134.38032.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008700.html">
+   <LINK REL="Next"  HREF="008865.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Advanced Reset Process</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Advanced%20Reset%20Process&In-Reply-To=%3C200906271134.38032.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Advanced Reset Process">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Jun 27 20:34:37 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008700.html">[Openocd-development] Advanced Reset Process
+</A></li>
+        <LI>Next message: <A HREF="008865.html">[Openocd-development] Advanced Reset Process
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8863">[ date ]</a>
+              <a href="thread.html#8863">[ thread ]</a>
+              <a href="subject.html#8863">[ subject ]</a>
+              <a href="author.html#8863">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> &gt; Does it seem to you like the reset process is flexible
+</I>&gt;<i> &gt; enough yet?
+</I>&gt;<i> 
+</I>&gt;<i> The idea is that those targets where the tcl reset
+</I>&gt;<i> proc doesn't cut it would implement their own
+</I>&gt;<i> tcl reset proc from scratch.
+</I>
+That seems undesirable when some key improvements can
+be more generically available.
+
+Like for starters, either a TAP event on TLR entry
+or a settable parameter saying how many TCK cycles
+must be issued in TLR before issuing JTAG commands.
+
+What we have now is &quot;jtag_ntrst_delay milliseconds&quot;,
+without clocks going.  &quot;jtag_ntrst_clocks&quot; would
+address documented ICEpick and PXA255 constraints.
+
+And there are no doubt other similar small tweaks.
+
+Note the scaing problem with needing target-specific
+rewrites of ocd_process_reset:  it's impractical to
+combine two such targets on one board...
+
+
+&gt;<i> This avoids switching 
+</I>&gt;<i> programming paradigm from procedural to
+</I>&gt;<i> event based, i.e. we could add events until
+</I>&gt;<i> the cows go home and still miss that crucial
+</I>&gt;<i> event for the next target.
+</I>
+I'd call the current reset &quot;events&quot; procedural
+hooks, myself.  Heck, they don't even accept
+any parameters ... :)
+
+ 
+&gt;<i> I don't believe that it is possible to *ever*
+</I>&gt;<i> add a reset event that is flexible enough for
+</I>&gt;<i> all future targets.  I'm in favour of adapting OpenOCD
+</I>&gt;<i> as we go along rather than create a hugely complicated
+</I>&gt;<i> monster reset scheme that still won't catch the next
+</I>&gt;<i> jtag router from hell problems.
+</I>
+Routers weren't the only, or even the main, set
+of motivating examples...
+
+But you seem to agree that the reset process
+still has holes that need fixing (&quot;adapting&quot;);
+so that question is answered.
+
+
+&gt;<i> &gt;&#160;I'm thinking .. no:
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; &#160;- All those reset events go to debug targets ... but
+</I>&gt;<i> &gt; &#160; there's at least the ICEpick example, where a JRC
+</I>&gt;<i> &gt; &#160; needs 100+ TCK cycles after entering TLR, and it's
+</I>&gt;<i> &gt; &#160; easy to find others. &#160;Loading an FPGA, for one.
+</I>&gt;<i> &gt; &#160; Those aren't targets; so no events...
+</I>&gt;<i> 
+</I>&gt;<i> I'm not even sure that the reset concept even applies to
+</I>&gt;<i> an FPGA. For Altera Nios I'd first like to program the
+</I>&gt;<i> FPGA, then reset the CPU.
+</I>
+If I've got an FPGA *not* programmed with a Nios core,
+that model doesn't work.  :)
+
+That issue isn't entirely &quot;reset&quot;.  It's &quot;initialization&quot;,
+which is a separable chunk of reset processing.  For a
+Nios core you could have &quot;system reset&quot; requiring both
+&quot;FPGA init&quot; loading the core, and then &quot;core reset&quot;.
+But other FPGA bitstreams might not have a target.
+
+ 
+&gt;<i> &gt; &#160;- I was looking at DM355 documentation and it clearly
+</I>&gt;<i> &gt; &#160; distinguishes &quot;cold&quot; resets -- both TRST and SRST
+</I>&gt;<i> &gt; &#160; get cycled -- from &quot;warm&quot; ones -- SRST only. &#160;We
+</I>&gt;<i> &gt; &#160; don't seem to have a clean way to do &quot;warm&quot; today.
+</I>&gt;<i> 
+</I>&gt;<i> soft_reset_halt?
+</I>
+No, that's a different beast.  It applies to the current
+target and doesn't involve SRST.
+
+One reason to want a warm reset is that it leaves all
+the debug/jtag stuff alone.  Maybe you tweaked some
+settings so that some things become observable during
+the reset/reinit sequence.
+
+
+&gt;<i> [I've deleted those items where I had no useful input
+</I>&gt;<i> at this time]
+</I>&gt;<i> 
+</I>&gt;<i> &gt; And I suspect that if I looked around a bit, I'd find
+</I>&gt;<i> &gt; more such cases where the reset model isn't (yet!)
+</I>&gt;<i> &gt; advanced enough. &#160;Thoughts?
+</I>&gt;<i> 
+</I>&gt;<i> A target/board config file can reimplement the
+</I>&gt;<i> reset proc from scratch. How far does that get you?
+</I>
+As a &quot;user&quot;, way deeper into the undocumented innards
+of OpenOCD than I want to be.  ;)
+
+As a developer, it's hard to say without doing it.
+
+My initial reaction is that the reset processes are
+not yet factored well enough to support everything
+that I've happened across.  But experimenting with
+a few individual targets should help identify more
+of the holes.
+
+What I'd like to see is a kind of &quot;reset toolkit&quot;
+which would make that practical.  But it's not
+really there yet.  &quot;Reimplement ocd_process_reset&quot;
+is not a scalable approach.
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008700.html">[Openocd-development] Advanced Reset Process
+</A></li>
+	<LI>Next message: <A HREF="008865.html">[Openocd-development] Advanced Reset Process
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8863">[ date ]</a>
+              <a href="thread.html#8863">[ thread ]</a>
+              <a href="subject.html#8863">[ subject ]</a>
+              <a href="author.html#8863">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [beagleboard] Flyswatter with XM
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bbeagleboard%5D%20Flyswatter%20with%20XM&In-Reply-To=%3C1292207237.2779.294.camel%40constitution.bos.jonmasters.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017649.html">
+   <LINK REL="Next"  HREF="017614.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [beagleboard] Flyswatter with XM</H1>
+    <B>Jon Masters</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bbeagleboard%5D%20Flyswatter%20with%20XM&In-Reply-To=%3C1292207237.2779.294.camel%40constitution.bos.jonmasters.org%3E"
+       TITLE="[Openocd-development] [beagleboard] Flyswatter with XM">jonathan at jonmasters.org
+       </A><BR>
+    <I>Mon Dec 13 03:27:17 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017649.html">[Openocd-development] STM32, openocd and eCos
+</A></li>
+        <LI>Next message: <A HREF="017614.html">[Openocd-development] [beagleboard] Flyswatter with XM
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17613">[ date ]</a>
+              <a href="thread.html#17613">[ thread ]</a>
+              <a href="subject.html#17613">[ subject ]</a>
+              <a href="author.html#17613">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, 2010-11-24 at 23:59 -0500, Jon Masters wrote:
+
+&gt;<i> Has anyone managed to get the TinCanTools Flyswatter working with the
+</I>&gt;<i> XM? I did with the original Beagle, but upstream OCD does this with XM:
+</I>&gt;<i> 
+</I>&gt;<i> [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jcm at constitution</A> openocd]$ sudo /usr/local/bin/openocd
+</I>&gt;<i> -s /usr/local/lib/openocd
+</I>&gt;<i> -f /usr/local/share/openocd/scripts/interface/flyswatter.cfg
+</I>&gt;<i> -f /usr/local/share/openocd/scripts/board/ti_beagleboard_xm.cfg
+</I>
+The following is posted for the benefit of those using Google. It is a
+complete summary of this issue so I hope you find this mail first when
+you have the same problem and find my messages in the archives :)
+
+Antonio Borneo graciously provided me with an answer and I have finally
+had chance to followup with some testing! It works :) As Antonio notes,
+the problem is caused by some fixup logic that was added as part of some
+otherwise excellent patches from Marek Vasut. In the patch:
+
+commit 0649fb2f6c7e1bea138769ecc2ec8dc17ae98044
+Author: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marek.vasut at gmail.com</A>&gt;
+Date:   Sun Oct 31 05:24:36 2010 +0100
+
+    ADIv5: Introduce function to detect ROM Table location
+    
+    This patch adds function called &quot;dap_detect_debug_base()&quot;, which
+    should be called to get location of the ROM Table. By walking ROM
+    Table, it's possible to discover the location of DAP.
+    
+    Sadly, some CPUs misreport this value, therefore I had to introduce
+    an fixup table, which will be used in case such CPU is detected.
+    
+    Signed-off-by: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marek.vasut at gmail.com</A>&gt;
+
+Some logic is added to detect CPU cores that report an incorrect ARM DAP
+(Debug Access Port, exposed behind something called an ICEPick which
+sits on the JTAG chain and allows devices to come and go - I'm still
+figuring all of this out in the case of the Cortex parts). The problem
+is that the iMX51 actually *DOES* correctly report the location of its
+DAP and so does not need to be fixed up! As Antonio points out, the
+simple fix is to comment out the following loop in
+src/target/arm_adi_v5.c (reformatted for reading):
+
+#if 0   /* JCM - comment out this for the moment (for BeagleBoard-xM) */
+
+/* Some CPUs are messed up, so fixup if needed. */
+for (i = 0; i &lt; sizeof(broken_cpus)/sizeof(struct broken_cpu); i++)
+    if (broken_cpus[i].dbgbase == dbgbase &amp;&amp;
+        broken_cpus[i].apid == apid) {
+            LOG_WARNING(&quot;Found broken CPU (%s), trying to fixup &quot;
+                        &quot;ROM Table location from 0x%08x to 0x%08x&quot;,
+                        broken_cpus[i].model, dbgbase,
+                        broken_cpus[i].correct_dbgbase);
+            dbgbase = broken_cpus[i].correct_dbgbase;
+            break;
+    }
+#endif
+
+(don't forget to comment out the &quot;unsigned int i;&quot; to avoid the gcc
+error that will be generated with the default flags used by OpenOCD).
+
+This will prevent the DAP fixup logic from incorrectly being used. There
+is still no fix for this in OpenOCD master but I suspect some specific
+hack can be added to make that broken_cpus table more specific, or to
+have known-good models such as the one on BeagleBoard-xM be excluded.
+
+NOTE: It is important to physically reset the Flyswatter after you patch
+and re-install a working OpenOCD. Do not simply run it or you will see:
+
+[<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jcm at constitution</A> ~]$ sudo /usr/local/bin/openocd
+-s /usr/local/lib/openocd
+-f /usr/local/share/openocd/scripts/interface/flyswatter.cfg
+-f /usr/local/share/opocd/scripts/board/ti_beagleboard_xm.cfg
+Open On-Chip Debugger 0.5.0-dev-00651-gc6e0705-dirty (2010-12-12-19:44)
+Licensed under GNU GPL v2
+For bug reports, read
+	<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+Info : only one transport option; autoselect 'jtag'
+10 kHz
+Warn : dm37x.dsp: huge IR length 38
+trst_only separate trst_push_pull
+Info : clock speed 10 kHz
+Info : TAP dm37x.jrc does not have IDCODE
+Warn : JTAG tap: dm37x.jrc       UNEXPECTED: 0x00000000 (mfg: 0x000,
+part: 0x0000, ver: 0x0)
+Error: JTAG tap: dm37x.jrc  expected 1 of 1: 0x0b89102f (mfg: 0x017,
+part: 0xb891, ver: 0x0)
+Error: Trying to use configured scan chain anyway...
+Warn : Bypassing JTAG setup events due to errors
+
+Then the LED3 will also remain on and the Flyswatter won't work until
+you unplug and reset it. After doing that, with a modified OpenOCD
+otherwise based upon v0.4.0-651-gc6e0705 (today) with only the single
+loop commented out for a workaround, you should see:
+
+[<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jcm at constitution</A> ~]$ sudo /usr/local/bin/openocd
+-s /usr/local/lib/openocd
+-f /usr/local/share/openocd/scripts/interface/flyswatter.cfg
+-f /usr/local/share/opocd/scripts/board/ti_beagleboard_xm.cfg
+Open On-Chip Debugger 0.5.0-dev-00651-gc6e0705-dirty (2010-12-12-19:44)
+Licensed under GNU GPL v2
+For bug reports, read
+	<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+Info : only one transport option; autoselect 'jtag'
+10 kHz
+Warn : dm37x.dsp: huge IR length 38
+trst_only separate trst_push_pull
+Info : clock speed 10 kHz
+Info : JTAG tap: dm37x.jrc tap/device found: 0x0b89102f (mfg: 0x017,
+part: 0xb891, ver: 0x0)
+Info : JTAG tap: dm37x.dap enabled
+Info : dm37x.cpu: hardware has 6 breakpoints, 2 watchpoints
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x54011140
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x54011140
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x54011140
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x54011140
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x54011150
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x54011150
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x540111c0
+Error: JTAG-DP STICKY ERROR
+Error: MEM_AP_CSW 0x2800042, MEM_AP_TAR 0x540111c0
+
+I still have a few problems with it. For example, I have to do a &quot;reset
+halt&quot; immediately in order to be able to halt the CPU, but after doing
+that I am able to read from the registers. I would love to know of other
+people's experiences as to what does and doesn't work at the moment,
+especially current opinions on the debugability of a Linux kernel.
+
+Jon.
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017649.html">[Openocd-development] STM32, openocd and eCos
+</A></li>
+	<LI>Next message: <A HREF="017614.html">[Openocd-development] [beagleboard] Flyswatter with XM
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17613">[ date ]</a>
+              <a href="thread.html#17613">[ thread ]</a>
+              <a href="subject.html#17613">[ subject ]</a>
+              <a href="author.html#17613">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Flash Write Error in telnet. error	withft2232_write related MPSSE
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20Write%20Error%20in%20telnet.%20error%0A%09withft2232_write%20related%20MPSSE&In-Reply-To=%3CD9FA823BCAF9684F94CD715D466A63DF08320445%40webmail.psitek.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001287.html">
+   <LINK REL="Next"  HREF="001334.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Flash Write Error in telnet. error	withft2232_write related MPSSE</H1>
+    <B>Pieter Conradie</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20Write%20Error%20in%20telnet.%20error%0A%09withft2232_write%20related%20MPSSE&In-Reply-To=%3CD9FA823BCAF9684F94CD715D466A63DF08320445%40webmail.psitek.com%3E"
+       TITLE="[Openocd-development] Flash Write Error in telnet. error	withft2232_write related MPSSE">Pieter.Conradie at psitek.com
+       </A><BR>
+    <I>Mon Mar  3 08:26:54 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001287.html">[Openocd-development] Flash Write Error in telnet. error with	ft2232_write related MPSSE
+</A></li>
+        <LI>Next message: <A HREF="001334.html">[Openocd-development] Flash Write Error in telnet. error	withft2232_write related MPSSE
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1333">[ date ]</a>
+              <a href="thread.html#1333">[ thread ]</a>
+              <a href="subject.html#1333">[ subject ]</a>
+              <a href="author.html#1333">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Gururaja,
+
+Here are the scripts that worked for me. You will still have to tweak it for your specific board!
+
+There are a few points / workarounds that you should take note of:
+
+1. It seemed for me that the AT91SAM9260 pulls NTRST when SRST is activated. Thus I opted for the following option and used a &quot;soft_reset_halt&quot; in the reset script:
+
+reset_config srst_only srst_pulls_trst trst_push_pull srst_open_drain
+
+2. Your working area address looks suspect. I used the second internal SRAM bank (4k in size) using the following option:
+
+working_area 0 0x00300000 0x1000 backup
+
+3. I have Intel NOR Flash JS28F128P30T85 connected to Chip Select 0. This means the base address is 0x10000000. Therefore the option is:
+
+flash bank cfi 0x10000000 0x01000000 2 2 0
+
+Is your base address correct?
+
+4. My reset script initialises the external FLASH and a 32-bit SDRAM interface. It is provided for example only and may not be needed in your case.
+
+5. I explicitely disabled the &quot;user reset&quot; option with &quot; mww 0xfffffd08 0xa5000500&quot;. It looks like OpenOCD / Olimex ARM-USB-TINY combo toggles the SRST pin anyway when a reset command is issued, even though &quot;soft_reset_halt&quot; is used. This stuffs up the JTAG synchronisation and OpenOCD fails to recover.
+
+See if &quot;flash probe 0&quot; and flash info 0&quot; return legible results. Good luck!
+
+Best regards,
+Pieter Conradie
+
+-----Original Message-----
+From: Gururaja Hebbar K R [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">gururajakr at sanyo.co.in</A>] 
+Sent: 01 March 2008 01:07 PM
+To: Michael Schwingen; &#216;yvind Harboe
+Cc: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+Subject: [Openocd-development] Flash Write Error in telnet. error withft2232_write related MPSSE
+
+Hi,
+
+I am using latest openocd revision 404.-&gt; Open On-Chip Debugger 1.0 (2008-03-01-15:30) svn:404
+No patches applied.
+i am working on a customized version arm versatile arm926ej-s based board
+i am using Amontec JTAGKey tiny JTAG Adapter
+
+Here is the thing,
+
+The board Flash is completely erased. so the board is dead. 
+now i am trying to connect to the board at very low rate ( jtag_speed 1500 ). i have given few board initialize code through script file. tried to provide a small working area
+with this Boards connects and flash probe goes success. flash info also correct. now i try to use flash write_bank and i get a very new error never seen before. with this openocd server also exists
+
+ &gt; flash write_bank 0 u-boot.bin 0x0
+ FT_Write returned: 4
+ couldn't write MPSSE commands to FT2232
+ Connection closed by foreign host.
+
+openocd error before quitting
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+Info:    options.c:50 configuration_output_handler(): dcc downloads are enabled
+Info:    server.c:67 add_connection(): accepted 'telnet' connection from 0
+Error:   ft2232.c:177 ft2232_write(): FT_Write returned: 4
+Error:   ft2232.c:364 ft2232_send_and_recv(): couldn't write MPSSE commands to FT2232
+
+
+************************************************
+my openocd config
+
+telnet_port 4444
+gdb_port 3333
+
+interface ft2232
+ft2232_device_desc &quot;Amontec JTAGkey A&quot;
+ft2232_layout jtagkey
+ft2232_vid_pid 0x0403 0xcff8
+jtag_speed 1500
+
+reset_config trst_and_srst 
+
+jtag_device 4 0x1 0xf 0xe
+
+jtag_nsrst_delay 2000
+jtag_ntrst_delay 2000
+
+daemon_startup reset
+
+target arm926ejs little run_and_init 0 arm926ejs
+
+target_script 0 reset flash_setup.script
+
+run_and_halt_time 0 30
+
+working_area 0 0x0b00000 65536 nobackup
+
+flash bank cfi 0x2c000000 0x1000000 2 2 0
+
+*******************************************************************
+
+could someone shed some light on this.
+
+could this be an issue that sdram is not initialized. i am just guessing. 
+
+i am also now trying without working_area and its showing 
+&gt;<i> flash write_bank 0 u-boot.bin 0x0
+</I>not enough working area available(requested 96, free 0)
+Programming at 2c000000, count 0001a66c bytes remaining
+
+and this has taken more than 10 min
+
+Thanks in advance.
+
+Regards
+Gururaja
+
+Notice
+This email is intended for the addressee only and may contain legally privileged and/or confidential information.  If you have received this email in error and are not the intended recipient, you are hereby informed that you are not entitled to read, broadcast, distribute or in any manner whatsoever use the contents of this email or any attachments thereto.  You are requested to please notify Psitek that you have received the email and then delete it.  Unless clearly stated otherwise, the content and sentiments expressed in this email or any attachments thereto are those of the sender and not of Psitek (Proprietary) Limited.  Psitek does not accept liability for any damages, loss or expense of any nature whatsoever arising (a) out of or in connection with the email or any attachments thereto and/or (b) from any act or omission by the recipient relying upon the content of the email or attachments.  Psitek further disclaims liability for any damages caused by computer and/or software viruses.  Should this email contain the terms of a contract, no binding agreement will result until such time as a written (hardcopy) document is signed on behalf of Psitek.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: at91sam9260_armusbtiny.ocd
+Type: application/octet-stream
+Size: 1565 bytes
+Desc: at91sam9260_armusbtiny.ocd
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080303/75e33c0e/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080303/75e33c0e/attachment.obj</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: at91sam9260_reset_script.ocd
+Type: application/octet-stream
+Size: 2877 bytes
+Desc: at91sam9260_reset_script.ocd
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080303/75e33c0e/attachment-0001.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080303/75e33c0e/attachment-0001.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001287.html">[Openocd-development] Flash Write Error in telnet. error with	ft2232_write related MPSSE
+</A></li>
+	<LI>Next message: <A HREF="001334.html">[Openocd-development] Flash Write Error in telnet. error	withft2232_write related MPSSE
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1333">[ date ]</a>
+              <a href="thread.html#1333">[ thread ]</a>
+              <a href="subject.html#1333">[ subject ]</a>
+              <a href="author.html#1333">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

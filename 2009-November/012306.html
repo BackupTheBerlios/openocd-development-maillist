@@ -1,0 +1,435 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/4] Use nand_fileio_* in write/dump	commands.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/4%5D%20Use%20nand_fileio_%2A%20in%20write/dump%0A%09commands.&In-Reply-To=%3C1258147035-21734-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012303.html">
+   <LINK REL="Next"  HREF="012304.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/4] Use nand_fileio_* in write/dump	commands.</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/4%5D%20Use%20nand_fileio_%2A%20in%20write/dump%0A%09commands.&In-Reply-To=%3C1258147035-21734-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/4] Use nand_fileio_* in write/dump	commands.">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Nov 13 22:17:13 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012303.html">[Openocd-development] [PATCH 1/4] Add nand_fileio_* helper APIs.
+</A></li>
+        <LI>Next message: <A HREF="012304.html">[Openocd-development] [PATCH 3/4] Add FILEIO_NONE access mode.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12306">[ date ]</a>
+              <a href="thread.html#12306">[ thread ]</a>
+              <a href="subject.html#12306">[ subject ]</a>
+              <a href="author.html#12306">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch eliminates duplicated code in the the NAND 'dump' and 'write'
+by using the new static helper functions.
+
+These changes also fix a possible memory leak in nand dump command, in
+the case that the dump file failed to open.
+
+Overall, the changes should be functionally equivalent, but the
+resulting code will be easier to improve and extend further.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/nand.c |  294 +++++++++---------------------------------------------
+ 1 files changed, 46 insertions(+), 248 deletions(-)
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 5660a6d..d5ce822 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -1375,13 +1375,13 @@ static int nand_fileio_cleanup(struct nand_fileio_state *state)
+ 	}
+ 	return ERROR_OK;
+ }
+-int nand_fileio_finish(struct nand_fileio_state *state)
++static int nand_fileio_finish(struct nand_fileio_state *state)
+ {
+ 	nand_fileio_cleanup(state);
+ 	return duration_measure(&amp;state-&gt;bench);
+ }
+ 
+-COMMAND_HELPER(nand_fileio_parse_args, struct nand_fileio_state *state,
++static COMMAND_HELPER(nand_fileio_parse_args, struct nand_fileio_state *state,
+ 		struct nand_device **dev, enum fileio_access filemode,
+ 		bool need_size, bool sw_ecc)
+ {
+@@ -1449,7 +1449,7 @@ COMMAND_HELPER(nand_fileio_parse_args, struct nand_fileio_state *state,
+  * @returns If no error occurred, returns number of bytes consumed;
+  * otherwise, returns a negative error code.)
+  */
+-int nand_fileio_read(struct nand_device *nand,
++static int nand_fileio_read(struct nand_device *nand,
+ 		struct nand_fileio_state *s)
+ {
+ 	uint32_t total_read = 0;
+@@ -1503,284 +1503,82 @@ int nand_fileio_read(struct nand_device *nand,
+ 
+ COMMAND_HANDLER(handle_nand_write_command)
+ {
+-	uint32_t offset;
+-	uint32_t binary_size;
+-	uint32_t buf_cnt;
+-	enum oob_formats oob_format = NAND_OOB_NONE;
+-
+-	struct fileio fileio;
+-
+-
+-	if (argc &lt; 3)
+-	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+-	struct nand_device *p;
+-	int retval = nand_command_get_device_by_num(cmd_ctx, args[0], &amp;p);
++	struct nand_device *nand = NULL;
++	struct nand_fileio_state s;
++	int retval = nand_fileio_parse_args(cmd_ctx, args, argc,
++			&amp;s, &amp;nand, FILEIO_READ, false, true);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+-	uint8_t *page = NULL;
+-	uint32_t page_size = 0;
+-	uint8_t *oob = NULL;
+-	uint32_t oob_size = 0;
+-	const int *eccpos = NULL;
+-
+-	COMMAND_PARSE_NUMBER(u32, args[2], offset);
+-
+-	if (argc &gt; 3)
+-	{
+-		for (unsigned i = 3; i &lt; argc; i++)
+-		{
+-			if (!strcmp(args[i], &quot;oob_raw&quot;))
+-				oob_format |= NAND_OOB_RAW;
+-			else if (!strcmp(args[i], &quot;oob_only&quot;))
+-				oob_format |= NAND_OOB_RAW | NAND_OOB_ONLY;
+-			else if (!strcmp(args[i], &quot;oob_softecc&quot;))
+-				oob_format |= NAND_OOB_SW_ECC;
+-			else if (!strcmp(args[i], &quot;oob_softecc_kw&quot;))
+-				oob_format |= NAND_OOB_SW_ECC_KW;
+-			else
+-			{
+-				command_print(cmd_ctx, &quot;unknown option: %s&quot;, args[i]);
+-				return ERROR_COMMAND_SYNTAX_ERROR;
+-			}
+-		}
+-	}
+-
+-	struct duration bench;
+-	duration_start(&amp;bench);
+-
+-	if (fileio_open(&amp;fileio, args[1], FILEIO_READ, FILEIO_BINARY) != ERROR_OK)
+-	{
+-		return ERROR_OK;
+-	}
+-
+-	buf_cnt = binary_size = fileio.size;
+-
+-	if (!(oob_format &amp; NAND_OOB_ONLY))
+-	{
+-		page_size = p-&gt;page_size;
+-		page = malloc(p-&gt;page_size);
+-	}
+-
+-	if (oob_format &amp; (NAND_OOB_RAW | NAND_OOB_SW_ECC | NAND_OOB_SW_ECC_KW))
+-	{
+-		if (p-&gt;page_size == 512) {
+-			oob_size = 16;
+-			eccpos = nand_oob_16.eccpos;
+-		} else if (p-&gt;page_size == 2048) {
+-			oob_size = 64;
+-			eccpos = nand_oob_64.eccpos;
+-		}
+-		oob = malloc(oob_size);
+-	}
+-
+-	if (offset % p-&gt;page_size)
+-	{
+-		command_print(cmd_ctx, &quot;only page size aligned offsets and sizes are supported&quot;);
+-		fileio_close(&amp;fileio);
+-		free(oob);
+-		free(page);
+-		return ERROR_OK;
+-	}
+-
+-	while (buf_cnt &gt; 0)
++	uint32_t total_bytes = s.size;
++	while (s.size &gt; 0)
+ 	{
+-		uint32_t size_read;
+-
+-		if (NULL != page)
++		int bytes_read = nand_fileio_read(nand, &amp;s);
++		if (bytes_read &lt;= 0)
+ 		{
+-			fileio_read(&amp;fileio, page_size, page, &amp;size_read);
+-			buf_cnt -= size_read;
+-			if (size_read &lt; page_size)
+-			{
+-				memset(page + size_read, 0xff, page_size - size_read);
+-			}
++			command_print(cmd_ctx, &quot;error while reading file&quot;);
++			return nand_fileio_cleanup(&amp;s);
+ 		}
++		s.size -= bytes_read;
+ 
+-		if (oob_format &amp; NAND_OOB_SW_ECC)
+-		{
+-			uint32_t i, j;
+-			uint8_t ecc[3];
+-			memset(oob, 0xff, oob_size);
+-			for (i = 0, j = 0; i &lt; page_size; i += 256) {
+-				nand_calculate_ecc(p, page + i, ecc);
+-				oob[eccpos[j++]] = ecc[0];
+-				oob[eccpos[j++]] = ecc[1];
+-				oob[eccpos[j++]] = ecc[2];
+-			}
+-		} else if (oob_format &amp; NAND_OOB_SW_ECC_KW)
+-		{
+-			/*
+-			 * In this case eccpos is not used as
+-			 * the ECC data is always stored contigously
+-			 * at the end of the OOB area.  It consists
+-			 * of 10 bytes per 512-byte data block.
+-			 */
+-			uint32_t i;
+-			uint8_t *ecc = oob + oob_size - page_size/512 * 10;
+-			memset(oob, 0xff, oob_size);
+-			for (i = 0; i &lt; page_size; i += 512) {
+-				nand_calculate_ecc_kw(p, page + i, ecc);
+-				ecc += 10;
+-			}
+-		}
+-		else if (NULL != oob)
++		retval = nand_write_page(nand, s.address / nand-&gt;page_size,
++				s.page, s.page_size, s.oob, s.oob_size);
++		if (ERROR_OK != retval)
+ 		{
+-			fileio_read(&amp;fileio, oob_size, oob, &amp;size_read);
+-			buf_cnt -= size_read;
+-			if (size_read &lt; oob_size)
+-			{
+-				memset(oob + size_read, 0xff, oob_size - size_read);
+-			}
++			command_print(cmd_ctx, &quot;failed writing file %s &quot;
++				&quot;to NAND flash %s at offset 0x%8.8&quot; PRIx32,
++				args[1], args[0], s.address);
++			return nand_fileio_cleanup(&amp;s);
+ 		}
+-
+-		if (nand_write_page(p, offset / p-&gt;page_size, page, page_size, oob, oob_size) != ERROR_OK)
+-		{
+-			command_print(cmd_ctx, &quot;failed writing file %s to NAND flash %s at offset 0x%8.8&quot; PRIx32 &quot;&quot;,
+-				args[1], args[0], offset);
+-
+-			fileio_close(&amp;fileio);
+-			free(oob);
+-			free(page);
+-
+-			return ERROR_OK;
+-		}
+-		offset += page_size;
++		s.address += s.page_size;
+ 	}
+ 
+-	fileio_close(&amp;fileio);
+-	free(oob);
+-	free(page);
+-	oob = NULL;
+-	page = NULL;
+-	if (duration_measure(&amp;bench) == ERROR_OK)
++	if (nand_fileio_finish(&amp;s))
+ 	{
+-		command_print(cmd_ctx, &quot;wrote file %s to NAND flash %s &quot;
+-			&quot;up to offset 0x%8.8&quot; PRIx32 &quot; in %fs (%0.3f kb/s)&quot;,
+-			args[1], args[0], offset, duration_elapsed(&amp;bench),
+-			duration_kbps(&amp;bench, fileio.size));
++		command_print(cmd_ctx, &quot;wrote file %s to NAND flash %s up to &quot;
++				&quot;offset 0x%8.8&quot; PRIx32 &quot; in %fs (%0.3f kb/s)&quot;,
++				args[1], args[0], s.address, duration_elapsed(&amp;s.bench),
++				duration_kbps(&amp;s.bench, total_bytes));
+ 	}
+-
+ 	return ERROR_OK;
+ }
+ 
+ COMMAND_HANDLER(handle_nand_dump_command)
+ {
+-	if (argc &lt; 4)
+-	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+-	struct nand_device *p;
+-	int retval = nand_command_get_device_by_num(cmd_ctx, args[0], &amp;p);
++	struct nand_device *nand = NULL;
++	struct nand_fileio_state s;
++	int retval = nand_fileio_parse_args(cmd_ctx, args, argc,
++			&amp;s, &amp;nand, FILEIO_WRITE, true, false);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+-	if (NULL == p-&gt;device)
+-	{
+-		command_print(cmd_ctx, &quot;#%s: not probed&quot;, args[0]);
+-		return ERROR_OK;
+-	}
+-
+-	struct fileio fileio;
+-
+-	uint8_t *page = NULL;
+-	uint32_t page_size = 0;
+-	uint8_t *oob = NULL;
+-	uint32_t oob_size = 0;
+-	uint32_t address;
+-	COMMAND_PARSE_NUMBER(u32, args[2], address);
+-	uint32_t size;
+-	COMMAND_PARSE_NUMBER(u32, args[3], size);
+-	uint32_t bytes_done = 0;
+-	enum oob_formats oob_format = NAND_OOB_NONE;
+-
+-	if (argc &gt; 4)
+-	{
+-		for (unsigned i = 4; i &lt; argc; i++)
+-		{
+-			if (!strcmp(args[i], &quot;oob_raw&quot;))
+-				oob_format |= NAND_OOB_RAW;
+-			else if (!strcmp(args[i], &quot;oob_only&quot;))
+-				oob_format |= NAND_OOB_RAW | NAND_OOB_ONLY;
+-			else
+-				command_print(cmd_ctx, &quot;unknown option: '%s'&quot;, args[i]);
+-		}
+-	}
+-
+-	if ((address % p-&gt;page_size) || (size % p-&gt;page_size))
+-	{
+-		command_print(cmd_ctx, &quot;only page size aligned addresses and sizes are supported&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	if (!(oob_format &amp; NAND_OOB_ONLY))
+-	{
+-		page_size = p-&gt;page_size;
+-		page = malloc(p-&gt;page_size);
+-	}
+-
+-	if (oob_format &amp; NAND_OOB_RAW)
+-	{
+-		if (p-&gt;page_size == 512)
+-			oob_size = 16;
+-		else if (p-&gt;page_size == 2048)
+-			oob_size = 64;
+-		oob = malloc(oob_size);
+-	}
+-
+-	if (fileio_open(&amp;fileio, args[1], FILEIO_WRITE, FILEIO_BINARY) != ERROR_OK)
+-	{
+-		return ERROR_OK;
+-	}
+-
+-	struct duration bench;
+-	duration_start(&amp;bench);
+-
+-	while (size &gt; 0)
++	while (s.size &gt; 0)
+ 	{
+ 		uint32_t size_written;
+-		if ((retval = nand_read_page(p, address / p-&gt;page_size, page, page_size, oob, oob_size)) != ERROR_OK)
++		int retval = nand_read_page(nand, s.address / nand-&gt;page_size,
++				s.page, s.page_size, s.oob, s.oob_size);
++		if (ERROR_OK != retval)
+ 		{
+ 			command_print(cmd_ctx, &quot;reading NAND flash page failed&quot;);
+-			free(page);
+-			free(oob);
+-			fileio_close(&amp;fileio);
+-			return ERROR_OK;
++			return nand_fileio_cleanup(&amp;s);
+ 		}
+ 
+-		if (NULL != page)
+-		{
+-			fileio_write(&amp;fileio, page_size, page, &amp;size_written);
+-			bytes_done += page_size;
+-		}
++		if (NULL != s.page)
++			fileio_write(&amp;s.fileio, s.page_size, s.page, &amp;size_written);
+ 
+-		if (NULL != oob)
+-		{
+-			fileio_write(&amp;fileio, oob_size, oob, &amp;size_written);
+-			bytes_done += oob_size;
+-		}
++		if (NULL != s.oob)
++			fileio_write(&amp;s.fileio, s.oob_size, s.oob, &amp;size_written);
+ 
+-		size -= p-&gt;page_size;
+-		address += p-&gt;page_size;
++		s.size -= nand-&gt;page_size;
++		s.address += nand-&gt;page_size;
+ 	}
+ 
+-	free(page);
+-	page = NULL;
+-	free(oob);
+-	oob = NULL;
+-	fileio_close(&amp;fileio);
+-
+-	if (duration_measure(&amp;bench) == ERROR_OK)
++	if (nand_fileio_finish(&amp;s) == ERROR_OK)
+ 	{
+-		command_print(cmd_ctx, &quot;dumped %lld byte in %fs (%0.3f kb/s)&quot;,
+-			fileio.size, duration_elapsed(&amp;bench),
+-			duration_kbps(&amp;bench, fileio.size));
++		command_print(cmd_ctx, &quot;dumped %lld byte in %fs (%0.3f kb/s)&quot;, 
++				s.fileio.size, duration_elapsed(&amp;s.bench),
++				duration_kbps(&amp;s.bench, s.fileio.size));
+ 	}
+-
+ 	return ERROR_OK;
+ }
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012303.html">[Openocd-development] [PATCH 1/4] Add nand_fileio_* helper APIs.
+</A></li>
+	<LI>Next message: <A HREF="012304.html">[Openocd-development] [PATCH 3/4] Add FILEIO_NONE access mode.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12306">[ date ]</a>
+              <a href="thread.html#12306">[ thread ]</a>
+              <a href="subject.html#12306">[ subject ]</a>
+              <a href="author.html#12306">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

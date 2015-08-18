@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/4] - add dsp563xx support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20-%20add%20dsp563xx%20support&In-Reply-To=%3C200912051215.17873.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013384.html">
+   <LINK REL="Next"  HREF="013388.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/4] - add dsp563xx support</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20-%20add%20dsp563xx%20support&In-Reply-To=%3C200912051215.17873.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/4] - add dsp563xx support">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec  5 21:15:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013384.html">[Openocd-development] [PATCH 4/4] - add dsp563xx support
+</A></li>
+        <LI>Next message: <A HREF="013388.html">[Openocd-development] [PATCH 1/4] improve command_done() API	and docs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13387">[ date ]</a>
+              <a href="thread.html#13387">[ thread ]</a>
+              <a href="subject.html#13387">[ subject ]</a>
+              <a href="author.html#13387">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>How similar are the OnCE implementations for various FreeScale chips?
+
+I get the impression that the answer is &quot;not very&quot;.  But if that's not
+true, then I wonder how much OnCE stuff could be shared between drivers
+for different chips.  Once a few more OnCE-equipped chips merge into
+the tree, that could matter ... assuming it happens!
+
+Also, how does this stack up feature-wise to the FreeScale code?
+We've recently found that FreeScale is shipping a modified version
+of OpenOCD ... which would be good, if they weren't violating the
+GPL to do so (booo!) by refusing to distribute their modifications.
+
+
+On Saturday 05 December 2009, Mathias K. wrote:
+&gt;<i> +int dsp563xx_read_memory_p(struct target *target, uint32_t address, uint32_t size, uint32_t count,
+</I>&gt;<i> uint8_t *buffer);
+</I>&gt;<i> +int dsp563xx_write_memory_p(struct target *target, uint32_t address, uint32_t size, uint32_t count,
+</I>&gt;<i> uint8_t *buffer);
+</I>&gt;<i> +
+</I>
+Please resubmit this one with lines sanely wrapped (before
+column 80) in the original patch ... and thus, not in
+your email!  :)
+
+And for that matter, you shouldn't need most of these
+forward declarations; just move the target_type struct
+to the end of the file.
+
+Plus, don't export those functions needlessly ... those
+should evidently be static, or they should have been
+in one of the headers.
+
+
+&gt;<i> +struct dsp563xx_core_reg
+</I>&gt;<i> dsp563xx_core_reg_list_arch_info[DSP563XX_NUMCOREREGS] =
+</I>
+Wouldn't it be more robust to use an unsized array here, and
+then use ARRAY_SIZE(dsp563xx_core_reg_list_arch_info) later?
+And this should be &quot;static const&quot; ... no need to export the
+table elsewhere, or make it writable.
+
+
+&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;{0, 24, ASM_REG_R_R0, NULL, NULL},
+</I>
+And rather than have parallel arrays for the register names
+and this initializer stuff ... it *would* be better to have
+a single array of register template data, ensuring the two
+arrays can't get out of sync.  And not having those NULL
+pointers would save space.
+
+
+&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;/* get pointers to arch-specific information */
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;struct dsp563xx_common *dsp563xx = target-&gt;arch_info;
+</I>
+Please wrap this in a target_to_dsp563xx() macro ... and
+I'd like to see the &quot;_common&quot; suffix die too.
+
+
+&gt;<i> +/*
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.get_gdb_reg_list = dsp563xx_get_gdb_reg_list,
+</I>
+What's the story on GCC and GDB support for these processors?
+
+I'm suspecting that if there is no GDB support, we may be missing
+a clean way to prevent opening a GDB connection for this CPU...
+
+
+&gt;<i> +
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.write_memory = dsp563xx_write_memory,
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.bulk_write_memory = dsp563xx_bulk_write_memory,
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.checksum_memory = dsp563xx_checksum_memory,
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.blank_check_memory = dsp563xx_blank_check_memory,
+</I>&gt;<i> +
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.run_algorithm = dsp563xx_run_algorithm,
+</I>&gt;<i> +
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.add_breakpoint = dsp563xx_add_breakpoint,
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.remove_breakpoint = dsp563xx_remove_breakpoint,
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.add_watchpoint = dsp563xx_add_watchpoint,
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;.remove_watchpoint = dsp563xx_remove_watchpoint,
+</I>&gt;<i> +*/
+</I>
+Don't add commented-out code like that.  
+
+
+... that's all the patch-review time I have just now.  Glad
+to see support for another processor!  Even though, as with
+almost all initial patches, it still needs some work.  ;)
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013384.html">[Openocd-development] [PATCH 4/4] - add dsp563xx support
+</A></li>
+	<LI>Next message: <A HREF="013388.html">[Openocd-development] [PATCH 1/4] improve command_done() API	and docs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13387">[ date ]</a>
+              <a href="thread.html#13387">[ thread ]</a>
+              <a href="subject.html#13387">[ subject ]</a>
+              <a href="author.html#13387">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

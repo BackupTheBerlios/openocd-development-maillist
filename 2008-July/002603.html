@@ -1,0 +1,281 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] remove active_cmd_ctx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20remove%20active_cmd_ctx&In-Reply-To=%3C200807171609.m6HG9VSY007096%40hades%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002642.html">
+   <LINK REL="Next"  HREF="002604.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] remove active_cmd_ctx</H1>
+    <B>Charles Hardin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20remove%20active_cmd_ctx&In-Reply-To=%3C200807171609.m6HG9VSY007096%40hades%3E"
+       TITLE="[Openocd-development] [PATCH] remove active_cmd_ctx">ckhardin at gmail.com
+       </A><BR>
+    <I>Thu Jul 17 18:09:31 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002642.html">[Openocd-development] Retire reset_mode option to target
+</A></li>
+        <LI>Next message: <A HREF="002604.html">[Openocd-development] [PATCH] remove active_cmd_ctx v2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2603">[ date ]</a>
+              <a href="thread.html#2603">[ thread ]</a>
+              <a href="subject.html#2603">[ subject ]</a>
+              <a href="author.html#2603">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Instead of stashing the context in a global variable, just use the &quot;context&quot;
+associated with the interp structure being passed around
+
+Index: src/helper/command.c
+===================================================================
+--- src/helper/command.c	(revision 820)
++++ src/helper/command.c	(working copy)
+@@ -41,7 +41,6 @@
+ #include &lt;openocd_tcl.h&gt;
+ 
+ int fast_and_dangerous = 0;
+-extern command_context_t *active_cmd_ctx;
+ 
+ int handle_sleep_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_fast_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -396,7 +395,6 @@
+ 	if (retcode != JIM_OK)
+ 		return ERROR_FAIL;
+ 
+-	active_cmd_ctx = context;
+ 	retcode = Jim_Eval(interp, line);	
+ 	if (retcode == JIM_ERR) {
+ 		if (retval!=ERROR_COMMAND_CLOSE_CONNECTION)
+Index: src/openocd.c
+===================================================================
+--- src/openocd.c	(revision 820)
++++ src/openocd.c	(working copy)
+@@ -155,7 +155,6 @@
+ }
+ 
+ Jim_Interp *interp;
+-command_context_t *active_cmd_ctx;
+ 
+ static int new_int_array_element(Jim_Interp * interp, const char *varname, int idx, u32 val)
+ {
+@@ -188,6 +187,7 @@
+ static int Jim_Command_mem2array(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	target_t *target;
++	command_context_t *context;
+ 	long l;
+ 	u32 width;
+ 	u32 len;
+@@ -270,7 +270,18 @@
+ 		return JIM_ERR;
+ 	}
+ 
+-	target = get_current_target(active_cmd_ctx);
++	context = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (context == NULL)
++	{
++		LOG_ERROR(&quot;mem2array: no command context&quot;);
++		return JIM_ERR;
++	}
++	target = get_current_target(context);
++	if (target == NULL)
++	{
++		LOG_ERROR(&quot;mem2array: no current target&quot;);
++		return JIM_ERR;
++	}
+ 	
+ 	/* Transfer loop */
+ 
+@@ -353,6 +364,7 @@
+ static int Jim_Command_array2mem(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	target_t *target;
++	command_context_t *context;
+ 	long l;
+ 	u32 width;
+ 	u32 len;
+@@ -435,7 +447,18 @@
+ 		return JIM_ERR;
+ 	}
+ 
+-	target = get_current_target(active_cmd_ctx);
++	context = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (context == NULL)
++	{
++		LOG_ERROR(&quot;mem2array: no command context&quot;);
++		return JIM_ERR;
++	}
++	target = get_current_target(context);
++	if (target == NULL)
++	{
++		LOG_ERROR(&quot;mem2array: no current target&quot;);
++		return JIM_ERR;
++	}
+ 	
+ 	/* Transfer loop */
+ 
+@@ -506,7 +529,7 @@
+ {
+ 	if (argc != 2)
+ 		return JIM_ERR;
+-	char *str = (char*)Jim_GetString(argv[1], NULL);
++	const char *str = Jim_GetString(argv[1], NULL);
+ 	LOG_USER(&quot;%s&quot;, str);
+ 	return JIM_OK;
+ }
+@@ -517,24 +540,30 @@
+ {
+ 	size_t nbytes;
+ 	const char *ptr;
++	Jim_Interp *interp;
++	command_context_t *context;
+ 
+ 	/* make it a char easier to read code */
+ 	ptr = _ptr;
+-
++	interp = cookie;
+ 	nbytes = size * n;
+-	if (nbytes == 0) {
++	if (ptr == NULL || interp == NULL || nbytes == 0) {
+ 		return 0;
+ 	}
+ 
+-	if (!active_cmd_ctx) {
++	context = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (context == NULL)
++	{
++		LOG_ERROR(&quot;openocd_jim_fwrite: no command context&quot;);
+ 		/* TODO: Where should this go? */		
+ 		return n;
+ 	}
+ 
+ 	/* do we have to chunk it? */
+-	if (ptr[nbytes] == 0) {
++	if (ptr[nbytes] == 0)
++	{
+ 		/* no it is a C style string */
+-		command_output_text(active_cmd_ctx, ptr);
++		command_output_text(context, ptr);
+ 		return strlen(ptr);
+ 	}
+ 	/* GRR we must chunk - not null terminated */
+@@ -551,7 +580,7 @@
+ 		/* terminate it */
+ 		chunk[n] = 0;
+ 		/* output it */
+-		command_output_text(active_cmd_ctx, chunk);
++		command_output_text(context, chunk);
+ 		ptr += x;
+ 		nbytes -= x;
+ 	}
+@@ -559,7 +588,7 @@
+ 	return n;
+ }
+ 
+-static size_t openocd_jim_fread(void *ptr, size_t size, size_t n, void *cookie )
++static size_t openocd_jim_fread(void *ptr, size_t size, size_t n, void *cookie)
+ {
+ 	/* TCL wants to read... tell him no */
+ 	return 0;
+@@ -569,16 +598,28 @@
+ {
+ 	char *cp;
+ 	int n;
+-	
++	Jim_Interp *interp;
++	command_context_t *context;
++
+ 	n = -1;
+-	if (active_cmd_ctx) {
+-		cp = alloc_vprintf(fmt, ap);
+-		if (cp) {
+-			command_output_text(active_cmd_ctx, cp);
+-			n = strlen(cp);
+-			free(cp);
+-		}
++	interp = cookie;
++	if (interp == NULL)
++		return n;
++
++	context = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (context == NULL)
++	{
++		LOG_ERROR(&quot;openocd_jim_vfprintf: no command context&quot;);
++		return n;
+ 	}
++
++	cp = alloc_vprintf(fmt, ap);
++	if (cp)
++	{
++		command_output_text(context, cp);
++		n = strlen(cp);
++		free(cp);
++	}
+ 	return n;
+ }
+ 
+@@ -618,16 +659,16 @@
+ extern unsigned const char startup_tcl[];
+ 
+ void initJim(void)
+-{	
++{
+ 	Jim_CreateCommand(interp, &quot;openocd_find&quot;, Jim_Command_find, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;echo&quot;, Jim_Command_echo, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;mem2array&quot;, Jim_Command_mem2array, NULL, NULL );
+ 	Jim_CreateCommand(interp, &quot;array2mem&quot;, Jim_Command_array2mem, NULL, NULL );
+ 
+ 	/* Set Jim's STDIO */
+-	interp-&gt;cookie_stdin = NULL;
+-	interp-&gt;cookie_stdout = NULL;
+-	interp-&gt;cookie_stderr = NULL;
++	interp-&gt;cookie_stdin = interp;
++	interp-&gt;cookie_stdout = interp;
++	interp-&gt;cookie_stderr = interp;
+ 	interp-&gt;cb_fwrite = openocd_jim_fwrite;
+ 	interp-&gt;cb_fread = openocd_jim_fread ;
+ 	interp-&gt;cb_vfprintf = openocd_jim_vfprintf;
+@@ -676,7 +717,6 @@
+ 
+ 	LOG_OUTPUT( OPENOCD_VERSION &quot;\n&quot; );
+ 	
+-	
+ 	register_command(cmd_ctx, NULL, &quot;init&quot;, handle_init_command,
+ 					 COMMAND_ANY, &quot;initializes target and servers - nop on subsequent invocations&quot;);
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002642.html">[Openocd-development] Retire reset_mode option to target
+</A></li>
+	<LI>Next message: <A HREF="002604.html">[Openocd-development] [PATCH] remove active_cmd_ctx v2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2603">[ date ]</a>
+              <a href="thread.html#2603">[ thread ]</a>
+              <a href="subject.html#2603">[ subject ]</a>
+              <a href="author.html#2603">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

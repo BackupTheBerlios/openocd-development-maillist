@@ -1,0 +1,246 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Analog Device AduC70xx support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Analog%20Device%20AduC70xx%20support&In-Reply-To=%3C1246890986.11968.12.camel%40w2vy.corp.facts-eng.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009264.html">
+   <LINK REL="Next"  HREF="009174.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Analog Device AduC70xx support</H1>
+    <B>Thomas A. Moulton</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Analog%20Device%20AduC70xx%20support&In-Reply-To=%3C1246890986.11968.12.camel%40w2vy.corp.facts-eng.com%3E"
+       TITLE="[Openocd-development] Analog Device AduC70xx support">tom at moulton.us
+       </A><BR>
+    <I>Mon Jul  6 16:36:26 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009264.html">[Openocd-development] arm926ejs &amp; i.MX27 testers out there
+</A></li>
+        <LI>Next message: <A HREF="009174.html">[Openocd-development] Analog Device AduC70xx support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9167">[ date ]</a>
+              <a href="thread.html#9167">[ thread ]</a>
+              <a href="subject.html#9167">[ subject ]</a>
+              <a href="author.html#9167">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>When I try to burn flash on a ADuC7021 using the ADuC702x.cfg I get a a
+crash. (traceback attached)
+
+in aduc7021.cfg if I comment out the following line it works
+
+$_TARGETNAME configure -work-area-phys 0x10000 -work-area-size 0x2000
+
+ it just takes a LONG time - of course)
+
+The lines below the HALT can be commented out with no effect.
+I included them here because they were active during this traceback
+---
+
+Main command file
+
+telnet_port 4444
+tcl_port 6666
+gdb_port 3333
+
+source [find interface/olimex-jtag-tiny.cfg]
+source [find target/aduc702x.cfg]
+
+init
+halt
+
+# Write to MEMMAP to enable access to flash below first 64 bytes
+mwh 0xfffff804 0x8
+
+#setup POWCON register to obtain the default 5.22MHz (RC osc) clock.
+#  POWKEY1 = 0x01;
+mwh 0xffff0404 0x01
+#  POWCON = 0x0;
+mwh 0xffff0408 0x0
+#  POWKEY2 = 0xF4;
+mwh 0xffff040c 0xf4
+-------------------
+
+I then erase flash and issue:
+
+flash write_image file.elf 0x80000 elf
+
+
+tom
+
+-------------- next part --------------
+(gdb) continue
+Continuing.
+
+Program received signal SIGSEGV, Segmentation fault.
+
+target_buffer_get_u32 (target=0x9465a20, buffer=0x948b000 &lt;Address 0x948b000 out of bounds&gt;)
+    at ../../src/helper/types.h:80
+80		return (uint32_t)(buf[0] | buf[1] &lt;&lt; 8 | buf[2] &lt;&lt; 16 | buf[3] &lt;&lt; 24);
+(gdb) where
+#0  target_buffer_get_u32 (target=0x9465a20, 
+    buffer=0x948b000 &lt;Address 0x948b000 out of bounds&gt;) at ../../src/helper/types.h:80
+#1  0x0806f642 in arm7_9_write_memory (target=0x9465a20, address=65600, size=4, count=1750, 
+    buffer=0x948b004 &lt;Address 0x948b004 out of bounds&gt;) at arm7_9_common.c:2458
+#2  0x0806e935 in arm7_9_bulk_write_memory (target=0x9465a20, address=65600, count=1750, 
+    buffer=0x948ad30 &quot;&quot;) at arm7_9_common.c:2664
+#3  0x08061c8d in target_write_buffer (target=0x9465a20, address=65600, size=7000, 
+    buffer=0x948ad30 &quot;&quot;) at target.c:1167
+#4  0x080b7261 in aduc702x_write (bank=0x946ad40, buffer=0x948ad30 &quot;&quot;, offset=0, count=7176)
+    at aduc702x.c:284
+#5  0x0805e80b in flash_driver_write (bank=0x946ad40, buffer=0x0, offset=0, count=38676)
+    at flash.c:94
+#6  0x0805f2c0 in flash_write (target=0x9465a20, image=0xbfa4da24, written=0xbfa4da58, erase=0)
+    at flash.c:1138
+#7  0x0805fead in handle_flash_write_image_command (cmd_ctx=0x94657e8, 
+    cmd=0x9477ee8 &quot;write_image&quot;, args=0x94595bc, argc=3) at flash.c:699
+#8  0x0809c3cc in run_command (context=0x94657e8, c=0x9477ef8, words=0x94595b8, num_words=4)
+    at command.c:415
+#9  0x0809c672 in script_command (interp=0x9449020, argc=4, argv=0xbfa4db40) at command.c:142
+#10 0x080e7a62 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x947aa48) at jim.c:8708
+#11 0x080ed5c7 in Jim_EvalCoreCommand (interp=0x9449020, argc=3, argv=0xbfa4dc00)
+    at jim.c:10846
+#12 0x080e7a62 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x9459160) at jim.c:8708
+#13 0x080ebf6f in Jim_CatchCoreCommand (interp=0x9449020, argc=2, argv=0xbfa4dcc0)
+    at jim.c:11413
+#14 0x080e7a62 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x94599f8) at jim.c:8708
+#15 0x080e9123 in Jim_EvalExpression (interp=0x9449020, exprObjPtr=0x9459a70, 
+    exprResultPtrPtr=0xbfa4de1c) at jim.c:6927
+#16 0x080e9ea1 in Jim_GetBoolFromExpr (interp=0x9449020, exprObjPtr=0x9459a70, 
+    boolPtr=0xbfa4de58) at jim.c:7210
+#17 0x080eed14 in Jim_IfCoreCommand (interp=0x9449020, argc=5, argv=0xbfa4dec0) at jim.c:10297
+#18 0x080e7a62 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x9479630) at jim.c:8708
+#19 0x080e812b in JimCallProcedure (interp=0x9449020, cmd=0x94797e0, argc=3, argv=0xbfa4dfb0)
+    at jim.c:8857
+#20 0x080e7e06 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x9459990) at jim.c:8714
+#21 0x080e7a62 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x94695f8) at jim.c:8708
+#22 0x080e7b22 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x9468ba0) at jim.c:8654
+#23 0x080eee1d in Jim_IfCoreCommand (interp=0x9449020, argc=3, argv=0xbfa4e1a0) at jim.c:10319
+#24 0x080e7a62 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x9468150) at jim.c:8708
+#25 0x080eee1d in Jim_IfCoreCommand (interp=0x9449020, argc=3, argv=0xbfa4e270) at jim.c:10319
+#26 0x080e7a62 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x944fbc0) at jim.c:8708
+#27 0x080e812b in JimCallProcedure (interp=0x9449020, cmd=0x9455160, argc=5, argv=0xbfa4e35c)
+    at jim.c:8857
+#28 0x080e83e0 in Jim_EvalObjVector (interp=0x9449020, objc=6, objv=0xbfa4e35c) at jim.c:8424
+#29 0x080e84d8 in JimUnknown (interp=0x9449020, argc=5, argv=0xbfa4e3e0) at jim.c:8383
+#30 0x080e7e67 in Jim_EvalObj (interp=0x9449020, scriptObjPtr=0x9457cd0) at jim.c:8723
+#31 0x080e8c02 in Jim_Eval_Named (interp=0x9449020, 
+    script=0x9459218 &quot;flash write_image file.elf 0x80000 elf&quot;, 
+    filename=0x810648e &quot;command.c&quot;, lineno=469) at jim.c:8901
+#32 0x0809c2e2 in command_run_line (context=0x94657e8, 
+    line=0x9459218 &quot;flash write_image file.elf 0x80000 elf&quot;) at command.c:469
+#33 0x080987cd in telnet_input (connection=0x9463be8) at telnet_server.c:330
+#34 0x08099d20 in server_loop (command_context=0x9449008) at server.c:433
+#35 0x0804a57c in openocd_main (argc=3, argv=0xbfa4eb94) at openocd.c:283
+#36 0x0804a2d2 in main (argc=Cannot access memory at address 0x948b000
+) at main.c:39
+(gdb) 
+
+-------------- next part --------------
+#
+# Olimex ARM-USB-TINY
+#
+# <A HREF="http://www.olimex.com/dev/arm-usb-tiny.html">http://www.olimex.com/dev/arm-usb-tiny.html</A>
+#
+
+interface ft2232
+ft2232_device_desc &quot;Olimex OpenOCD JTAG TINY A&quot;
+ft2232_layout olimex-jtag
+ft2232_vid_pid 0x15ba 0x0004
+
+-------------- next part --------------
+## -*- tcl -*-
+##
+
+
+if { [info exists CHIPNAME] } {	
+   set  _CHIPNAME $CHIPNAME    
+} else {	 
+   set  _CHIPNAME ADuC702x
+}
+
+if { [info exists ENDIAN] } {	
+   set  _ENDIAN $ENDIAN    
+} else {	 
+  # This config file was defaulting to big endian..
+   set  _ENDIAN little
+}
+
+if { [info exists CPUTAPID] } {	
+   set  _CPUTAPID $CPUTAPID    
+} else {	 
+   set  _CPUTAPID 0x3f0f0f0f
+}
+
+
+jtag_nsrst_delay 200
+jtag_ntrst_delay 200
+
+# This is for the case that TRST/SRST is not wired on your JTAG adaptor.
+# Don't really need them anyways.  
+reset_config none
+
+## JTAG scan chain
+#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
+
+##
+## Target configuration
+##
+set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position $_TARGETNAME
+
+# allocate the entire SRAM as working area
+$_TARGETNAME configure -work-area-phys 0x10000 -work-area-size 0x2000
+
+## flash configuration
+# only target number is needed
+flash bank aduc702x 0 0 0 0 0
+
+## If you use the watchdog, the following code makes sure that the board
+## doesn't reboot when halted via JTAG.  Yes, on the older generation
+## AdUC702x, timer3 continues running even when the CPU is halted.
+
+proc watchdog_service {} {
+   global watchdog_hdl
+    mww 0xffff036c 0
+    puts &quot;watchdog!!&quot;
+    set watchdog_hdl [after 500 watchdog_service]
+}
+
+$_TARGETNAME configure -event reset-halt-post {  watchdog_service }
+$_TARGETNAME configure -event old-pre_resume { global watchdog_hdl; after cancel $watchdog_hdl }
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009264.html">[Openocd-development] arm926ejs &amp; i.MX27 testers out there
+</A></li>
+	<LI>Next message: <A HREF="009174.html">[Openocd-development] Analog Device AduC70xx support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9167">[ date ]</a>
+              <a href="thread.html#9167">[ thread ]</a>
+              <a href="subject.html#9167">[ subject ]</a>
+              <a href="author.html#9167">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] make single-stepping more resilient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20make%20single-stepping%20more%20resilient&In-Reply-To=%3Calpine.LFD.1.00.0802210044270.2732%40xanadu.home%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001002.html">
+   <LINK REL="Next"  HREF="001000.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] make single-stepping more resilient</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20make%20single-stepping%20more%20resilient&In-Reply-To=%3Calpine.LFD.1.00.0802210044270.2732%40xanadu.home%3E"
+       TITLE="[Openocd-development] [PATCH] make single-stepping more resilient">nico at cam.org
+       </A><BR>
+    <I>Thu Feb 21 06:53:46 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001002.html">[Openocd-development] [PATCH] Marvell Feroceon support
+</A></li>
+        <LI>Next message: <A HREF="001000.html">[Openocd-development] [PATCH] make single-stepping more	resilient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#997">[ date ]</a>
+              <a href="thread.html#997">[ thread ]</a>
+              <a href="subject.html#997">[ subject ]</a>
+              <a href="author.html#997">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>If arm7_9_execute_sys_speed() times out, that probably means single-step 
+never returned to debug mode.  Unconditionally calling 
+arm7_9_debug_entry() in that case produces really interesting but 
+completely foobar results as well as making OpenOCD really confused.  
+The attached patch fixes this.
+
+
+Nicolas
+-------------- next part --------------
+Index: src/target/arm7_9_common.c
+===================================================================
+--- src/target/arm7_9_common.c	(revision 314)
++++ src/target/arm7_9_common.c	(working copy)
+@@ -1464,6 +1464,7 @@
+ 	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
+ 	breakpoint_t *breakpoint = target-&gt;breakpoints;
+ 	reg_t *dbg_ctrl = &amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_DBG_CTRL];
++	int err;
+ 	
+ 	DEBUG(&quot;-&quot;);
+ 	
+@@ -1511,14 +1512,21 @@
+ 				
+ 			buf_set_u32(dbg_ctrl-&gt;value, EICE_DBG_CONTROL_DBGACK, 1, 0);
+ 			embeddedice_write_reg(dbg_ctrl, buf_get_u32(dbg_ctrl-&gt;value, 0, dbg_ctrl-&gt;size));
+-			arm7_9_execute_sys_speed(target);
++			err = arm7_9_execute_sys_speed(target);
+ 			
+ 			DEBUG(&quot;disable single-step&quot;);
+ 			arm7_9-&gt;disable_single_step(target);
+-			
++
++			if (err != ERROR_OK)
++			{
++				arm7_9_set_breakpoint(target, breakpoint);
++				target-&gt;state = TARGET_UNKNOWN;
++				return err;
++			}
++
+ 			arm7_9_debug_entry(target);
+ 			DEBUG(&quot;new PC after step: 0x%8.8x&quot;, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32));
+-		
++
+ 			DEBUG(&quot;set breakpoint at 0x%8.8x&quot;, breakpoint-&gt;address);
+ 			arm7_9_set_breakpoint(target, breakpoint);
+ 		}
+@@ -1614,6 +1622,7 @@
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
+ 	breakpoint_t *breakpoint = NULL;
++	int err;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -1652,23 +1661,26 @@
+ 	
+ 	target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
+ 
+-	arm7_9_execute_sys_speed(target);
++	err = arm7_9_execute_sys_speed(target);
+ 	arm7_9-&gt;disable_single_step(target);
+ 	
+ 	/* registers are now invalid */
+ 	armv4_5_invalidate_core_regs(target);
+ 	
+-	arm7_9_debug_entry(target);
++	if (err != ERROR_OK)
++	{
++		target-&gt;state = TARGET_UNKNOWN;
++	} else {
++		arm7_9_debug_entry(target);
++		target_call_event_callbacks(target, TARGET_EVENT_HALTED);
++		DEBUG(&quot;target stepped&quot;);
++	}
+ 	
+-	target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+-
+ 	if (breakpoint)
+ 		arm7_9_set_breakpoint(target, breakpoint);
+ 	
+-	DEBUG(&quot;target stepped&quot;);
++	return err;
+ 
+-	return ERROR_OK;
+-
+ }
+ 
+ int arm7_9_read_core_reg(struct target_s *target, int num, enum armv4_5_mode mode)
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001002.html">[Openocd-development] [PATCH] Marvell Feroceon support
+</A></li>
+	<LI>Next message: <A HREF="001000.html">[Openocd-development] [PATCH] make single-stepping more	resilient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#997">[ date ]</a>
+              <a href="thread.html#997">[ thread ]</a>
+              <a href="subject.html#997">[ subject ]</a>
+              <a href="author.html#997">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

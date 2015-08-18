@@ -1,0 +1,302 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] ARM7/9: rm arm7_9_get_arch_pointers()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM7/9%3A%20rm%20arm7_9_get_arch_pointers%28%29&In-Reply-To=%3C200911131332.42158.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012416.html">
+   <LINK REL="Next"  HREF="012309.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] ARM7/9: rm arm7_9_get_arch_pointers()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM7/9%3A%20rm%20arm7_9_get_arch_pointers%28%29&In-Reply-To=%3C200911131332.42158.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] ARM7/9: rm arm7_9_get_arch_pointers()">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Nov 13 22:32:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012416.html">[Openocd-development] [PUSHED 4/4] Factor NAND write/dump to add verify
+</A></li>
+        <LI>Next message: <A HREF="012309.html">[Openocd-development] [patch] target: remove unused &quot;bitfield&quot;	infrastructure
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12307">[ date ]</a>
+              <a href="thread.html#12307">[ thread ]</a>
+              <a href="subject.html#12307">[ subject ]</a>
+              <a href="author.html#12307">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Remove the last external user of arm7_9_get_arch_pointers(), and
+that annoying downcast utility.  Add an is_arm7_9() predicate.
+
+Stop returning specious success codes on various failure paths
+in the ARM7/ARM9 commands which used that downcast utility.
+---
+ src/flash/ocl.c            |    7 +--
+ src/target/arm7_9_common.c |   87 +++++++++++--------------------------------
+ src/target/arm7_9_common.h |    6 ++
+ 3 files changed, 32 insertions(+), 68 deletions(-)
+
+--- a/src/flash/ocl.c
++++ b/src/flash/ocl.c
+@@ -46,8 +46,6 @@ static int ocl_protect_check(struct flas
+ /* flash_bank ocl 0 0 0 0 &lt;target#&gt; */
+ FLASH_BANK_COMMAND_HANDLER(ocl_flash_bank_command)
+ {
+-	int retval;
+-	struct arm *armv4_5;
+ 	struct arm7_9_common *arm7_9;
+ 	struct ocl_priv *ocl;
+ 
+@@ -57,8 +55,9 @@ FLASH_BANK_COMMAND_HANDLER(ocl_flash_ban
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+ 
+-	if ((retval = arm7_9_get_arch_pointers(bank-&gt;target, &amp;armv4_5, &amp;arm7_9)) != ERROR_OK)
+-		return retval;
++	arm7_9 = target_to_arm7_9(bank-&gt;target);
++	if (!is_arm7_9(arm7_9))
++		return ERROR_TARGET_INVALID;
+ 
+ 	ocl = bank-&gt;driver_priv = malloc(sizeof(struct ocl_priv));
+ 	ocl-&gt;jtag_info = &amp;arm7_9-&gt;jtag_info;
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -167,39 +167,6 @@ int arm7_9_setup(struct target *target)
+ }
+ 
+ /**
+- * Retrieves the architecture information pointers for ARMv4/5 and ARM7/9
+- * targets.  A return of ERROR_OK signifies that the target is a valid target
+- * and that the pointers have been set properly.
+- *
+- * @param target Pointer to the target device to get the pointers from
+- * @param armv4_5_p Pointer to be filled in with the common struct for ARMV4/5
+- *                  targets
+- * @param arm7_9_p Pointer to be filled in with the common struct for ARM7/9
+- *                 targets
+- * @return ERROR_OK if successful
+- */
+-int arm7_9_get_arch_pointers(struct target *target, struct arm **armv4_5_p, struct arm7_9_common **arm7_9_p)
+-{
+-	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+-	struct armv4_5_common_s *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+-
+-	/* FIXME stop using this routine; just target_to_arm7_9() and
+-	 * verify the resulting pointer using a replacement routine
+-	 * that emits a usage message.
+-	 */
+-	if (armv4_5-&gt;common_magic != ARMV4_5_COMMON_MAGIC)
+-		return ERROR_TARGET_INVALID;
+-
+-	if (arm7_9-&gt;common_magic != ARM7_9_COMMON_MAGIC)
+-		return ERROR_TARGET_INVALID;
+-
+-	*armv4_5_p = armv4_5;
+-	*arm7_9_p = arm7_9;
+-
+-	return ERROR_OK;
+-}
+-
+-/**
+  * Set either a hardware or software breakpoint on an ARM7/9 target.  The
+  * breakpoint is set up even if it is already set.  Some actions, e.g. reset,
+  * might have erased the values in Embedded ICE.
+@@ -2877,25 +2844,24 @@ COMMAND_HANDLER(handle_arm7_9_write_xpsr
+ 	int spsr;
+ 	int retval;
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct arm *armv4_5;
+-	struct arm7_9_common *arm7_9;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	if (!is_arm7_9(arm7_9))
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_TARGET_INVALID;
+ 	}
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		command_print(cmd_ctx, &quot;can't write registers while running&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+ 
+ 	if (argc &lt; 2)
+ 	{
+ 		command_print(cmd_ctx, &quot;usage: write_xpsr &lt;value&gt; &lt;not cpsr | spsr&gt;&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+ 
+ 	COMMAND_PARSE_NUMBER(u32, args[0], value);
+@@ -2922,25 +2888,24 @@ COMMAND_HANDLER(handle_arm7_9_write_xpsr
+ 	int spsr;
+ 	int retval;
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct arm *armv4_5;
+-	struct arm7_9_common *arm7_9;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	if (!is_arm7_9(arm7_9))
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_TARGET_INVALID;
+ 	}
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		command_print(cmd_ctx, &quot;can't write registers while running&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+ 
+ 	if (argc &lt; 3)
+ 	{
+ 		command_print(cmd_ctx, &quot;usage: write_xpsr_im8 &lt;im8&gt; &lt;rotate&gt; &lt;not cpsr | spsr&gt;&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+ 
+ 	COMMAND_PARSE_NUMBER(u32, args[0], value);
+@@ -2963,25 +2928,24 @@ COMMAND_HANDLER(handle_arm7_9_write_core
+ 	uint32_t mode;
+ 	int num;
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct arm *armv4_5;
+-	struct arm7_9_common *arm7_9;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	if (!is_arm7_9(arm7_9))
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_TARGET_INVALID;
+ 	}
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		command_print(cmd_ctx, &quot;can't write registers while running&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+ 
+ 	if (argc &lt; 3)
+ 	{
+ 		command_print(cmd_ctx, &quot;usage: write_core_reg &lt;num&gt; &lt;mode&gt; &lt;value&gt;&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+ 
+ 	COMMAND_PARSE_NUMBER(int, args[0], num);
+@@ -2994,13 +2958,12 @@ COMMAND_HANDLER(handle_arm7_9_write_core
+ COMMAND_HANDLER(handle_arm7_9_dbgrq_command)
+ {
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct arm *armv4_5;
+-	struct arm7_9_common *arm7_9;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	if (!is_arm7_9(arm7_9))
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_TARGET_INVALID;
+ 	}
+ 
+ 	if (argc &gt; 0)
+@@ -3027,13 +2990,12 @@ COMMAND_HANDLER(handle_arm7_9_dbgrq_comm
+ COMMAND_HANDLER(handle_arm7_9_fast_memory_access_command)
+ {
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct arm *armv4_5;
+-	struct arm7_9_common *arm7_9;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	if (!is_arm7_9(arm7_9))
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_TARGET_INVALID;
+ 	}
+ 
+ 	if (argc &gt; 0)
+@@ -3060,13 +3022,12 @@ COMMAND_HANDLER(handle_arm7_9_fast_memor
+ COMMAND_HANDLER(handle_arm7_9_dcc_downloads_command)
+ {
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct arm *armv4_5;
+-	struct arm7_9_common *arm7_9;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
++	if (!is_arm7_9(arm7_9))
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_TARGET_INVALID;
+ 	}
+ 
+ 	if (argc &gt; 0)
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -115,6 +115,11 @@ target_to_arm7_9(struct target *target)
+ 			armv4_5_common);
+ }
+ 
++static inline bool is_arm7_9(struct arm7_9_common *arm7_9)
++{
++	return arm7_9-&gt;common_magic == ARM7_9_COMMON_MAGIC;
++}
++
+ int arm7_9_register_commands(struct command_context_s *cmd_ctx);
+ 
+ int arm7_9_poll(struct target *target);
+@@ -154,6 +159,5 @@ void arm7_9_disable_eice_step(struct tar
+ int arm7_9_execute_sys_speed(struct target *target);
+ 
+ int arm7_9_init_arch_info(struct target *target, struct arm7_9_common *arm7_9);
+-int arm7_9_get_arch_pointers(struct target *target, struct arm **armv4_5_p, struct arm7_9_common **arm7_9_p);
+ 
+ #endif /* ARM7_9_COMMON_H */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012416.html">[Openocd-development] [PUSHED 4/4] Factor NAND write/dump to add verify
+</A></li>
+	<LI>Next message: <A HREF="012309.html">[Openocd-development] [patch] target: remove unused &quot;bitfield&quot;	infrastructure
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12307">[ date ]</a>
+              <a href="thread.html#12307">[ thread ]</a>
+              <a href="subject.html#12307">[ subject ]</a>
+              <a href="author.html#12307">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

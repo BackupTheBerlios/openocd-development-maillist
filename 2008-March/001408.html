@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Adding support to jtag_xxx() API for low	overhead dr scans
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Adding%20support%20to%20jtag_xxx%28%29%20API%20for%20low%0A%09overhead%20dr%20scans&In-Reply-To=%3Cc09652430803041300m5686ca84of7bdf2d1a8845677%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001427.html">
+   <LINK REL="Next"  HREF="001426.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Adding support to jtag_xxx() API for low	overhead dr scans</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Adding%20support%20to%20jtag_xxx%28%29%20API%20for%20low%0A%09overhead%20dr%20scans&In-Reply-To=%3Cc09652430803041300m5686ca84of7bdf2d1a8845677%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Adding support to jtag_xxx() API for low	overhead dr scans">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Mar  4 22:00:59 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001427.html">[Openocd-development] arm11 xxx_to_core() and xxx_from_core()	passthrough RTI on retries
+</A></li>
+        <LI>Next message: <A HREF="001426.html">[Openocd-development] Adding support to jtag_xxx() API for low	overhead dr scans
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1408">[ date ]</a>
+              <a href="thread.html#1408">[ thread ]</a>
+              <a href="subject.html#1408">[ subject ]</a>
+              <a href="author.html#1408">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Any objections?
+
+
+
+
+- add support for low overhead jtag_add_dr_out()
+- the end state concept is handled entirely in jtag.c and the
+  drivers should never see -1 for end_state. A potential
+  simplification there.
+- embedded_write_reg() has been modified to use jtag_add_dr_out().
+- performance should be immeasurably better on existing drivers
+  and *much* better on hw fifo implementations. Numbers not
+  available as of writing.
+- designed to work w/device chains &gt;1 unit. Not tested as of
+  writing.
+
+
+Here is an example of new code enabled, old code disabled.
+
+/* If many embeddedice_write_reg() follow eachother, then the &gt;1
+invocations can be this faster version of
+ * embeddedice_write_reg
+ */
+static __inline__ void embeddedice_write_reg_inner(reg_t *reg, u32 value)
+{
+	embeddedice_reg_t *ice_reg = reg-&gt;arch_info;
+	u8 reg_addr = ice_reg-&gt;addr &amp; 0x1f;
+#if 1
+	u32 values[3];
+	int num_bits[3];
+	
+	values[0]=value;
+	num_bits[0]=32;
+	values[1]=reg_addr;
+	num_bits[1]=5;
+	values[2]=1;
+	num_bits[2]=1;
+	
+	jtag_add_dr_out(ice_reg-&gt;jtag_info-&gt;chain_pos,
+			3,
+			num_bits,
+			values,
+			-1);
+#else
+	scan_field_t fields[3];
+	u8 field0_out[4];
+	u8 field1_out[1];
+	u8 field2_out[1];
+
+	fields[0].device = ice_reg-&gt;jtag_info-&gt;chain_pos;
+	fields[0].num_bits = 32;
+	fields[0].out_value = field0_out;
+	buf_set_u32(fields[0].out_value, 0, 32, value);
+	fields[0].out_mask = NULL;
+	fields[0].in_value = NULL;
+	fields[0].in_check_value = NULL;
+	fields[0].in_check_mask = NULL;
+	fields[0].in_handler = NULL;
+	fields[0].in_handler_priv = NULL;
+	
+	fields[1].device = ice_reg-&gt;jtag_info-&gt;chain_pos;
+	fields[1].num_bits = 5;
+	fields[1].out_value = field1_out;
+	buf_set_u32(fields[1].out_value, 0, 5, reg_addr);
+	fields[1].out_mask = NULL;
+	fields[1].in_value = NULL;
+	fields[1].in_check_value = NULL;
+	fields[1].in_check_mask = NULL;
+	fields[1].in_handler = NULL;
+	fields[1].in_handler_priv = NULL;
+
+	fields[2].device = ice_reg-&gt;jtag_info-&gt;chain_pos;
+	fields[2].num_bits = 1;
+	fields[2].out_value = field2_out;
+	buf_set_u32(fields[2].out_value, 0, 1, 1);
+	fields[2].out_mask = NULL;
+	fields[2].in_value = NULL;
+	fields[2].in_check_value = NULL;
+	fields[2].in_check_mask = NULL;
+	fields[2].in_handler = NULL;
+	fields[2].in_handler_priv = NULL;
+	
+	jtag_add_dr_scan(3, fields, -1);
+
+#endif
+}
+
+
+int embeddedice_write_reg(reg_t *reg, u32 value)
+{
+	embeddedice_reg_t *ice_reg = reg-&gt;arch_info;
+	
+	DEBUG(&quot;%i: 0x%8.8x&quot;, ice_reg-&gt;addr, value);
+	
+	jtag_add_end_state(TAP_RTI);
+	arm_jtag_scann(ice_reg-&gt;jtag_info, 0x2);
+	
+	arm_jtag_set_instr(ice_reg-&gt;jtag_info, ice_reg-&gt;jtag_info-&gt;intest_instr, NULL);
+
+	embeddedice_write_reg_inner(reg, value);
+	
+	return ERROR_OK;
+}
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA  developer kit
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: jtag_add_dr_out6.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080304/5e33fa86/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20080304/5e33fa86/attachment.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001427.html">[Openocd-development] arm11 xxx_to_core() and xxx_from_core()	passthrough RTI on retries
+</A></li>
+	<LI>Next message: <A HREF="001426.html">[Openocd-development] Adding support to jtag_xxx() API for low	overhead dr scans
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1408">[ date ]</a>
+              <a href="thread.html#1408">[ thread ]</a>
+              <a href="subject.html#1408">[ subject ]</a>
+              <a href="author.html#1408">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

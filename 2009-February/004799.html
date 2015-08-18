@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 5/9] support for NAND controllers	without explicit busy signal
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/9%5D%20support%20for%20NAND%20controllers%0A%09without%20explicit%20busy%20signal&In-Reply-To=%3C1235809306-30927-5-git-send-email-nico%40cam.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004798.html">
+   <LINK REL="Next"  HREF="004800.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 5/9] support for NAND controllers	without explicit busy signal</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/9%5D%20support%20for%20NAND%20controllers%0A%09without%20explicit%20busy%20signal&In-Reply-To=%3C1235809306-30927-5-git-send-email-nico%40cam.org%3E"
+       TITLE="[Openocd-development] [PATCH 5/9] support for NAND controllers	without explicit busy signal">nico at cam.org
+       </A><BR>
+    <I>Sat Feb 28 09:21:42 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004798.html">[Openocd-development] [PATCH 4/9] don't ignore bad options passed	to the &quot;nand write&quot; command
+</A></li>
+        <LI>Next message: <A HREF="004800.html">[Openocd-development] [PATCH 6/9] support for NAND flash used with Marvell Orion and Kirkwood SOCs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4799">[ date ]</a>
+              <a href="thread.html#4799">[ thread ]</a>
+              <a href="subject.html#4799">[ subject ]</a>
+              <a href="author.html#4799">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Let's poll the NAND chip status when the controller doesn't provide
+a nand_ready method.
+---
+ src/flash/nand.c |   42 ++++++++++++++++++++++++++++++++++++------
+ 1 files changed, 36 insertions(+), 6 deletions(-)
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 8708ef3..1d0766d 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -372,6 +372,27 @@ int nand_read_status(struct nand_device_s *device, u8 *status)
+ 	return ERROR_OK;
+ }
+ 
++int nand_poll_ready(struct nand_device_s *device, int timeout)
++{
++	u8 status;
++
++	device-&gt;controller-&gt;command(device, NAND_CMD_STATUS);
++	do {
++		if (device-&gt;device-&gt;options &amp; NAND_BUSWIDTH_16) {
++			u16 data;
++			device-&gt;controller-&gt;read_data(device, &amp;data);
++			status = data &amp; 0xff;
++		} else {
++			device-&gt;controller-&gt;read_data(device, &amp;status);
++		}
++		if (status &amp; NAND_STATUS_READY)
++			break;
++		alive_sleep(1);
++	} while (timeout--);
++
++	return (status &amp; NAND_STATUS_READY) != 0;
++}
++
+ int nand_probe(struct nand_device_s *device)
+ {
+ 	u8 manufacturer_id, device_id;
+@@ -648,9 +669,11 @@ int nand_erase(struct nand_device_s *device, int first_block, int last_block)
+ 		
+ 		/* Send erase confirm command */
+ 		device-&gt;controller-&gt;command(device, NAND_CMD_ERASE2);
+-		
+-		if (!device-&gt;controller-&gt;nand_ready(device, 1000))
+-		{
++
++		retval = device-&gt;controller-&gt;nand_ready ?
++				device-&gt;controller-&gt;nand_ready(device, 1000) :
++				nand_poll_ready(device, 1000);
++		if (!retval) {
+ 			LOG_ERROR(&quot;timeout waiting for NAND flash block erase to complete&quot;);
+ 			return ERROR_NAND_OPERATION_TIMEOUT;
+ 		}
+@@ -823,8 +846,12 @@ int nand_read_page_raw(struct nand_device_s *device, u32 page, u8 *data, u32 dat
+ 		device-&gt;controller-&gt;command(device, NAND_CMD_READSTART);
+ 	}
+ 	
+-	if (!device-&gt;controller-&gt;nand_ready(device, 100))
+-		return ERROR_NAND_OPERATION_TIMEOUT;
++	if (device-&gt;controller-&gt;nand_ready) {
++		if (!device-&gt;controller-&gt;nand_ready(device, 100))
++			return ERROR_NAND_OPERATION_TIMEOUT;
++	} else {
++		alive_sleep(1);
++	}
+ 	
+ 	if (data)
+ 	{
+@@ -977,7 +1004,10 @@ int nand_write_page_raw(struct nand_device_s *device, u32 page, u8 *data, u32 da
+ 	
+ 	device-&gt;controller-&gt;command(device, NAND_CMD_PAGEPROG);
+ 	
+-	if (!device-&gt;controller-&gt;nand_ready(device, 100))
++	retval = device-&gt;controller-&gt;nand_ready ?
++			device-&gt;controller-&gt;nand_ready(device, 100) :
++			nand_poll_ready(device, 100);
++	if (!retval)
+ 		return ERROR_NAND_OPERATION_TIMEOUT;
+ 	
+ 	if ((retval = nand_read_status(device, &amp;status)) != ERROR_OK)
+-- 
+1.6.2-rc2.GIT
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004798.html">[Openocd-development] [PATCH 4/9] don't ignore bad options passed	to the &quot;nand write&quot; command
+</A></li>
+	<LI>Next message: <A HREF="004800.html">[Openocd-development] [PATCH 6/9] support for NAND flash used with Marvell Orion and Kirkwood SOCs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4799">[ date ]</a>
+              <a href="thread.html#4799">[ thread ]</a>
+              <a href="subject.html#4799">[ subject ]</a>
+              <a href="author.html#4799">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 01/22] arm11: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2001/22%5D%20arm11%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100321-14469-2-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012845.html">
+   <LINK REL="Next"  HREF="012820.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 01/22] arm11: use register_commands()</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2001/22%5D%20arm11%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100321-14469-2-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 01/22] arm11: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012845.html">[Openocd-development] [PATCH 9/9] pld: use static registration	instead of callback
+</A></li>
+        <LI>Next message: <A HREF="012820.html">[Openocd-development] [PATCH 07/20] lpc2000: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12871">[ date ]</a>
+              <a href="thread.html#12871">[ thread ]</a>
+              <a href="subject.html#12871">[ subject ]</a>
+              <a href="author.html#12871">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/arm11.c |   97 +++++++++++++++++++++++++++++++++-------------------
+ 1 files changed, 62 insertions(+), 35 deletions(-)
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 66954fa..835234c 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1565,44 +1565,71 @@ static int arm11_mcr(struct target *target, int cpnum,
+ 	return arm11_mrc_inner(target, cpnum, op1, op2, CRn, CRm, &amp;value, false);
+ }
+ 
++static const struct command_registration arm11_mw_command_handlers[] = {
++	{
++		.name = &quot;burst&quot;,
++		.handler = &amp;arm11_handle_bool_memwrite_burst,
++		.mode = COMMAND_ANY,
++		.help = &quot;Enable/Disable non-standard but fast burst mode&quot;
++			&quot; (default: enabled)&quot;,
++	},
++	{
++		.name = &quot;error_fatal&quot;,
++		.handler = &amp;arm11_handle_bool_memwrite_error_fatal,
++		.mode = COMMAND_ANY,
++		.help = &quot;Terminate program if transfer error was found&quot;
++			&quot; (default: enabled)&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration arm11_any_command_handlers[] = {
++	{
++		/* &quot;hardware_step&quot; is only here to check if the default
++		 * simulate + breakpoint implementation is broken.
++		 * TEMPORARY! NOT DOCUMENTED! */
++		.name = &quot;hardware_step&quot;,
++		.handler = &amp;arm11_handle_bool_hardware_step,
++		.mode = COMMAND_ANY,
++		.help = &quot;DEBUG ONLY - Hardware single stepping&quot;
++			&quot; (default: disabled)&quot;,
++		.usage = &quot;(enable|disable)&quot;,
++	},
++	{
++		.name = &quot;memwrite&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;memwrite command group&quot;,
++		.chain = arm11_mw_command_handlers,
++	},
++	{
++		.name = &quot;step_irq_enable&quot;,
++		.handler = &amp;arm11_handle_bool_step_irq_enable,
++		.mode = COMMAND_ANY,
++		.help = &quot;Enable interrupts while stepping&quot;
++			&quot; (default: disabled)&quot;,
++	},
++	{
++		.name = &quot;vcr&quot;,
++		.handler = &amp;arm11_handle_vcr,
++		.mode = COMMAND_ANY,
++		.help = &quot;Control (Interrupt) Vector Catch Register&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration arm11_command_handlers[] = {
++	{
++		.name = &quot;arm11&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;ARM11 command group&quot;,
++		.chain = arm11_any_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ static int arm11_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *top_cmd, *mw_cmd;
+-
+ 	armv4_5_register_commands(cmd_ctx);
+-
+-	top_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm11&quot;,
+-			NULL, COMMAND_ANY, NULL);
+-
+-	/* &quot;hardware_step&quot; is only here to check if the default
+-	 * simulate + breakpoint implementation is broken.
+-	 * TEMPORARY! NOT DOCUMENTED!
+-	 */
+-	COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;hardware_step&quot;,
+-			arm11_handle_bool_hardware_step, COMMAND_ANY,
+-			&quot;DEBUG ONLY - Hardware single stepping&quot;
+-				&quot; (default: disabled)&quot;);
+-
+-	mw_cmd = COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;memwrite&quot;,
+-			NULL, COMMAND_ANY, NULL);
+-	COMMAND_REGISTER(cmd_ctx, mw_cmd, &quot;burst&quot;,
+-			arm11_handle_bool_memwrite_burst, COMMAND_ANY,
+-			&quot;Enable/Disable non-standard but fast burst mode&quot;
+-				&quot; (default: enabled)&quot;);
+-	COMMAND_REGISTER(cmd_ctx, mw_cmd, &quot;error_fatal&quot;,
+-			arm11_handle_bool_memwrite_error_fatal, COMMAND_ANY,
+-			&quot;Terminate program if transfer error was found&quot;
+-				&quot; (default: enabled)&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;step_irq_enable&quot;,
+-			arm11_handle_bool_step_irq_enable, COMMAND_ANY,
+-			&quot;Enable interrupts while stepping&quot;
+-				&quot; (default: disabled)&quot;);
+-	COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;vcr&quot;,
+-			arm11_handle_vcr, COMMAND_ANY,
+-			&quot;Control (Interrupt) Vector Catch Register&quot;);
+-
+-	return etm_register_commands(cmd_ctx);
++	etm_register_commands(cmd_ctx);
++	return register_commands(cmd_ctx, NULL, arm11_command_handlers);
+ }
+ 
+ /** Holds methods for ARM11xx targets. */
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012845.html">[Openocd-development] [PATCH 9/9] pld: use static registration	instead of callback
+</A></li>
+	<LI>Next message: <A HREF="012820.html">[Openocd-development] [PATCH 07/20] lpc2000: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12871">[ date ]</a>
+              <a href="thread.html#12871">[ thread ]</a>
+              <a href="subject.html#12871">[ subject ]</a>
+              <a href="author.html#12871">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

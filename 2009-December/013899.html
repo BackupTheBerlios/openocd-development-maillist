@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Adding support for SST 39VF6401B external	flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Adding%20support%20for%20SST%2039VF6401B%20external%0A%09flash&In-Reply-To=%3C8BF07F857AC7C34EB08B6CA07931151205D09A2A%40EXCHSRV4.deif.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013887.html">
+   <LINK REL="Next"  HREF="013904.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Adding support for SST 39VF6401B external	flash</H1>
+    <B>Flemming Futtrup</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Adding%20support%20for%20SST%2039VF6401B%20external%0A%09flash&In-Reply-To=%3C8BF07F857AC7C34EB08B6CA07931151205D09A2A%40EXCHSRV4.deif.com%3E"
+       TITLE="[Openocd-development] Adding support for SST 39VF6401B external	flash">ffu at deif.com
+       </A><BR>
+    <I>Wed Dec 30 21:29:32 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013887.html">[Openocd-development] Adding support for SST 39VF6401B external	flash
+</A></li>
+        <LI>Next message: <A HREF="013904.html">[Openocd-development] Adding support for SST 39VF6401B external flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13899">[ date ]</a>
+              <a href="thread.html#13899">[ thread ]</a>
+              <a href="subject.html#13899">[ subject ]</a>
+              <a href="author.html#13899">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Rolf,
+
+****************
+Following commands are called on reset_init:
+
+## -- Event handlers --
+proc reset_init { } {
+
+	jtag_khz 200
+
+	# Force target into ARM state
+	armv4_5 core_state arm
+
+	# -- 1. Disconnect the PLL with one feed sequence if PLL is already connected. --
+	#  - PLLCON (0xE01FC080) = 1
+	mww 0xE01FC080 0x00000001
+	#  - PLLFEED (0xE01FC08C) sequence -
+	mww 0xE01FC08C 0x000000AA
+	mww 0xE01FC08C 0x00000055
+
+	# -- 2. Disable the PLL with one feed sequence. --
+	#  - PLLCON = 0
+	mww 0xE01FC080 0x00000000
+	#  - PLLFEED sequence -
+	mww 0xE01FC08C 0x000000AA
+	mww 0xE01FC08C 0x00000055
+
+	# -- 3. Enable main oscillator. --
+	#  - SCS = 0x20 (OSCEN = 1)
+	mww 0xE01FC1A0 0x00000020
+
+	# -- 4. Clock Source Selection Control register set clock source to PLL to be main osc. 12MHz --
+	#  - CLKSRCSEL (0xE01FC10C) = 1
+	mww 0xE01FC10C 0x00000001
+
+	# -- 5. Write to the PLLCFG and make it effective with one feed sequence. The PLLCFG can
+	#      only be updated when the PLL is disabled. --
+	#  - PLLCFG (0xE01FC084) = M is set to 1 N is set to 12
+	mww 0xE01FC084 0x0000000B
+	#  - PLLFEED sequence -
+	mww 0xE01FC08C 0x000000AA
+	mww 0xE01FC08C 0x00000055
+
+	# -- 6. Enable the PLL with one feed sequence. --
+	#  - PLLCON (0xE01FC080) = 1
+	mww 0xE01FC080 0x00000001
+	#  - PLLFEED sequence -
+	mww 0xE01FC08C 0x000000AA
+	mww 0xE01FC08C 0x00000055
+
+	# -- 7. Change the CPU Clock Divider setting for the operation with the PLL. It's critical to do
+	#      this before connecting the PLL. --
+	#  - CCLKCFG (0xE01FC104) = 5  (Fcpu = 288/6 = 48MHz )
+	mww 0xE01FC104 0x00000005
+
+	# -- 8. Wait for the PLL to lock
+	sleep 200
+
+	# -- 9. Connect PLL with One Feed Seq --
+	#  -  PLLCON = 3
+	mww 0xE01FC080 0x00000003
+	#  - PLLFEED sequence -
+	mww 0xE01FC08C 0x000000AA
+	mww 0xE01FC08C 0x00000055
+
+	# -- 10. Wait for the PLL to connect
+	sleep 100
+
+
+	# Do not remap 0x0000-0x0020 to anything but the Flash
+	mwb 0xE01FC040 0x01
+
+	## now setup GPIO PINS for the External Static Memory controller
+
+	#setup pins for addr / databus
+	#PINSEL6 sets up D0-15
+	mww 0xE002C018 0x55555555
+
+	#PINSEL8 sets up A0-15
+	mww 0xE002C020 0x55555555
+
+	#PINSEL9 sets up A16-23, BLS and OE + WE
+	mww 0xE002C024 0x55555555
+
+	# Enable EMC(bit 11) in PCON register
+	#mww 0xE01FC0C4 0x00000800  #Default ON
+
+	## setup the EMC for CS 0
+	#EMC Control, enable EMC, and set normal Memmap
+	mww 0xFFE08000 0x00000001
+
+	#EMCStaticConfig0 :
+	# MW : 16bit
+	# PB : 1
+	mww 0xFFE08200 0x00000081
+
+	#EMCStaticWaitWr and #EMCStaticWaitRd are left to their defaults for now
+
+	#speed up jtag clk again
+	#jtag_rclk 500
+	jtag_rclk 2000
+
+}
+
+****************
+Including this:
+	mww 0xFFE08200 0x00000081
+
+Which I believe to be what you mention?
+
+********Some other parts of the script looks like this: *********
+
+# LPC2000 -&gt; SRST causes TRST
+reset_config trst_and_srst srst_pulls_trst
+
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
+
+set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+
+# LPC2468 has 64kB of SRAM on its main system bus (so-called Local On-Chip SRAM)
+$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x40000000 -work-area-size 0x10000 -work-area-backup 0
+
+$_TARGETNAME configure -event reset-init { reset_init }
+
+
+gdb_memory_map enable
+gdb_flash_program enable
+
+proc deif_flash_external {IMGFILE} {
+	reset init
+   halt
+	 sleep 100
+	 poll
+       flash protect_check 1
+       flash protect 1 0 2047 off
+	 flash write_image $IMGFILE 0x80000000
+	 reset
+	 shutdown
+}
+
+# LPC2468 has 512kB of FLASH, but upper 8kB are occupied by bootloader.
+# After reset the chip uses its internal 4MHz RC oscillator.
+flash bank lpc2000 0x0 0x7D000 0 0 $_TARGETNAME lpc2000_v2 24000 calc_checksum
+flash bank cfi 0x80000000 0x800000 2 2 $_TARGETNAME jedec_probe
+
+# Try to use RCLK, if RCLK is not available use &quot;normal&quot; mode. 4MHz / 6 = 666kHz, so use 500.
+#jtag_rclk 500
+fast enable
+debug_level 2
+init
+
+****************
+I made the &quot;proc deif_flash_external&quot;
+
+The &quot;proc reset_init&quot; is translated from something that works on Lauterbach with this board. 
+
+
+****************Here is the full log: ****************
+
+Z:\RB-RC1\build\bgcf-pt2&gt;set filename=Z:\RB-RC1\build\bgcf-pt2\bgcfapp.bin
+
+Z:\RB-RC1\build\bgcf-pt2&gt;rem echo.Z:\RB-RC1\build\bgcf-pt2\bgcfapp.bin
+
+Z:\RB-RC1\build\bgcf-pt2&gt;cd &quot;C:\Program Files\OpenOCD\0.3.1\bin\&quot;
+
+Z:\RB-RC1\build\bgcf-pt2&gt;set filename=Z:\\RB-RC1\\build\\bgcf-pt2\\bgcfapp.bin
+
+Z:\RB-RC1\build\bgcf-pt2&gt;rem echo.Z:\\RB-RC1\\build\\bgcf-pt2\\bgcfapp.bin
+
+Z:\RB-RC1\build\bgcf-pt2&gt;openOCD.exe -f &quot;C:\Program Files\OpenOCD\0.3.1\interfac
+e\jtagkey.cfg&quot; -f &quot;C:\Program Files\OpenOCD\0.3.1\target\lpc2468.cfg&quot;  -c &quot;deif_
+flash_external Z:\\RB-RC1\\build\\bgcf-pt2\\bgcfapp.bin&quot;
+Open On-Chip Debugger 0.3.1 (2009-12-12-01:07)
+$URL$
+For bug reports, read
+        <A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+500 kHz
+User : 12 15 command.c:400 command_print(): debug_level: 3
+Debug: 14 15 command.c:68 script_debug(): command - jtag_nsrst_delay
+Debug: 15 15 command.c:77 script_debug(): jtag_nsrst_delay - argv[0]=ocd_jtag_ns
+rst_delay
+Debug: 16 15 command.c:77 script_debug(): jtag_nsrst_delay - argv[1]=100
+User : 17 15 command.c:400 command_print(): jtag_nsrst_delay: 100
+Debug: 19 15 command.c:68 script_debug(): command - jtag_ntrst_delay
+Debug: 20 15 command.c:77 script_debug(): jtag_ntrst_delay - argv[0]=ocd_jtag_nt
+rst_delay
+Debug: 21 15 command.c:77 script_debug(): jtag_ntrst_delay - argv[1]=100
+User : 22 15 command.c:400 command_print(): jtag_ntrst_delay: 100
+Debug: 24 15 command.c:68 script_debug(): command - jtag_khz
+Debug: 25 15 command.c:77 script_debug(): jtag_khz - argv[0]=ocd_jtag_khz
+Debug: 26 31 command.c:77 script_debug(): jtag_khz - argv[1]=3000
+Debug: 27 31 core.c:1581 jtag_config_khz(): handle jtag khz
+Debug: 28 31 core.c:1537 jtag_khz_to_speed(): convert khz to interface specific
+speed value
+User : 29 31 command.c:400 command_print(): 3000 kHz
+Debug: 31 31 command.c:68 script_debug(): command - reset_config
+Debug: 32 31 command.c:77 script_debug(): reset_config - argv[0]=ocd_reset_confi
+g
+Debug: 33 31 command.c:77 script_debug(): reset_config - argv[1]=trst_and_srst
+Debug: 34 31 command.c:77 script_debug(): reset_config - argv[2]=srst_pulls_trst
+
+User : 35 31 command.c:400 command_print(): trst_and_srst srst_pulls_trst srst_g
+ates_jtag trst_push_pull srst_open_drain
+Debug: 36 47 tcl.c:245 jim_newtap_cmd(): Creating New Tap, Chip: lpc2468, Tap: c
+pu, Dotted: lpc2468.cpu, 8 params
+Debug: 37 47 tcl.c:262 jim_newtap_cmd(): Processing option: -irlen
+Debug: 38 47 tcl.c:262 jim_newtap_cmd(): Processing option: -ircapture
+Debug: 39 47 tcl.c:262 jim_newtap_cmd(): Processing option: -irmask
+Debug: 40 47 tcl.c:262 jim_newtap_cmd(): Processing option: -expected-id
+Debug: 41 47 core.c:1314 jtag_tap_init(): Created Tap: lpc2468.cpu @ abs positio
+n 0, irlen 4, capture: 0x1 mask: 0xf
+Debug: 42 47 target.c:4515 jim_target(): Target command params:
+Debug: 43 47 target.c:4516 jim_target(): target create lpc2468.cpu arm7tdmi -end
+ian little -chain-position lpc2468.cpu -variant arm7tdmi-s_r4
+Debug: 45 62 command.c:68 script_debug(): command - gdb_memory_map
+Debug: 46 62 command.c:77 script_debug(): gdb_memory_map - argv[0]=ocd_gdb_memor
+y_map
+Debug: 47 62 command.c:77 script_debug(): gdb_memory_map - argv[1]=enable
+Debug: 49 62 command.c:68 script_debug(): command - gdb_flash_program
+Debug: 50 62 command.c:77 script_debug(): gdb_flash_program - argv[0]=ocd_gdb_fl
+ash_program
+Debug: 51 62 command.c:77 script_debug(): gdb_flash_program - argv[1]=enable
+Debug: 53 62 command.c:68 script_debug(): command - bank
+Debug: 54 62 command.c:77 script_debug(): bank - argv[0]=ocd_flash_bank
+Debug: 55 62 command.c:77 script_debug(): bank - argv[1]=lpc2000
+Debug: 56 78 command.c:77 script_debug(): bank - argv[2]=0x0
+Debug: 57 78 command.c:77 script_debug(): bank - argv[3]=0x7D000
+Debug: 58 78 command.c:77 script_debug(): bank - argv[4]=0
+Debug: 59 78 command.c:77 script_debug(): bank - argv[5]=0
+Debug: 60 78 command.c:77 script_debug(): bank - argv[6]=lpc2468.cpu
+Debug: 61 78 command.c:77 script_debug(): bank - argv[7]=lpc2000_v2
+Debug: 62 78 command.c:77 script_debug(): bank - argv[8]=24000
+Debug: 63 78 command.c:77 script_debug(): bank - argv[9]=calc_checksum
+Debug: 65 78 command.c:68 script_debug(): command - bank
+Debug: 66 78 command.c:77 script_debug(): bank - argv[0]=ocd_flash_bank
+Debug: 67 93 command.c:77 script_debug(): bank - argv[1]=cfi
+Debug: 68 93 command.c:77 script_debug(): bank - argv[2]=0x80000000
+Debug: 69 93 command.c:77 script_debug(): bank - argv[3]=0x800000
+Debug: 70 93 command.c:77 script_debug(): bank - argv[4]=2
+Debug: 71 93 command.c:77 script_debug(): bank - argv[5]=2
+Debug: 72 93 command.c:77 script_debug(): bank - argv[6]=lpc2468.cpu
+Debug: 73 93 command.c:77 script_debug(): bank - argv[7]=jedec_probe
+Debug: 75 93 command.c:68 script_debug(): command - fast
+Debug: 76 93 command.c:77 script_debug(): fast - argv[0]=ocd_fast
+Debug: 77 93 command.c:77 script_debug(): fast - argv[1]=enable
+Debug: 79 93 command.c:68 script_debug(): command - debug_level
+Debug: 80 109 command.c:77 script_debug(): debug_level - argv[0]=ocd_debug_level
+
+Debug: 81 109 command.c:77 script_debug(): debug_level - argv[1]=2
+debug_level: 2
+Info : clock speed 3000 kHz
+Info : JTAG tap: lpc2468.cpu tap/device found: 0x4f1f0f0f (mfg: 0x787, part: 0xf
+1f0, ver: 0x4)
+Info : Embedded ICE version 7
+Error: EmbeddedICE v7 handling might be broken
+target state: halted
+target halted in ARM state due to breakpoint, current mode: Undefined
+cpsr: 0x700000db pc: 0xa001dd58
+Info : JTAG tap: lpc2468.cpu tap/device found: 0x4f1f0f0f (mfg: 0x787, part: 0xf
+1f0, ver: 0x4)
+Warn : srst pulls trst - can not reset into halted mode. Issuing halt after rese
+t.
+target state: halted
+target halted in ARM state due to debug-request, current mode: Undefined
+cpsr: 0x300000db pc: 0xa0000558
+200 kHz
+core state: ARM
+RCLK not supported - fallback to 2000 kHz
+background polling: on
+TAP: lpc2468.cpu (enabled)
+target state: halted
+target halted in ARM state due to debug-request, current mode: Undefined
+cpsr: 0x300000db pc: 0xa0000558
+Info : Flash Manufacturer/Device: 0x00bf 0x236d
+successfully checked protect state
+Error: protect: cfi primary command set 2 unsupported
+cleared protection for sectors 0 through 2047 on flash bank 1
+Error: timed out while waiting for target halted
+Error: error writing to flash at address 0x80000000 at offset 0x00000000 (-902)
+
+Z:\RB-RC1\build\bgcf-pt2&gt;pause
+Press any key to continue . . .
+****************
+The &quot; Error: protect: cfi primary command set 2 unsupported&quot; message only appears when I run the protect command in the script.
+
+****************
+
+The mww commands are not logged?
+
+Does this make any sense? Or is the error hidden somewhere in the log?
+
+Regards Flemming
+
+-----Original Message-----
+From: Rolf Meeser [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">rolfm_9dq at yahoo.de</A>] 
+Sent: 30. december 2009 13:37
+To: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>; Flemming Futtrup
+Subject: AW: [Openocd-development] Adding support for SST 39VF6401B external flash
+
+Hi Flemming,
+
+--- Flemming Futtrup &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ffu at deif.com</A>&gt; schrieb am Mi, 30.12.2009:
+
+&gt;<i> I have run into trouble with a new board holding the SST
+</I>&gt;<i> 39VF6401B external flash. 
+</I>&gt;<i> 
+</I>&gt;<i>  
+</I>
+
+&gt;<i> TAP: lpc2468.cpu (enabled)
+</I>&gt;<i> 
+</I>
+Make sure the buffering is disabled in EMCStaticConfig0 of the LPC2468 (board config file?).
+If enabled, the target algorithm cannot detect the end of the program cycle, and will wait in an endless loop until a timeout occurs.
+
+
+&gt;<i> At this point I assumed that the concerned Flash device is
+</I>&gt;<i> a NON_CFI device.
+</I>&gt;<i> 
+</I>
+The reason to declare this device as NON-CFI is that it doesn't work with the DQ5 polling mode. This mode is standard for CFI devices in cfi.c. Probably it would be cleaner to define a new fixup function in cfi.c, but the approach with non_cfi.c should work fine for your device. 
+
+&gt;<i> First of all there was no support for this flash in the
+</I>&gt;<i> non_cfi.c so I added this: 
+</I>&gt;<i> 
+</I>&gt;<i> { 
+</I>&gt;<i> &#160; .mfr = CFI_MFR_SST, 
+</I>&gt;<i> &#160; .id = 0x236d, 
+</I>&gt;<i> &#160; /* SST39VF6401B */ 
+</I>&gt;<i> &#160; .pri_id = 0x02, 
+</I>&gt;<i> &#160; .dev_size = 8*MB, 
+</I>&gt;<i> &#160; .interface_desc = 0x2, /* x8 or x16 device
+</I>&gt;<i> with&#160; BYTE */ 
+</I>&gt;<i> &#160; .max_buf_write_size = 0x0, 
+</I>&gt;<i> &#160; .status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7, 
+</I>&gt;<i> &#160; .num_erase_regions = 1, 
+</I>&gt;<i> &#160; .erase_region_info = 
+</I>&gt;<i> &#160; { 
+</I>&gt;<i> &#160; &#160; ERASE_REGION(2048, 4*KB) 
+</I>&gt;<i> &#160; } 
+</I>&gt;<i> },
+</I>&gt;<i> 
+</I>
+That's ok.
+
+
+&gt;<i> Then I added this line to the cfi.c cfi_0002_fixups array:
+</I>&gt;<i> 
+</I>&gt;<i> {CFI_MFR_SST, 0x236d, cfi_fixup_0002_unlock_addresses,
+</I>&gt;<i> &amp;cfi_unlock_addresses[CFI_UNLOCK_555_2AA]},
+</I>&gt;<i> 
+</I>
+Looks ok, but probably this is already the default, so your fixup won't change anything.
+
+
+If the buffer bit is not the problem, it will help to see the debug output ('-d' switch).
+
+Regards,
+Rolf
+
+
+
+__________________________________________________
+Do You Yahoo!?
+Sie sind Spam leid? Yahoo! Mail verf&#252;gt &#252;ber einen herausragenden Schutz gegen Massenmails. 
+<A HREF="http://mail.yahoo.com">http://mail.yahoo.com</A> 
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013887.html">[Openocd-development] Adding support for SST 39VF6401B external	flash
+</A></li>
+	<LI>Next message: <A HREF="013904.html">[Openocd-development] Adding support for SST 39VF6401B external flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13899">[ date ]</a>
+              <a href="thread.html#13899">[ thread ]</a>
+              <a href="subject.html#13899">[ subject ]</a>
+              <a href="author.html#13899">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

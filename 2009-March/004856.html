@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/9] fix feroceon_bulk_write_memory() wrt uploaded code
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/9%5D%20fix%0A%20feroceon_bulk_write_memory%28%29%20wrt%20uploaded%20code&In-Reply-To=%3Calpine.LFD.2.00.0903022238410.5511%40xanadu.home%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004820.html">
+   <LINK REL="Next"  HREF="004857.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/9] fix feroceon_bulk_write_memory() wrt uploaded code</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/9%5D%20fix%0A%20feroceon_bulk_write_memory%28%29%20wrt%20uploaded%20code&In-Reply-To=%3Calpine.LFD.2.00.0903022238410.5511%40xanadu.home%3E"
+       TITLE="[Openocd-development] [PATCH 1/9] fix feroceon_bulk_write_memory() wrt uploaded code">nico at cam.org
+       </A><BR>
+    <I>Tue Mar  3 04:52:22 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004820.html">[Openocd-development] [PATCH 1/9] fix	feroceon_bulk_write_memory() wrt uploaded code
+</A></li>
+        <LI>Next message: <A HREF="004857.html">[Openocd-development] [PATCH 1/9] fix	feroceon_bulk_write_memory() wrt uploaded code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4856">[ date ]</a>
+              <a href="thread.html#4856">[ thread ]</a>
+              <a href="subject.html#4856">[ subject ]</a>
+              <a href="author.html#4856">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, 1 Mar 2009, &#216;yvind Harboe wrote:
+
+&gt;<i> Please verify that all patches were committed correctly.
+</I>
+Yes, thanks.
+
+Now I have another problem with the current code when it comes to reset 
+and halt.  There used to be a time when the halt command didn't imply 
+wait_halt.  now wait_halt is unconditional and this prevents me from 
+reliably halt the system from the very start.  On Feroceon' things go 
+like:
+
+ - assert nSRST
+
+ - set DBGRQ (no change on DBGACK expected)
+
+ - release nSRST
+
+ - only now DBGACK gets set
+
+So for the &quot;reset init&quot; or &quot;reset halt&quot; commands, I'd need something 
+like:
+
+	jtag_reset 0 1
+	halt -1
+	jtag_reset 0 0
+	wait_halt
+
+See patch below.  Any suggestion as to how this should properly be 
+supported?
+
+diff --git a/src/target/board/sheevaplug.cfg b/src/target/board/sheevaplug.cfg
+index e9c6832..4782e29 100644
+--- a/src/target/board/sheevaplug.cfg
++++ b/src/target/board/sheevaplug.cfg
+@@ -17,6 +17,11 @@ nand device orion 0 0xd8000000
+ 
+ proc sheevaplug_init { } {
+ 
++	jtag_reset 0 1
++	halt -1
++	jtag_reset 0 0
++	wait_halt
++
+ 	arm926ejs cp15 0 0 1 0 0x00052078
+ 
+ 	mww 0xD0001400 0x43000C30 #  DDR SDRAM Configuration Register
+diff --git a/src/target/target.c b/src/target/target.c
+index 70660e3..5ab6196 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1757,6 +1757,9 @@ int handle_halt_command(struct command_context_s *cmd_ctx, char *cmd, char **arg
+ 		return retval;
+ 	}
+ 
++	if (argc == 1 &amp;&amp; strcmp(args[0], &quot;-1&quot;) == 0)
++		return ERROR_OK;
++
+ 	return handle_wait_halt_command(cmd_ctx, cmd, args, argc);
+ }
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004820.html">[Openocd-development] [PATCH 1/9] fix	feroceon_bulk_write_memory() wrt uploaded code
+</A></li>
+	<LI>Next message: <A HREF="004857.html">[Openocd-development] [PATCH 1/9] fix	feroceon_bulk_write_memory() wrt uploaded code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4856">[ date ]</a>
+              <a href="thread.html#4856">[ thread ]</a>
+              <a href="subject.html#4856">[ subject ]</a>
+              <a href="author.html#4856">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

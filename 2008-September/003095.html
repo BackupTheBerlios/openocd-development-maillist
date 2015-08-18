@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Target Reset - Rework -
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Target%20Reset%20-%20Rework%20-&In-Reply-To=%3Cc09652430809012343u32fcbbf4r6c6e5cd2b2ff7ab1%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003094.html">
+   <LINK REL="Next"  HREF="003097.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Target Reset - Rework -</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Target%20Reset%20-%20Rework%20-&In-Reply-To=%3Cc09652430809012343u32fcbbf4r6c6e5cd2b2ff7ab1%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Target Reset - Rework -">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Sep  2 08:43:44 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003094.html">[Openocd-development] Target Reset - Rework -
+</A></li>
+        <LI>Next message: <A HREF="003097.html">[Openocd-development] ARM1176 insight gdb debug failed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3095">[ date ]</a>
+              <a href="thread.html#3095">[ thread ]</a>
+              <a href="subject.html#3095">[ subject ]</a>
+              <a href="author.html#3095">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tue, Sep 2, 2008 at 12:45 AM, Duane Ellis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd at duaneellis.com</A>&gt; wrote:
+&gt;<i> duane&gt; [new target process reset stuff]
+</I>&gt;<i>
+</I>&gt;<i> duane&gt; [keep_alive() issues]
+</I>&gt;<i>
+</I>&gt;<i> oyvind&gt;  but I think it makes sense to keep &quot;keepalive&quot; a dirty little
+</I>&gt;<i> openocdsecret for now.
+</I>&gt;<i>
+</I>&gt;<i> So - I need to implement it somewhere so TCL can do the same thing the C
+</I>&gt;<i> code is doing right?
+</I>&gt;<i>
+</I>&gt;<i> Likewise - {timer callbacks below}
+</I>
+
+Hmm... I think you're right in that tcl code must be able to perform
+these keep alive callbacks if the tcl code takes a long time (&gt;1 second)
+without calling back into OpenOCD.
+
+&gt;<i> duane&gt;  [The jtag command - to handle this jtag_init_reset() thing.]
+</I>&gt;<i> oyvind&gt; I worry making &quot;dirty little secrets&quot; available through APIs...
+</I>&gt;<i>
+</I>&gt;<i> So you are ok with the name? Or - like the &quot;arp_&quot; thing - it is an &quot;ugly&quot;
+</I>&gt;<i> problem.
+</I>
+I'm not to fuzzed about names, but I worry a bit about arp_ being a bit to
+obscure and that it would not cause users to think about the functions
+in the right way.
+
+&quot;internal_&quot;, &quot;private_&quot;, &quot;implementation_&quot;, &quot;super_&quot;? Kinda referring to
+that this is used to implement reset rather than to perform a reset.
+
+&gt;<i>
+</I>&gt;<i> So - lets design this new api the right way, now.
+</I>
+Absolutely. I'm not in a hurry here and OpenOCD will be very usable even
+before we're done as we haven't changed anything at the users level.
+
+&gt;<i> It will be more painful later if we get it wrong today.
+</I>&gt;<i> Great video (1hr on the subject)
+</I>&gt;<i>
+</I>&gt;<i>   <A HREF="http://video.google.com/videoplay?docid=-3733345136856180693">http://video.google.com/videoplay?docid=-3733345136856180693</A>
+</I>&gt;<i>
+</I>&gt;<i> duane&gt;  [ &quot;target_call_timer_callbacks_now()&quot; ]
+</I>&gt;<i> Oyvind&gt; Don't expose it. It is a dirtly little secret and tied to keepalive.
+</I>&gt;<i>
+</I>&gt;<i> Hmm. So - I thought the idea was: target_process_reset() - was to be no
+</I>&gt;<i> longer in C - but instead - should be implemented in TCL. If so - what C
+</I>&gt;<i> does today, TCL must do tomorrow.
+</I>
+yup.
+
+&gt;<i> So - what would your suggestion be?
+</I>
+I'm wondering if the atomic pieces that exist today inside
+target_process_reset()
+are the right ones to expose.
+
+For instance jtag_init_reset is precisely the sort of thing that need to be
+reimplemented from scratch to make funny JTAG device chains work.... Here
+there is too little detail exposed by exposing only at the
+jtag_init_reset() level.
+
+I don't think it makes sense to expose target_free_all_working_areas_restore()
+at all.
+
+Perhaps we should write the tcl code for target_process_reset first instead
+of the API first?
+
+The events in reset make sense when the target script only needs to override
+those events and does not need to reimplement the entire target_process_reset().
+
+&gt;<i> Maybe we should let this set and stew for a few days.
+</I>&gt;<i> I don't want to miss a big picture item because I am too close to a single
+</I>&gt;<i> issue.
+</I>&gt;<i>
+</I>&gt;<i> -Duane.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003094.html">[Openocd-development] Target Reset - Rework -
+</A></li>
+	<LI>Next message: <A HREF="003097.html">[Openocd-development] ARM1176 insight gdb debug failed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3095">[ date ]</a>
+              <a href="thread.html#3095">[ thread ]</a>
+              <a href="subject.html#3095">[ subject ]</a>
+              <a href="author.html#3095">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

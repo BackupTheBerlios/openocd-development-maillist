@@ -1,0 +1,385 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] NOR: add optional &quot;flash	erase_address&quot; sector padding
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20NOR%3A%20add%20optional%20%22flash%0A%09erase_address%22%20sector%20padding&In-Reply-To=%3C201001131240.52224.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014167.html">
+   <LINK REL="Next"  HREF="014157.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] NOR: add optional &quot;flash	erase_address&quot; sector padding</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20NOR%3A%20add%20optional%20%22flash%0A%09erase_address%22%20sector%20padding&In-Reply-To=%3C201001131240.52224.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] NOR: add optional &quot;flash	erase_address&quot; sector padding">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Jan 13 21:40:52 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014167.html">[Openocd-development] [PATCH] atmega128: implement EEPROM	flashing
+</A></li>
+        <LI>Next message: <A HREF="014157.html">[Openocd-development] [patch] NOR: add optional &quot;flash	erase_address&quot; sector padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14148">[ date ]</a>
+              <a href="thread.html#14148">[ thread ]</a>
+              <a href="subject.html#14148">[ subject ]</a>
+              <a href="author.html#14148">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add a NOR flash mechanism where erase_address ranges can be padded
+out to sector boundaries, triggering a diagnostic:
+
+  &gt; flash erase_address 0x0001f980 16
+  address range 0x0001f980 .. 0x0001f98f is not sector-aligned
+  Command handler execution failed
+  in procedure 'flash' called at file &quot;command.c&quot;, line 647
+  called at file &quot;command.c&quot;, line 361
+  &gt;
+
+  &gt; flash erase_address pad 0x0001f980 16
+  Adding extra erase range, 0x0001f800 to 0x0001f97f
+  Adding extra erase range, 0x0001f990 to 0x0001fbff
+  erased address 0x0001f980 (length 16) in 0.095975s (0.163 kb/s)
+  &gt;
+
+This addresses what would otherwise be something of a functional
+regression.  An earlier version of the interface had a dangerous
+problem:  it would silently erase data outside the range it was
+told to erase.  Fixing that bug turned up some folk who relied on
+that unsafe behavior.  (The classic problem with interface bugs!)
+
+Now they can get that behavior again.  If they really need it,
+just say &quot;pad&quot;.
+---
+Unless I hear significant objections I'll merge this soonish,
+as a kind of regression fix.   Yeah, the messaging is a bit
+off (above: length is 1024 not 16); that's a pre-existing bug.
+
+ NEWS                    |    4 +-
+ doc/openocd.texi        |    6 ++-
+ src/flash/nor/core.c    |   87 ++++++++++++++++++++++++++++++++++++++--------
+ src/flash/nor/core.h    |    6 ++-
+ src/flash/nor/tcl.c     |   34 +++++++++++++----
+ src/server/gdb_server.c |   16 ++++++--
+ 6 files changed, 125 insertions(+), 28 deletions(-)
+
+--- a/NEWS
++++ b/NEWS
+@@ -50,7 +50,9 @@ Flash Layer:
+ 		- &lt;driver_name&gt;[.N]: reference the driver's Nth bank
+ 	New 'nand verify' command to check bank against an image file.
+ 	The &quot;flash erase_address&quot; command now rejects partial sectors;
+-		previously it would silently erase extra data.
++		previously it would silently erase extra data.  If you
++		want to erase the rest of the first and/or last sectors
++		instead of failing, you must pass an explicit &quot;pad&quot; flag.
+ 	New at91sam9 NAND controller driver.
+ 
+ Board, Target, and Interface Configuration Scripts:
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -3841,8 +3841,12 @@ specifies &quot;to the end of the flash bank&quot;
+ The @var{num} parameter is a value shown by @command{flash banks}.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffn</A> Command {flash erase_address} address length
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {flash erase_address} [@option{pad}] address length
+ Erase sectors starting at @var{address} for @var{length} bytes.
++Unless @option{pad} is specified, @math{address} must begin a
++flash sector, and @math{address + length - 1} must end a sector.
++Specifying @option{pad} erases extra data at the beginning and/or
++end of the specified region, as needed to erase only full sectors.
+ The flash bank to use is inferred from the @var{address}, and
+ the specified length must stay within that bank.
+ As a special case, when @var{length} is zero and @var{address} is
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -287,9 +287,22 @@ int default_flash_blank_check(struct fla
+ 	return ERROR_OK;
+ }
+ 
+-/* erase given flash region, selects proper bank according to target and address */
++/* Manipulate given flash region, selecting the bank according to target
++ * and address.  Maps an address range to a set of sectors, and issues
++ * the callback() on that set ... e.g. to erase or unprotect its members.
++ *
++ * (Note a current bad assumption:  that protection operates on the same
++ * size sectors as erase operations use.)
++ *
++ * The &quot;pad_reason&quot; parameter is a kind of boolean:  when it's NULL, the
++ * range must fit those sectors exactly.  This is clearly safe; it can't
++ * erase data which the caller said to leave alone, for example.  If it's
++ * non-NULL, rather than failing, extra data in the first and/or last
++ * sectors will be added to the range, and that reason string is used when
++ * warning about those additions.
++ */
+ static int flash_iterate_address_range(struct target *target,
+-		uint32_t addr, uint32_t length,
++		char *pad_reason, uint32_t addr, uint32_t length,
+ 		int (*callback)(struct flash_bank *bank, int first, int last))
+ {
+ 	struct flash_bank *c;
+@@ -328,18 +341,53 @@ static int flash_iterate_address_range(s
+ 	for (i = 0; i &lt; c-&gt;num_sectors; i++)
+ 	{
+ 		struct flash_sector *f = c-&gt;sectors + i;
++		uint32_t end = f-&gt;offset + f-&gt;size;
+ 
+ 		/* start only on a sector boundary */
+ 		if (first &lt; 0) {
++			/* scanned past the first sector? */
++			if (addr &lt; f-&gt;offset)
++				break;
++
+ 			/* is this the first sector? */
+ 			if (addr == f-&gt;offset)
+ 				first = i;
+-			else if (addr &lt; f-&gt;offset)
+-				break;
++
++			/* Does this need head-padding?  If so, pad and warn;
++			 * or else force an error.
++			 *
++			 * Such padding can make trouble, since *WE* can't
++			 * ever know if that data was in use.  The warning
++			 * should help users sort out messes later.
++			 */
++			else if (addr &lt; end &amp;&amp; pad_reason) {
++				/* FIXME say how many bytes (e.g. 80 KB) */
++				LOG_WARNING(&quot;Adding extra %s range, &quot;
++						&quot;%#8.8x to %#8.8x&quot;,
++					pad_reason,
++					(unsigned) f-&gt;offset,
++					(unsigned) addr - 1);
++				first = i;
++			} else
++				continue;
+ 		}
+ 
+ 		/* is this (also?) the last sector? */
+-		if (last_addr == f-&gt;offset + f-&gt;size) {
++		if (last_addr == end) {
++			last = i;
++			break;
++		}
++
++		/* Does this need tail-padding?  If so, pad and warn;
++		 * or else force an error.
++		 */
++		if (last_addr &lt; end &amp;&amp; pad_reason) {
++			/* FIXME say how many bytes (e.g. 80 KB) */
++			LOG_WARNING(&quot;Adding extra %s range, &quot;
++					&quot;%#8.8x to %#8.8x&quot;,
++				pad_reason,
++				(unsigned) last_addr,
++				(unsigned) end - 1);
+ 			last = i;
+ 			break;
+ 		}
+@@ -358,18 +406,17 @@ static int flash_iterate_address_range(s
+ 		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+ 	}
+ 
+-	/* The NOR driver may trim this range down, based on
+-	 * whether or not a given sector is already erased.
+-	 *
+-	 * REVISIT should *we* trim it... ?
++	/* The NOR driver may trim this range down, based on what
++	 * sectors are already erased/unprotected.  GDB currently
++	 * blocks such optimizations.
+ 	 */
+ 	return callback(c, first, last);
+ }
+ 
+ int flash_erase_address_range(struct target *target,
+-		uint32_t addr, uint32_t length)
++		bool pad, uint32_t addr, uint32_t length)
+ {
+-	return flash_iterate_address_range(target,
++	return flash_iterate_address_range(target, pad ? &quot;erase&quot; : NULL,
+ 			addr, length, &amp;flash_driver_erase);
+ }
+ 
+@@ -380,7 +427,11 @@ static int flash_driver_unprotect(struct
+ 
+ static int flash_unlock_address_range(struct target *target, uint32_t addr, uint32_t length)
+ {
+-	return flash_iterate_address_range(target,
++	/* By default, pad to sector boundaries ... the real issue here
++	 * is that our (only) caller *permanently* removes protection,
++	 * and doesn't restore it.
++	 */
++	return flash_iterate_address_range(target, &quot;unprotect&quot;,
+ 			addr, length, &amp;flash_driver_unprotect);
+ }
+ 
+@@ -394,6 +445,12 @@ int flash_write_unlock(struct target *ta
+ 	struct flash_bank *c;
+ 	int *padding;
+ 
++	/* REVISIT do_pad should perhaps just be another parameter.
++	 * GDB wouldn't ever need it, since it erases separately.
++	 * But &quot;flash write_image&quot; commands might want that option.
++	 */
++	bool do_pad = false;
++
+ 	section = 0;
+ 	section_offset = 0;
+ 
+@@ -470,7 +527,8 @@ int flash_write_unlock(struct target *ta
+ 			 * In both cases, the extra writes slow things down.
+ 			 */
+ 
+-			/* if we have multiple sections within our image, flash programming could fail due to alignment issues
++			/* if we have multiple sections within our image,
++			 * flash programming could fail due to alignment issues
+ 			 * attempt to rebuild a consecutive buffer for the flash loader */
+ 			pad_bytes = (image-&gt;sections[section_last + 1].base_address) - (run_address + run_size);
+ 			if ((run_address + run_size + pad_bytes) &gt; (c-&gt;base + c-&gt;size))
+@@ -560,7 +618,8 @@ int flash_write_unlock(struct target *ta
+ 			if (erase)
+ 			{
+ 				/* calculate and erase sectors */
+-				retval = flash_erase_address_range(target, run_address, run_size);
++				retval = flash_erase_address_range(target,
++						do_pad, run_address, run_size);
+ 			}
+ 		}
+ 
+--- a/src/flash/nor/core.h
++++ b/src/flash/nor/core.h
+@@ -102,10 +102,14 @@ int flash_init_drivers(struct command_co
+ 
+ /**
+  * Erases @a length bytes in the @a target flash, starting at @a addr.
++ * The range @a addr to @a addr + @a length - 1 must be strictly
++ * sector aligned, unless @a pad is true.  Setting @a pad true extends
++ * the range, at beginning and/or end, if needed for sector alignment.
+  * @returns ERROR_OK if successful; otherwise, an error code.
+  */
+ int flash_erase_address_range(struct target *target,
+-		uint32_t addr, uint32_t length);
++		bool pad, uint32_t addr, uint32_t length);
++
+ /**
+  * Writes @a image into the @a target flash.  The @a written parameter
+  * will contain the
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -203,14 +203,29 @@ COMMAND_HANDLER(handle_flash_erase_addre
+ 	int retval;
+ 	int address;
+ 	int length;
+-
++	bool do_pad = false;
+ 	struct target *target = get_current_target(CMD_CTX);
+ 
+-	if (CMD_ARGC != 2)
++	switch (CMD_ARGC) {
++	case 3:
++		/* Optionally pad out the address range to block/sector
++		 * boundaries.  We can't know if there's data in that part
++		 * of the flash; only do padding if we're told to.
++		 */
++		if (strcmp(&quot;pad&quot;, CMD_ARGV[0]) != 0)
++			return ERROR_COMMAND_SYNTAX_ERROR;
++		do_pad = true;
++		CMD_ARGC--;
++		CMD_ARGV++;
++		/* FALL THROUGH */
++	case 2:
++		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], address);
++		COMMAND_PARSE_NUMBER(int, CMD_ARGV[1], length);
++		break;
++	default:
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
+ 
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], address);
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[1], length);
+ 	if (length &lt;= 0)
+ 	{
+ 		command_print(CMD_CTX, &quot;Length must be &gt;0&quot;);
+@@ -229,7 +244,7 @@ COMMAND_HANDLER(handle_flash_erase_addre
+ 	struct duration bench;
+ 	duration_start(&amp;bench);
+ 
+-	retval = flash_erase_address_range(target, address, length);
++	retval = flash_erase_address_range(target, do_pad, address, length);
+ 
+ 	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+@@ -698,9 +713,12 @@ static const struct command_registration
+ 		.name = &quot;erase_address&quot;,
+ 		.handler = handle_flash_erase_address_command,
+ 		.mode = COMMAND_EXEC,
+-		.usage = &quot;address length&quot;,
+-		.help = &quot;Erase flash blocks starting at address &quot;
+-			&quot;and continuing for length bytes.&quot;,
++		.usage = &quot;['pad'] address length&quot;,
++		.help = &quot;Erase flash sectors starting at address and &quot;
++			&quot;continuing for length bytes.  If 'pad' is specified, &quot;
++			&quot;data outside that range may also be erased: the start &quot;
++			&quot;address may be decreased, and length increased, so &quot;
++			&quot;that all of the first and last sectors are erased.&quot;,
+ 	},
+ 	{
+ 		.name = &quot;fillw&quot;,
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -1928,9 +1928,19 @@ int gdb_v_packet(struct connection *conn
+ 		flash_set_dirty();
+ 
+ 		/* perform any target specific operations before the erase */
+-		target_call_event_callbacks(gdb_service-&gt;target, TARGET_EVENT_GDB_FLASH_ERASE_START);
+-		result = flash_erase_address_range(gdb_service-&gt;target, addr, length);
+-		target_call_event_callbacks(gdb_service-&gt;target, TARGET_EVENT_GDB_FLASH_ERASE_END);
++		target_call_event_callbacks(gdb_service-&gt;target,
++				TARGET_EVENT_GDB_FLASH_ERASE_START);
++
++		/* vFlashErase:addr,length messages require region start and
++		 * end to be &quot;block&quot; aligned ... if padding is ever needed,
++		 * GDB will have become dangerously confused.
++		 */
++		result = flash_erase_address_range(gdb_service-&gt;target,
++				false, addr, length);
++
++		/* perform any target specific operations after the erase */
++		target_call_event_callbacks(gdb_service-&gt;target,
++				TARGET_EVENT_GDB_FLASH_ERASE_END);
+ 
+ 		/* perform erase */
+ 		if (result != ERROR_OK)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014167.html">[Openocd-development] [PATCH] atmega128: implement EEPROM	flashing
+</A></li>
+	<LI>Next message: <A HREF="014157.html">[Openocd-development] [patch] NOR: add optional &quot;flash	erase_address&quot; sector padding
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14148">[ date ]</a>
+              <a href="thread.html#14148">[ thread ]</a>
+              <a href="subject.html#14148">[ subject ]</a>
+              <a href="author.html#14148">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

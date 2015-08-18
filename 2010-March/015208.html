@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] CFI CORE: bug-fix protect single	sector
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20CFI%20CORE%3A%20bug-fix%20protect%20single%0A%09sector&In-Reply-To=%3C201003100936.01497.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015207.html">
+   <LINK REL="Next"  HREF="015277.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] CFI CORE: bug-fix protect single	sector</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20CFI%20CORE%3A%20bug-fix%20protect%20single%0A%09sector&In-Reply-To=%3C201003100936.01497.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH] CFI CORE: bug-fix protect single	sector">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Mar 10 18:36:01 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015207.html">[Openocd-development] [PATCH] CFI CORE: bug-fix protect single	sector
+</A></li>
+        <LI>Next message: <A HREF="015277.html">[Openocd-development] [PATCH] CFI CORE: bug-fix protect single	sector
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15208">[ date ]</a>
+              <a href="thread.html#15208">[ thread ]</a>
+              <a href="subject.html#15208">[ subject ]</a>
+              <a href="author.html#15208">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday 10 March 2010, Antonio Borneo wrote:
+&gt;<i> On Wed, Mar 10, 2010 at 5:26 PM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+</I>
+&gt;<i> &gt; Could you reduce the gratuitous changes which just hide
+</I>&gt;<i> &gt; the content of your patch?  Like shuffling comments,  Such
+</I>&gt;<i> &gt; things just make patches hard to review.
+</I>&gt;<i> Of course, in attachment.
+</I>
+Thanks ... but NAK on this.  You removed the comments
+explaining what the code is doing.  Which makes the code
+be less maintainable.
+
+
+&gt;<i> &gt;&gt; Execution is more linear and without goto statement.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; YOu talk as if a well structured &quot;goto&quot; is a problem in itself.
+</I>&gt;<i> &gt; That's not true ... but if that bothers you, all you had to
+</I>&gt;<i> &gt; do was turn that into a &quot;do { ... } while(updated)&quot; loop.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; (And note that the reason for that additional loop was to handle
+</I>&gt;<i> &gt; changes affecting the core loop criteria ... a quick read
+</I>&gt;<i> &gt; didn't show you still addressing those issues.)
+</I>&gt;<i> In the original code the &quot;for&quot; loop iterates across the whole
+</I>&gt;<i> sectors[] array, while only the &quot;first&quot; and the &quot;last&quot; are really
+</I>&gt;<i> important.
+</I>
+Not true.  For each pass, first and last matter ... but
+when any given pass updates them, the *new* values will
+matter for the next pass.
+
+And if we assume (for discussion) that some needless looping
+is happening ... it's going to be pretty minor:  a fairly
+tight loop, with code and data typially cache-resident.
+
+I could *maybe* see one extra loop ... after the last one that
+update the limits of the range.  (There would be no more passes
+made, as soon as one pass finds nothing to change.)  And the
+cost of such a loop will be small with respect to the I/O cost
+of issuing a request to the flash.
+
+
+&gt;<i> And every time &quot;first&quot; or &quot;last&quot; is changed, the array is scanned again.
+</I>
+Because when the range changes, some sectors that were previously not
+examined might now need to be examined ... the range might need to
+change yet again.
+
+
+&gt;<i> Moreover, with original &quot;for&quot; boundaries, the condition &quot;i == last&quot; is
+</I>&gt;<i> never true inside loop's  body.
+</I>
+True, but beside the point of my comments.  You changed the continuation
+test ... but not the body of the loop, which also tested &quot;last&quot;.
+
+
+&gt;<i> All such issues convinced me that code needs a deep review.
+</I>
+It's one tiny loop; no &quot;deep&quot; review possible.  But as I pointed out,
+your changes weren't well-enough reviewed.
+
+
+&gt;<i> &gt;&gt; Moreover, it splits the first-last interval and should improve performance. 
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I don't follow what you mean by this.  Do you mean it addresses
+</I>&gt;<i> &gt; the REVISIT comment by issuing multiple driver requests if it works
+</I>&gt;<i> &gt; out that there are discontiguous regions?  That's not necessarily
+</I>&gt;<i> &gt; going to be faster... and such a change would have been more clearly
+</I>&gt;<i> &gt; done as a separate patch.
+</I>&gt;<i>
+</I>&gt;<i> Yes, the idea is to include also the REVISIT comment in the final patch.
+</I>&gt;<i> But also remove all the useless iterations on the array
+</I>
+You mean &quot;address&quot; that comment?  If so the patch comment should say
+that's what's going on.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015207.html">[Openocd-development] [PATCH] CFI CORE: bug-fix protect single	sector
+</A></li>
+	<LI>Next message: <A HREF="015277.html">[Openocd-development] [PATCH] CFI CORE: bug-fix protect single	sector
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15208">[ date ]</a>
+              <a href="thread.html#15208">[ thread ]</a>
+              <a href="subject.html#15208">[ subject ]</a>
+              <a href="author.html#15208">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

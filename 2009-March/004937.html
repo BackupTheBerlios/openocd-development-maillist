@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] BeagleBoard - OMAP - &amp; DRSCAN and IRSCAN	issues
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20BeagleBoard%20-%20OMAP%20-%20%26%20DRSCAN%20and%20IRSCAN%0A%09issues&In-Reply-To=%3Ce5e16330903081512kecfe686w35e4522798b30f52%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004941.html">
+   <LINK REL="Next"  HREF="004943.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] BeagleBoard - OMAP - &amp; DRSCAN and IRSCAN	issues</H1>
+    <B>Kees Jongenburger</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20BeagleBoard%20-%20OMAP%20-%20%26%20DRSCAN%20and%20IRSCAN%0A%09issues&In-Reply-To=%3Ce5e16330903081512kecfe686w35e4522798b30f52%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] BeagleBoard - OMAP - &amp; DRSCAN and IRSCAN	issues">kees.jongenburger at gmail.com
+       </A><BR>
+    <I>Sun Mar  8 23:12:10 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004941.html">[Openocd-development] BeagleBoard - OMAP - &amp; DRSCAN and IRSCAN issues
+</A></li>
+        <LI>Next message: <A HREF="004943.html">[Openocd-development] BeagleBoard - OMAP - &amp; DRSCAN and IRSCAN issues
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4937">[ date ]</a>
+              <a href="thread.html#4937">[ thread ]</a>
+              <a href="subject.html#4937">[ subject ]</a>
+              <a href="author.html#4937">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Duane
+
+I spent most time this week-end chasing my failing simple ir/dr scan problem
+<A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-March/004836.html">https://lists.berlios.de/pipermail/openocd-development/2009-March/004836.html</A>
+This message is only visible if you enable IO debugging.
+
+It turns out that if you don't specify an endstate. you get the
+following behviour
+on reset the bypass field of the tap is set to 1
+the irscan is performed and the end state is RESET
+upon drscan the only available tap (the JCR)  is also in bypass.
+It turns out the interface_jtag_add_dr_scan)(int num_fields,
+scan_field_t *fields, tap_state_t state) method
+defines the number of fields as being the number of given fields + the
+number of bypassed taps in the chain.
+and fails to detect that the given tap command is for the device in
+bypass. anyway
+(*last_cmd)-&gt;cmd.scan-&gt;num_fields = num_fields + bypass_devices;
+becomes 2 and openocd crashes. simply specifing a endstate resolved the problem
+
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0000000000452f25 in buf_set_buf (src=0xff000000ff &lt;Address
+0xff000000ff out of bounds&gt;, src_start=&lt;value optimized out&gt;,
+dst=0x2146830 &quot;&quot;, dst_start=32, len=&lt;value optimized out&gt;) at
+binarybuffer.c:153
+153                     if (((src[src_idx/8] &gt;&gt; (src_idx % 8)) &amp; 1) == 1)
+(gdb) bt
+#0  0x0000000000452f25 in buf_set_buf (src=0xff000000ff &lt;Address
+0xff000000ff out of bounds&gt;, src_start=&lt;value optimized out&gt;,
+dst=0x2146830 &quot;&quot;, dst_start=32, len=&lt;value optimized out&gt;) at
+binarybuffer.c:153
+#1  0x000000000044b87e in jtag_build_buffer (cmd=0x216a328,
+buffer=0x7fffb97fcfb0) at jtag.c:1254
+#2  0x000000000045297e in ft2232_execute_queue () at ft2232.c:1449
+#3  0x000000000044ab50 in interface_jtag_execute_queue () at jtag.c:1421
+#4  0x000000000044aba9 in jtag_execute_queue () at jtag.c:1433
+#5  0x000000000044c124 in Jim_Command_drscan (interp=0x2130040,
+argc=4, args=&lt;value optimized out&gt;) at jtag.c:2827
+#6  0x0000000000464712 in Jim_EvalObj (interp=0x2130040,
+scriptObjPtr=0x2149a10) at jim.c:8698
+#7  0x0000000000465782 in Jim_Eval_Named (interp=0x2130040,
+script=&lt;value optimized out&gt;, filename=0x4aa29a &quot;command.c&quot;,
+lineno=456) at jim.c:8891
+#8  0x0000000000454f8a in command_run_line (context=&lt;value optimized
+out&gt;, line=0x215ae6c &quot;drscan omap3530.jrc 32 0x0&quot;) at command.c:456
+#9  0x0000000000470efc in telnet_input (connection=0x21594b0) at
+telnet_server.c:343
+#10 0x00000000004705d6 in server_loop (command_context=0x2130010) at
+server.c:443
+#11 0x0000000000402d4b in openocd_main (argc=1, argv=0x7fffb97fd948)
+at openocd.c:274
+#12 0x00007fc5b0c78466 in __libc_start_main () from /lib/libc.so.6
+#13 0x00000000004029c9 in _start ()
+
+
+Greetings
+
+On Fri, Mar 6, 2009 at 6:01 PM, Duane Ellis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd at duaneellis.com</A>&gt; wrote:
+&gt;<i> Dirk/Kees,
+</I>&gt;<i>
+</I>&gt;<i> On (3/2) I posted a patch that I believe adds the required functionality
+</I>&gt;<i> to openocd = specifically it adds an &quot;endstate&quot; option to the IRSCAN and
+</I>&gt;<i> DRSCAN commands.
+</I>&gt;<i>
+</I>&gt;<i> Specifically to address this comment by Dirk:
+</I>&gt;<i>
+</I>&gt;<i> Dirk Behme&gt; In [1] Rick proposed
+</I>&gt;<i> Dirk Behme&gt; &quot;... that the C function for the irscan and drscan
+</I>&gt;<i> Dirk Behme&gt; commands needs to look for another argument
+</I>&gt;<i> Dirk Behme&gt; (namely the end state) and add a call to
+</I>&gt;<i> Dirk Behme&gt; jtag_set_end_state. &#160;This might also be
+</I>&gt;<i> Dirk Behme&gt; handled already with a 'end_state' command. &quot;
+</I>&gt;<i>
+</I>&gt;<i> I never heard or saw a reply about this post. &#160; Perhaps my post got lost
+</I>&gt;<i> in the pile
+</I>&gt;<i>
+</I>&gt;<i> Is this what you are looking for? &#160;If not - please let me know.
+</I>&gt;<i>
+</I>&gt;<i> -Duane.
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004941.html">[Openocd-development] BeagleBoard - OMAP - &amp; DRSCAN and IRSCAN issues
+</A></li>
+	<LI>Next message: <A HREF="004943.html">[Openocd-development] BeagleBoard - OMAP - &amp; DRSCAN and IRSCAN issues
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4937">[ date ]</a>
+              <a href="thread.html#4937">[ thread ]</a>
+              <a href="subject.html#4937">[ subject ]</a>
+              <a href="author.html#4937">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

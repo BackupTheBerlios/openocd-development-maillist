@@ -1,0 +1,281 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 10/12] jtag: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2010/12%5D%20jtag%3A%20use%20register_commands%28%29&In-Reply-To=%3C1258832075-17796-11-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012669.html">
+   <LINK REL="Next"  HREF="012666.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 10/12] jtag: use register_commands()</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2010/12%5D%20jtag%3A%20use%20register_commands%28%29&In-Reply-To=%3C1258832075-17796-11-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 10/12] jtag: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Nov 21 20:34:33 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012669.html">[Openocd-development] [PATCH 09/12] presto: use register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012666.html">[Openocd-development] [PATCH 11/12] vsllink: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12667">[ date ]</a>
+              <a href="thread.html#12667">[ thread ]</a>
+              <a href="subject.html#12667">[ subject ]</a>
+              <a href="author.html#12667">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Use register commands with command registration array.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/jtag/tcl.c |  187 ++++++++++++++++++++++++++++++++++++--------------------
+ 1 files changed, 120 insertions(+), 67 deletions(-)
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index bd672b6..1c80245 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1413,66 +1413,128 @@ COMMAND_HANDLER(handle_tms_sequence_command)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration jtag_command_handlers[] = {
++		{
++			.name = &quot;interface&quot;,
++			.handler = &amp;handle_interface_command,
++			.mode = COMMAND_CONFIG,
++			.help = &quot;select a JTAG interface&quot;,
++			.usage = &quot;&lt;driver_name&gt;&quot;,
++		},
++		{
++			.name = &quot;interface_list&quot;,
++			.handler = &amp;handle_interface_list_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;list all built-in interfaces&quot;,
++		},
++		{
++			.name = &quot;jtag_khz&quot;,
++			.handler = &amp;handle_jtag_khz_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;set maximum jtag speed (if supported)&quot;,
++			.usage = &quot;&lt;khz:0=rtck&gt;&quot;,
++		},
++		{
++			.name = &quot;jtag_rclk&quot;,
++			.handler = &amp;handle_jtag_rclk_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;set JTAG speed to RCLK or use fallback speed&quot;,
++			.usage = &quot;&lt;fallback_speed_khz&gt;&quot;,
++		},
++		{
++			.name = &quot;reset_config&quot;,
++			.handler = &amp;handle_reset_config_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;configure JTAG reset behavior&quot;,
++			.usage = &quot;[none|trst_only|srst_only|trst_and_srst] &quot;
++				&quot;[srst_pulls_trst|trst_pulls_srst|combined|separate] &quot;
++				&quot;[srst_gates_jtag|srst_nogate] &quot;
++				&quot;[trst_push_pull|trst_open_drain] &quot;
++				&quot;[srst_push_pull|srst_open_drain]&quot;,
++		},
++		{
++			.name = &quot;jtag_nsrst_delay&quot;,
++			.handler = &amp;handle_jtag_nsrst_delay_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;- delay after deasserting srst in ms&quot;,
++			.usage = &quot;&lt;ms&gt;&quot;,
++		},
++		{
++			.name = &quot;jtag_ntrst_delay&quot;,
++			.handler = &amp;handle_jtag_ntrst_delay_command,
++			.mode = COMMAND_ANY,
++			.help = &quot; delay after deasserting trst in ms&quot;,
++			.usage = &quot;&lt;ms&gt;&quot;
++		},
++		{
++			.name = &quot;jtag_nsrst_assert_width&quot;,
++			.handler = &amp;handle_jtag_nsrst_assert_width_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;- delay after asserting srst in ms&quot;,
++			.usage = &quot;&lt;ms&gt;&quot;
++		},
++		{
++			.name = &quot;jtag_ntrst_assert_width&quot;,
++			.handler = &amp;handle_jtag_ntrst_assert_width_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;- delay after asserting trst in ms&quot;,
++			.usage = &quot;&lt;ms&gt;&quot;
++		},
++		{
++			.name = &quot;scan_chain&quot;,
++			.handler = &amp;handle_scan_chain_command,
++			.mode = COMMAND_EXEC,
++			.help = &quot;print current scan chain configuration&quot;,
++		},
++		{
++			.name = &quot;jtag_reset&quot;,
++			.handler = &amp;handle_jtag_reset_command,
++			.mode = COMMAND_EXEC,
++			.help = &quot;toggle reset lines&quot;,
++			.usage = &quot;&lt;trst&gt; &lt;srst&gt;&quot;,
++		},
++		{
++			.name = &quot;runtest&quot;,
++			.handler = &amp;handle_runtest_command,
++			.mode = COMMAND_EXEC,
++			.help = &quot;move to Run-Test/Idle, and execute &lt;num_cycles&gt;&quot;,
++			.usage = &quot;&lt;num_cycles&gt;&quot;
++		},
++		{
++			.name = &quot;irscan&quot;,
++			.handler = &amp;handle_irscan_command,
++			.mode = COMMAND_EXEC,
++			.help = &quot;execute IR scan&quot;,
++			.usage = &quot;&lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;,
++		},
++		{
++			.name = &quot;verify_ircapture&quot;,
++			.handler = &amp;handle_verify_ircapture_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;verify value captured during Capture-IR&quot;,
++			.usage = &quot;&lt;enable | disable&gt;&quot;,
++		},
++		{
++			.name = &quot;verify_jtag&quot;,
++			.handler = &amp;handle_verify_jtag_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;verify value capture&quot;,
++			.usage = &quot;&lt;enable | disable&gt;&quot;,
++		},
++		{
++			.name = &quot;tms_sequence&quot;,
++			.handler = &amp;handle_tms_sequence_command,
++			.mode = COMMAND_ANY,
++			.help = &quot;choose short(default) or long tms_sequence&quot;,
++			.usage = &quot;&lt;short | long&gt;&quot;,
++		},
++	};
++
+ int jtag_register_commands(struct command_context *cmd_ctx)
+ {
+ 	register_jim(cmd_ctx, &quot;jtag&quot;, jim_jtag_command,
+ 			&quot;perform jtag tap actions&quot;);
+ 
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;interface&quot;,
+-			handle_interface_command, COMMAND_CONFIG,
+-			&quot;try to configure interface&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;interface_list&quot;,
+-			&amp;handle_interface_list_command, COMMAND_ANY,
+-			&quot;list all built-in interfaces&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_khz&quot;,
+-			handle_jtag_khz_command, COMMAND_ANY,
+-			&quot;set maximum jtag speed (if supported); &quot;
+-			&quot;parameter is maximum khz, or 0 for adaptive clocking (RTCK).&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_rclk&quot;,
+-			handle_jtag_rclk_command, COMMAND_ANY,
+-			&quot;fallback_speed_khz - set JTAG speed to RCLK or use fallback speed&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;reset_config&quot;,
+-			handle_reset_config_command, COMMAND_ANY,
+-			&quot;reset_config &quot;
+-			&quot;[none|trst_only|srst_only|trst_and_srst] &quot;
+-			&quot;[srst_pulls_trst|trst_pulls_srst|combined|separate] &quot;
+-			&quot;[srst_gates_jtag|srst_nogate] &quot;
+-			&quot;[trst_push_pull|trst_open_drain] &quot;
+-			&quot;[srst_push_pull|srst_open_drain]&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_nsrst_delay&quot;,
+-			handle_jtag_nsrst_delay_command, COMMAND_ANY,
+-			&quot;jtag_nsrst_delay &lt;ms&gt; &quot;
+-			&quot;- delay after deasserting srst in ms&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;,
+-			handle_jtag_ntrst_delay_command, COMMAND_ANY,
+-			&quot;jtag_ntrst_delay &lt;ms&gt; &quot;
+-			&quot;- delay after deasserting trst in ms&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_nsrst_assert_width&quot;,
+-			handle_jtag_nsrst_assert_width_command, COMMAND_ANY,
+-			&quot;jtag_nsrst_assert_width &lt;ms&gt; &quot;
+-			&quot;- delay after asserting srst in ms&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_ntrst_assert_width&quot;,
+-			handle_jtag_ntrst_assert_width_command, COMMAND_ANY,
+-			&quot;jtag_ntrst_assert_width &lt;ms&gt; &quot;
+-			&quot;- delay after asserting trst in ms&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;scan_chain&quot;,
+-			handle_scan_chain_command, COMMAND_EXEC,
+-			&quot;print current scan chain configuration&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_reset&quot;,
+-			handle_jtag_reset_command, COMMAND_EXEC,
+-			&quot;toggle reset lines &lt;trst&gt; &lt;srst&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;runtest&quot;,
+-			handle_runtest_command, COMMAND_EXEC,
+-			&quot;move to Run-Test/Idle, and execute &lt;num_cycles&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;irscan&quot;,
+-			handle_irscan_command, COMMAND_EXEC,
+-			&quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
+-
+ 	register_jim(cmd_ctx, &quot;drscan&quot;, Jim_Command_drscan,
+ 			&quot;execute DR scan &lt;device&gt; &quot;
+ 			&quot;&lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
+@@ -1484,18 +1546,9 @@ int jtag_register_commands(struct command_context *cmd_ctx)
+ 			&quot;&lt;state1&gt;,&lt;state2&gt;,&lt;state3&gt;... &quot;
+ 			&quot;- move JTAG to state1 then to state2, state3, etc.&quot;);
+ 
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;verify_ircapture&quot;,
+-			handle_verify_ircapture_command, COMMAND_ANY,
+-			&quot;verify value captured during Capture-IR &lt;enable | disable&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;verify_jtag&quot;,
+-			handle_verify_jtag_command, COMMAND_ANY,
+-			&quot;verify value capture &lt;enable | disable&gt;&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;tms_sequence&quot;,
+-			handle_tms_sequence_command, COMMAND_ANY,
+-			&quot;choose short(default) or long tms_sequence &lt;short | long&gt;&quot;);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL,
++			ARRAY_SIZE(jtag_command_handlers),
++			jtag_command_handlers);
+ }
+ 
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012669.html">[Openocd-development] [PATCH 09/12] presto: use register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012666.html">[Openocd-development] [PATCH 11/12] vsllink: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12667">[ date ]</a>
+              <a href="thread.html#12667">[ thread ]</a>
+              <a href="subject.html#12667">[ subject ]</a>
+              <a href="author.html#12667">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

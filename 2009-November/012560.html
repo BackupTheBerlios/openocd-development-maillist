@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Good Way to Determine Block Size
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Good%20Way%20to%20Determine%20Block%20Size&In-Reply-To=%3C200911190040.42260.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012559.html">
+   <LINK REL="Next"  HREF="012570.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Good Way to Determine Block Size</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Good%20Way%20to%20Determine%20Block%20Size&In-Reply-To=%3C200911190040.42260.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Good Way to Determine Block Size">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov 19 09:40:42 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012559.html">[Openocd-development] Good Way to Determine Block Size
+</A></li>
+        <LI>Next message: <A HREF="012570.html">[Openocd-development] Good Way to Determine Block Size
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12560">[ date ]</a>
+              <a href="thread.html#12560">[ thread ]</a>
+              <a href="subject.html#12560">[ subject ]</a>
+              <a href="author.html#12560">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday 18 November 2009, Dean Glazeski wrote:
+&gt;<i> The thing is that the first time I tried to do this:
+</I>&gt;<i> 
+</I>&gt;<i> nand erase 0 0 2048
+</I>&gt;<i> 
+</I>&gt;<i> I got presented with command usage and had no idea why it was failing.  I
+</I>&gt;<i> looked into it a bit more and found out what the block size was.  For my
+</I>&gt;<i> NAND chip it is 128KB.  Now, when I tried again with
+</I>&gt;<i> 
+</I>&gt;<i> nand erase 0 0 0x20000
+</I>&gt;<i> 
+</I>&gt;<i> It failed in the same way.  Looking at how the NAND struct was used, the
+</I>&gt;<i> erase block size is defined as 0.  There is a check in the nand erase
+</I>&gt;<i> command handler that checks for length % nand-&gt;erase_size != 0 and this
+</I>&gt;<i> fails for my chip when I specify length.
+</I>
+I thought that was filled in via &quot;nand probe&quot;.  Did you probe?
+Or did probing not collect that data?  I certainly see code in
+the probe routine to fill in erase_size...
+
+You're not allowed to acess any kind of flash chip before it's
+been probed.  Normally, a &quot;reset-init&quot; event handler probes.
+
+
+&gt;<i> The issue is that the erase block size is wrong and this could be retrieved
+</I>&gt;<i> from the Samsung NAND chip.  I'm wondering if it would be good to parse this
+</I>&gt;<i> field out when probed or to just set the value in the device_id array as
+</I>&gt;<i> opposed to leaving it as 0.
+</I>&gt;<i> 
+</I>&gt;<i> Long story short, nand probe works.  I'm just not sure if specifying 128k
+</I>&gt;<i> erase blocks for all 512MiB, 8-bit NAND chips is correct.
+</I>
+I'm still not following.  If it works, what's the issue??
+
+ 
+&gt;<i> This leads me to another question.  Should there be more descriptive error
+</I>&gt;<i> output?  It's sort of confusing to get presented with the command syntax
+</I>&gt;<i> when the syntax is correct, but the underlying command handler errors over
+</I>&gt;<i> an invalid parameter value.
+</I>
+Sounds like some bad diagnostics, on the order of &quot;you didn't
+probe this yet&quot;.
+
+- Dave
+
+ 
+&gt;<i> // Dean Glazeski
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> On Thu, Nov 19, 2009 at 1:04 AM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+</I>&gt;<i> 
+</I>&gt;<i> &gt; On Wednesday 18 November 2009, Dean Glazeski wrote:
+</I>&gt;<i> &gt; &gt; Hi all,
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt; &gt; Is there a good way for me to determine the erase block size for a NAND
+</I>&gt;<i> &gt; &gt; chip?  Right now, the device ID array in nand.c has 0 as the erase block
+</I>&gt;<i> &gt; &gt; size for my NAND device.  I believe this should be 128k.  Is this not
+</I>&gt;<i> &gt; always
+</I>&gt;<i> &gt; &gt; the case for 512MiB, 8-bit NAND devices?  Is this just a case of no one
+</I>&gt;<i> &gt; has
+</I>&gt;<i> &gt; &gt; filled in the table?  I know my Samsung chip gives out additional data
+</I>&gt;<i> &gt; bytes
+</I>&gt;<i> &gt; &gt; in addition to manufacturer and device ID that specify block and page
+</I>&gt;<i> &gt; &gt; sizes.  Can this be leveraged to dynamically populate the NAND devices?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I'm not following.  Not that I've done this with very many NAND chips ...
+</I>&gt;<i> &gt; but &quot;nand probe &lt;bank#&gt;&quot; has so far been good at finding out block sizes.
+</I>&gt;<i> &gt; Including 1GiB parts filled out like the 512Mib ones...
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Are you saying that &quot;nand probe&quot; fails for your chip?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Or just wondering if the table should be filled in differently?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;
+</I>&gt;<i> 
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012559.html">[Openocd-development] Good Way to Determine Block Size
+</A></li>
+	<LI>Next message: <A HREF="012570.html">[Openocd-development] Good Way to Determine Block Size
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12560">[ date ]</a>
+              <a href="thread.html#12560">[ thread ]</a>
+              <a href="subject.html#12560">[ subject ]</a>
+              <a href="author.html#12560">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

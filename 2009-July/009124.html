@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] amtjtagaccel reports incorrect chip ID's
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20amtjtagaccel%20reports%20incorrect%20chip%20ID%27s&In-Reply-To=%3C4A508DC9.7070809%40postema.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009123.html">
+   <LINK REL="Next"  HREF="009129.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] amtjtagaccel reports incorrect chip ID's</H1>
+    <B>Ferdinand Postema</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20amtjtagaccel%20reports%20incorrect%20chip%20ID%27s&In-Reply-To=%3C4A508DC9.7070809%40postema.eu%3E"
+       TITLE="[Openocd-development] amtjtagaccel reports incorrect chip ID's">ferdinand at postema.eu
+       </A><BR>
+    <I>Sun Jul  5 13:26:01 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009123.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+        <LI>Next message: <A HREF="009129.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9124">[ date ]</a>
+              <a href="thread.html#9124">[ thread ]</a>
+              <a href="subject.html#9124">[ subject ]</a>
+              <a href="author.html#9124">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Sorry, I was not aware of a standard state transistion table. I was 
+trying to get my interface working properly and I only looked at the 
+code of the amt_jtagaccel interface. I also considdered the minimal 
+change. That will also fix the problem.
+
+The reason why this interface has its own state transition table is 
+because the jtagaccel interface has two command to initiate a TMS scan 
+(I think). One TMS scan command always sends 5 bits. The other command 
+can send 1 to 4 bits. The programmer made his own state transition table 
+so that he only has to use the command to send out 5 (or 10 bits).
+
+I think, it is a good thing to change the code to use the standard 
+table. I was already planning to change it, because I didn't like the 
+way this was made. Now that I am aware of a standard state transition 
+table, it is an extra reason to do it.
+
+
+Peter Denison schreef:
+&gt;<i> On Sat, 4 Jul 2009, Ferdinand Postema wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> I understand that you do not want to make any changes so close to the
+</I>&gt;&gt;<i> release of a new version. No problem.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I made 3 changes in the table amt_jtagaccel_tap_move. This table defines
+</I>&gt;&gt;<i> how to move from one state to the other. It consists of two bytes per
+</I>&gt;&gt;<i> state move. The five LSB of the first byte will be shifted out to the
+</I>&gt;&gt;<i> right to the TMS-line. If you need an other 5 bytes to reach the desired
+</I>&gt;&gt;<i> state, you have to OR the first word with 0x80 and supply the next 5
+</I>&gt;&gt;<i> bits in the second word (5 LSB).
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The first change is the neccesary one to correct the problem. This is
+</I>&gt;&gt;<i> the sequence to go from state RESET to state DRSHIFT. The value of these
+</I>&gt;&gt;<i> 2 bytes were 0x8a and 0x04. This means that the bitstream to do this
+</I>&gt;&gt;<i> transition is 0b 00100 01010 (send LSB first). This will bring you from
+</I>&gt;&gt;<i> the reset state to the shift state, but you enter the shift-state twice,
+</I>&gt;&gt;<i> which explains why the ID-CODE that will be read next is already shifted
+</I>&gt;&gt;<i> 1 bit. I corrected this to 0x05 and 0x00. This will send te bitstream
+</I>&gt;&gt;<i> 0b00101 (send LSB first). This will bring you from the RESET state to
+</I>&gt;&gt;<i> the DRSHIFT state more directly and without entering the DRSHIFT state
+</I>&gt;&gt;<i> twice.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> After checking the whole table, I found two other transitions that were
+</I>&gt;&gt;<i> correct, but could be optimized (5 bits in stead of 10 bits).
+</I>&gt;&gt;<i> Summary off all changes:
+</I>&gt;&gt;<i>    From   To       Old values  Old Bitstream  New values  New
+</I>&gt;&gt;<i> Bitstream  Remark
+</I>&gt;&gt;<i>    ----   -------  ----------  -------------  ----------
+</I>&gt;&gt;<i> -------------  ------
+</I>&gt;&gt;<i>    RESET  DRSHIFT  0x8a 0x04   0b00100 01010  0x05 0x00
+</I>&gt;&gt;<i> 0b00101        To Correct the error (and optimization)
+</I>&gt;&gt;<i>    IDLE   DRSHIFT  0x85 0x08   0b01000 00101  0x04 0x00   0b00100
+</I>&gt;&gt;<i>  Optimization
+</I>&gt;&gt;<i>    IDLE   IRSHIFT  0x8b 0x08   0b01000 01011  0x06 0x00
+</I>&gt;&gt;<i> 0b00110        Optimization
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Hopefully, this explanation helps.
+</I>&gt;<i>
+</I>&gt;<i> Good explanation.
+</I>&gt;<i>
+</I>&gt;<i> Duane Ellis wrote:
+</I>&gt;&gt;<i> (Forgive me, I have not followed your list of changes and so forth and I
+</I>&gt;&gt;<i> am entering the conversation late).
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> One thing we *DO*NOT* want - is one &quot;dongle&quot; - (amt-jtagaccel) to act 
+</I>&gt;&gt;<i> differently then some other tap because dongle (A) uses sequence (A), 
+</I>&gt;&gt;<i> and another dongle (B) uses sequence (B) for the *exact*same*thing*.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Please don't mis-understand 'fixing a bug is a correct and good 
+</I>&gt;&gt;<i> thing' however optimizing things can introduce bugs.
+</I>&gt;<i>
+</I>&gt;<i> The minimal change that fixes the bug is to just change the RESET to 
+</I>&gt;<i> DRSHIFT transition without optimising anything, just changing 0x8a, 
+</I>&gt;<i> 0x04 to 0x8a, 0x08. That way the same state transitions are followed, 
+</I>&gt;<i> and no optimisation is done. At a later date, perhaps we could look at 
+</I>&gt;<i> why this adapter has its own jtag state table...
+</I>&gt;<i>
+</I>&gt;<i> Index: src/jtag/amt_jtagaccel.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/jtag/amt_jtagaccel.c    (revision 2461)
+</I>&gt;<i> +++ src/jtag/amt_jtagaccel.c    (working copy)
+</I>&gt;<i> @@ -92,7 +92,7 @@
+</I>&gt;<i>  static uint8_t amt_jtagaccel_tap_move[6][6][2] =
+</I>&gt;<i>  {
+</I>&gt;<i>      /*       RESET         IDLE        DRSHIFT       DRPAUSE       
+</I>&gt;<i> IRSHIFT       IRPAUSE             */
+</I>&gt;<i> -    {{0x1f, 0x00}, {0x0f, 0x00}, {0x8a, 0x04}, {0x0a, 0x00}, {0x06, 
+</I>&gt;<i> 0x00}, {0x96, 0x00}},    /* RESET */
+</I>&gt;<i> +    {{0x1f, 0x00}, {0x0f, 0x00}, {0x8a, 0x08}, {0x0a, 0x00}, {0x06, 
+</I>&gt;<i> 0x00}, {0x96, 0x00}},    /* RESET */
+</I>&gt;<i>     {{0x1f, 0x00}, {0x00, 0x00}, {0x85, 0x08}, {0x05, 0x00}, {0x8b, 
+</I>&gt;<i> 0x08}, {0x0b, 0x00}},    /* IDLE */
+</I>&gt;<i>      {{0x1f, 0x00}, {0x0d, 0x00}, {0x00, 0x00}, {0x01, 0x00}, {0x8f, 
+</I>&gt;<i> 0x09}, {0x8f, 0x01}},    /* DRSHIFT  */
+</I>&gt;<i>      {{0x1f, 0x00}, {0x0c, 0x00}, {0x08, 0x00}, {0x00, 0x00}, {0x8f, 
+</I>&gt;<i> 0x09}, {0x8f, 0x01}},    /* DRPAUSE  */
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009123.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+	<LI>Next message: <A HREF="009129.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9124">[ date ]</a>
+              <a href="thread.html#9124">[ thread ]</a>
+              <a href="subject.html#9124">[ subject ]</a>
+              <a href="author.html#9124">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Add minimalist Cortex A8 file
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20minimalist%20Cortex%20A8%20file&In-Reply-To=%3C4A006965.4070303%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006102.html">
+   <LINK REL="Next"  HREF="006105.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Add minimalist Cortex A8 file</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20minimalist%20Cortex%20A8%20file&In-Reply-To=%3C4A006965.4070303%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] [PATCH] Add minimalist Cortex A8 file">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Tue May  5 18:29:25 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006102.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+        <LI>Next message: <A HREF="006105.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6103">[ date ]</a>
+              <a href="thread.html#6103">[ thread ]</a>
+              <a href="subject.html#6103">[ subject ]</a>
+              <a href="author.html#6103">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Good observations, 
+
+- The error reporting and handling for memory read/write errors is 
+incomplete, this ia general problem, well know but it only occurs when 
+things are broken anyway.
+
+- The cortex-a 8 code is  incomplete, we know that,  you have found the 
+&quot;missing target_examine&quot; function where ahbap_debugport_init should be 
+called.
+
+Regards,
+Magnus
+
+Strontium wrote:
+&gt;<i> Ok,
+</I>&gt;<i>
+</I>&gt;<i> I am trying to make the files described below.  And have gotten  along 
+</I>&gt;<i> fine, but have found the following problem.
+</I>&gt;<i>
+</I>&gt;<i> The first time my script executes after a reset of the beagle:
+</I>&gt;<i>
+</I>&gt;<i> dap apsel 1
+</I>&gt;<i>
+</I>&gt;<i> openocd halts with an error, thus: (at -d 3)
+</I>&gt;<i>
+</I>&gt;<i> Fails:
+</I>&gt;<i>
+</I>&gt;<i> Debug: 166 1139 arm_adi_v5.c:242 swjdp_transaction_endcheck(): swjdp: 
+</I>&gt;<i> CTRL/STAT error 0x20
+</I>&gt;<i> Debug: 167 1139 arm_adi_v5.c:951 ahbap_debugport_init(): Debug: 168 
+</I>&gt;<i> 1146 arm_adi_v5.c:996 ahbap_debugport_init(): AHB-AP ID Register 
+</I>&gt;<i> 0x4770002, Debug ROM Address 0x80000000
+</I>&gt;<i> User : 169 1146 command.c:383 command_print(): ap 1 selected, 
+</I>&gt;<i> identification register 0x00000000
+</I>&gt;<i> Debug: 170 1146 command.c:427 run_command(): Command failed with error 
+</I>&gt;<i> code -107
+</I>&gt;<i>
+</I>&gt;<i> The second time I execute:
+</I>&gt;<i>
+</I>&gt;<i> dap apsel 1
+</I>&gt;<i>
+</I>&gt;<i> it works, thus (also at - d 3):
+</I>&gt;<i>
+</I>&gt;<i> Works:
+</I>&gt;<i>
+</I>&gt;<i> Debug: 163 1134 command.c:91 script_command(): script_command - apsel
+</I>&gt;<i> Debug: 164 1134 command.c:108 script_command(): script_command - 
+</I>&gt;<i> apsel, argv[0]=ocd_dap_apsel
+</I>&gt;<i> Debug: 165 1134 command.c:108 script_command(): script_command - 
+</I>&gt;<i> apsel, argv[1]=1
+</I>&gt;<i> User : 166 1139 command.c:383 command_print(): ap 1 selected, 
+</I>&gt;<i> identification register 0x04770002
+</I>&gt;<i>
+</I>&gt;<i> I have tracked the fault to the processing that follows (lines 239 to 
+</I>&gt;<i> 247 of arm_adi_v5.c:
+</I>&gt;<i>
+</I>&gt;<i>    /* Check for STICKYERR and STICKYORUN */
+</I>&gt;<i>    if (ctrlstat &amp; (SSTICKYORUN | SSTICKYERR))
+</I>&gt;<i>    {
+</I>&gt;<i>        LOG_DEBUG(&quot;swjdp: CTRL/STAT error 0x%x&quot;, ctrlstat);
+</I>&gt;<i>        /* Check power to debug regions */
+</I>&gt;<i>        if ((ctrlstat &amp; 0xf0000000) != 0xf0000000)
+</I>&gt;<i>        {
+</I>&gt;<i>             ahbap_debugport_init(swjdp);
+</I>&gt;<i>
+</I>&gt;<i> That is the path it executes.  If I change this code by simply 
+</I>&gt;<i> returning the status of the ahbap_debugport_init(... command, openocd 
+</I>&gt;<i> doesnt halt.  but it prints the following (which is clearly still wrong):
+</I>&gt;<i>
+</I>&gt;<i> Debug: 166 1134 arm_adi_v5.c:242 swjdp_transaction_endcheck(): swjdp: 
+</I>&gt;<i> CTRL/STAT error 0x20
+</I>&gt;<i> Debug: 167 1134 arm_adi_v5.c:951 ahbap_debugport_init(): Debug: 168 
+</I>&gt;<i> 1143 arm_adi_v5.c:996 ahbap_debugport_init(): AHB-AP ID Register 
+</I>&gt;<i> 0x4770002, Debug ROM Address 0x80000000
+</I>&gt;<i> User : 169 1143 command.c:383 command_print(): ap 1 selected, 
+</I>&gt;<i> identification register 0x00000000
+</I>&gt;<i>
+</I>&gt;<i> I then immediately execute dap apsel 1 again, which returns with the 
+</I>&gt;<i> expected result
+</I>&gt;<i>
+</I>&gt;<i> Debug: 177 2143 command.c:91 script_command(): script_command - apsel
+</I>&gt;<i> Debug: 178 2143 command.c:108 script_command(): script_command - 
+</I>&gt;<i> apsel, argv[0]=ocd_dap_apsel
+</I>&gt;<i> Debug: 179 2143 command.c:108 script_command(): script_command - 
+</I>&gt;<i> apsel, argv[1]=1
+</I>&gt;<i> User : 180 2150 command.c:383 command_print(): ap 1 selected, 
+</I>&gt;<i> identification register 0x04770002
+</I>&gt;<i>
+</I>&gt;<i> So it would appear that the ahbap_debugport_init function is working 
+</I>&gt;<i> correctly, its just that its results do not get out, so that dap apsel 
+</I>&gt;<i> 1 reports a correct result, the first time it is called.
+</I>&gt;<i>
+</I>&gt;<i> any ideas?
+</I>&gt;<i>
+</I>&gt;<i> Attached are my config script and tcl script for reference
+</I>&gt;<i>
+</I>&gt;<i> Strontium
+</I>&gt;<i>
+</I>&gt;<i> Magnus Lundin wrote:
+</I>&gt;&gt;<i> Dirk Behme wrote:
+</I>&gt;&gt;<i>  
+</I>&gt;&gt;&gt;<i> Btw.: Is there an option or a possibility to run a script when I 
+</I>&gt;&gt;&gt;<i> connect e.g. by telnet?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> I'm a little tired to always type the commands
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> jtag tapenable omap3.cpu
+</I>&gt;&gt;&gt;<i> target create omap3.cpu cortex_a8 -endian little -chain-position 
+</I>&gt;&gt;&gt;<i> omap3.cpu
+</I>&gt;&gt;&gt;<i> dap apsel 1
+</I>&gt;&gt;&gt;<i> omap3.cpu mww 0x54011FB0 0xC5ACCE55 4
+</I>&gt;&gt;&gt;<i> omap3.cpu mdw 0x54011314
+</I>&gt;&gt;&gt;<i> omap3.cpu mdw 0x54011314
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> manually.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>     
+</I>&gt;&gt;<i> Yes, we will put this in the target support but for now I suggest to 
+</I>&gt;&gt;<i> use a Tcl script.
+</I>&gt;&gt;<i> [ This is  true, but not tested ]
+</I>&gt;&gt;<i> - create a file   omap.tcl
+</I>&gt;&gt;<i> - put  &quot;source [ &lt;path.../&gt;omap.tcl&quot; in your cfg file
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Now define some handy procedures in the omap.tcl file:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> proc dbginit { } {
+</I>&gt;&gt;<i>      dap apsel 1
+</I>&gt;&gt;<i>      omap3.cpu mww 0x54011FB0 0xC5ACCE55 4
+</I>&gt;&gt;<i>      omap3.cpu mdw 0x54011314
+</I>&gt;&gt;<i>      omap3.cpu mdw 0x54011314
+</I>&gt;&gt;<i> }
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Now just giving the command  dbginit should do the trick.
+</I>&gt;&gt;<i> If you edit the script you can rerun the source command without 
+</I>&gt;&gt;<i> restarting openocd
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Then we can collect Tcl procedures for different debug activities 
+</I>&gt;&gt;<i> before we code into the C, we can actually test a large part of the 
+</I>&gt;&gt;<i> A8 and OMAP support just with tcl scripts.
+</I>&gt;&gt;<i>  
+</I>&gt;&gt;<i> Regards,
+</I>&gt;&gt;<i> Magnus
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   
+</I>&gt;<i>
+</I>&gt;<i> ------------------------------------------------------------------------
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006102.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+	<LI>Next message: <A HREF="006105.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6103">[ date ]</a>
+              <a href="thread.html#6103">[ thread ]</a>
+              <a href="subject.html#6103">[ subject ]</a>
+              <a href="author.html#6103">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

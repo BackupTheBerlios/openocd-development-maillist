@@ -1,0 +1,362 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc 2/2] ARM11:  ETM support,	use &quot;arm&quot; base type
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%202/2%5D%20ARM11%3A%20%20ETM%20support%2C%0A%09use%20%22arm%22%20base%20type&In-Reply-To=%3C200911122103.05807.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012276.html">
+   <LINK REL="Next"  HREF="012279.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc 2/2] ARM11:  ETM support,	use &quot;arm&quot; base type</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%202/2%5D%20ARM11%3A%20%20ETM%20support%2C%0A%09use%20%22arm%22%20base%20type&In-Reply-To=%3C200911122103.05807.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc 2/2] ARM11:  ETM support,	use &quot;arm&quot; base type">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Nov 13 06:03:05 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012276.html">[Openocd-development] [patch 1/2] ETM: start support for ETMv2+
+</A></li>
+        <LI>Next message: <A HREF="012279.html">[Openocd-development] [patch/rfc 2/2] ARM11:  ETM support, use &quot;arm&quot; base type
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12277">[ date ]</a>
+              <a href="thread.html#12277">[ thread ]</a>
+              <a href="subject.html#12277">[ subject ]</a>
+              <a href="author.html#12277">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Kick in the ETM support, as enabled by the base type.  Sanity
+tested on OMAP 2420 (with ARM1136ejs, ETB, C55x DSP, and an
+OpenGL ES1.1 accelerator).
+
+This doesn't revert the patch that adds ETM register access, and
+I'm a bit cautious yet about the non-reuse of common ARM utilities;
+the ARM11 support can still be much simplified.
+---
+Sending for comments -- primarily about the new &quot;arm&quot; base type.
+That conversion is enough to work, but not enough to benefit from
+much common code (disassembly, etc).  Yeah, this could be split
+into two:  basetype, then ETM.
+
+ src/target/arm11.c        |   72 ++++++++++++++++++++++++++------------------
+ src/target/arm11.h        |   12 +++++--
+ src/target/arm11_dbgtap.c |    2 +
+ tcl/target/omap2420.cfg   |    7 +---
+ 4 files changed, 57 insertions(+), 36 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -672,9 +672,7 @@ static int arm11_poll(struct target_s *t
+ {
+ 	FNC_INFO;
+ 	int retval;
+-
+-	arm11_common_t * arm11 = target-&gt;arch_info;
+-
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 	uint32_t	dscr;
+ 
+ 	CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;dscr));
+@@ -715,7 +713,7 @@ static int arm11_poll(struct target_s *t
+ /* architecture specific status reply */
+ static int arm11_arch_state(struct target_s *target)
+ {
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	LOG_USER(&quot;target halted due to %s\ncpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;&quot;,
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+@@ -738,8 +736,7 @@ static int arm11_target_request_data(str
+ static int arm11_halt(struct target_s *target)
+ {
+ 	FNC_INFO;
+-
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		target_state_name(target));
+@@ -808,7 +805,7 @@ static int arm11_resume(struct target_s 
+ 	//	  LOG_DEBUG(&quot;current %d  address %08x  handle_breakpoints %d  debug_execution %d&quot;,
+ 	//	current, address, handle_breakpoints, debug_execution);
+ 
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		target_state_name(target));
+@@ -1027,7 +1024,7 @@ static int arm11_step(struct target_s *t
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	if (!current)
+ 		R(PC) = address;
+@@ -1173,8 +1170,8 @@ static int arm11_assert_reset(target_t *
+ {
+ 	FNC_INFO;
+ 	int retval;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+-	arm11_common_t * arm11 = target-&gt;arch_info;
+ 	retval = arm11_check_init(arm11, NULL);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1248,8 +1245,7 @@ static int arm11_get_gdb_reg_list(struct
+ 		struct reg_s **reg_list[], int *reg_list_size)
+ {
+ 	FNC_INFO;
+-
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	*reg_list_size	= ARM11_GDB_REGISTER_COUNT;
+ 	*reg_list		= malloc(sizeof(reg_t*) * ARM11_GDB_REGISTER_COUNT);
+@@ -1297,7 +1293,7 @@ static int arm11_read_memory_inner(struc
+ 
+ 	LOG_DEBUG(&quot;ADDR %08&quot; PRIx32 &quot;  SIZE %08&quot; PRIx32 &quot;  COUNT %08&quot; PRIx32 &quot;&quot;, address, size, count);
+ 
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+@@ -1393,7 +1389,7 @@ static int arm11_write_memory_inner(stru
+ 
+ 	LOG_DEBUG(&quot;ADDR %08&quot; PRIx32 &quot;  SIZE %08&quot; PRIx32 &quot;  COUNT %08&quot; PRIx32 &quot;&quot;, address, size, count);
+ 
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+@@ -1555,8 +1551,7 @@ static int arm11_add_breakpoint(struct t
+ 		breakpoint_t *breakpoint)
+ {
+ 	FNC_INFO;
+-
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ #if 0
+ 	if (breakpoint-&gt;type == BKPT_SOFT)
+@@ -1587,8 +1582,7 @@ static int arm11_remove_breakpoint(struc
+ 		breakpoint_t *breakpoint)
+ {
+ 	FNC_INFO;
+-
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	arm11-&gt;free_brps++;
+ 
+@@ -1619,7 +1613,7 @@ static int arm11_run_algorithm(struct ta
+ 		uint32_t entry_point, uint32_t exit_point,
+ 		int timeout_ms, void *arch_info)
+ {
+-		arm11_common_t *arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ //	enum armv4_5_state core_state = arm11-&gt;core_state;
+ //	enum armv4_5_mode core_mode = arm11-&gt;core_mode;
+ 	uint32_t context[16];
+@@ -1796,7 +1790,13 @@ static int arm11_target_create(struct ta
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	target-&gt;arch_info = arm11;
++	armv4_5_init_arch_info(target, &amp;arm11-&gt;arm);
++
++	arm11-&gt;jtag_info.tap = target-&gt;tap;
++	arm11-&gt;jtag_info.scann_size = 5;
++	arm11-&gt;jtag_info.scann_instr = ARM11_SCAN_N;
++	/* cur_scan_chain == 0 */
++	arm11-&gt;jtag_info.intest_instr = ARM11_INTEST;
+ 
+ 	return ERROR_OK;
+ }
+@@ -1814,8 +1814,7 @@ static int arm11_examine(struct target_s
+ 	int retval;
+ 
+ 	FNC_INFO;
+-
+-	arm11_common_t * arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	/* check IDCODE */
+ 
+@@ -1848,11 +1847,9 @@ static int arm11_examine(struct target_s
+ 	case 0x07B56000:	LOG_INFO(&quot;found ARM1156&quot;); break;
+ 	case 0x07B76000:	LOG_INFO(&quot;found ARM1176&quot;); break;
+ 	default:
+-	{
+ 		LOG_ERROR(&quot;'target arm11' expects IDCODE 0x*7B*7****&quot;);
+ 		return ERROR_FAIL;
+ 	}
+-	}
+ 
+ 	arm11-&gt;debug_version = (arm11-&gt;didr &gt;&gt; 16) &amp; 0x0F;
+ 
+@@ -1884,6 +1881,23 @@ static int arm11_examine(struct target_s
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* ETM on ARM11 still uses original scanchain 6 access */
++	if (arm11-&gt;arm.etm &amp;&amp; !target_was_examined(target)) {
++		struct reg_cache_s **cache_p;
++
++		cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
++		(*cache_p) = etm_build_reg_cache(target,
++				&amp;arm11-&gt;jtag_info, arm11-&gt;arm.etm);
++
++		retval = etm_setup(target);
++	}
++
++	/* FIXME this sets a flag in the (shared) arm11_target structure,
++	 * not in the (per-cpu) &quot;target&quot; structure ... so it's clearly
++	 * wrong in the case of e.g. two different ARM11 chips on the
++	 * same board.  (Maybe ARM11 MPCore works though.)  Whoever calls
++	 * the examine() method should set a target-specific flag...
++	 */
+ 	target_set_examined(target);
+ 
+ 	return ERROR_OK;
+@@ -1919,7 +1933,8 @@ static int arm11_set_reg(reg_t *reg, uin
+ 	FNC_INFO;
+ 
+ 	target_t * target = ((arm11_reg_state_t *)reg-&gt;arch_info)-&gt;target;
+-	arm11_common_t *arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
++
+ //	  const arm11_reg_defs_t * arm11_reg_info = arm11_reg_defs + ((arm11_reg_state_t *)reg-&gt;arch_info)-&gt;def_index;
+ 
+ 	arm11-&gt;reg_values[((arm11_reg_state_t *)reg-&gt;arch_info)-&gt;def_index] = buf_get_u32(buf, 0, 32);
+@@ -1931,7 +1946,7 @@ static int arm11_set_reg(reg_t *reg, uin
+ 
+ static int arm11_build_reg_cache(target_t *target)
+ {
+-	arm11_common_t *arm11 = target-&gt;arch_info;
++	struct arm11_common_s *arm11 = target_to_arm11(target);
+ 
+ 	NEW(reg_cache_t,		cache,				1);
+ 	NEW(reg_t,				reg_list,			ARM11_REGCACHE_COUNT);
+@@ -2092,14 +2107,13 @@ static int arm11_mrc_inner(target_t *tar
+ 		uint32_t *value, bool read)
+ {
+ 	int retval;
+-	
++	struct arm11_common_s *arm11 = target_to_arm11(target);
++
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_ERROR(&quot;Target not halted&quot;);
+ 		return ERROR_FAIL;
+ 	}
+-		
+-	arm11_common_t * arm11 = target-&gt;arch_info;
+ 
+ 	uint32_t instr = 0xEE000010	|
+ 		(cpnum &lt;&lt;  8) |
+@@ -2285,5 +2299,5 @@ int arm11_register_commands(struct comma
+ 			arm11_handle_vcr, COMMAND_ANY,
+ 			&quot;Control (Interrupt) Vector Catch Register&quot;);
+ 
+-	return ERROR_OK;
++	return etm_register_commands(cmd_ctx);
+ }
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -23,9 +23,7 @@
+ #ifndef ARM11_H
+ #define ARM11_H
+ 
+-#include &quot;target.h&quot;
+-#include &quot;register.h&quot;
+-#include &quot;jtag.h&quot;
++#include &quot;armv4_5.h&quot;
+ 
+ #define asizeof(x)	(sizeof(x) / sizeof((x)[0]))
+ 
+@@ -80,6 +78,7 @@ enum arm11_debug_version
+ 
+ typedef struct arm11_common_s
+ {
++	struct arm	arm;
+ 	target_t *	target;		/**&lt; Reference back to the owner */
+ 
+ 	/** \name Processor type detection */
+@@ -117,8 +116,15 @@ typedef struct arm11_common_s
+ 
+ 	// GA
+ 	reg_cache_t *core_cache;
++
++	struct arm_jtag_s jtag_info;
+ } arm11_common_t;
+ 
++static inline struct arm11_common_s *target_to_arm11(struct target_s *target)
++{
++	return container_of(target-&gt;arch_info, struct arm11_common_s,
++			arm);
++}
+ 
+ /**
+  * ARM11 DBGTAP instructions
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -178,6 +178,8 @@ int arm11_add_debug_SCAN_N(arm11_common_
+ 
+ 	arm11_in_handler_SCAN_N(tmp);
+ 
++	arm11-&gt;jtag_info.cur_scan_chain = chain;
++
+ 	return jtag_execute_queue();
+ }
+ 
+--- a/tcl/target/omap2420.cfg
++++ b/tcl/target/omap2420.cfg
+@@ -49,7 +49,6 @@ $_TARGETNAME configure -work-area-phys 0
+ $_TARGETNAME configure -work-area-size 0x00081000
+ $_TARGETNAME configure -work-area-backup 0
+ 
+-# trace setup
+-# REVISIT ... as of 12-June-2009, OpenOCD's ETM code can't talk to ARM11 cores.
+-#etm config $_TARGETNAME 16 normal full etb
+-#etb config $_TARGETNAME $_CHIPNAME.etb
++# trace setup ... NOTE, &quot;normal full&quot; mode fudges the real ETMv3.1 mode
++etm config $_TARGETNAME 16 normal full etb
++etb config $_TARGETNAME $_CHIPNAME.etb
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012276.html">[Openocd-development] [patch 1/2] ETM: start support for ETMv2+
+</A></li>
+	<LI>Next message: <A HREF="012279.html">[Openocd-development] [patch/rfc 2/2] ARM11:  ETM support, use &quot;arm&quot; base type
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12277">[ date ]</a>
+              <a href="thread.html#12277">[ thread ]</a>
+              <a href="subject.html#12277">[ subject ]</a>
+              <a href="author.html#12277">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

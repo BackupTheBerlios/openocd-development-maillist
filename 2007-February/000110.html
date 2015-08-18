@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Feedback needed for Xscale PXA270
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Feedback%20needed%20for%20Xscale%20PXA270&In-Reply-To=%3C200702031837.18044.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000105.html">
+   <LINK REL="Next"  HREF="000106.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Feedback needed for Xscale PXA270</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Feedback%20needed%20for%20Xscale%20PXA270&In-Reply-To=%3C200702031837.18044.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] Feedback needed for Xscale PXA270">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Sat Feb  3 18:37:17 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000105.html">[Openocd-development] Feedback needed for Xscale PXA270
+</A></li>
+        <LI>Next message: <A HREF="000106.html">[Openocd-development] Proposal for error exits
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#110">[ date ]</a>
+              <a href="thread.html#110">[ thread ]</a>
+              <a href="subject.html#110">[ subject ]</a>
+              <a href="author.html#110">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Carsten,
+
+On Thursday 01 February 2007 14:47, Carsten Schlote wrote:
+&gt;<i> &gt; One thing that came to my mind: What type of reset supervisor
+</I>&gt;<i> &gt; are you using on your board? If reset line is push-pull with
+</I>&gt;<i> &gt; no (large enough) resistor before the connection to JTAG
+</I>&gt;<i> &gt; nSRST, the JTAG pod wont be able to drive the signal low.
+</I>&gt;<i> &gt; Same goes for nTRST.
+</I>&gt;<i>
+</I>&gt;<i> That issue seems to be ok. But I found that asserting SRST causes
+</I>&gt;<i> nVCC_FAULT to drop to 0.1 V (low). According to the Intel Manuals the
+</I>&gt;<i> JTAG TAP will reset whenever either of BATT_FAULT or VCC_FAULT is
+</I>&gt;<i> asserted.
+</I>&gt;<i>
+</I>I had a look at the PXA27x design guide, and it says that:
+For JTAG TAP operation, the nBATT_FAULT and nVCC_FAULT pins must always be 
+driven high (de-asserted). An active low signal on either pin puts the device 
+into sleep mode, which powers down all JTAG circuitry.
+
+That explains the problems you're seeing.
+
+&gt;<i> I modified the xscale_(de)assert_reset() routines to proof things in
+</I>&gt;<i> software. As soon as SRST is asserted, the JTAG is dead - only '0'
+</I>&gt;<i> outputs on TDO. Meanwhile I got a good understanding of your code, so I
+</I>&gt;<i> explicitly moved the expected TAP state after SRST deassertion to
+</I>&gt;<i> TAP_TLR, and - surprise - the xscale_read_dcsr() routine reselects the
+</I>&gt;<i> DCSR again after deassertion of SRST and read an all zero DCSR register.
+</I>&gt;<i> Before SRST assertion I was able to set, clear and readback DCSR as many
+</I>&gt;<i> times I wished.
+</I>&gt;<i>
+</I>&gt;<i> Your code seems to expect the TAP being in TAP_RTI state at this point,
+</I>&gt;<i> and therefore the code didn't reselect DCSR and immediatly reads from
+</I>&gt;<i> the TAP. The only thing I get in this case, is the lower nibble of the
+</I>&gt;<i> ID code (0x79265013) instead of 0x2 for the first bits.
+</I>&gt;<i>
+</I>When you explicitly told the JTAG subsystem that the TAP is in T-L-R you 
+basically did the same as setting the reset_config to &quot;srst_pulls_trst&quot;. This 
+option was added to work around the reset implementation found on LPC2000 
+(ARM7TDMI). Unfortunately the problem is that the DCSR has to be programmed 
+while nSRST is being held low, otherwise the core starts executing, and 
+there's no use in catching it later.
+
+&gt;<i> So I'm pretty much sure, that the TAP is reseting while SRST is
+</I>&gt;<i> asserted.
+</I>&gt;<i>
+</I>Yeah. Your board seems to pull nVCC_FAULT low (it's an input to the PXA), 
+causing the device to enter deep-sleep, which disables JTAG.
+
+&gt;<i> Pierre might try to measure the both *_FAULT signals on his board. If
+</I>&gt;<i> either of them is dropping to low (asserted), the problem might be the
+</I>&gt;<i> same as for me.
+</I>&gt;<i>
+</I>&gt;<i> Regards
+</I>&gt;<i> Carsten
+</I>
+Regards,
+
+Dominic
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000105.html">[Openocd-development] Feedback needed for Xscale PXA270
+</A></li>
+	<LI>Next message: <A HREF="000106.html">[Openocd-development] Proposal for error exits
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#110">[ date ]</a>
+              <a href="thread.html#110">[ thread ]</a>
+              <a href="subject.html#110">[ subject ]</a>
+              <a href="author.html#110">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

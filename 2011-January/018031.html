@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] stm32x: add support for STM32F20x
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20stm32x%3A%20add%20support%20for%20STM32F20x&In-Reply-To=%3C1296475761-19681-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018030.html">
+   <LINK REL="Next"  HREF="018032.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] stm32x: add support for STM32F20x</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20stm32x%3A%20add%20support%20for%20STM32F20x&In-Reply-To=%3C1296475761-19681-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] stm32x: add support for STM32F20x">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jan 31 13:09:20 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018030.html">[Openocd-development] timeout with mini2440 board
+</A></li>
+        <LI>Next message: <A HREF="018032.html">[Openocd-development] [PATCH 2/2] board: stm3220f eval board wip
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18031">[ date ]</a>
+              <a href="thread.html#18031">[ thread ]</a>
+              <a href="subject.html#18031">[ subject ]</a>
+              <a href="author.html#18031">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>wip.
+
+What to do about protection?
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nor/stm32x.c |   86 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 86 insertions(+), 0 deletions(-)
+
+diff --git a/src/flash/nor/stm32x.c b/src/flash/nor/stm32x.c
+index 3914d25..52b0848 100644
+--- a/src/flash/nor/stm32x.c
++++ b/src/flash/nor/stm32x.c
+@@ -835,6 +835,16 @@ static int stm32x_write(struct flash_bank *bank, uint8_t *buffer,
+ 	return target_write_u32(target, STM32_FLASH_CR, FLASH_LOCK);
+ }
+ 
++static void setup_sector(struct flash_bank *bank, int start, int num, int size)
++{
++	for (int i = start; i &lt; (start + num) ; i++)
++	{
++		bank-&gt;sectors[i].offset = bank-&gt;size;
++		bank-&gt;sectors[i].size = size;
++		bank-&gt;size += bank-&gt;sectors[i].size;
++	}
++}
++
+ static int stm32x_probe(struct flash_bank *bank)
+ {
+ 	struct target *target = bank-&gt;target;
+@@ -878,6 +888,57 @@ static int stm32x_probe(struct flash_bank *bank)
+ 			num_pages = 128;
+ 		}
+ 	}
++	else if ((device_id &amp; 0x7ff) == 0x411)
++	{
++		/* sectors sizes vary, handle this in a different code path
++		 * than the rest.
++		 *
++		 * RM0033
++		 * <A HREF="http://www.st.com/internet/mcu/product/250192.jsp">http://www.st.com/internet/mcu/product/250192.jsp</A>
++		 *
++		 * PM0059
++		 * www.st.com/internet/com/TECHNICAL_RESOURCES/TECHNICAL_LITERATURE/PROGRAMMING_MANUAL/CD00233952.pdf
++		 *
++		 * 1mByte part with 4 x 16, 1 x 64, 7 x 128kBytes sectors
++		 *
++		 * What's the protection page size???
++		 *
++		 * Tested with STM3220F-EVAL board.
++		 *
++		 */
++		// Uhhh.... what to use here?
++		stm32x_info-&gt;ppage_size = 4;
++
++		/* calculate numbers of pages*/
++		num_pages = 4 + 1 + 7;
++
++		if (bank-&gt;sectors)
++		{
++			free(bank-&gt;sectors);
++			bank-&gt;sectors = NULL;
++		}
++
++		bank-&gt;base = base_address;
++		bank-&gt;num_sectors = num_pages;
++		bank-&gt;sectors = malloc(sizeof(struct flash_sector) * num_pages);
++
++		bank-&gt;size = 0;
++		setup_sector(bank, 0, 4, 16 * 1024);
++		setup_sector(bank, 4, 1, 64 * 1024);
++		setup_sector(bank, 4+1, 7, 128 * 1024);
++
++		for (i = 0; i &lt; num_pages; i++)
++		{
++			bank-&gt;sectors[i].is_erased = -1;
++			bank-&gt;sectors[i].is_protected = 0;
++		}
++
++		LOG_INFO(&quot;flash size = %dkBytes&quot;, bank-&gt;size / 1024);
++
++		stm32x_info-&gt;probed = 1;
++
++		return ERROR_OK;
++	}
+ 	else if ((device_id &amp; 0x7ff) == 0x412)
+ 	{
+ 		/* low density - we have 1k pages
+@@ -1058,6 +1119,31 @@ static int get_stm32x_info(struct flash_bank *bank, char *buf, int buf_size)
+ 				break;
+ 		}
+ 	}
++	else if ((device_id &amp; 0x7ff) == 0x411)
++	{
++		printed = snprintf(buf, buf_size, &quot;stm32x (1mByte part) - Rev: &quot;);
++		buf += printed;
++		buf_size -= printed;
++
++		switch (device_id &gt;&gt; 16)
++		{
++			case 0x1000:
++				snprintf(buf, buf_size, &quot;A&quot;);
++				break;
++
++			case 0x2000:
++				snprintf(buf, buf_size, &quot;B&quot;);
++				break;
++
++			case 0x1001:
++				snprintf(buf, buf_size, &quot;Z&quot;);
++				break;
++
++			default:
++				snprintf(buf, buf_size, &quot;unknown&quot;);
++				break;
++		}
++	}
+ 	else if ((device_id &amp; 0x7ff) == 0x412)
+ 	{
+ 		printed = snprintf(buf, buf_size, &quot;stm32x (Low Density) - Rev: &quot;);
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018030.html">[Openocd-development] timeout with mini2440 board
+</A></li>
+	<LI>Next message: <A HREF="018032.html">[Openocd-development] [PATCH 2/2] board: stm3220f eval board wip
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18031">[ date ]</a>
+              <a href="thread.html#18031">[ thread ]</a>
+              <a href="subject.html#18031">[ subject ]</a>
+              <a href="author.html#18031">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

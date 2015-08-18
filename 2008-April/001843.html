@@ -1,0 +1,282 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] XScale cleanup
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20XScale%20cleanup&In-Reply-To=%3Cc09652430804150634n23acb6d2qf50c185f86f35af1%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001839.html">
+   <LINK REL="Next"  HREF="001844.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] XScale cleanup</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20XScale%20cleanup&In-Reply-To=%3Cc09652430804150634n23acb6d2qf50c185f86f35af1%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] XScale cleanup">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Apr 15 15:34:37 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001839.html">[Openocd-development] [COMMIT]st flash driver updates
+</A></li>
+        <LI>Next message: <A HREF="001844.html">[Openocd-development] [COMMIT]new target scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1843">[ date ]</a>
+              <a href="thread.html#1843">[ thread ]</a>
+              <a href="subject.html#1843">[ subject ]</a>
+              <a href="author.html#1843">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed
+
+retired fast_memory_access. It's always fast now.
+
+Index: C:/workspace/openocd_trunk/src/target/xscale.c
+===================================================================
+--- C:/workspace/openocd_trunk/src/target/xscale.c	(revision 577)
++++ C:/workspace/openocd_trunk/src/target/xscale.c	(working copy)
+@@ -630,16 +630,7 @@
+ 	int retval;
+
+ 	int done_count = 0;
+-	u8 output[4] = {0, 0, 0, 0};
+-
+-	scan_field_t fields[3];
+-	u8 field0_out = 0x0;
+-	u8 field0_check_value = 0x2;
+-	u8 field0_check_mask = 0x6;
+-	u8 field2 = 0x1;
+-	u8 field2_check_value = 0x0;
+-	u8 field2_check_mask = 0x1;
+-
++	
+ 	jtag_add_end_state(TAP_RTI);
+
+ 	xscale_jtag_set_instr(xscale-&gt;jtag_info.chain_pos, xscale-&gt;jtag_info.dbgrx);
+@@ -644,85 +635,47 @@
+
+ 	xscale_jtag_set_instr(xscale-&gt;jtag_info.chain_pos, xscale-&gt;jtag_info.dbgrx);
+
+-	fields[0].device = xscale-&gt;jtag_info.chain_pos;
+-	fields[0].num_bits = 3;
+-	fields[0].out_value = &amp;field0_out;
+-	fields[0].out_mask = NULL;
+-	fields[0].in_handler = NULL;
+-	fields[0].in_value = NULL;
+-	if (!xscale-&gt;fast_memory_access)
++	bits[0]=3;
++	t[0]=0;
++	bits[1]=32;
++	t[2]=1;
++	bits[2]=1;
++	int endianness = target-&gt;endianness;
++	while (done_count++ &lt; count)
+ 	{
+-		jtag_set_check_value(fields+0, &amp;field0_check_value,
+&amp;field0_check_mask, NULL);
+-	}
+-
+-	fields[1].device = xscale-&gt;jtag_info.chain_pos;
+-	fields[1].num_bits = 32;
+-	fields[1].out_value = output;
+-	fields[1].out_mask = NULL;
+-	fields[1].in_value = NULL;
+-	fields[1].in_handler = NULL;
+-	fields[1].in_handler_priv = NULL;
+-	fields[1].in_check_value = NULL;
+-	fields[1].in_check_mask = NULL;
+-
+-
+-
+-	fields[2].device = xscale-&gt;jtag_info.chain_pos;
+-	fields[2].num_bits = 1;
+-	fields[2].out_value = &amp;field2;
+-	fields[2].out_mask = NULL;
+-	fields[2].in_value = NULL;
+-	fields[2].in_handler = NULL;
+-	if (!xscale-&gt;fast_memory_access)
+-	{
+-		jtag_set_check_value(fields+2, &amp;field2_check_value,
+&amp;field2_check_mask, NULL);
+-	}
+-	
+-	if (size==4)
+-	{
+-		bits[0]=3;
+-		t[0]=0;
+-		bits[1]=32;
+-		t[2]=1;
+-		bits[2]=1;
+-		int endianness = target-&gt;endianness;
+-		while (done_count++ &lt; count)
++		switch (size)
+ 		{
+-			switch (size)
++		case 4:
++			if (endianness == TARGET_LITTLE_ENDIAN)
+ 			{
+-			case 4:
+-				if (endianness == TARGET_LITTLE_ENDIAN)
+-				{
+-					t[1]=le_to_h_u32(buffer);
+-				} else
+-				{
+-					t[1]=be_to_h_u32(buffer);
+-				}
+-				break;
+-			case 2:
+-				if (endianness == TARGET_LITTLE_ENDIAN)
+-				{
+-					t[1]=le_to_h_u16(buffer);
+-				} else
+-				{
+-					t[1]=be_to_h_u16(buffer);
+-				}
+-				break;
+-			case 1:
+-				t[1]=buffer[0];
+-				break;
+-			default:
+-				LOG_ERROR(&quot;BUG: size neither 4, 2 nor 1&quot;);
+-				exit(-1);
++				t[1]=le_to_h_u32(buffer);
++			} else
++			{
++				t[1]=be_to_h_u32(buffer);
++			}
++			break;
++		case 2:
++			if (endianness == TARGET_LITTLE_ENDIAN)
++			{
++				t[1]=le_to_h_u16(buffer);
++			} else
++			{
++				t[1]=be_to_h_u16(buffer);
+ 			}
+-			jtag_add_dr_out(xscale-&gt;jtag_info.chain_pos,
+-					3,
+-					bits,
+-					t,
+-					TAP_RTI);
+-			buffer += size;
++			break;
++		case 1:
++			t[1]=buffer[0];
++			break;
++		default:
++			LOG_ERROR(&quot;BUG: size neither 4, 2 nor 1&quot;);
++			exit(-1);
+ 		}
+-		
++		jtag_add_dr_out(xscale-&gt;jtag_info.chain_pos,
++				3,
++				bits,
++				t,
++				TAP_RTI);
++		buffer += size;
+ 	}
+
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+@@ -3139,8 +3092,6 @@
+ 	xscale-&gt;armv4_5_mmu.has_tiny_pages = 1;
+ 	xscale-&gt;armv4_5_mmu.mmu_enabled = 0;
+ 	
+-	xscale-&gt;fast_memory_access = 0;
+-
+ 	return ERROR_OK;
+ }
+
+@@ -3739,41 +3690,6 @@
+ 	return ERROR_OK;
+ }
+
+-int handle_xscale_fast_memory_access_command(struct command_context_s
+*cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	target_t *target = get_current_target(cmd_ctx);
+-	armv4_5_common_t *armv4_5;
+-	xscale_common_t *xscale;
+-	
+-	if (xscale_get_arch_pointers(target, &amp;armv4_5, &amp;xscale) != ERROR_OK)
+-	{
+-		return ERROR_OK;
+-	}
+-	
+-	if (argc == 1)
+-	{
+-		if (strcmp(&quot;enable&quot;, args[0]) == 0)
+-		{
+-			xscale-&gt;fast_memory_access = 1;
+-		}
+-		else if (strcmp(&quot;disable&quot;, args[0]) == 0)
+-		{
+-			xscale-&gt;fast_memory_access = 0;
+-		}
+-		else
+-		{
+-			return ERROR_COMMAND_SYNTAX_ERROR;
+-		}
+-	} else if (argc!=0)
+-	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-		
+-	command_print(cmd_ctx, &quot;fast memory access is %s&quot;,
+(xscale-&gt;fast_memory_access) ? &quot;enabled&quot; : &quot;disabled&quot;);
+-
+-	return ERROR_OK;
+-}
+-
+ int xscale_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	command_t *xscale_cmd;
+@@ -3798,9 +3714,6 @@
+ 		COMMAND_EXEC, &quot;load image from &lt;file&gt; [base address]&quot;);
+
+ 	register_command(cmd_ctx, xscale_cmd, &quot;cp15&quot;, xscale_handle_cp15,
+COMMAND_EXEC, &quot;access coproc 15 &lt;register&gt; [value]&quot;);
+-	register_command(cmd_ctx, xscale_cmd, &quot;fast_memory_access&quot;,
+handle_xscale_fast_memory_access_command,
+-		 COMMAND_ANY, &quot;use fast memory accesses instead of slower but
+potentially unsafe slow accesses &lt;enable|disable&gt;&quot;);
+-
+ 	
+ 	armv4_5_register_commands(cmd_ctx);
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001839.html">[Openocd-development] [COMMIT]st flash driver updates
+</A></li>
+	<LI>Next message: <A HREF="001844.html">[Openocd-development] [COMMIT]new target scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1843">[ date ]</a>
+              <a href="thread.html#1843">[ thread ]</a>
+              <a href="subject.html#1843">[ subject ]</a>
+              <a href="author.html#1843">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

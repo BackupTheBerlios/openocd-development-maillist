@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] xscale: add support for length arg to	wp command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20xscale%3A%20add%20support%20for%20length%20arg%20to%0A%09wp%20command&In-Reply-To=%3C1271871651-4760-1-git-send-email-mikedunn%40newsguy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015551.html">
+   <LINK REL="Next"  HREF="015550.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] xscale: add support for length arg to	wp command</H1>
+    <B>mikedunn at newsguy.com</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20xscale%3A%20add%20support%20for%20length%20arg%20to%0A%09wp%20command&In-Reply-To=%3C1271871651-4760-1-git-send-email-mikedunn%40newsguy.com%3E"
+       TITLE="[Openocd-development] [PATCH] xscale: add support for length arg to	wp command">mikedunn at newsguy.com
+       </A><BR>
+    <I>Wed Apr 21 19:40:51 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015551.html">[Openocd-development] Libftdi or JTAGKey-Tiny hang?
+</A></li>
+        <LI>Next message: <A HREF="015550.html">[Openocd-development] [PATCH] xscale: add support for length	arg to wp command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15543">[ date ]</a>
+              <a href="thread.html#15543">[ thread ]</a>
+              <a href="subject.html#15543">[ subject ]</a>
+              <a href="author.html#15543">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mikedunn at newsguy.com</A>&gt;
+
+This patch adds support for the length argument to the xscale implementation of
+the wp command.  Per discussion with David, the length argument specifies the
+range of addresses over which a memory access should generate a debug exception.
+This patch utilizes the &quot;mask&quot; feature of the xscale debug hardware to implement
+the correct functionality of the length argument.  Some limitations imposed by
+the hardware are:
+
+   - The length must be a power of two, with a minumum of 4.
+   - Two data breakpoint registers are available, allowing for two watchpoints.
+     However, if the length of a watchpoint is greater than four, both registers
+     are used (the second for a mask value), limiting the number of watchpoints
+     to one.
+
+This patch also removes a useless call to xscale_get_reg(dbcon) in
+xscale_set_watchpoint() (value had already been read from the register cache,
+and the same previously read value is then modified and written back).
+
+I have been using and testing this patch for a couple days.
+
+Questions, corrections, criticisms of course gratefully received.
+
+---
+ src/target/xscale.c |   59 ++++++++++++++++++++++++++++++++++++++++++++-------
+ 1 files changed, 51 insertions(+), 8 deletions(-)
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index ddc73d2..ed0eef3 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2266,7 +2266,7 @@ static int xscale_set_watchpoint(struct target *target,
+ 		struct watchpoint *watchpoint)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+-	uint8_t enable = 0;
++	uint32_t enable = 0;
+ 	struct reg *dbcon = &amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DBCON];
+ 	uint32_t dbcon_value = buf_get_u32(dbcon-&gt;value, 0, 32);
+ 
+@@ -2276,8 +2276,6 @@ static int xscale_set_watchpoint(struct target *target,
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	xscale_get_reg(dbcon);
+-
+ 	switch (watchpoint-&gt;rw)
+ 	{
+ 		case WPT_READ:
+@@ -2293,6 +2291,24 @@ static int xscale_set_watchpoint(struct target *target,
+ 			LOG_ERROR(&quot;BUG: watchpoint-&gt;rw neither read, write nor access&quot;);
+ 	}
+ 
++	/* For watchpoint across more than one word, both DBR registers must
++	   be enlisted, with the second used as a mask. */
++	if (watchpoint-&gt;length &gt; 4)
++	{
++	   if (xscale-&gt;dbr0_used || xscale-&gt;dbr1_used) 
++	   {
++		  LOG_ERROR(&quot;BUG: sufficient hardware comparators unavailable&quot;);
++		  return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	   }
++
++	   /* Write mask value to DBR1, based on the length argument.
++		* Address bits ignored by the comparator are those set in mask. */
++	   xscale_set_reg_u32(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DBR1],
++						  watchpoint-&gt;length - 1);
++	   xscale-&gt;dbr1_used = 1;
++	   enable |= 0x100;			/* DBCON[M] */
++	}
++
+ 	if (!xscale-&gt;dbr0_used)
+ 	{
+ 		xscale_set_reg_u32(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DBR0], watchpoint-&gt;address);
+@@ -2312,7 +2328,7 @@ static int xscale_set_watchpoint(struct target *target,
+ 	else
+ 	{
+ 		LOG_ERROR(&quot;BUG: no hardware comparator available&quot;);
+-		return ERROR_OK;
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -2328,13 +2344,30 @@ static int xscale_add_watchpoint(struct target *target,
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	}
+ 
+-	if ((watchpoint-&gt;length != 1) &amp;&amp; (watchpoint-&gt;length != 2) &amp;&amp; (watchpoint-&gt;length != 4))
++	if (watchpoint-&gt;value)
++	   LOG_WARNING(&quot;xscale does not support value, mask arguments; ignoring&quot;);
++
++	/* check that length is a power of two */
++	for (uint32_t len = watchpoint-&gt;length; len != 1; len /= 2)
+ 	{
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	   if (len % 2)
++	   {
++		  LOG_ERROR(&quot;xscale requires that watchpoint length is a power of two&quot;);
++		  return ERROR_COMMAND_ARGUMENT_INVALID;
++	   }
+ 	}
+ 
+-	xscale-&gt;dbr_available--;
++	if (watchpoint-&gt;length == 4) /* single word watchpoint */
++	{
++	   xscale-&gt;dbr_available--; /* one DBR reg used */
++	   return ERROR_OK;
++	}
+ 
++	/* watchpoints across multiple words require both DBR registers */
++	if (xscale-&gt;dbr_available &lt; 2)
++	   return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	
++	xscale-&gt;dbr_available = 0;
+ 	return ERROR_OK;
+ }
+ 
+@@ -2359,7 +2392,14 @@ static int xscale_unset_watchpoint(struct target *target,
+ 
+ 	if (watchpoint-&gt;set == 1)
+ 	{
+-		dbcon_value &amp;= ~0x3;
++	   if (watchpoint-&gt;length &gt; 4)
++	   {
++		  dbcon_value &amp;= ~0x103; /* clear DBCON[M] as well */
++		  xscale-&gt;dbr1_used = 0; /* DBR1 was used for mask */
++	   }
++	   else
++		  dbcon_value &amp;= ~0x3;
++
+ 		xscale_set_reg_u32(dbcon, dbcon_value);
+ 		xscale-&gt;dbr0_used = 0;
+ 	}
+@@ -2389,6 +2429,9 @@ static int xscale_remove_watchpoint(struct target *target, struct watchpoint *wa
+ 		xscale_unset_watchpoint(target, watchpoint);
+ 	}
+ 
++	if (watchpoint-&gt;length &gt; 4)
++	   xscale-&gt;dbr_available++;	/* both DBR regs now available */
++	
+ 	xscale-&gt;dbr_available++;
+ 
+ 	return ERROR_OK;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015551.html">[Openocd-development] Libftdi or JTAGKey-Tiny hang?
+</A></li>
+	<LI>Next message: <A HREF="015550.html">[Openocd-development] [PATCH] xscale: add support for length	arg to wp command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15543">[ date ]</a>
+              <a href="thread.html#15543">[ thread ]</a>
+              <a href="subject.html#15543">[ subject ]</a>
+              <a href="author.html#15543">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

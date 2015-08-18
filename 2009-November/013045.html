@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [RFC] massive command restructuring!!!
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20massive%20command%20restructuring%21%21%21&In-Reply-To=%3C1259523527.5314.6436.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013043.html">
+   <LINK REL="Next"  HREF="013046.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [RFC] massive command restructuring!!!</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20massive%20command%20restructuring%21%21%21&In-Reply-To=%3C1259523527.5314.6436.camel%40localhost%3E"
+       TITLE="[Openocd-development] [RFC] massive command restructuring!!!">zw at superlucidity.net
+       </A><BR>
+    <I>Sun Nov 29 20:38:47 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013043.html">[Openocd-development] [RFC] massive command restructuring!!!
+</A></li>
+        <LI>Next message: <A HREF="013046.html">[Openocd-development] [RFC] massive command restructuring!!!
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13045">[ date ]</a>
+              <a href="thread.html#13045">[ thread ]</a>
+              <a href="subject.html#13045">[ subject ]</a>
+              <a href="author.html#13045">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, 2009-11-29 at 18:47 +0100, &#216;yvind Harboe wrote:
+&gt;<i> &gt; Finally, would it be logical to create the dynamic flash banks commands
+</I>&gt;<i> &gt; as subcommands of their relevant target?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;        foo.cpu flash bank bank0 .....  # but no &lt;target&gt; arg anymore
+</I>&gt;<i> &gt;        foo.cpu bank0 info  # presently, it's 'flash info bank0'
+</I>&gt;<i> 
+</I>&gt;<i> First of all: although I'm not able to follow all the changes to the command
+</I>&gt;<i> stuff you are working on, I generally like the result and I'm happy to let
+</I>&gt;<i> you run with it.
+</I>&gt;<i> 
+</I>&gt;<i> However, significant changes to the syntax is another matter. Here
+</I>&gt;<i> I need to pay proper attention :-)
+</I>
+I know this proposal presents an opportunity for controversy, so I
+wanted to make sure it is ratified before writing a single line of code.
+
+&gt;<i> I think it is important to distinguish between telnet and scripting as a
+</I>&gt;<i> user interface and tcl as a programming model.
+</I>
+When it comes to the fundamental command set, I think it is important to
+treat all interfaces equally.  If they differ at all, then these reflect
+_policy_ decisions that should be made at a higher-level than the core
+_mechanisms_ that I have targeted for overhaul.  
+
+The distinction should _not_ matter when designing the core language.
+
+&gt;<i> In &gt;90-98% of all cases there is only a single flash configured.
+</I>
+Funny, my very first configuration used two banks.  :)  I'm an outlier!
+And...so what?
+
+&gt;<i> In this case the current form in telnet &amp; scripting with just
+</I>&gt;<i> using a &quot;flash&quot; command without referring to a particular
+</I>&gt;<i> flash chip makes sense.
+</I>
+I disagree.  You can't use flash without a target.  We should never
+offer that command without a target for it to be used with.  The user
+should not need to pull the two together on their own.
+
+The _easiest_ way to provide this kind of access control and associative
+context is to make it a subcommand of the target instance commands.
+Indeed, that provides no extra coding to determine whether the command
+should be allowed to run, and the user cannot forget the connection
+between that flash and its target.  
+
+This is a win for our developers _and_ for our users.
+
+&gt;<i> However, we here &quot;flash erase_address&quot; and &quot;flash write_image&quot; are
+</I>&gt;<i> interesting. These flash commands do not operate on any flash
+</I>&gt;<i> chips or banks, but rather figure out which flash chips in the current
+</I>&gt;<i> target that a command goes to.
+</I>
+You just said it: they operate on a target.  Thus, it seems logical to
+say that they are target commands; conversely, they should not be part
+of the 'flash' command.  They seem improperly categorized at present.
+
+&gt;<i> I don't think that it is an improvement to the user experience to
+</I>&gt;<i> require a prefix to the flash command(current target or sole
+</I>&gt;<i> flash in system), even if the tcl programming model is crisper.
+</I>
+Ummm.. it's not requiring anything more than it already does.  All of
+the flash commands (except those you note above) require the flash bank
+or its name as the first parameter.  These changes would _replace_ the
+'flash' verb with the bank name.  As such, this step will remove the
+bank parameter, in the same way a target's commands do not require one.
+
+As an _extra_ step, we could put all of the NOR flash bank commands
+under the target command.  This emphasizes the point that those
+resources cannot be accessed were it not for the target itself.
+
+&gt;<i> I have seen that some users feel very strongly about erasing
+</I>&gt;<i> particular banks and sectors and writing to these sectors, rather
+</I>&gt;<i> than using addresses. I have never fully understand why they
+</I>&gt;<i> feel so strongly about going the way of banks instead of addresses,
+</I>&gt;<i> but the fact of the matter is that they do.
+</I>
+No functionality will be lost or changed.  Just the command names.
+If I add support for 'script' subcommands, then you could write a small
+wrapper for 'flash write_address'.  The relevant startup.tcl code might
+look something like this:
+
+ command proc flash write_address {args} {
+	eval [target current] write_address $args
+ }
+ add_usage_text flash write_address {....}
+ add_help_text flash write_address {....}
+
+Obviously, this requires writing the 'command proc' handler that can
+stuff the body into a new 'script_handler' field of a command structure.
+That is not rocket science, but it'd take a little work to do right.
+Presently, this would not useful without the '$t flash' command, but
+this shows how we might provide scripted subcommands for compatibility.
+
+&gt;<i> I also think it is a goal that OpenOCD should ship with high
+</I>&gt;<i> quality board configuration scripts, where a user would not
+</I>&gt;<i> really have any exposure to what a flash or cpu would be
+</I>&gt;<i> named. The user would here happily use the higher level
+</I>&gt;<i> fn's.
+</I>&gt;<i>
+</I>&gt;<i> Perhaps a solution would be to implement high level tcl proc's
+</I>&gt;<i> that present a user friendly way to manipulate flash and
+</I>&gt;<i> to have the c level tcl interface be more clean and address
+</I>&gt;<i> the technical concerns you raised?
+</I>
+As shown above, this could be a workable solution.  Developers could be
+free to create their own policy languages, if the command language had a
+set of new policy-neutral mechanisms.  Thus, you could provide the same
+policies that exist today, using the same command names (AFAICT).
+Furthermore, this would allow purging all policy decisions from the
+low-level command set.  Be careful: you're actually making me think
+about taking this to a further extreme. ;)
+
+Right now, a script author cannot separate some OpenOCD policies from
+their mechanisms.  The 'init' command is probably the pinnacle example
+were these two facets of design have been mixed together.  An improved
+command structure should remove these limitations, once and for all. 
+
+Unfortunately, this entails tearing the command language apart to
+decouple the policies from mechanisms, but I think it can be done in a
+backward-compatible manner (as described previously).  If anything, this
+response has outlined additional mechanisms for providing backwards
+compatibility where it may be desired.
+
+Cheers,
+
+Zach
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013043.html">[Openocd-development] [RFC] massive command restructuring!!!
+</A></li>
+	<LI>Next message: <A HREF="013046.html">[Openocd-development] [RFC] massive command restructuring!!!
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13045">[ date ]</a>
+              <a href="thread.html#13045">[ thread ]</a>
+              <a href="subject.html#13045">[ subject ]</a>
+              <a href="author.html#13045">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

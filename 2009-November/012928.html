@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3Cc09652430911251338p5c94daabv45b1fa1ad77e37e9%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012923.html">
+   <LINK REL="Next"  HREF="012921.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3Cc09652430911251338p5c94daabv45b1fa1ad77e37e9%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Nov 25 22:38:24 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012923.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+        <LI>Next message: <A HREF="012921.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12928">[ date ]</a>
+              <a href="thread.html#12928">[ thread ]</a>
+              <a href="subject.html#12928">[ subject ]</a>
+              <a href="author.html#12928">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, Nov 25, 2009 at 8:54 PM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+&gt;<i> On Friday 20 November 2009, &#370;yvind Harboe wrote:
+</I>&gt;&gt;<i> &gt; 2. Eliminating the global variable jtag_command_queue.
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; The existing jtag_add_... commands would remain similar but would
+</I>&gt;&gt;<i> &gt; operate on a local copy of the queue. jtag_execute_queue then receives
+</I>&gt;&gt;<i> &gt; the pointer to that local copy as parameter instead of using
+</I>&gt;&gt;<i> &gt; jtag_command_queue. The last user then disposes of the command queue.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This assumes that there is a queue at all. It should be up to the interface
+</I>&gt;&gt;<i> to implement a queue if that is what is needed.
+</I>&gt;<i>
+</I>&gt;<i> Today's interface is built around the concept of a queue.
+</I>
+ZY1000 has a hardware queue or FIFO depending on jargon.
+The current OpenOCD model allows the queue to be implemented
+either in hardware or in software.
+
+Now the most used OpenOCD minidrvier is *dreadfully* inefficient, but
+it doesn't have to be that way. It would be perfectly possible to rewrite
+the minidriver for driver for the USB dongles to build queues more
+along the lines that the zy1000 does.
+
+However do some profiling and you'll discover that it's a red herring.
+The only thing that matters on a PC is to reduce the # of roundtrips
+for USB. *Possibly* it might be worthwhile to send of USB commands
+*asynchronously* to building them. E.g. when doing a DCC upload,
+then *nothing* goes out of the USB port until the *entire* DCC sequence
+(megabytes possibly) is put together. Admittedly on a PC it probably
+takes &lt;&lt; 1 sec to create that queue so there is little or nothing to
+be gained.
+
+
+&gt;<i> The thing which permits synchronous execution is having
+</I>&gt;<i> that queue be implicit, with a handful of explicit flush
+</I>&gt;<i> points called jtag_execute_queue().
+</I>
+As is documented the jtag_execute_queue() command serves
+another *crucial* role. It returns an error if any of the jtag_add
+commands asynchronous or synchronous caused an error.
+All the jtag_add_xxx() commands return void(there is an
+exception as always but that may go).
+
+&gt;<i> It might be worth exploring which way to go. &#160;Nothing is
+</I>&gt;<i> currently reusing the queues -- it's not possible since
+</I>&gt;<i> they are hidden!! -- but as others have pointed out, it'd
+</I>&gt;<i> be a win to be able to do that instead of constantly needing
+</I>&gt;<i> to reallocat and reinitialize the same command queues.
+</I>
+This is a misunderstanding and a red herring. Look at the
+definition of jtag_add_dr_out()(exists and used today)
+and jtag_add_dr() in the oharboe/jtag32api branch.
+
+If you have a hardware fifo, then you can be looking at
+*two pokes* to execute a  jtag_add_dr_out(). Really!
+
+If you need asynchronous execution, then two
+pokes to execute a jtag_add_dr_out() just can't
+be beat.  Look at the arguments to jtag_add_dr_out(),
+they are variable so there is nothing that can be
+&quot;built once&quot; there.
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012923.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+	<LI>Next message: <A HREF="012921.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12928">[ date ]</a>
+              <a href="thread.html#12928">[ thread ]</a>
+              <a href="subject.html#12928">[ subject ]</a>
+              <a href="author.html#12928">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

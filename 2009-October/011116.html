@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Advanced Reset Process
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Advanced%20Reset%20Process&In-Reply-To=%3C200910091353.52596.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011115.html">
+   <LINK REL="Next"  HREF="011119.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Advanced Reset Process</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Advanced%20Reset%20Process&In-Reply-To=%3C200910091353.52596.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Advanced Reset Process">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Oct  9 22:53:52 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011115.html">[Openocd-development] [patch] add documentation about reset	customization
+</A></li>
+        <LI>Next message: <A HREF="011119.html">[Openocd-development] pxa270.cfg updates
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11116">[ date ]</a>
+              <a href="thread.html#11116">[ thread ]</a>
+              <a href="subject.html#11116">[ subject ]</a>
+              <a href="author.html#11116">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>For the record ... I think the key open issue here is
+the need to refactor target code so that we have more
+general support for reset-without-SRST, using event
+handlers that know how to do that via JTAG (such as
+by forcing a watchdog reset).  Maybe in 0.4.x ...
+
+Once that happens, the other open bits should be easy
+enough to solve.
+
+
+On Wednesday 24 June 2009, David Brownell wrote:
+&gt;<i> 
+</I>&gt;<i> Does it seem to you like the reset process is flexible
+</I>&gt;<i> enough yet?  I'm thinking .. no:
+</I>&gt;<i> 
+</I>&gt;<i>  - All those reset events go to debug targets ... but
+</I>&gt;<i>    there's at least the ICEpick example, where a JRC
+</I>&gt;<i>    needs 100+ TCK cycles after entering TLR, and it's
+</I>&gt;<i>    easy to find others.  Loading an FPGA, for one.
+</I>&gt;<i>    Those aren't targets; so no events...
+</I>
+We seem to have this one addressed for now ... two more
+events go to TAPs, sufficient for ICEpick configuration.
+
+I can imagine the &quot;setup&quot; TAP event being used to load
+an FPGA and then enable the targets associated with some
+CPUs that just got instantiated.
+
+
+&gt;<i>  - I was looking at DM355 documentation and it clearly
+</I>&gt;<i>    distinguishes &quot;cold&quot; resets -- both TRST and SRST
+</I>&gt;<i>    get cycled -- from &quot;warm&quot; ones -- SRST only.  We
+</I>&gt;<i>    don't seem to have a clean way to do &quot;warm&quot; today.
+</I>
+We can do that now if we want, via custom reset_init.
+
+
+&gt;<i>  - In cases where there's no SRST available (*), there's
+</I>&gt;<i>    no alternate hook to trigger reset through JTAG.  For
+</I>&gt;<i>    example, using JRC operations (I'm hoping to get some
+</I>&gt;<i>    documentation).  Or with Cortex-M3, it seems that
+</I>&gt;<i>    some DAP operations can generate SRST too.
+</I>
+Not there yet, but there's a proposal for how to model it
+and let targets stop hard-wiring &quot;use SRST&quot;.
+
+
+&gt;<i>  - Wondering why this old PXA255 board won't work with
+</I>&gt;<i>    current OpenOCD ... docs say that not only does it
+</I>&gt;<i>    need 35+ TCK cycles after entering TLR, but also
+</I>&gt;<i>    that the model is to keep SRST active while issuing
+</I>&gt;<i>    the first few JTAG commands.  Current reset code
+</I>&gt;<i>    deactivates SRST at the same time as TRST.
+</I>
+Partly resolved.  Controlling the &quot;basic&quot; hard reset call
+through a Tcl script lets us perform some of the right
+stuff at reset time, and get past the first roadblock.
+The parameter to that script can be used too.
+
+I'm thinking we may want to tweak the current reset event
+sequence, and model; see below.  PXA for example is one
+of many platforms that doesn't look to need such a hard
+reset ... an SRST-only (warm) reset shouldn't need to
+reinitialize all the debug stuff a TRST+SRST (cold) reset
+requires.
+
+
+&gt;<i>  - I found some TI docs talking about &quot;Wait in Reset&quot;
+</I>&gt;<i>    capability of some systems, triggered by changing
+</I>&gt;<i>    the EMU0/EMU1 signals (which OpenOCD doesn't know
+</I>&gt;<i>    about) from &quot;pulled high&quot; to &quot;one driven low&quot;.
+</I>&gt;<i>    Same kind of model as those PXA255 docs describe.
+</I>
+Re EMU0/EMU1, once we have support for e.g. XDS100 (v1 or v2)
+we can add such support via Tcl procedures.
+
+As with PXA255, I'm thinking the reset sequence and model
+might need to change.  Today we issue TWO hard resets by
+default, using SRST ... one should suffice.  And the state
+of things between those resets is kind of fuzzy.
+
+We should be able to issue just one reset; not be required
+to use SRST; have better treatment of the two main models
+(either we can talk JTAG while SRST is active ... or not);
+and in general, be able to rely less on both SRST and TRST.
+
+
+&gt;<i>  - Even when SRST *does* exist, I can imagine debug
+</I>&gt;<i>    scenerios where using it is the wrong thing.  You
+</I>&gt;<i>    may just want to reset one component, not the whole
+</I>&gt;<i>    system.
+</I>
+... see above.
+
+
+&gt;<i>  - Chasing that PXA thing I wanted to just issue a
+</I>&gt;<i>    reset with no target enabled.  It didn't want to
+</I>&gt;<i>    do such a thing with only JTAG level stuff defined.
+</I>
+Not sure if this got addressed yet.
+
+ 
+&gt;<i> And I suspect that if I looked around a bit, I'd find
+</I>&gt;<i> more such cases where the reset model isn't (yet!)
+</I>&gt;<i> advanced enough.  Thoughts?
+</I>&gt;<i> 
+</I>&gt;<i> - Dave
+</I>&gt;<i> 
+</I>&gt;<i> (*) As for example wherever TI's 14-pin JTAG connector
+</I>&gt;<i>     is used.  My DM6446 board through 20-pin CTI to
+</I>&gt;<i>     14-pin level shifting adapter; OMAP3 BeagleBoard.
+</I>&gt;<i> 
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011115.html">[Openocd-development] [patch] add documentation about reset	customization
+</A></li>
+	<LI>Next message: <A HREF="011119.html">[Openocd-development] pxa270.cfg updates
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11116">[ date ]</a>
+              <a href="thread.html#11116">[ thread ]</a>
+              <a href="subject.html#11116">[ subject ]</a>
+              <a href="author.html#11116">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/5] ARMv7-A: stop using CP15 ops
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/5%5D%20ARMv7-A%3A%20stop%20using%20CP15%20ops&In-Reply-To=%3C200911301855.11953.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013113.html">
+   <LINK REL="Next"  HREF="013110.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/5] ARMv7-A: stop using CP15 ops</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/5%5D%20ARMv7-A%3A%20stop%20using%20CP15%20ops&In-Reply-To=%3C200911301855.11953.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/5] ARMv7-A: stop using CP15 ops">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Dec  1 03:55:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013113.html">[Openocd-development] [patch 1/5] Cortex-A8: stop using CP15 ops
+</A></li>
+        <LI>Next message: <A HREF="013110.html">[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as DPM	ops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13111">[ date ]</a>
+              <a href="thread.html#13111">[ thread ]</a>
+              <a href="subject.html#13111">[ subject ]</a>
+              <a href="author.html#13111">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The ARMv7-A code uses read_cp15() to access fault registers.
+Instead, use DPM operations directly, passing in the relevant
+MRC instructions.
+
+This eliminates some per-operation overhead (though it'll be hard
+to observe, this is uncommon) and helps eliminate read_cp15().
+---
+ src/target/armv7a.c |   39 +++++++++++++++++++++++++++++++++++----
+ 1 file changed, 35 insertions(+), 4 deletions(-)
+
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -38,17 +38,48 @@ static void armv7a_show_fault_registers(
+ {
+ 	uint32_t dfsr, ifsr, dfar, ifar;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
++	struct arm_dpm *dpm = armv7a-&gt;armv4_5_common.dpm;
++	int retval;
+ 
+-	armv7a-&gt;read_cp15(target, 0, 0, 5, 0, &amp;dfsr);
+-	armv7a-&gt;read_cp15(target, 0, 1, 5, 0, &amp;ifsr);
+-	armv7a-&gt;read_cp15(target, 0, 0, 6, 0, &amp;dfar);
+-	armv7a-&gt;read_cp15(target, 0, 2, 6, 0, &amp;ifar);
++	retval = dpm-&gt;prepare(dpm);
++	if (retval != ERROR_OK)
++		return;
++
++	/* ARMV4_5_MRC(cpnum, op1, r0, CRn, CRm, op2) */
++
++	/* c5/c0 - {data, instruction} fault status registers */
++	retval = dpm-&gt;instr_read_data_r0(dpm,
++			ARMV4_5_MRC(15, 0, 0, 5, 0, 0),
++			&amp;dfsr);
++	if (retval != ERROR_OK)
++		goto done;
++
++	retval = dpm-&gt;instr_read_data_r0(dpm,
++			ARMV4_5_MRC(15, 0, 0, 5, 0, 1),
++			&amp;ifsr);
++	if (retval != ERROR_OK)
++		goto done;
++
++	/* c6/c0 - {data, instruction} fault address registers */
++	retval = dpm-&gt;instr_read_data_r0(dpm,
++			ARMV4_5_MRC(15, 0, 0, 6, 0, 0),
++			&amp;dfar);
++	if (retval != ERROR_OK)
++		goto done;
++
++	retval = dpm-&gt;instr_read_data_r0(dpm,
++			ARMV4_5_MRC(15, 0, 0, 6, 0, 2),
++			&amp;ifar);
++	if (retval != ERROR_OK)
++		goto done;
+ 
+ 	LOG_USER(&quot;Data fault registers        DFSR: %8.8&quot; PRIx32
+ 			&quot;, DFAR: %8.8&quot; PRIx32, dfsr, dfar);
+ 	LOG_USER(&quot;Instruction fault registers IFSR: %8.8&quot; PRIx32
+ 			&quot;, IFAR: %8.8&quot; PRIx32, ifsr, ifar);
+ 
++done:
++	/* (void) */ dpm-&gt;finish(dpm);
+ }
+ 
+ int armv7a_arch_state(struct target *target)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013113.html">[Openocd-development] [patch 1/5] Cortex-A8: stop using CP15 ops
+</A></li>
+	<LI>Next message: <A HREF="013110.html">[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as DPM	ops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13111">[ date ]</a>
+              <a href="thread.html#13111">[ thread ]</a>
+              <a href="subject.html#13111">[ subject ]</a>
+              <a href="author.html#13111">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

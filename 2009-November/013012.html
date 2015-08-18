@@ -1,0 +1,226 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/2] remove unknown handler
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/2%5D%20remove%20unknown%20handler&In-Reply-To=%3C1259430059-8743-1-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013014.html">
+   <LINK REL="Next"  HREF="013005.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/2] remove unknown handler</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/2%5D%20remove%20unknown%20handler&In-Reply-To=%3C1259430059-8743-1-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/2] remove unknown handler">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Nov 28 18:40:59 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013014.html">[Openocd-development] [PUSHED] command improvements
+</A></li>
+        <LI>Next message: <A HREF="013005.html">[PATCH 2/2] improve command handler wrapper script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13012">[ date ]</a>
+              <a href="thread.html#13012">[ thread ]</a>
+              <a href="subject.html#13012">[ subject ]</a>
+              <a href="author.html#13012">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Updates command registration to provide top-level handlers for all
+commands, rather than falling back onto the 'unknown' command. Instead,
+that same handler is registered for placeholders, providing the same
+functionality under the root verb command name instead.  This permits
+users to implement their own 'unknown' function, and it resolves some
+mind-bending breakage related to function object lookup while recursing.
+
+Changes 'ocd_bounce' to call 'ocd_command' and 'ocd_help' from the
+wrapper directly, rather than bouncing through their wrappers. This
+prevents endless recursion caused by the above changes, whereby the
+'command' wrapper's type check would blow the stack to hell and gone.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c   |   70 ++++++++++++++++++++++++-----------------------
+ src/helper/startup.tcl |    4 +-
+ 2 files changed, 38 insertions(+), 36 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 64db95d..4e92ed4 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -296,37 +296,32 @@ static void command_free(struct command *c)
+ 	free(c);
+ }
+ 
++static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
++
+ static int register_command_handler(struct command *c)
+ {
+-	int retval = -ENOMEM;
+-	const char *full_name = command_name(c, '_');
+-	if (NULL == full_name)
+-		return retval;
++	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, c-&gt;name);
++	if (NULL == ocd_name)
++		return JIM_ERR;
+ 
+-	if (NULL != c-&gt;handler)
+-	{
+-		const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
+-		if (NULL == full_name)
+-			goto free_full_name;
++	LOG_DEBUG(&quot;registering '%s'...&quot;, ocd_name);
+ 
+-		Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
+-		free((void *)ocd_name);
+-	}
++	Jim_CmdProc func = c-&gt;handler ? &amp;script_command : &amp;command_unknown;
++	int retval = Jim_CreateCommand(interp, ocd_name, func, c, NULL);
++	free((void *)ocd_name);
++	if (JIM_OK != retval)
++		return retval;
+ 
+ 	/* we now need to add an overrideable proc */
+ 	const char *override_name = alloc_printf(
+ 			&quot;proc %s {args} {eval ocd_bouncer %s $args}&quot;,
+-			full_name, full_name);
++			c-&gt;name, c-&gt;name);
+ 	if (NULL == override_name)
+-		goto free_full_name;
++		return JIM_ERR;
+ 
+-	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
++	retval = Jim_Eval_Named(interp, override_name, __FILE__, __LINE__);
+ 	free((void *)override_name);
+ 
+-	retval = ERROR_OK;
+-
+-free_full_name:
+-	free((void *)full_name);
+ 	return retval;
+ }
+ 
+@@ -350,19 +345,20 @@ struct command* register_command(struct command_context *context,
+ 	if (NULL == c)
+ 		return NULL;
+ 
+-	if (NULL != c-&gt;handler)
++	int retval = ERROR_OK;
++	if (NULL != cr-&gt;jim_handler &amp;&amp; NULL == parent)
+ 	{
+-		int retval = register_command_handler(command_root(c));
+-		if (ERROR_OK != retval)
+-		{
+-			unregister_command(context, parent, name);
+-			return NULL;
+-		}
++		retval = Jim_CreateCommand(interp, cr-&gt;name,
++				cr-&gt;jim_handler, cr-&gt;jim_handler_data, NULL);
+ 	}
++	else if (NULL != cr-&gt;handler || NULL != parent)
++		retval = register_command_handler(command_root(c));
+ 
+-	if (NULL != cr-&gt;jim_handler &amp;&amp; NULL == parent)
+-		Jim_CreateCommand(interp, cr-&gt;name, cr-&gt;jim_handler, cr-&gt;jim_handler_data, NULL);
+-
++	if (ERROR_OK != retval)
++	{
++		unregister_command(context, parent, name);
++		c = NULL;
++	}
+ 	return c;
+ }
+ 
+@@ -903,15 +899,22 @@ static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	const char *cmd_name = Jim_GetString(argv[0], NULL);
+-	script_debug(interp, cmd_name, argc - 1, argv + 1);
++	if (strcmp(cmd_name, &quot;unknown&quot;) == 0)
++	{
++		if (argc == 1)
++			return JIM_OK;
++		argc--;
++		argv++;
++	}
++	script_debug(interp, cmd_name, argc, argv);
+ 
+ 	struct command_context *cmd_ctx = current_command_context();
+ 	struct command *c = cmd_ctx-&gt;commands;
+-	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c, true);
++	int remaining = command_unknown_find(argc, argv, c, &amp;c, true);
+ 	// if nothing could be consumed, then it's really an unknown command
+-	if (remaining == argc - 1)
++	if (remaining == argc)
+ 	{
+-		const char *cmd = Jim_GetString(argv[1], NULL);
++		const char *cmd = Jim_GetString(argv[0], NULL);
+ 		LOG_ERROR(&quot;Unknown command:\n  %s&quot;, cmd);
+ 		return JIM_OK;
+ 	}
+@@ -1196,7 +1199,6 @@ struct command_context* command_init(const char *startup_tcl)
+ 	Jim_SetGlobalVariableStr(interp, &quot;ocd_HOSTOS&quot;,
+ 			Jim_NewStringObj(interp, HostOs , strlen(HostOs)));
+ 
+-	Jim_CreateCommand(interp, &quot;unknown&quot;, &amp;command_unknown, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;ocd_find&quot;, jim_find, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;echo&quot;, jim_echo, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;capture&quot;, jim_capture, NULL, NULL);
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index cb5fb02..dda89c8 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -15,7 +15,7 @@ proc exit {} {
+ # to discard 'handler' command output,
+ proc ocd_bouncer {name args} {
+ 	set cmd [format &quot;ocd_%s&quot; $name]
+-	set type [eval command type $cmd $args]
++	set type [eval ocd_command type $cmd $args]
+ 	if {$type == &quot;native&quot;} {
+ 		return [eval $cmd $args]
+ 	} else {if {$type == &quot;simple&quot;} {
+@@ -25,7 +25,7 @@ proc ocd_bouncer {name args} {
+ 			set errmsg &quot;Command handler execution failed&quot;
+ 		}
+ 	} else {if {$type == &quot;group&quot;} {
+-		catch {eval help $name $args}
++		catch {eval ocd_help $name $args}
+ 		set errmsg [format &quot;%s: command requires more arguments&quot; \
+ 			[concat $name &quot; &quot; $args]]
+ 	} else {
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013014.html">[Openocd-development] [PUSHED] command improvements
+</A></li>
+	<LI>Next message: <A HREF="013005.html">[PATCH 2/2] improve command handler wrapper script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13012">[ date ]</a>
+              <a href="thread.html#13012">[ thread ]</a>
+              <a href="subject.html#13012">[ subject ]</a>
+              <a href="author.html#13012">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

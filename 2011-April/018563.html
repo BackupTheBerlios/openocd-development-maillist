@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] mips: illustrates how to improve	performance
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20mips%3A%20illustrates%20how%20to%20improve%0A%09performance&In-Reply-To=%3C1301608940-32502-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="018585.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] mips: illustrates how to improve	performance</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20mips%3A%20illustrates%20how%20to%20improve%0A%09performance&In-Reply-To=%3C1301608940-32502-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] mips: illustrates how to improve	performance">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Apr  1 00:02:20 CEST 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="018585.html">[Openocd-development] [PATCH] mips: illustrates how to improve	performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18563">[ date ]</a>
+              <a href="thread.html#18563">[ thread ]</a>
+              <a href="subject.html#18563">[ subject ]</a>
+              <a href="author.html#18563">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Do not require unecessary roundtrips for clocking out
+data.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nor/pic32mx.c |    9 +++------
+ src/target/mips_ejtag.c |   17 +++++++++++++++--
+ src/target/mips_ejtag.h |    1 +
+ src/target/mips_m4k.c   |    8 ++------
+ 4 files changed, 21 insertions(+), 14 deletions(-)
+
+diff --git a/src/flash/nor/pic32mx.c b/src/flash/nor/pic32mx.c
+index 89fe9b0..b3c6da3 100644
+--- a/src/flash/nor/pic32mx.c
++++ b/src/flash/nor/pic32mx.c
+@@ -774,11 +774,9 @@ COMMAND_HANDLER(pic32mx_handle_unlock_command)
+ 	}
+ 
+ 	/* unlock/erase device */
+-	mchip_cmd = MCHP_ASERT_RST;
+-	mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++	mips_ejtag_drscan_8_out(ejtag_info, MCHP_ASERT_RST);
+ 
+-	mchip_cmd = MCHP_ERASE;
+-	mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++	mips_ejtag_drscan_8_out(ejtag_info, MCHP_ERASE);
+ 
+ 	do {
+ 		mchip_cmd = MCHP_STATUS;
+@@ -791,8 +789,7 @@ COMMAND_HANDLER(pic32mx_handle_unlock_command)
+ 		alive_sleep(1);
+ 	} while ((mchip_cmd &amp; (1 &lt;&lt; 2)) || (!(mchip_cmd &amp; (1 &lt;&lt; 3))));
+ 
+-	mchip_cmd = MCHP_DE_ASSERT_RST;
+-	mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++	mips_ejtag_drscan_8_out(ejtag_info, MCHP_DE_ASSERT_RST);
+ 
+ 	/* select ejtag tap */
+ 	mips_ejtag_set_instr(ejtag_info, MTAP_SW_ETAP);
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 9df8a02..087be07 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -146,11 +146,24 @@ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data)
+ 
+ 	*data = buf_get_u32(field.in_value, 0, 32);
+ 
+-	keep_alive();
+-
+ 	return ERROR_OK;
+ }
+ 
++void mips_ejtag_drscan_8_out(struct mips_ejtag *ejtag_info, uint8_t data)
++{
++	struct jtag_tap *tap;
++	tap  = ejtag_info-&gt;tap;
++	assert(tap != NULL);
++
++	struct scan_field field;
++
++	field.num_bits = 8;
++	field.out_value = &data;
++	field.in_value = NULL;
++
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
++}
++
+ static int mips_ejtag_step_enable(struct mips_ejtag *ejtag_info)
+ {
+ 	static const uint32_t code[] = {
+diff --git a/src/target/mips_ejtag.h b/src/target/mips_ejtag.h
+index 63b6093..aa890d2 100644
+--- a/src/target/mips_ejtag.h
++++ b/src/target/mips_ejtag.h
+@@ -137,6 +137,7 @@ int mips_ejtag_enter_debug(struct mips_ejtag *ejtag_info);
+ int mips_ejtag_exit_debug(struct mips_ejtag *ejtag_info);
+ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode);
+ int mips_ejtag_drscan_32(struct mips_ejtag *ejtag_info, uint32_t *data);
++void mips_ejtag_drscan_8_out(struct mips_ejtag *ejtag_info, uint8_t data);
+ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data);
+ int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int write_t, uint32_t *data);
+ 
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index 10d3c7d..7530cbd 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -254,18 +254,14 @@ static int mips_m4k_assert_reset(struct target *target)
+ 	{
+ 		if (mips_m4k-&gt;is_pic32mx)
+ 		{
+-			uint32_t mchip_cmd;
+-
+ 			LOG_DEBUG(&quot;Using MTAP reset to reset processor...&quot;);
+ 
+ 			/* use microchip specific MTAP reset */
+ 			mips_ejtag_set_instr(ejtag_info, MTAP_SW_MTAP);
+ 			mips_ejtag_set_instr(ejtag_info, MTAP_COMMAND);
+ 
+-			mchip_cmd = MCHP_ASERT_RST;
+-			mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
+-			mchip_cmd = MCHP_DE_ASSERT_RST;
+-			mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++			mips_ejtag_drscan_8_out(ejtag_info, MCHP_ASERT_RST);
++			mips_ejtag_drscan_8_out(ejtag_info, MCHP_DE_ASSERT_RST);
+ 			mips_ejtag_set_instr(ejtag_info, MTAP_SW_ETAP);
+ 		}
+ 		else
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="018585.html">[Openocd-development] [PATCH] mips: illustrates how to improve	performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18563">[ date ]</a>
+              <a href="thread.html#18563">[ thread ]</a>
+              <a href="subject.html#18563">[ subject ]</a>
+              <a href="author.html#18563">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

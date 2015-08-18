@@ -1,0 +1,117 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] segfault in cortex_m3_assert_reset
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20segfault%20in%20cortex_m3_assert_reset&In-Reply-To=%3CAANLkTimyPdeeOi9s%2BOi%2BhfjUFmkw6eZpTe1h61dgcEH2%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017991.html">
+   <LINK REL="Next"  HREF="017983.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] segfault in cortex_m3_assert_reset</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20segfault%20in%20cortex_m3_assert_reset&In-Reply-To=%3CAANLkTimyPdeeOi9s%2BOi%2BhfjUFmkw6eZpTe1h61dgcEH2%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] segfault in cortex_m3_assert_reset">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Mon Jan 24 23:08:52 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017991.html">[Openocd-development] NAND Flash Bad Block Density - What is reasonable?
+</A></li>
+        <LI>Next message: <A HREF="017983.html">[Openocd-development] [PATCH] fix segfault from stack corruption in	ahbap_debugport_init
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17982">[ date ]</a>
+              <a href="thread.html#17982">[ thread ]</a>
+              <a href="subject.html#17982">[ subject ]</a>
+              <a href="author.html#17982">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+
+Has anyone else problem with segfaults on current git? As soon as I
+issue a reset, openocd dies. This is with a STM32 target. Same result
+with both rlink and a jtagkey interface. Bisection was successful and
+pointed to commit '8f93c0a3... target: do not expose error numbers to
+users' by &#216;yvind. Unfortunately, that patch seems very much unrelated.
+
+I suspect it's a 64-bit issue, because I've traced it to rbx
+(containing a pointer) getting trashed (some of the high 32 bits set)
+during the call to mem_ap_read_atomic_u32 in cortex_m3_assert_reset
+(cortex_m3.c:932), which causes the segfault later when it
+dereferences the pointer.
+
+My setup is as follows:
+$ uname -srvm
+Linux 2.6.32-27-generic #49-Ubuntu SMP Thu Dec 2 00:51:09 UTC 2010 x86_64
+$ gcc -v
+gcc version 4.4.3 (Ubuntu 4.4.3-4ubuntu5)
+
+I attach the git bisect test script that gave the following log:
+
+git bisect start
+# good: [c24087d33ec75144ec5f579142152d8eb5ce50c9] config: fix
+luminary jtag config
+git bisect good c24087d33ec75144ec5f579142152d8eb5ce50c9
+# bad: [a72741818431d693e48b0f016258be0fec1f79da] stellaris:
+automatically generate and update device IDs
+git bisect bad a72741818431d693e48b0f016258be0fec1f79da
+# good: [56d9ee779d5d744822e5957c98c0d61ce3fc44a9] flash: print flash
+bank name on flash info cmd
+git bisect good 56d9ee779d5d744822e5957c98c0d61ce3fc44a9
+# bad: [d356034f03eb60fd4e8b3537bd979d9e7e5e25f8] svf: implement sleep
+for RUNTEST min_time
+git bisect bad d356034f03eb60fd4e8b3537bd979d9e7e5e25f8
+# bad: [21a1c6ec33f87b6285e47ad6597cd49ad89a9485] NAND/TCL: fix
+segfault on syntax error
+git bisect bad 21a1c6ec33f87b6285e47ad6597cd49ad89a9485
+# bad: [eea91f71f918caa5e4ef571c76f60c579533b0f6] warning: fix warning
+where GCC didn't catch a doubly declared global structure
+git bisect bad eea91f71f918caa5e4ef571c76f60c579533b0f6
+# good: [7cd2617384f4ac620c468343c1f2009fbfa2fc79] initial SWD
+transport (SWD infrastructure #2)
+git bisect good 7cd2617384f4ac620c468343c1f2009fbfa2fc79
+# bad: [4f9a9b8ebae8425eda3a71ccb782789cd3b8f6b7] warnings: use more
+'const' for char *
+git bisect bad 4f9a9b8ebae8425eda3a71ccb782789cd3b8f6b7
+# bad: [8f93c0a3fe29313945a63b3f2154baef70acd796] target: do not
+expose error numbers to users
+git bisect bad 8f93c0a3fe29313945a63b3f2154baef70acd796
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test.sh
+Type: application/x-sh
+Size: 357 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110124/3b288150/attachment.sh">https://lists.berlios.de/pipermail/openocd-development/attachments/20110124/3b288150/attachment.sh</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017991.html">[Openocd-development] NAND Flash Bad Block Density - What is reasonable?
+</A></li>
+	<LI>Next message: <A HREF="017983.html">[Openocd-development] [PATCH] fix segfault from stack corruption in	ahbap_debugport_init
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17982">[ date ]</a>
+              <a href="thread.html#17982">[ thread ]</a>
+              <a href="subject.html#17982">[ subject ]</a>
+              <a href="author.html#17982">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

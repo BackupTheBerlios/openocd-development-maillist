@@ -1,0 +1,112 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Problem with LPC2148 and ARM-USB-TINY-H
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problem%20with%20LPC2148%20and%20ARM-USB-TINY-H&In-Reply-To=%3C20100802102641.3377.qmail%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016153.html">
+   <LINK REL="Next"  HREF="016159.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Problem with LPC2148 and ARM-USB-TINY-H</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problem%20with%20LPC2148%20and%20ARM-USB-TINY-H&In-Reply-To=%3C20100802102641.3377.qmail%40stuge.se%3E"
+       TITLE="[Openocd-development] Problem with LPC2148 and ARM-USB-TINY-H">peter at stuge.se
+       </A><BR>
+    <I>Mon Aug  2 12:26:40 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016153.html">[Openocd-development] Problem with LPC2148 and ARM-USB-TINY-H
+</A></li>
+        <LI>Next message: <A HREF="016159.html">[Openocd-development] Problem with LPC2148 and ARM-USB-TINY-H
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16158">[ date ]</a>
+              <a href="thread.html#16158">[ thread ]</a>
+              <a href="subject.html#16158">[ subject ]</a>
+              <a href="author.html#16158">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Olof T&#229;ngrot wrote:
+&gt;<i> I need a build script,
+</I>..
+&gt;<i> I prefer to use Linux since libusb, libftdi and openocd is more
+</I>&gt;<i> native on that platform.
+</I>
+Try this..
+
+mkdir -p /tmp/test/src || exit 1
+cd /tmp/test/src
+git clone <A HREF="git://git.libusb.org/libusb.git">git://git.libusb.org/libusb.git</A>
+git clone <A HREF="git://developer.intra2net.com/libftdi-1.0">git://developer.intra2net.com/libftdi-1.0</A>
+git clone <A HREF="git://openocd.git.sourceforge.net/gitroot/openocd/openocd">git://openocd.git.sourceforge.net/gitroot/openocd/openocd</A>
+cd libusb &amp;&amp; ./autogen.sh --prefix=/tmp/test &amp;&amp; make install &amp;&amp; cd ..
+export LIBUSB_1_0_CFLAGS=/tmp/test/include
+export LIBUSB_1_0_LIBS=/tmp/test/lib
+cd libftdi-1.0 &amp;&amp; ../openocd/bootstrap &amp;&amp; ./configure \
+--prefix=/tmp/test --disable-libftdipp --disable-python-binding \
+--without-examples &amp;&amp; make install &amp;&amp; cd ..
+export CFLAGS=&quot;-I/tmp/test/include -I/tmp/test/include/libusb-1.0&quot;
+export LDFLAGS=-L/tmp/test/lib
+cd openocd &amp;&amp; sed -i '/LIBS=.*-lusb&quot;/s,-lusb,-lusb-1.0,' configure.in &amp;&amp;
+sed -i '/^FTDI2232LIB =.*-lusb$/s, -lusb,,' src/Makefile.am &amp;&amp;
+./bootstrap &amp;&amp; ./configure --prefix=/tmp/test --enable-maintainer-mode \
+--disable-doxygen-html --disable-parport-ppdev --enable-ft2232_libftdi &amp;&amp; \
+make install &amp;&amp; cd ..
+cd ..
+bin/openocd -f share/openocd/scripts/interface/olimex-arm-usb-tiny-h.cfg \
+-f share/openocd/scripts/target/lpc2148.cfg
+
+It works here. You need autotools installed. You will get verbose
+debug output from libusb-1.0 when running this openocd. Worst case it
+is so verbose that it disrupts some timing requirements and makes the
+JTAG communication fail. In that case, rebuild libusb-1.0 without
+debugging. (See what autogen.sh does and replicate that, but without
+the debug flag. Don't forget --prefix.)
+
+The libusb-1.0 dir in CFLAGS is a workaround for a bug in how libftdi
+uses libusb-1.0. libftdi should do #include &lt;libusb-1.0/libusb.h&gt; but
+does #include &lt;libusb.h&gt; which is wrong. This forces all libftdi
+users to mess with include paths, to add the directory that libftdi
+happened to be built with, and this is clearly *not* how things are
+supposed to work. libftdi should be fixed.
+
+The two seds are neccessary since OpenOCD assumes that libftdi is
+built against libusb-0.1. I'm not sure about the best fix for the
+configure.in test, but for build time libtool will always do the
+right thing if -lusb is simply removed from src/Makefile.am.
+
+
+//Peter
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016153.html">[Openocd-development] Problem with LPC2148 and ARM-USB-TINY-H
+</A></li>
+	<LI>Next message: <A HREF="016159.html">[Openocd-development] Problem with LPC2148 and ARM-USB-TINY-H
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16158">[ date ]</a>
+              <a href="thread.html#16158">[ thread ]</a>
+              <a href="subject.html#16158">[ subject ]</a>
+              <a href="author.html#16158">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

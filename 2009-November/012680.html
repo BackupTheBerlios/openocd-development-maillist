@@ -1,0 +1,616 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/5] ARM: simplify CPSR handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/5%5D%20ARM%3A%20simplify%20CPSR%20handling&In-Reply-To=%3C200911211420.06286.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012676.html">
+   <LINK REL="Next"  HREF="012677.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/5] ARM: simplify CPSR handling</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/5%5D%20ARM%3A%20simplify%20CPSR%20handling&In-Reply-To=%3C200911211420.06286.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/5] ARM: simplify CPSR handling">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Nov 21 23:20:06 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012676.html">[Openocd-development] [patch 1/5] ARM11: remove disabled register	hooks
+</A></li>
+        <LI>Next message: <A HREF="012677.html">[Openocd-development] [patch 3/5] ARM: define two register utilities
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12680">[ date ]</a>
+              <a href="thread.html#12680">[ thread ]</a>
+              <a href="subject.html#12680">[ subject ]</a>
+              <a href="author.html#12680">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Stash a pointer to the CPSR in the &quot;struct arm&quot;, to help get rid
+of the (common) references to its index in the register cache.
+
+This removes almost all references to CPSR offsets outside of the
+toplevel ARM code ... except a pair related to the current ARM11
+&quot;simulator&quot; logic (which should be removable soonish).
+
+This is a net minor code shrink of a few hundred bytes of object
+code, and also makes the code more readable.
+---
+ src/target/arm720t.c       |    8 ++---
+ src/target/arm7_9_common.c |   59 ++++++++++++++++++++++++++-----------------
+ src/target/arm920t.c       |    8 ++---
+ src/target/arm926ejs.c     |    8 ++---
+ src/target/arm_simulator.c |    2 -
+ src/target/armv4_5.c       |   38 ++++++++++++++++++---------
+ src/target/armv4_5.h       |   16 +++--------
+ src/target/armv7a.c        |    3 --
+ src/target/armv7a.h        |   10 -------
+ src/target/cortex_a8.c     |   12 +++-----
+ src/target/xscale.c        |   26 +++++++++++-------
+ 11 files changed, 103 insertions(+), 87 deletions(-)
+
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -240,7 +240,7 @@ static int arm720t_arch_state(struct tar
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name ,
+ 			 arm_mode_name(armv4_5-&gt;core_mode),
+-			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
++			 buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm720t-&gt;armv4_5_mmu.mmu_enabled],
+ 			 state[arm720t-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled]);
+@@ -347,9 +347,9 @@ static int arm720t_soft_reset_halt(struc
+ 	target-&gt;state = TARGET_HALTED;
+ 
+ 	/* SVC, ARM state, IRQ and FIQ disabled */
+-	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8, 0xd3);
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 1;
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++	buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8, 0xd3);
++	armv4_5-&gt;cpsr-&gt;dirty = 1;
++	armv4_5-&gt;cpsr-&gt;valid = 1;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1227,9 +1227,9 @@ int arm7_9_soft_reset_halt(struct target
+ 	register_cache_invalidate(armv4_5-&gt;core_cache);
+ 
+ 	/* SVC, ARM state, IRQ and FIQ disabled */
+-	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8, 0xd3);
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 1;
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++	buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8, 0xd3);
++	armv4_5-&gt;cpsr-&gt;dirty = 1;
++	armv4_5-&gt;cpsr-&gt;valid = 1;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+@@ -1401,9 +1401,9 @@ static int arm7_9_debug_entry(struct tar
+ 	if (armv4_5-&gt;core_state == ARMV4_5_STATE_THUMB)
+ 		cpsr |= 0x20;
+ 
+-	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32, cpsr);
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 0;
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++	buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32, cpsr);
++	armv4_5-&gt;cpsr-&gt;dirty = 0;
++	armv4_5-&gt;cpsr-&gt;valid = 1;
+ 
+ 	armv4_5-&gt;core_mode = cpsr &amp; 0x1f;
+ 
+@@ -1520,7 +1520,8 @@ int arm7_9_full_context(struct target *t
+ 			uint32_t tmp_cpsr;
+ 
+ 			/* change processor mode (and mask T bit) */
+-			tmp_cpsr = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; 0xE0;
++			tmp_cpsr = buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8)
++					&amp; 0xe0;
+ 			tmp_cpsr |= armv4_5_number_to_mode(i);
+ 			tmp_cpsr &amp;= ~0x20;
+ 			arm7_9-&gt;write_xpsr_im8(target, tmp_cpsr &amp; 0xff, 0, 0);
+@@ -1551,7 +1552,9 @@ int arm7_9_full_context(struct target *t
+ 	}
+ 
+ 	/* restore processor mode (mask T bit) */
+-	arm7_9-&gt;write_xpsr_im8(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; ~0x20, 0, 0);
++	arm7_9-&gt;write_xpsr_im8(target,
++			buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8) &amp; ~0x20,
++			0, 0);
+ 
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+@@ -1645,7 +1648,8 @@ int arm7_9_restore_context(struct target
+ 				uint32_t tmp_cpsr;
+ 
+ 				/* change processor mode (mask T bit) */
+-				tmp_cpsr = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; 0xE0;
++				tmp_cpsr = buf_get_u32(armv4_5-&gt;cpsr-&gt;value,
++						0, 8) &amp; 0xe0;
+ 				tmp_cpsr |= armv4_5_number_to_mode(i);
+ 				tmp_cpsr &amp;= ~0x20;
+ 				arm7_9-&gt;write_xpsr_im8(target, tmp_cpsr &amp; 0xff, 0, 0);
+@@ -1687,24 +1691,27 @@ int arm7_9_restore_context(struct target
+ 		}
+ 	}
+ 
+-	if ((armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty == 0) &amp;&amp; (armv4_5-&gt;core_mode != current_mode))
++	if (!armv4_5-&gt;cpsr-&gt;dirty &amp;&amp; (armv4_5-&gt;core_mode != current_mode))
+ 	{
+ 		/* restore processor mode (mask T bit) */
+ 		uint32_t tmp_cpsr;
+ 
+-		tmp_cpsr = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; 0xE0;
++		tmp_cpsr = buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8) &amp; 0xE0;
+ 		tmp_cpsr |= armv4_5_number_to_mode(i);
+ 		tmp_cpsr &amp;= ~0x20;
+ 		LOG_DEBUG(&quot;writing lower 8 bit of cpsr with value 0x%2.2x&quot;, (unsigned)(tmp_cpsr));
+ 		arm7_9-&gt;write_xpsr_im8(target, tmp_cpsr &amp; 0xff, 0, 0);
+ 	}
+-	else if (armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty == 1)
++	else if (armv4_5-&gt;cpsr-&gt;dirty)
+ 	{
+ 		/* CPSR has been changed, full restore necessary (mask T bit) */
+-		LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32 &quot;&quot;, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32));
+-		arm7_9-&gt;write_xpsr(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32) &amp; ~0x20, 0);
+-		armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 0;
+-		armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++		LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32));
++		arm7_9-&gt;write_xpsr(target,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32)
++					&amp; ~0x20, 0);
++		armv4_5-&gt;cpsr-&gt;dirty = 0;
++		armv4_5-&gt;cpsr-&gt;valid = 1;
+ 	}
+ 
+ 	/* restore PC */
+@@ -2106,7 +2113,7 @@ static int arm7_9_read_core_reg(struct t
+ 		uint32_t tmp_cpsr;
+ 
+ 		/* change processor mode (mask T bit) */
+-		tmp_cpsr = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; 0xE0;
++		tmp_cpsr = buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8) &amp; 0xE0;
+ 		tmp_cpsr |= mode;
+ 		tmp_cpsr &amp;= ~0x20;
+ 		arm7_9-&gt;write_xpsr_im8(target, tmp_cpsr &amp; 0xff, 0, 0);
+@@ -2140,7 +2147,9 @@ static int arm7_9_read_core_reg(struct t
+ 			&amp;&amp; (mode != armv4_5-&gt;core_mode)
+ 			&amp;&amp; (areg-&gt;mode != ARMV4_5_MODE_ANY))	{
+ 		/* restore processor mode (mask T bit) */
+-		arm7_9-&gt;write_xpsr_im8(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; ~0x20, 0, 0);
++		arm7_9-&gt;write_xpsr_im8(target,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8)
++					&amp; ~0x20, 0, 0);
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -2165,7 +2174,7 @@ static int arm7_9_write_core_reg(struct 
+ 		uint32_t tmp_cpsr;
+ 
+ 		/* change processor mode (mask T bit) */
+-		tmp_cpsr = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; 0xE0;
++		tmp_cpsr = buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8) &amp; 0xE0;
+ 		tmp_cpsr |= mode;
+ 		tmp_cpsr &amp;= ~0x20;
+ 		arm7_9-&gt;write_xpsr_im8(target, tmp_cpsr &amp; 0xff, 0, 0);
+@@ -2199,7 +2208,9 @@ static int arm7_9_write_core_reg(struct 
+ 			&amp;&amp; (mode != armv4_5-&gt;core_mode)
+ 			&amp;&amp; (areg-&gt;mode != ARMV4_5_MODE_ANY))	{
+ 		/* restore processor mode (mask T bit) */
+-		arm7_9-&gt;write_xpsr_im8(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; ~0x20, 0, 0);
++		arm7_9-&gt;write_xpsr_im8(target,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8)
++					&amp; ~0x20, 0, 0);
+ 	}
+ 
+ 	return jtag_execute_queue();
+@@ -2372,7 +2383,9 @@ int arm7_9_read_memory(struct target *ta
+ 	{
+ 		LOG_WARNING(&quot;memory read caused data abort (address: 0x%8.8&quot; PRIx32 &quot;, size: 0x%&quot; PRIx32 &quot;, count: 0x%&quot; PRIx32 &quot;)&quot;, address, size, count);
+ 
+-		arm7_9-&gt;write_xpsr_im8(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; ~0x20, 0, 0);
++		arm7_9-&gt;write_xpsr_im8(target,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8)
++					&amp; ~0x20, 0, 0);
+ 
+ 		return ERROR_TARGET_DATA_ABORT;
+ 	}
+@@ -2555,7 +2568,9 @@ int arm7_9_write_memory(struct target *t
+ 	{
+ 		LOG_WARNING(&quot;memory write caused data abort (address: 0x%8.8&quot; PRIx32 &quot;, size: 0x%&quot; PRIx32 &quot;, count: 0x%&quot; PRIx32 &quot;)&quot;, address, size, count);
+ 
+-		arm7_9-&gt;write_xpsr_im8(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; ~0x20, 0, 0);
++		arm7_9-&gt;write_xpsr_im8(target,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8)
++					&amp; ~0x20, 0, 0);
+ 
+ 		return ERROR_TARGET_DATA_ABORT;
+ 	}
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -452,7 +452,7 @@ int arm920t_arch_state(struct target *ta
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+ 			 arm_mode_name(armv4_5-&gt;core_mode),
+-			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
++			 buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm920t-&gt;armv4_5_mmu.mmu_enabled],
+ 			 state[arm920t-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+@@ -596,9 +596,9 @@ int arm920t_soft_reset_halt(struct targe
+ 	target-&gt;state = TARGET_HALTED;
+ 
+ 	/* SVC, ARM state, IRQ and FIQ disabled */
+-	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8, 0xd3);
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 1;
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++	buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8, 0xd3);
++	armv4_5-&gt;cpsr-&gt;dirty = 1;
++	armv4_5-&gt;cpsr-&gt;valid = 1;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -510,7 +510,7 @@ int arm926ejs_arch_state(struct target *
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason,target-&gt;debug_reason)-&gt;name,
+ 			 arm_mode_name(armv4_5-&gt;core_mode),
+-			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
++			 buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm926ejs-&gt;armv4_5_mmu.mmu_enabled],
+ 			 state[arm926ejs-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+@@ -565,9 +565,9 @@ int arm926ejs_soft_reset_halt(struct tar
+ 	target-&gt;state = TARGET_HALTED;
+ 
+ 	/* SVC, ARM state, IRQ and FIQ disabled */
+-	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8, 0xd3);
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 1;
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++	buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 8, 0xd3);
++	armv4_5-&gt;cpsr-&gt;dirty = 1;
++	armv4_5-&gt;cpsr-&gt;valid = 1;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+--- a/src/target/arm_simulator.c
++++ b/src/target/arm_simulator.c
+@@ -821,7 +821,7 @@ static uint32_t armv4_5_get_cpsr(struct 
+ {
+ 	struct arm *armv4_5 = (struct arm *)sim-&gt;user_data;
+ 
+-	return buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, pos, bits);
++	return buf_get_u32(armv4_5-&gt;cpsr-&gt;value, pos, bits);
+ }
+ 
+ static enum armv4_5_state armv4_5_get_state(struct arm_sim_interface *sim)
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -36,6 +36,17 @@
+ #include &quot;register.h&quot;
+ 
+ 
++/* offsets into armv4_5 core register cache */
++enum {
++//	ARMV4_5_CPSR = 31,
++	ARMV4_5_SPSR_FIQ = 32,
++	ARMV4_5_SPSR_IRQ = 33,
++	ARMV4_5_SPSR_SVC = 34,
++	ARMV4_5_SPSR_ABT = 35,
++	ARMV4_5_SPSR_UND = 36,
++	ARM_SPSR_MON = 39,
++};
++
+ static const uint8_t arm_usr_indices[17] = {
+ 	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ARMV4_5_CPSR,
+ };
+@@ -214,7 +225,7 @@ char* armv4_5_state_strings[] =
+  *
+  * NOTE:  offsets in this table are coupled to the arm_mode_data
+  * table above, the armv4_5_core_reg_map array below, and also to
+- * the ARMV4_5_*PSR* symols.
++ * the ARMV4_5_CPSR symbol (which should vanish after ARM11 updates).
+  */
+ static const struct {
+ 	/* The name is used for e.g. the &quot;regs&quot; command. */
+@@ -401,7 +412,7 @@ static int armv4_5_set_core_reg(struct r
+ 	reg-&gt;dirty = 1;
+ 	reg-&gt;valid = 1;
+ 
+-	if (reg == &amp;armv4_5_target-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR])
++	if (reg == armv4_5_target-&gt;cpsr)
+ 	{
+ 		/* FIXME handle J bit too; mostly for ThumbEE, also Jazelle */
+ 		if (value &amp; 0x20)
+@@ -493,6 +504,7 @@ struct reg_cache* armv4_5_build_reg_cach
+ 		cache-&gt;num_regs++;
+ 	}
+ 
++	armv4_5_common-&gt;cpsr = reg_list + ARMV4_5_CPSR;
+ 	armv4_5_common-&gt;core_cache = cache;
+ 	return cache;
+ }
+@@ -511,7 +523,7 @@ int armv4_5_arch_state(struct target *ta
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+ 			 arm_mode_name(armv4_5-&gt;core_mode),
+-			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
++			 buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32));
+ 
+ 	return ERROR_OK;
+@@ -750,7 +762,7 @@ int armv4_5_get_gdb_reg_list(struct targ
+ 	}
+ 
+ 	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+-	(*reg_list)[25] = &amp;armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR];
++	(*reg_list)[25] = armv4_5-&gt;cpsr;
+ 
+ 	return ERROR_OK;
+ }
+@@ -834,7 +846,7 @@ int armv4_5_run_algorithm_inner(struct t
+ 					armv4_5_algorithm_info-&gt;core_mode);
+ 		context[i] = buf_get_u32(r-&gt;value, 0, 32);
+ 	}
+-	cpsr = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32);
++	cpsr = buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32);
+ 
+ 	for (i = 0; i &lt; num_mem_params; i++)
+ 	{
+@@ -878,10 +890,12 @@ int armv4_5_run_algorithm_inner(struct t
+ 
+ 	if (armv4_5_algorithm_info-&gt;core_mode != ARMV4_5_MODE_ANY)
+ 	{
+-		LOG_DEBUG(&quot;setting core_mode: 0x%2.2x&quot;, armv4_5_algorithm_info-&gt;core_mode);
+-		buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 5, armv4_5_algorithm_info-&gt;core_mode);
+-		armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 1;
+-		armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++		LOG_DEBUG(&quot;setting core_mode: 0x%2.2x&quot;,
++				armv4_5_algorithm_info-&gt;core_mode);
++		buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 5,
++				armv4_5_algorithm_info-&gt;core_mode);
++		armv4_5-&gt;cpsr-&gt;dirty = 1;
++		armv4_5-&gt;cpsr-&gt;valid = 1;
+ 	}
+ 
+ 	/* terminate using a hardware or (ARMv5+) software breakpoint */
+@@ -950,9 +964,9 @@ int armv4_5_run_algorithm_inner(struct t
+ 			ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_algorithm_info-&gt;core_mode, i).dirty = 1;
+ 		}
+ 	}
+-	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32, cpsr);
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 1;
++	buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32, cpsr);
++	armv4_5-&gt;cpsr-&gt;valid = 1;
++	armv4_5-&gt;cpsr-&gt;dirty = 1;
+ 
+ 	armv4_5-&gt;core_state = core_state;
+ 	armv4_5-&gt;core_mode = core_mode;
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -62,17 +62,8 @@ extern const int armv4_5_core_reg_map[8]
+ #define ARMV4_5_CORE_REG_MODE(cache, mode, num) \
+ 		cache-&gt;reg_list[armv4_5_core_reg_map[armv4_5_mode_to_number(mode)][num]]
+ 
+-/* offsets into armv4_5 core register cache */
+-enum
+-{
+-	ARMV4_5_CPSR = 31,
+-	ARMV4_5_SPSR_FIQ = 32,
+-	ARMV4_5_SPSR_IRQ = 33,
+-	ARMV4_5_SPSR_SVC = 34,
+-	ARMV4_5_SPSR_ABT = 35,
+-	ARMV4_5_SPSR_UND = 36,
+-	ARM_SPSR_MON = 39,
+-};
++/* offset into armv4_5 core register cache -- OBSOLETE, DO NOT USE! */
++enum { ARMV4_5_CPSR = 31, };
+ 
+ #define ARMV4_5_COMMON_MAGIC 0x0A450A45
+ 
+@@ -91,6 +82,9 @@ struct arm
+ 	int common_magic;
+ 	struct reg_cache *core_cache;
+ 
++	/** Handle to the CPSR; valid in all core modes. */
++	struct reg *cpsr;
++
+ 	/**
+ 	 * Indicates what registers are in the ARM state core register set.
+ 	 * ARMV4_5_MODE_ANY indicates the standard set of 37 registers,
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -74,8 +74,7 @@ int armv7a_arch_state(struct target *tar
+ 		 Jim_Nvp_value2name_simple(nvp_target_debug_reason,
+ 				target-&gt;debug_reason)-&gt;name,
+ 		 arm_mode_name(armv4_5-&gt;core_mode),
+-		 buf_get_u32(armv4_5-&gt;core_cache
+-				-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
++		 buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32),
+ 		 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 		 state[armv7a-&gt;armv4_5_mmu.mmu_enabled],
+ 		 state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -30,16 +30,6 @@ enum
+ 	ARM_CPSR = 16
+ }
+ ;
+-/* offsets into armv4_5 core register cache */
+-enum
+-{
+-	ARMV7A_CPSR = 31,
+-	ARMV7A_SPSR_FIQ = 32,
+-	ARMV7A_SPSR_IRQ = 33,
+-	ARMV7A_SPSR_SVC = 34,
+-	ARMV7A_SPSR_ABT = 35,
+-	ARMV7A_SPSR_UND = 36
+-};
+ 
+ #define ARMV7_COMMON_MAGIC 0x0A450999
+ 
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -674,7 +674,7 @@ static int cortex_a8_debug_entry(struct 
+ 	}
+ 
+ 	/* update cache */
+-	reg = armv4_5-&gt;core_cache-&gt;reg_list + ARMV4_5_CPSR;
++	reg = armv4_5-&gt;cpsr;
+ 	buf_set_u32(reg-&gt;value, 0, 32, cpsr);
+ 	reg-&gt;valid = 1;
+ 	reg-&gt;dirty = 0;
+@@ -879,7 +879,7 @@ static int cortex_a8_restore_context(str
+ 		for (i = max - 1, r = cache-&gt;reg_list + 1; i &gt; 0; i--, r++) {
+ 			struct arm_reg *reg;
+ 
+-			if (!r-&gt;dirty || i == ARMV4_5_CPSR)
++			if (!r-&gt;dirty || r == armv7a-&gt;armv4_5_common.cpsr)
+ 				continue;
+ 			reg = r-&gt;arch_info;
+ 
+@@ -915,7 +915,7 @@ static int cortex_a8_restore_context(str
+ 	} while (flushed);
+ 
+ 	/* now flush CPSR if needed ... */
+-	r = cache-&gt;reg_list + ARMV4_5_CPSR;
++	r = armv7a-&gt;armv4_5_common.cpsr;
+ 	if (flush_cpsr || r-&gt;dirty) {
+ 		value = buf_get_u32(r-&gt;value, 0, 32);
+ 		cortex_a8_dap_write_coreregister_u32(target, value, 16);
+@@ -1027,7 +1027,6 @@ static int cortex_a8_read_core_reg(struc
+ 	uint32_t value;
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+-	struct reg_cache *cache = armv4_5-&gt;core_cache;
+ 	struct reg *cpsr_r = NULL;
+ 	uint32_t cpsr = 0;
+ 	unsigned cookie = num;
+@@ -1043,7 +1042,7 @@ static int cortex_a8_read_core_reg(struc
+ 			mode = ARMV4_5_MODE_ANY;
+ 
+ 		if (mode != ARMV4_5_MODE_ANY) {
+-			cpsr_r = cache-&gt;reg_list + ARMV4_5_CPSR;
++			cpsr_r = armv4_5-&gt;cpsr;
+ 			cpsr = buf_get_u32(cpsr_r-&gt;value, 0, 32);
+ 			cortex_a8_write_core_reg(target, cpsr_r,
+ 					16, ARMV4_5_MODE_ANY, mode);
+@@ -1083,7 +1082,6 @@ static int cortex_a8_write_core_reg(stru
+ {
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+-	struct reg_cache *cache = armv4_5-&gt;core_cache;
+ 	struct reg *cpsr_r = NULL;
+ 	uint32_t cpsr = 0;
+ 	unsigned cookie = num;
+@@ -1099,7 +1097,7 @@ static int cortex_a8_write_core_reg(stru
+ 			mode = ARMV4_5_MODE_ANY;
+ 
+ 		if (mode != ARMV4_5_MODE_ANY) {
+-			cpsr_r = cache-&gt;reg_list + ARMV4_5_CPSR;
++			cpsr_r = armv4_5-&gt;cpsr;
+ 			cpsr = buf_get_u32(cpsr_r-&gt;value, 0, 32);
+ 			cortex_a8_write_core_reg(target, cpsr_r,
+ 					16, ARMV4_5_MODE_ANY, mode);
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -858,7 +858,7 @@ static int xscale_arch_state(struct targ
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name ,
+ 			 arm_mode_name(armv4_5-&gt;core_mode),
+-			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
++			 buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[xscale-&gt;armv4_5_mmu.mmu_enabled],
+ 			 state[xscale-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+@@ -948,9 +948,9 @@ static int xscale_debug_entry(struct tar
+ 		LOG_DEBUG(&quot;r%i: 0x%8.8&quot; PRIx32 &quot;&quot;, i, buffer[i + 1]);
+ 	}
+ 
+-	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32, buffer[9]);
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].dirty = 1;
+-	armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
++	buf_set_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32, buffer[9]);
++	armv4_5-&gt;cpsr-&gt;dirty = 1;
++	armv4_5-&gt;cpsr-&gt;valid = 1;
+ 	LOG_DEBUG(&quot;cpsr: 0x%8.8&quot; PRIx32 &quot;&quot;, buffer[9]);
+ 
+ 	armv4_5-&gt;core_mode = buffer[9] &amp; 0x1f;
+@@ -1260,8 +1260,10 @@ static int xscale_resume(struct target *
+ 				xscale_send_u32(target, 0x30);
+ 
+ 			/* send CPSR */
+-			xscale_send_u32(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32));
+-			LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32 &quot;&quot;, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32));
++			xscale_send_u32(target,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32));
++			LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32,
++				buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32));
+ 
+ 			for (i = 7; i &gt;= 0; i--)
+ 			{
+@@ -1303,8 +1305,9 @@ static int xscale_resume(struct target *
+ 		xscale_send_u32(target, 0x30);
+ 
+ 	/* send CPSR */
+-	xscale_send_u32(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32));
+-	LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32 &quot;&quot;, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32));
++	xscale_send_u32(target, buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32));
++	LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32,
++			buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32));
+ 
+ 	for (i = 7; i &gt;= 0; i--)
+ 	{
+@@ -1381,9 +1384,12 @@ static int xscale_step_inner(struct targ
+ 			return retval;
+ 
+ 	/* send CPSR */
+-	if ((retval = xscale_send_u32(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32))) != ERROR_OK)
++	retval = xscale_send_u32(target,
++			buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32));
++	if (retval != ERROR_OK)
+ 		return retval;
+-	LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32 &quot;&quot;, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32));
++	LOG_DEBUG(&quot;writing cpsr with value 0x%8.8&quot; PRIx32,
++			buf_get_u32(armv4_5-&gt;cpsr-&gt;value, 0, 32));
+ 
+ 	for (i = 7; i &gt;= 0; i--)
+ 	{
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012676.html">[Openocd-development] [patch 1/5] ARM11: remove disabled register	hooks
+</A></li>
+	<LI>Next message: <A HREF="012677.html">[Openocd-development] [patch 3/5] ARM: define two register utilities
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12680">[ date ]</a>
+              <a href="thread.html#12680">[ thread ]</a>
+              <a href="subject.html#12680">[ subject ]</a>
+              <a href="author.html#12680">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

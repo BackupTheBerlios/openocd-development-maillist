@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Some notes about JTAG and TAP
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Some%20notes%20about%20JTAG%20and%20TAP&In-Reply-To=%3C49F0D5FD.7080200%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005669.html">
+   <LINK REL="Next"  HREF="005690.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Some notes about JTAG and TAP</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Some%20notes%20about%20JTAG%20and%20TAP&In-Reply-To=%3C49F0D5FD.7080200%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] Some notes about JTAG and TAP">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Thu Apr 23 22:56:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005669.html">[Openocd-development] [PATCH] Re: stdbool fix in target/arm11.h
+</A></li>
+        <LI>Next message: <A HREF="005690.html">[Openocd-development] Some notes about JTAG and TAP
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5680">[ date ]</a>
+              <a href="thread.html#5680">[ thread ]</a>
+              <a href="subject.html#5680">[ subject ]</a>
+              <a href="author.html#5680">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi, here are som thoughts after looking throuh some parts of the jtag 
+subsystem.
+
+What is a stable state ?  A state that is unchanged or a state that is 
+unchanged and has no sideeffects ?  Only RESET and PAUSE ?
+
+Our basic functions should be able to generate shortest path and fixed 
+length  paths between any pair of states, not only stable states.
+
+I think we should use end_state  to let higher layers indicate where the 
+current transaction should end, not as the end of the next subpath or 
+sequence of transitions. We then change the syntax of state move to 
+state_move(tap_state_t newstate) . So we can use state move inside 
+complex transaction without at lot of saving, setting and restoring 
+endstate. Then we simply do a state_move(end_state) as the final part of 
+a transaction.
+
+All work regarding moves between states, paths etc is done in terms of 
+states, NOT  tms values. The we have a very simple general state 
+transition to tms function. Implemented with switch or array, dont care. 
+But if all state values always are of type const tap_state_t , not int, 
+the most of the bounds checking is done at compile time.
+
+I have work out a full set of next state in shortest path,  distance  
+ie. length of shortes path, and tms to next state in shaortest path. 
+They are calculated in octave from the basic state machine graph so they 
+should be without silly errors.  Might be useful.
+
+
+Regards,
+Magnus
+
+
+
+Rows and columns are in our latest numbering scheme
+
+TAP_DREXIT2=1
+TAP_DREXIT1=2
+TAP_DRSHIFT=3
+TAP_DRPAUSE=4
+TAP_IRSELECT=5
+TAP_DRUPDATE=6
+TAP_DRCAPTURE=7
+TAP_DRSELECT=8
+TAP_IREXIT2=9
+TAP_IREXIT1=10
+TAP_IRSHIFT=11
+TAP_IRPAUSE=12
+TAP_IDLE=13
+TAP_IRUPDATE=14
+TAP_IRCAPTURE=15
+TAP_RESET=16
+ 
+
+/*  Next state in shortest path, inserting symbolic names gives very 
+long lines ... */
+    3    3    3    3    6    6    6    6    6    6    6    6    6    
+6    6    6
+    4    4    4    4    6    6    6    6    6    6    6    6    6    
+6    6    6
+    2    2    3    2    2    2    2    2    2    2    2    2    2    
+2    2    2
+    1    1    1    4    1    1    1    1    1    1    1    1    1    
+1    1    1
+   16   16   16   16   16   16   16   16   15   15   15   15   16   15   
+15   16
+    8    8    8    8    8    8    8    8    8    8    8    8   13    
+8    8    8
+    2    2    3    2    2    2    2    2    2    2    2    2    2    
+2    2    2
+    7    7    7    7    5    7    7    5    5    5    5    5    5    
+5    5    5
+   14   14   14   14   14   14   14   14   11   11   11   11   14   14   
+14   14
+   14   14   14   14   14   14   14   14   12   12   12   12   14   14   
+14   14
+   10   10   10   10   10   10   10   10   10   10   11   10   10   10   
+10   10
+    9    9    9    9    9    9    9    9    9    9    9   12    9    
+9    9    9
+    8    8    8    8    8    8    8    8    8    8    8    8   13    
+8    8    8
+    8    8    8    8    8    8    8    8    8    8    8    8   13    
+8    8    8
+   10   10   10   10   10   10   10   10   10   10   11   10   10   10   
+10   10
+   13   13   13   13   13   13   13   13   13   13   13   13   13   13   
+13   16
+
+/* state distance, length of shortes path */
+   4   2   1   3   3   1   3   2   7   5   5   6   2   6   4   4
+   2   4   3   1   3   1   3   2   7   5   5   6   2   6   4   4
+   3   1   1   2   4   2   4   3   8   6   6   7   3   7   5   5
+   1   3   2   1   4   2   4   3   8   6   6   7   3   7   5   5
+   7   5   5   6   4   6   4   3   4   2   2   3   2   3   1   1
+   5   3   3   4   2   4   2   1   6   4   4   5   1   5   3   3
+   3   1   1   2   4   2   4   3   8   6   6   7   3   7   5   5
+   4   2   2   3   1   3   1   4   5   3   3   4   3   4   2   2
+   6   4   4   5   3   5   3   2   4   2   1   3   2   1   4   4
+   6   4   4   5   3   5   3   2   2   4   3   1   2   1   4   4
+   7   5   5   6   4   6   4   3   3   1   1   2   3   2   5   5
+   7   5   5   6   4   6   4   3   1   3   2   1   3   2   5   5
+   5   3   3   4   2   4   2   1   6   4   4   5   1   5   3   3
+   5   3   3   4   2   4   2   1   6   4   4   5   1   5   3   3
+   7   5   5   6   4   6   4   3   3   1   1   2   3   2   5   5
+   6   4   4   5   3   5   3   2   7   5   5   6   1   6   4   1
+
+/* TMS for first step in shortest path */
+   0   0   1   0   0   2   0   0   0   0   0   0   0   0   0   0
+   0   0   0   1   0   2   0   0   0   0   0   0   0   0   0   0
+   0   2   1   0   0   0   0   0   0   0   0   0   0   0   0   0
+   2   0   0   1   0   0   0   0   0   0   0   0   0   0   0   0
+   0   0   0   0   0   0   0   0   0   0   0   0   0   0   1   2
+   0   0   0   0   0   0   0   2   0   0   0   0   1   0   0   0
+   0   2   1   0   0   0   0   0   0   0   0   0   0   0   0   0
+   0   0   0   0   2   0   1   0   0   0   0   0   0   0   0   0
+   0   0   0   0   0   0   0   0   0   0   1   0   0   2   0   0
+   0   0   0   0   0   0   0   0   0   0   0   1   0   2   0   0
+   0   0   0   0   0   0   0   0   0   2   1   0   0   0   0   0
+   0   0   0   0   0   0   0   0   2   0   0   1   0   0   0   0
+   0   0   0   0   0   0   0   2   0   0   0   0   1   0   0   0
+   0   0   0   0   0   0   0   2   0   0   0   0   1   0   0   0
+   0   0   0   0   0   0   0   0   0   2   1   0   0   0   0   0
+   0   0   0   0   0   0   0   0   0   0   0   0   1   0   0   2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005669.html">[Openocd-development] [PATCH] Re: stdbool fix in target/arm11.h
+</A></li>
+	<LI>Next message: <A HREF="005690.html">[Openocd-development] Some notes about JTAG and TAP
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5680">[ date ]</a>
+              <a href="thread.html#5680">[ thread ]</a>
+              <a href="subject.html#5680">[ subject ]</a>
+              <a href="author.html#5680">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

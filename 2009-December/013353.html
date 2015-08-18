@@ -1,0 +1,255 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/3] ARM11: tweak TAP ops and debugging
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM11%3A%20tweak%20TAP%20ops%20and%20debugging&In-Reply-To=%3C200912041844.18929.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013348.html">
+   <LINK REL="Next"  HREF="013352.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/3] ARM11: tweak TAP ops and debugging</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM11%3A%20tweak%20TAP%20ops%20and%20debugging&In-Reply-To=%3C200912041844.18929.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/3] ARM11: tweak TAP ops and debugging">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec  5 03:44:18 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013348.html">[Openocd-development] ft2232.c to include LPC-Stick
+</A></li>
+        <LI>Next message: <A HREF="013352.html">[Openocd-development] [patch 2/3] ARM11: basic watchpoint support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13353">[ date ]</a>
+              <a href="thread.html#13353">[ thread ]</a>
+              <a href="subject.html#13353">[ subject ]</a>
+              <a href="author.html#13353">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Tweak scanchain 7 debug messaging:
+
+ - show register addresses in decimal, matching ARM docs;
+ - remove some pointless noise
+
+Avoid some needless roundtrips:
+
+ - skip SCAN_N when SCREG already holds that number (speeds up
+   polling and other common operations)
+ - avoid zeroing vcr twice on resume
+
+Show the IR opcode as a label (&quot;RESTART&quot;) too; and in decimal,
+matching ARM docs.
+---
+ src/target/arm11.c        |    5 +-
+ src/target/arm11_dbgtap.c |   79 ++++++++++++++++++++++++++++++++------------
+ 2 files changed, 61 insertions(+), 23 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -513,7 +513,8 @@ static int arm11_resume(struct target *t
+ 			brp_num++;
+ 		}
+ 
+-		arm11_sc7_set_vcr(arm11, arm11_vcr);
++		if (arm11_vcr)
++			arm11_sc7_set_vcr(arm11, arm11_vcr);
+ 	}
+ 
+ 	arm11_leave_debug_state(arm11, handle_breakpoints);
+@@ -1133,7 +1134,7 @@ static int arm11_target_create(struct ta
+ 	arm11-&gt;jtag_info.tap = target-&gt;tap;
+ 	arm11-&gt;jtag_info.scann_size = 5;
+ 	arm11-&gt;jtag_info.scann_instr = ARM11_SCAN_N;
+-	/* cur_scan_chain == 0 */
++	arm11-&gt;jtag_info.cur_scan_chain = ~0;	/* invalid/unknown */
+ 	arm11-&gt;jtag_info.intest_instr = ARM11_INTEST;
+ 
+ 	return ERROR_OK;
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -91,6 +91,38 @@ void arm11_setup_field(struct arm11_comm
+ 	field-&gt;in_value			= in_data;
+ }
+ 
++static const char *arm11_ir_to_string(uint8_t ir)
++{
++	const char *s = &quot;unknown&quot;;
++
++	switch (ir) {
++	case ARM11_EXTEST:
++		s = &quot;EXTEST&quot;;
++		break;
++	case ARM11_SCAN_N:
++		s = &quot;SCAN_N&quot;;
++		break;
++	case ARM11_RESTART:
++		s = &quot;RESTART&quot;;
++		break;
++	case ARM11_HALT:
++		s = &quot;HALT&quot;;
++		break;
++	case ARM11_INTEST:
++		s = &quot;INTEST&quot;;
++		break;
++	case ARM11_ITRSEL:
++		s = &quot;ITRSEL&quot;;
++		break;
++	case ARM11_IDCODE:
++		s = &quot;IDCODE&quot;;
++		break;
++	case ARM11_BYPASS:
++		s = &quot;BYPASS&quot;;
++		break;
++	}
++	return s;
++}
+ 
+ /** Write JTAG instruction register
+  *
+@@ -110,7 +142,7 @@ void arm11_add_IR(struct arm11_common * 
+ 		return;
+ 	}
+ 
+-	JTAG_DEBUG(&quot;IR &lt;= 0x%02x&quot;, instr);
++	JTAG_DEBUG(&quot;IR &lt;= %s (0x%02x)&quot;, arm11_ir_to_string(instr), instr);
+ 
+ 	struct scan_field field;
+ 
+@@ -135,7 +167,8 @@ static void arm11_in_handler_SCAN_N(uint
+ 		jtag_set_error(ERROR_FAIL);
+ 	}
+ 
+-	JTAG_DEBUG(&quot;SCREG SCAN OUT 0x%02x&quot;, v);
++	if (v != 0x10)
++		JTAG_DEBUG(&quot;SCREG SCAN OUT 0x%02x&quot;, v);
+ }
+ 
+ /** Select and write to Scan Chain Register (SCREG)
+@@ -150,6 +183,9 @@ static void arm11_in_handler_SCAN_N(uint
+  * \param state	    Pass the final TAP state or ARM11_TAP_DEFAULT for the default
+  *					value (Pause-DR).
+  *
++ * Changes the current scan chain if needed, transitions to the specified
++ * TAP state, and leaves the IR undefined.
++ *
+  * The chain takes effect when Update-DR is passed (usually when subsequently
+  * the INTEXT/EXTEST instructions are written).
+  *
+@@ -162,9 +198,19 @@ static void arm11_in_handler_SCAN_N(uint
+  * \remarks			This adds to the JTAG command queue but does \em not execute it.
+  */
+ 
+-int arm11_add_debug_SCAN_N(struct arm11_common * arm11, uint8_t chain, tap_state_t state)
++int arm11_add_debug_SCAN_N(struct arm11_common *arm11,
++		uint8_t chain, tap_state_t state)
+ {
+-	JTAG_DEBUG(&quot;SCREG &lt;= 0x%02x&quot;, chain);
++	/* Don't needlessly switch the scan chain.
++	 * NOTE:  the ITRSEL instruction fakes SCREG changing;
++	 * but leaves its actual value unchanged.
++	 */
++	if (arm11-&gt;jtag_info.cur_scan_chain == chain) {
++		JTAG_DEBUG(&quot;SCREG &lt;= %d SKIPPED&quot;, chain);
++		return jtag_add_statemove((state == ARM11_TAP_DEFAULT)
++					? TAP_DRPAUSE : state);
++	}
++	JTAG_DEBUG(&quot;SCREG &lt;= %d&quot;, chain);
+ 
+ 	arm11_add_IR(arm11, ARM11_SCAN_N, ARM11_TAP_DEFAULT);
+ 
+@@ -791,30 +837,31 @@ int arm11_sc7_run(struct arm11_common * 
+ 		}
+ 		else
+ 		{
+-			nRW			= 0;
++			nRW			= 1;
+ 			DataOut		= 0;
+ 			AddressOut	= 0;
+ 		}
+ 
+ 		do
+ 		{
+-			JTAG_DEBUG(&quot;SC7 &lt;= Address %02x  Data %08x    nRW %d&quot;,
++			JTAG_DEBUG(&quot;SC7 &lt;= c%-3d Data %08x %s&quot;,
+ 					(unsigned) AddressOut,
+ 					(unsigned) DataOut,
+-					nRW);
++					nRW ? &quot;write&quot; : &quot;read&quot;);
+ 
+ 			arm11_add_dr_scan_vc(ARRAY_SIZE(chain7_fields),
+ 					chain7_fields, TAP_DRPAUSE);
+ 
+ 			CHECK_RETVAL(jtag_execute_queue());
+ 
+-			JTAG_DEBUG(&quot;SC7 =&gt; Address %02x  Data %08x  Ready %d&quot;,
+-					(unsigned) AddressIn,
+-					(unsigned) DataIn,
+-					Ready);
++			if (!Ready)
++				JTAG_DEBUG(&quot;SC7 =&gt; !ready&quot;);
+ 		}
+ 		while (!Ready); /* 'nRW' is 'Ready' on read out */
+ 
++		if (!nRW)
++			JTAG_DEBUG(&quot;SC7 =&gt; Data %08x&quot;, (unsigned) DataIn);
++
+ 		if (i &gt; 0)
+ 		{
+ 			if (actions[i - 1].address != AddressIn)
+@@ -835,15 +882,6 @@ int arm11_sc7_run(struct arm11_common * 
+ 			}
+ 		}
+ 	}
+-
+-	for (size_t i = 0; i &lt; count; i++)
+-	{
+-		JTAG_DEBUG(&quot;SC7 %02d: %02x %s %08x&quot;,
+-			(unsigned) i, actions[i].address,
+-			actions[i].write ? &quot;&lt;=&quot; : &quot;=&gt;&quot;,
+-			(unsigned) actions[i].value);
+-	}
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -892,7 +930,6 @@ void arm11_sc7_set_vcr(struct arm11_comm
+ 	set_vcr.address		= ARM11_SC7_VCR;
+ 	set_vcr.value		= value;
+ 
+-
+ 	arm11_sc7_run(arm11, &amp;set_vcr, 1);
+ }
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013348.html">[Openocd-development] ft2232.c to include LPC-Stick
+</A></li>
+	<LI>Next message: <A HREF="013352.html">[Openocd-development] [patch 2/3] ARM11: basic watchpoint support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13353">[ date ]</a>
+              <a href="thread.html#13353">[ thread ]</a>
+              <a href="subject.html#13353">[ subject ]</a>
+              <a href="author.html#13353">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

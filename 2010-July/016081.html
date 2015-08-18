@@ -1,0 +1,470 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] debug: debug entry error propagation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20debug%3A%20debug%20entry%20error%20propagation&In-Reply-To=%3C1279535757-12763-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016080.html">
+   <LINK REL="Next"  HREF="016100.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] debug: debug entry error propagation</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20debug%3A%20debug%20entry%20error%20propagation&In-Reply-To=%3C1279535757-12763-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] debug: debug entry error propagation">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul 19 12:35:57 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016080.html">[Openocd-development] [PATCH] cortex a8: added timeout handling
+</A></li>
+        <LI>Next message: <A HREF="016100.html">[Openocd-development] [PATCH] debug: debug entry error	propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16081">[ date ]</a>
+              <a href="thread.html#16081">[ thread ]</a>
+              <a href="subject.html#16081">[ subject ]</a>
+              <a href="author.html#16081">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/arm11.c         |    2 +-
+ src/target/arm720t.c       |   22 ++++++++++++++-----
+ src/target/arm7_9_common.c |   14 ++++++++++--
+ src/target/arm7_9_common.h |    2 +-
+ src/target/arm920t.c       |   48 +++++++++++++++++++++++++++++++++-----------
+ src/target/arm920t.h       |    2 +-
+ src/target/arm926ejs.c     |   38 +++++++++++++++++++++++++---------
+ src/target/armv7a.h        |    2 +-
+ src/target/armv7m.h        |    2 +-
+ src/target/cortex_a8.c     |   14 ++++++++++--
+ src/target/cortex_m3.c     |   11 ++++++++-
+ 11 files changed, 116 insertions(+), 41 deletions(-)
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 36bbaba..67f0524 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -439,7 +439,7 @@ static int arm11_halt(struct target *target)
+ 
+ 	enum target_state old_state	= target-&gt;state;
+ 
+-	arm11_debug_entry(arm11);
++	CHECK_RETVAL(arm11_debug_entry(arm11));
+ 
+ 	CHECK_RETVAL(
+ 		target_call_event_callbacks(target,
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index 6bf38bb..96e0baa 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -202,13 +202,18 @@ static int arm720t_enable_mmu_caches(struct target *target,
+ 	return retval;
+ }
+ 
+-static void arm720t_post_debug_entry(struct target *target)
++static int arm720t_post_debug_entry(struct target *target)
+ {
+ 	struct arm720t_common *arm720t = target_to_arm720(target);
++	int retval;
+ 
+ 	/* examine cp15 control reg */
+-	arm720t_read_cp15(target, 0xee110f10, &amp;arm720t-&gt;cp15_control_reg);
+-	jtag_execute_queue();
++	retval = arm720t_read_cp15(target, 0xee110f10, &amp;arm720t-&gt;cp15_control_reg);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 	LOG_DEBUG(&quot;cp15_control_reg: %8.8&quot; PRIx32 &quot;&quot;, arm720t-&gt;cp15_control_reg);
+ 
+ 	arm720t-&gt;armv4_5_mmu.mmu_enabled = (arm720t-&gt;cp15_control_reg &amp; 0x1U) ? 1 : 0;
+@@ -216,9 +221,14 @@ static void arm720t_post_debug_entry(struct target *target)
+ 	arm720t-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = 0;
+ 
+ 	/* save i/d fault status and address register */
+-	arm720t_read_cp15(target, 0xee150f10, &amp;arm720t-&gt;fsr_reg);
+-	arm720t_read_cp15(target, 0xee160f10, &amp;arm720t-&gt;far_reg);
+-	jtag_execute_queue();
++	retval = arm720t_read_cp15(target, 0xee150f10, &amp;arm720t-&gt;fsr_reg);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = arm720t_read_cp15(target, 0xee160f10, &amp;arm720t-&gt;far_reg);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	return retval;
+ }
+ 
+ static void arm720t_pre_restore_context(struct target *target)
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index abe0c2f..b742dae 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1470,7 +1470,11 @@ static int arm7_9_debug_entry(struct target *target)
+ 		return retval;
+ 
+ 	if (arm7_9-&gt;post_debug_entry)
+-		arm7_9-&gt;post_debug_entry(target);
++	{
++		retval = arm7_9-&gt;post_debug_entry(target);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 
+ 	return ERROR_OK;
+ }
+@@ -1878,7 +1882,9 @@ int arm7_9_resume(struct target *target, int current, uint32_t address, int hand
+ 				return err;
+ 			}
+ 
+-			arm7_9_debug_entry(target);
++			retval = arm7_9_debug_entry(target);
++			if (retval != ERROR_OK)
++				return retval;
+ 			LOG_DEBUG(&quot;new PC after step: 0x%8.8&quot; PRIx32,
+ 					buf_get_u32(armv4_5-&gt;pc-&gt;value, 0, 32));
+ 
+@@ -2079,7 +2085,9 @@ int arm7_9_step(struct target *target, int current, uint32_t address, int handle
+ 	{
+ 		target-&gt;state = TARGET_UNKNOWN;
+ 	} else {
+-		arm7_9_debug_entry(target);
++		retval = arm7_9_debug_entry(target);
++		if (retval != ERROR_OK)
++			return retval;
+ 		if ((retval = target_call_event_callbacks(target, TARGET_EVENT_HALTED)) != ERROR_OK)
+ 		{
+ 			return retval;
+diff --git a/src/target/arm7_9_common.h b/src/target/arm7_9_common.h
+index a741c59..69ea221 100644
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -100,7 +100,7 @@ struct arm7_9_common
+ 
+ 	void (*set_special_dbgrq)(struct target *target); /**&lt; Function for setting DBGRQ if the normal way won't work */
+ 
+-	void (*post_debug_entry)(struct target *target); /**&lt; Callback function called after entering debug mode */
++	int (*post_debug_entry)(struct target *target); /**&lt; Callback function called after entering debug mode */
+ 
+ 	void (*pre_restore_context)(struct target *target); /**&lt; Callback function called before restoring the processor context */
+ };
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index a80a378..7627b25 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -389,24 +389,33 @@ int arm920t_enable_mmu_caches(struct target *target, int mmu,
+ }
+ 
+ // EXPORTED to FA256
+-void arm920t_post_debug_entry(struct target *target)
++int arm920t_post_debug_entry(struct target *target)
+ {
+ 	uint32_t cp15c15;
+ 	struct arm920t_common *arm920t = target_to_arm920(target);
++	int retval;
+ 
+ 	/* examine cp15 control reg */
+-	arm920t_read_cp15_physical(target,
++	retval = arm920t_read_cp15_physical(target,
+ 			CP15PHYS_CTRL, &amp;arm920t-&gt;cp15_control_reg);
+-	jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 	LOG_DEBUG(&quot;cp15_control_reg: %8.8&quot; PRIx32, arm920t-&gt;cp15_control_reg);
+ 
+ 	if (arm920t-&gt;armv4_5_mmu.armv4_5_cache.ctype == -1)
+ 	{
+ 		uint32_t cache_type_reg;
+ 		/* identify caches */
+-		arm920t_read_cp15_physical(target,
++		retval = arm920t_read_cp15_physical(target,
+ 				CP15PHYS_CACHETYPE, &amp;cache_type_reg);
+-		jtag_execute_queue();
++		if (retval != ERROR_OK)
++			return retval;
++		retval = jtag_execute_queue();
++		if (retval != ERROR_OK)
++			return retval;
+ 		armv4_5_identify_cache(cache_type_reg,
+ 				&amp;arm920t-&gt;armv4_5_mmu.armv4_5_cache);
+ 	}
+@@ -420,10 +429,18 @@ void arm920t_post_debug_entry(struct target *target)
+ 
+ 	/* save i/d fault status and address register */
+ 			/* FIXME use opcode macros */
+-	arm920t_read_cp15_interpreted(target, 0xee150f10, 0x0, &amp;arm920t-&gt;d_fsr);
+-	arm920t_read_cp15_interpreted(target, 0xee150f30, 0x0, &amp;arm920t-&gt;i_fsr);
+-	arm920t_read_cp15_interpreted(target, 0xee160f10, 0x0, &amp;arm920t-&gt;d_far);
+-	arm920t_read_cp15_interpreted(target, 0xee160f30, 0x0, &amp;arm920t-&gt;i_far);
++	retval = arm920t_read_cp15_interpreted(target, 0xee150f10, 0x0, &amp;arm920t-&gt;d_fsr);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = arm920t_read_cp15_interpreted(target, 0xee150f30, 0x0, &amp;arm920t-&gt;i_fsr);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = arm920t_read_cp15_interpreted(target, 0xee160f10, 0x0, &amp;arm920t-&gt;d_far);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = arm920t_read_cp15_interpreted(target, 0xee160f30, 0x0, &amp;arm920t-&gt;i_far);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;D FSR: 0x%8.8&quot; PRIx32 &quot;, D FAR: 0x%8.8&quot; PRIx32
+ 		&quot;, I FSR: 0x%8.8&quot; PRIx32 &quot;, I FAR: 0x%8.8&quot; PRIx32,
+@@ -433,13 +450,20 @@ void arm920t_post_debug_entry(struct target *target)
+ 	{
+ 		/* read-modify-write CP15 test state register
+ 		 * to disable I/D-cache linefills */
+-		arm920t_read_cp15_physical(target,
++		retval = arm920t_read_cp15_physical(target,
+ 				CP15PHYS_TESTSTATE, &amp;cp15c15);
+-		jtag_execute_queue();
++		if (retval != ERROR_OK)
++			return retval;
++		retval = jtag_execute_queue();
++		if (retval != ERROR_OK)
++			return retval;
+ 		cp15c15 |= 0x600;
+-		arm920t_write_cp15_physical(target,
++		retval = arm920t_write_cp15_physical(target,
+ 				CP15PHYS_TESTSTATE, cp15c15);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
++	return ERROR_OK;
+ }
+ 
+ // EXPORTED to FA256
+diff --git a/src/target/arm920t.h b/src/target/arm920t.h
+index 20f614d..02d7f83 100644
+--- a/src/target/arm920t.h
++++ b/src/target/arm920t.h
+@@ -64,7 +64,7 @@ int arm920t_read_memory(struct target *target,
+ 	uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ int arm920t_write_memory(struct target *target,
+ 	uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+-void arm920t_post_debug_entry(struct target *target);
++int arm920t_post_debug_entry(struct target *target);
+ void arm920t_pre_restore_context(struct target *target);
+ int arm920t_get_ttb(struct target *target, uint32_t *result);
+ int arm920t_disable_mmu_caches(struct target *target,
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index f8a4f62..aa38d27 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -432,21 +432,30 @@ static int arm926ejs_enable_mmu_caches(struct target *target, int mmu,
+ 	return retval;
+ }
+ 
+-static void arm926ejs_post_debug_entry(struct target *target)
++static int arm926ejs_post_debug_entry(struct target *target)
+ {
+ 	struct arm926ejs_common *arm926ejs = target_to_arm926(target);
++	int retval;
+ 
+ 	/* examine cp15 control reg */
+-	arm926ejs-&gt;read_cp15(target, 0, 0, 1, 0, &amp;arm926ejs-&gt;cp15_control_reg);
+-	jtag_execute_queue();
++	retval = arm926ejs-&gt;read_cp15(target, 0, 0, 1, 0, &amp;arm926ejs-&gt;cp15_control_reg);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 	LOG_DEBUG(&quot;cp15_control_reg: %8.8&quot; PRIx32 &quot;&quot;, arm926ejs-&gt;cp15_control_reg);
+ 
+ 	if (arm926ejs-&gt;armv4_5_mmu.armv4_5_cache.ctype == -1)
+ 	{
+ 		uint32_t cache_type_reg;
+ 		/* identify caches */
+-		arm926ejs-&gt;read_cp15(target, 0, 1, 0, 0, &amp;cache_type_reg);
+-		jtag_execute_queue();
++		retval = arm926ejs-&gt;read_cp15(target, 0, 1, 0, 0, &amp;cache_type_reg);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = jtag_execute_queue();
++		if (retval != ERROR_OK)
++			return retval;
+ 		armv4_5_identify_cache(cache_type_reg, &amp;arm926ejs-&gt;armv4_5_mmu.armv4_5_cache);
+ 	}
+ 
+@@ -455,9 +464,15 @@ static void arm926ejs_post_debug_entry(struct target *target)
+ 	arm926ejs-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = (arm926ejs-&gt;cp15_control_reg &amp; 0x1000U) ? 1 : 0;
+ 
+ 	/* save i/d fault status and address register */
+-	arm926ejs-&gt;read_cp15(target, 0, 0, 5, 0, &amp;arm926ejs-&gt;d_fsr);
+-	arm926ejs-&gt;read_cp15(target, 0, 1, 5, 0, &amp;arm926ejs-&gt;i_fsr);
+-	arm926ejs-&gt;read_cp15(target, 0, 0, 6, 0, &amp;arm926ejs-&gt;d_far);
++	retval = arm926ejs-&gt;read_cp15(target, 0, 0, 5, 0, &amp;arm926ejs-&gt;d_fsr);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = arm926ejs-&gt;read_cp15(target, 0, 1, 5, 0, &amp;arm926ejs-&gt;i_fsr);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = arm926ejs-&gt;read_cp15(target, 0, 0, 6, 0, &amp;arm926ejs-&gt;d_far);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;D FSR: 0x%8.8&quot; PRIx32 &quot;, D FAR: 0x%8.8&quot; PRIx32 &quot;, I FSR: 0x%8.8&quot; PRIx32 &quot;&quot;,
+ 		arm926ejs-&gt;d_fsr, arm926ejs-&gt;d_far, arm926ejs-&gt;i_fsr);
+@@ -466,9 +481,12 @@ static void arm926ejs_post_debug_entry(struct target *target)
+ 
+ 	/* read-modify-write CP15 cache debug control register
+ 	 * to disable I/D-cache linefills and force WT */
+-	arm926ejs-&gt;read_cp15(target, 7, 0, 15, 0, &amp;cache_dbg_ctrl);
++	retval = arm926ejs-&gt;read_cp15(target, 7, 0, 15, 0, &amp;cache_dbg_ctrl);
++	if (retval != ERROR_OK)
++		return retval;
+ 	cache_dbg_ctrl |= 0x7;
+-	arm926ejs-&gt;write_cp15(target, 7, 0, 15, 0, cache_dbg_ctrl);
++	retval = arm926ejs-&gt;write_cp15(target, 7, 0, 15, 0, cache_dbg_ctrl);
++	return retval;
+ }
+ 
+ static void arm926ejs_pre_restore_context(struct target *target)
+diff --git a/src/target/armv7a.h b/src/target/armv7a.h
+index 621761d..f932456 100644
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -62,7 +62,7 @@ struct armv7a_common
+ 	struct armv4_5_mmu_common armv4_5_mmu;
+ 
+ 	int (*examine_debug_reason)(struct target *target);
+-	void (*post_debug_entry)(struct target *target);
++	int (*post_debug_entry)(struct target *target);
+ 
+ 	void (*pre_restore_context)(struct target *target);
+ };
+diff --git a/src/target/armv7m.h b/src/target/armv7m.h
+index 57d46ed..8ef3800 100644
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -121,7 +121,7 @@ struct armv7m_common
+ 	int (*write_core_reg)(struct target *target, unsigned num);
+ 
+ 	int (*examine_debug_reason)(struct target *target);
+-	void (*post_debug_entry)(struct target *target);
++	int (*post_debug_entry)(struct target *target);
+ 
+ 	void (*pre_restore_context)(struct target *target);
+ };
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 76c3d37..9b3521a 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1056,12 +1056,16 @@ static int cortex_a8_debug_entry(struct target *target)
+ 	/* Are we in an exception handler */
+ //	armv4_5-&gt;exception_number = 0;
+ 	if (armv7a-&gt;post_debug_entry)
+-		armv7a-&gt;post_debug_entry(target);
++	{
++		retval = armv7a-&gt;post_debug_entry(target);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 
+ 	return retval;
+ }
+ 
+-static void cortex_a8_post_debug_entry(struct target *target)
++static int cortex_a8_post_debug_entry(struct target *target)
+ {
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+@@ -1072,6 +1076,8 @@ static void cortex_a8_post_debug_entry(struct target *target)
+ 			0, 0,	/* op1, op2 */
+ 			1, 0,	/* CRn, CRm */
+ 			&amp;cortex_a8-&gt;cp15_control_reg);
++	if (retval != ERROR_OK)
++		return retval;
+ 	LOG_DEBUG(&quot;cp15_control_reg: %8.8&quot; PRIx32, cortex_a8-&gt;cp15_control_reg);
+ 
+ 	if (armv7a-&gt;armv4_5_mmu.armv4_5_cache.ctype == -1)
+@@ -1083,6 +1089,8 @@ static void cortex_a8_post_debug_entry(struct target *target)
+ 				0, 1,	/* op1, op2 */
+ 				0, 0,	/* CRn, CRm */
+ 				&amp;cache_type_reg);
++		if (retval != ERROR_OK)
++			return retval;
+ 		LOG_DEBUG(&quot;cp15 cache type: %8.8x&quot;, (unsigned) cache_type_reg);
+ 
+ 		/* FIXME the armv4_4 cache info DOES NOT APPLY to Cortex-A8 */
+@@ -1097,7 +1105,7 @@ static void cortex_a8_post_debug_entry(struct target *target)
+ 	armv7a-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled =
+ 			(cortex_a8-&gt;cp15_control_reg &amp; 0x1000U) ? 1 : 0;
+ 
+-
++	return ERROR_OK;
+ }
+ 
+ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 7f6cbaf..4f3560f 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -442,7 +442,11 @@ static int cortex_m3_debug_entry(struct target *target)
+ 		target_state_name(target));
+ 
+ 	if (armv7m-&gt;post_debug_entry)
+-		armv7m-&gt;post_debug_entry(target);
++	{
++		retval = armv7m-&gt;post_debug_entry(target);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 
+ 	return ERROR_OK;
+ }
+@@ -813,7 +817,10 @@ static int cortex_m3_step(struct target *target, int current,
+ 			&quot; nvic_icsr = 0x%&quot; PRIx32,
+ 			cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_icsr);
+ 
+-	cortex_m3_debug_entry(target);
++	int retval;
++	retval = cortex_m3_debug_entry(target);
++	if (retval != ERROR_OK)
++		return retval;
+ 	target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+ 
+ 	LOG_DEBUG(&quot;target stepped dcb_dhcsr = 0x%&quot; PRIx32
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016080.html">[Openocd-development] [PATCH] cortex a8: added timeout handling
+</A></li>
+	<LI>Next message: <A HREF="016100.html">[Openocd-development] [PATCH] debug: debug entry error	propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16081">[ date ]</a>
+              <a href="thread.html#16081">[ thread ]</a>
+              <a href="subject.html#16081">[ subject ]</a>
+              <a href="author.html#16081">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

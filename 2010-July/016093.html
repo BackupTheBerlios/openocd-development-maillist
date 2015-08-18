@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] arm_dpm: error propagation fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm_dpm%3A%20error%20propagation%20fixes&In-Reply-To=%3C1279543832-19552-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016092.html">
+   <LINK REL="Next"  HREF="016094.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] arm_dpm: error propagation fixes</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm_dpm%3A%20error%20propagation%20fixes&In-Reply-To=%3C1279543832-19552-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] arm_dpm: error propagation fixes">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul 19 14:50:32 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016092.html">[Openocd-development] [PATCH 4/4] flash: add nuc910 nand driver
+</A></li>
+        <LI>Next message: <A HREF="016094.html">[Openocd-development] [PATCH] fix bitq driver to compile with	-Wshadow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16093">[ date ]</a>
+              <a href="thread.html#16093">[ thread ]</a>
+              <a href="subject.html#16093">[ subject ]</a>
+              <a href="author.html#16093">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>found by inspection
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/arm_dpm.c |   28 ++++++++++++++++++++++++++--
+ 1 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/src/target/arm_dpm.c b/src/target/arm_dpm.c
+index 4fbe5e3..012316b 100644
+--- a/src/target/arm_dpm.c
++++ b/src/target/arm_dpm.c
+@@ -123,6 +123,8 @@ static int dpm_modeswitch(struct arm_dpm *dpm, enum arm_mode mode)
+ 		cpsr = mode;
+ 
+ 	retval = dpm-&gt;instr_write_data_r0(dpm, ARMV4_5_MSR_GP(0, 0xf, 0), cpsr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (dpm-&gt;instr_cpsr_sync)
+ 		retval = dpm-&gt;instr_cpsr_sync(dpm);
+@@ -211,6 +213,8 @@ static int dpm_write_reg(struct arm_dpm *dpm, struct reg *r, unsigned regnum)
+ 		retval = dpm-&gt;instr_write_data_r0(dpm,
+ 				ARMV4_5_MSR_GP(0, 0xf, regnum &amp; 1),
+ 				value);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		if (regnum == 16 &amp;&amp; dpm-&gt;instr_cpsr_sync)
+ 			retval = dpm-&gt;instr_cpsr_sync(dpm);
+@@ -364,6 +368,8 @@ int arm_dpm_write_dirty_registers(struct arm_dpm *dpm, bool bpwp)
+ 
+ 			retval = dpm_maybe_update_bpwp(dpm, bpwp, &amp;dbp-&gt;bpwp,
+ 					bp ? &amp;bp-&gt;set : NULL);
++			if (retval != ERROR_OK)
++				goto done;
+ 		}
+ 	}
+ 
+@@ -374,6 +380,8 @@ int arm_dpm_write_dirty_registers(struct arm_dpm *dpm, bool bpwp)
+ 
+ 		retval = dpm_maybe_update_bpwp(dpm, bpwp, &amp;dwp-&gt;bpwp,
+ 				wp ? &amp;wp-&gt;set : NULL);
++		if (retval != ERROR_OK)
++			goto done;
+ 	}
+ 
+ 	/* NOTE:  writes to breakpoint and watchpoint registers might
+@@ -433,7 +441,11 @@ int arm_dpm_write_dirty_registers(struct arm_dpm *dpm, bool bpwp)
+ 
+ 				/* REVISIT error checks */
+ 				if (tmode != ARM_MODE_ANY)
++				{
+ 					retval = dpm_modeswitch(dpm, tmode);
++					if (retval != ERROR_OK)
++						goto done;
++				}
+ 			}
+ 			if (r-&gt;mode != mode)
+ 				continue;
+@@ -441,7 +453,8 @@ int arm_dpm_write_dirty_registers(struct arm_dpm *dpm, bool bpwp)
+ 			retval = dpm_write_reg(dpm,
+ 					&amp;cache-&gt;reg_list[i],
+ 					regnum);
+-
++			if (retval != ERROR_OK)
++				goto done;
+ 		}
+ 
+ 	} while (did_write);
+@@ -451,13 +464,19 @@ int arm_dpm_write_dirty_registers(struct arm_dpm *dpm, bool bpwp)
+ 	 * defined, and must not write it before CPSR.
+ 	 */
+ 	retval = dpm_modeswitch(dpm, ARM_MODE_ANY);
++	if (retval != ERROR_OK)
++		goto done;
+ 	arm-&gt;cpsr-&gt;dirty = false;
+ 
+ 	retval = dpm_write_reg(dpm, arm-&gt;pc, 15);
++	if (retval != ERROR_OK)
++		goto done;
+ 	arm-&gt;pc-&gt;dirty = false;
+ 
+ 	/* flush R0 -- it's *very* dirty by now */
+ 	retval = dpm_write_reg(dpm, &amp;cache-&gt;reg_list[0], 0);
++	if (retval != ERROR_OK)
++		goto done;
+ 	cache-&gt;reg_list[0].dirty = false;
+ 
+ 	/* (void) */ dpm-&gt;finish(dpm);
+@@ -540,6 +559,8 @@ static int arm_dpm_read_core_reg(struct target *target, struct reg *r,
+ 	}
+ 
+ 	retval = dpm_read_reg(dpm, r, regnum);
++	if (retval != ERROR_OK)
++		goto fail;
+ 	/* always clean up, regardless of error */
+ 
+ 	if (mode != ARM_MODE_ANY)
+@@ -636,6 +657,8 @@ static int arm_dpm_full_context(struct target *target)
+ 
+ 				/* REVISIT error checks */
+ 				retval = dpm_modeswitch(dpm, mode);
++				if (retval != ERROR_OK)
++					goto done;
+ 			}
+ 			if (r-&gt;mode != mode)
+ 				continue;
+@@ -644,7 +667,8 @@ static int arm_dpm_full_context(struct target *target)
+ 			retval = dpm_read_reg(dpm,
+ 					&amp;cache-&gt;reg_list[i],
+ 					(r-&gt;num == 16) ? 17 : r-&gt;num);
+-
++			if (retval != ERROR_OK)
++				goto done;
+ 		}
+ 
+ 	} while (did_read);
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016092.html">[Openocd-development] [PATCH 4/4] flash: add nuc910 nand driver
+</A></li>
+	<LI>Next message: <A HREF="016094.html">[Openocd-development] [PATCH] fix bitq driver to compile with	-Wshadow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16093">[ date ]</a>
+              <a href="thread.html#16093">[ thread ]</a>
+              <a href="subject.html#16093">[ subject ]</a>
+              <a href="author.html#16093">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

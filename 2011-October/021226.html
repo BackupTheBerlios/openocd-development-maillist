@@ -1,0 +1,484 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] New patch to review for openocd: 2ce508b	jlink libusb1 driver with libusb1 common driver interface.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%202ce508b%0A%09jlink%20libusb1%20driver%20with%20libusb1%20common%20driver%20interface.&In-Reply-To=%3C20111018220157.F099923C%40openocd.zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021223.html">
+   <LINK REL="Next"  HREF="021229.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] New patch to review for openocd: 2ce508b	jlink libusb1 driver with libusb1 common driver interface.</H1>
+    <B>Gerrit</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%202ce508b%0A%09jlink%20libusb1%20driver%20with%20libusb1%20common%20driver%20interface.&In-Reply-To=%3C20111018220157.F099923C%40openocd.zylin.com%3E"
+       TITLE="[Openocd-development] New patch to review for openocd: 2ce508b	jlink libusb1 driver with libusb1 common driver interface.">gerrit at openocd.zylin.com
+       </A><BR>
+    <I>Wed Oct 19 00:01:57 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021223.html">[Openocd-development] New patch to review for openocd: cc362b6	xscale: fix bug in xscale_receive()
+</A></li>
+        <LI>Next message: <A HREF="021229.html">[Openocd-development] New patch to review for openocd: bc144f4	Toshiba TMPA900 config: Fix incorrect working area.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21226">[ date ]</a>
+              <a href="thread.html#21226">[ thread ]</a>
+              <a href="subject.html#21226">[ subject ]</a>
+              <a href="author.html#21226">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from Gerrit.
+
+Mauro Gamba (<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">maurillo71 at gmail.com</A>) just uploaded a new patch set to Gerrit, which you can find at <A HREF="http://openocd.zylin.com/33">http://openocd.zylin.com/33</A>
+
+-- gerrit
+commit 2ce508b63db8e59caec36e7b28f5847d91f7cd35
+Author: Mauro Gamba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">maurillo71 at gmail.com</A>&gt;
+Date:   Mon Oct 17 22:44:31 2011 +0200
+
+    jlink libusb1 driver with libusb1 common driver interface.
+    
+    It add a libusb1 common interface useful for other driver.
+    
+    Change-Id: I7eb045d4e2bd553abefad53f3f4023ff46b0f5f6
+    Signed-off-by: Mauro Gamba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">maurillo71 at gmail.com</A>&gt;
+
+diff --git a/configure.ac b/configure.ac
+index d0386bc..f39e43b 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1052,7 +1052,7 @@ fi
+ 
+ # check for usb.h when a driver will require it
+ build_usb=no
+-if test $build_jlink = yes -o $build_vsllink = yes -o $build_usbprog = yes -o \
++if test -o $build_vsllink = yes -o $build_usbprog = yes -o \
+   $build_rlink = yes -o $build_ulink = yes -o $build_armjtagew = yes
+ then
+   AC_CHECK_HEADERS([usb.h],[],
+@@ -1060,6 +1060,16 @@ then
+   build_usb=yes
+ fi
+ 
++# check for libusb.h when a driver will require it
++build_libusb=no
++if test $build_jlink = yes
++then
++  AC_CHECK_HEADERS([libusb-1.0/libusb.h],[],
++  [AC_MSG_ERROR([libusb.h is required to build some OpenOCD driver(s)])])
++  build_libusb=yes
++fi
++
++
+ AM_CONDITIONAL(RELEASE, test $build_release = yes)
+ AM_CONDITIONAL(PARPORT, test $build_parport = yes)
+ AM_CONDITIONAL(DUMMY, test $build_dummy = yes)
+@@ -1089,6 +1099,7 @@ AM_CONDITIONAL(ARMJTAGEW, test $build_armjtagew = yes)
+ AM_CONDITIONAL(REMOTE_BITBANG, test $build_remote_bitbang = yes)
+ AM_CONDITIONAL(BUSPIRATE, test $build_buspirate = yes)
+ AM_CONDITIONAL(USB, test $build_usb = yes)
++AM_CONDITIONAL(USB1, test $build_libusb = yes)
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+ AM_CONDITIONAL(IS_MINGW, test $is_mingw = yes)
+ AM_CONDITIONAL(IS_WIN32, test $is_win32 = yes)
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 8375683..94d81c2 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -84,9 +84,6 @@ endif
+ if USBPROG
+ LIBUSB = -lusb
+ else
+-if JLINK
+-LIBUSB = -lusb
+-else
+ if RLINK
+ LIBUSB = -lusb
+ else
+@@ -101,6 +98,11 @@ endif
+ endif
+ endif
+ endif
++
++if JLINK
++LIBUSB1 = -lusb-1.0
++else
++LIBUSB1 =
+ endif
+ 
+ libopenocd_la_LIBADD = \
+@@ -114,7 +116,7 @@ libopenocd_la_LIBADD = \
+ 	$(top_builddir)/src/server/libserver.la \
+ 	$(top_builddir)/src/rtos/librtos.la \
+ 	$(top_builddir)/src/helper/libhelper.la \
+-	$(FTDI2232LIB) $(MINGWLDADD) $(LIBUSB)
++	$(FTDI2232LIB) $(MINGWLDADD) $(LIBUSB) $(LIBUSB1)
+ 
+ STARTUP_TCL_SRCS = \
+ 	$(srcdir)/helper/startup.tcl \
+diff --git a/src/jtag/drivers/Makefile.am b/src/jtag/drivers/Makefile.am
+index 408ea81..7842e84 100644
+--- a/src/jtag/drivers/Makefile.am
++++ b/src/jtag/drivers/Makefile.am
+@@ -20,6 +20,10 @@ if USB
+ DRIVERFILES += usb_common.c
+ endif
+ 
++if USB1
++DRIVERFILES += libusb_common.c
++endif
++
+ if BITBANG
+ DRIVERFILES += bitbang.c
+ endif
+@@ -93,6 +97,7 @@ noinst_HEADERS = \
+ 	rlink_dtc_cmd.h \
+ 	rlink_ep1_cmd.h \
+ 	rlink_st7.h \
+-	usb_common.h
++	usb_common.h \
++	libusb_common.h
+ 
+ MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index adaa640..d59c052 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -30,7 +30,7 @@
+ 
+ #include &lt;jtag/interface.h&gt;
+ #include &lt;jtag/commands.h&gt;
+-#include &quot;usb_common.h&quot;
++#include &quot;libusb_common.h&quot;
+ 
+ /* See Segger's public documentation:
+  *	Reference manual for J-Link USB Protocol
+@@ -50,7 +50,7 @@ <A HREF="http://www.segger.com/cms/admin/uploads/productDocs/RM08001_JLinkUSBProtocol.pdf">http://www.segger.com/cms/admin/uploads/productDocs/RM08001_JLinkUSBProtocol.pdf</A>
+ #define PID 0x0101, 0x0102, 0x0103, 0x0104
+ 
+ #define JLINK_WRITE_ENDPOINT	0x02
+-#define JLINK_READ_ENDPOINT		0x81
++#define JLINK_READ_ENDPOINT	0x81
+ 
+ static unsigned int jlink_write_ep = JLINK_WRITE_ENDPOINT;
+ static unsigned int jlink_read_ep = JLINK_READ_ENDPOINT;
+@@ -199,7 +199,7 @@ static void jlink_tap_append_scan(int length, uint8_t *buffer,
+ 
+ /* Jlink lowlevel functions */
+ struct jlink {
+-	struct usb_dev_handle* usb_handle;
++	struct libusb_device_handle* usb_handle;
+ };
+ 
+ static struct jlink *jlink_usb_open(void);
+@@ -1407,10 +1407,11 @@ static int jlink_tap_execute(void)
+ 
+ static struct jlink* jlink_usb_open()
+ {
+-	usb_init();
+-
+-	struct usb_dev_handle *dev;
+-	if (jtag_usb_open(vids, pids, &amp;dev) != ERROR_OK)
++	libusb_device_handle *devh;
++	libusb_device *dev;
++	struct libusb_config_descriptor *config;
++	
++	if (jtag_libusb_open(vids, pids, &amp;devh) != ERROR_OK)
+ 		return NULL;
+ 
+ 	/* BE ***VERY CAREFUL*** ABOUT MAKING CHANGES IN THIS
+@@ -1426,7 +1427,7 @@ static struct jlink* jlink_usb_open()
+ 
+ #if IS_WIN32 == 0
+ 
+-	usb_reset(dev);
++	libusb_reset_device(devh);
+ 
+ #if IS_DARWIN == 0
+ 
+@@ -1434,7 +1435,7 @@ static struct jlink* jlink_usb_open()
+ 	/* reopen jlink after usb_reset
+ 	 * on win32 this may take a second or two to re-enumerate */
+ 	int retval;
+-	while ((retval = jtag_usb_open(vids, pids, &amp;dev)) != ERROR_OK)
++	while ((retval = jtag_libusb_open(vids, pids, &amp;devh)) != ERROR_OK)
+ 	{
+ 		usleep(1000);
+ 		timeout--;
+@@ -1449,9 +1450,10 @@ static struct jlink* jlink_usb_open()
+ #endif
+ 
+ 	/* usb_set_configuration required under win32 */
+-	struct usb_device *udev = usb_device(dev);
+-	usb_set_configuration(dev, udev-&gt;config[0].bConfigurationValue);
+-	usb_claim_interface(dev, 0);
++	dev = libusb_get_device(devh);
++	libusb_get_config_descriptor(dev, 0, &amp;config);
++	libusb_set_configuration(devh, config-&gt;bConfigurationValue);
++	libusb_claim_interface(devh, 0);
+ 
+ #if 0
+ 	/*
+@@ -1460,27 +1462,43 @@ static struct jlink* jlink_usb_open()
+ 	 */
+ 	usb_set_altinterface(result-&gt;usb_handle, 0);
+ #endif
+-	struct usb_interface *iface = udev-&gt;config-&gt;interface;
+-	struct usb_interface_descriptor *desc = iface-&gt;altsetting;
+-	for (int i = 0; i &lt; desc-&gt;bNumEndpoints; i++)
+-	{
+-		uint8_t epnum = desc-&gt;endpoint[i].bEndpointAddress;
+-		bool is_input = epnum &amp; 0x80;
+-		LOG_DEBUG(&quot;usb ep %s %02x&quot;, is_input ? &quot;in&quot; : &quot;out&quot;, epnum);
+-		if (is_input)
+-			jlink_read_ep = epnum;
+-		else
+-			jlink_write_ep = epnum;
++	const struct libusb_interface *inter;
++	const struct libusb_interface_descriptor *interdesc;
++	const struct libusb_endpoint_descriptor *epdesc;
++		
++	for(int i=0; i&lt;(int)config-&gt;bNumInterfaces; i++) 
++	{
++		inter = &amp;config-&gt;interface[i];
++
++		for(int j=0; j&lt;inter-&gt;num_altsetting; j++) 
++		{
++			interdesc = &amp;inter-&gt;altsetting[j];
++			for(int k=0; k&lt;(int)interdesc-&gt;bNumEndpoints; k++) 
++			{
++			    epdesc = &amp;interdesc-&gt;endpoint[k];
++			    
++			    uint8_t epnum = epdesc-&gt;bEndpointAddress;
++			    bool is_input = epnum &amp; 0x80;
++			    LOG_DEBUG(&quot;usb ep %s %02x&quot;, is_input ? &quot;in&quot; : &quot;out&quot;, epnum);
++  
++			    if (is_input)
++				jlink_read_ep = epnum;
++			    else
++				jlink_write_ep = epnum;
++			}
++	        }
+ 	}
+ 
++	libusb_free_config_descriptor(config);
++
+ 	struct jlink *result = malloc(sizeof(struct jlink));
+-	result-&gt;usb_handle = dev;
++	result-&gt;usb_handle = devh;
+ 	return result;
+ }
+ 
+ static void jlink_usb_close(struct jlink *jlink)
+ {
+-	usb_close(jlink-&gt;usb_handle);
++	jtag_libusb_close(jlink-&gt;usb_handle);
+ 	free(jlink);
+ }
+ 
+@@ -1548,8 +1566,8 @@ static int jlink_usb_message(struct jlink *jlink, int out_length, int in_length)
+ /* calls the given usb_bulk_* function, allowing for the data to
+  * trickle in with some timeouts  */
+ static int usb_bulk_with_retries(
+-		int (*f)(usb_dev_handle *, int, char *, int, int),
+-		usb_dev_handle *dev, int ep,
++		int (*f)(libusb_device_handle *, int, char *, int, int),
++		libusb_device_handle *dev, int ep,
+ 		char *bytes, int size, int timeout)
+ {
+ 	int tries = 3, count = 0;
+@@ -1565,24 +1583,26 @@ static int usb_bulk_with_retries(
+ 	return count;
+ }
+ 
+-static int wrap_usb_bulk_write(usb_dev_handle *dev, int ep,
++static int wrap_usb_bulk_write(libusb_device_handle *dev, int ep,
+ 			       char *buff, int size, int timeout)
+ {
++	int transferred;
+ 	/* usb_bulk_write() takes const char *buff */
+-	return usb_bulk_write(dev, ep, buff, size, timeout);
++	libusb_bulk_transfer(dev, ep, (unsigned char *)buff, size, &amp;transferred, timeout);
++	return transferred;
+ }
+ 
+-static inline int usb_bulk_write_ex(usb_dev_handle *dev, int ep,
++static inline int usb_bulk_write_ex(libusb_device_handle *dev, int ep,
+ 		char *bytes, int size, int timeout)
+ {
+ 	return usb_bulk_with_retries(&amp;wrap_usb_bulk_write,
+ 			dev, ep, bytes, size, timeout);
+ }
+ 
+-static inline int usb_bulk_read_ex(usb_dev_handle *dev, int ep,
++static inline int usb_bulk_read_ex(libusb_device_handle *dev, int ep,
+ 		char *bytes, int size, int timeout)
+ {
+-	return usb_bulk_with_retries(&amp;usb_bulk_read,
++	return usb_bulk_with_retries(&amp;wrap_usb_bulk_write,
+ 			dev, ep, bytes, size, timeout);
+ }
+ 
+diff --git a/src/jtag/drivers/libusb_common.c b/src/jtag/drivers/libusb_common.c
+new file mode 100644
+index 0000000..7786a52
+--- /dev/null
++++ b/src/jtag/drivers/libusb_common.c
+@@ -0,0 +1,84 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;          *
++ *                                                                         *
++ *   Copyright (C) 2011 Mauro Gamba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">maurillo71 at gmail.com</A>&gt;                 *
++ *                                                                         * 
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++#include &quot;libusb_common.h&quot;
++
++static struct libusb_context *jtag_libusb_context; /**&lt; Libusb context **/
++static libusb_device **devs; /**&lt; The usb device list **/
++
++static bool jtag_libusb_match(struct libusb_device *dev,
++		const uint16_t vids[], const uint16_t pids[])
++{
++	struct libusb_device_descriptor dev_desc;
++	
++	for (unsigned i = 0; vids[i] &amp;&amp; pids[i]; i++)
++	{
++		if (libusb_get_device_descriptor(dev, &amp;dev_desc) == 0)
++		{
++		    if (dev_desc.idVendor == vids[i] &amp;&amp;
++			dev_desc.idProduct == pids[i])
++		    {
++			    return true;
++		    }
++		}
++	}
++	return false;
++}
++
++int jtag_libusb_open(const uint16_t vids[], const uint16_t pids[],
++		libusb_device_handle **out)
++{
++	int cnt,idx,errCode;
++	
++	if (libusb_init(&amp;jtag_libusb_context) &lt; 0)
++		return -ENODEV;
++
++	libusb_set_debug(jtag_libusb_context,3);
++
++	cnt = libusb_get_device_list(jtag_libusb_context, &amp;devs);
++	
++	for (idx = 0; idx &lt; cnt; idx++)
++	{
++		if (!jtag_libusb_match(devs[idx], vids, pids))
++			continue;
++		
++		errCode = libusb_open(devs[idx],out);
++		
++		/** Free the device list **/
++		libusb_free_device_list(devs, 1);
++
++		if (errCode &lt; 0)
++			return errCode;
++		return 0;
++	}
++	return -ENODEV;
++}
++
++void jtag_libusb_close(libusb_device_handle *dev)
++{
++	/* Close device */
++	libusb_close(dev);
++	
++	libusb_exit(jtag_libusb_context);
++}
+diff --git a/src/jtag/drivers/libusb_common.h b/src/jtag/drivers/libusb_common.h
+new file mode 100644
+index 0000000..1fc9948
+--- /dev/null
++++ b/src/jtag/drivers/libusb_common.h
+@@ -0,0 +1,33 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;          *
++ *                                                                         *
++ *   Copyright (C) 2011 Mauro Gamba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">maurillo71 at gmail.com</A>&gt;                 *
++ *                                                                         * 
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef JTAG_LIBUSB_COMMON_H
++#define JTAG_LIBUSB_COMMON_H
++
++#include &lt;helper/types.h&gt;
++
++#include &lt;libusb-1.0/libusb.h&gt;
++
++int jtag_libusb_open(const uint16_t vids[], const uint16_t pids[],
++		libusb_device_handle **out);
++void jtag_libusb_close(libusb_device_handle *dev);
++
++#endif // JTAG_USB_COMMON_H
+
+-- 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021223.html">[Openocd-development] New patch to review for openocd: cc362b6	xscale: fix bug in xscale_receive()
+</A></li>
+	<LI>Next message: <A HREF="021229.html">[Openocd-development] New patch to review for openocd: bc144f4	Toshiba TMPA900 config: Fix incorrect working area.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21226">[ date ]</a>
+              <a href="thread.html#21226">[ thread ]</a>
+              <a href="subject.html#21226">[ subject ]</a>
+              <a href="author.html#21226">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

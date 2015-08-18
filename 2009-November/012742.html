@@ -1,0 +1,178 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/7] ARM11: implement provider for new	DPM interface
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/7%5D%20ARM11%3A%20implement%20provider%20for%20new%0A%09DPM%20interface&In-Reply-To=%3C200911231455.19728.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012738.html">
+   <LINK REL="Next"  HREF="012739.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/7] ARM11: implement provider for new	DPM interface</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/7%5D%20ARM11%3A%20implement%20provider%20for%20new%0A%09DPM%20interface&In-Reply-To=%3C200911231455.19728.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/7] ARM11: implement provider for new	DPM interface">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Nov 23 23:55:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012738.html">[Openocd-development] [patch 1/7] ARM: new DPM interface
+</A></li>
+        <LI>Next message: <A HREF="012739.html">[Openocd-development] [patch 3/7] ARM11: partial support for	standard ARM register interfaces
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12742">[ date ]</a>
+              <a href="thread.html#12742">[ thread ]</a>
+              <a href="subject.html#12742">[ subject ]</a>
+              <a href="author.html#12742">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is a very thin layer over some of the current ARM11
+debug TAP utilities.  The layer isn't yet hooked up.
+---
+ src/target/arm11.h        |    4 ++
+ src/target/arm11_dbgtap.c |   73 ++++++++++++++++++++++++++++++++++++++++++++
+ src/target/arm11_dbgtap.h |    3 +
+ 3 files changed, 80 insertions(+)
+
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -24,6 +24,7 @@
+ #define ARM11_H
+ 
+ #include &quot;armv4_5.h&quot;
++#include &quot;arm_dpm.h&quot;
+ 
+ /* TEMPORARY -- till we switch to the shared infrastructure */
+ #define ARM11_REGCACHE_COUNT		20
+@@ -59,6 +60,9 @@ struct arm11_common
+ 	struct arm	arm;
+ 	struct target *	target;		/**&lt; Reference back to the owner */
+ 
++	/** Debug module state. */
++	struct arm_dpm dpm;
++
+ 	/** \name Processor type detection */
+ 	/*@{*/
+ 
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -951,3 +951,76 @@ int arm11_read_memory_word(struct arm11_
+ 	return arm11_run_instr_data_finish(arm11);
+ }
+ 
++
++/************************************************************************/
++
++/*
++ * ARM11 provider for the OpenOCD implementation of the standard
++ * architectural ARM v6/v7 &quot;Debug Programmer's Model&quot; (DPM).
++ */
++
++static inline struct arm11_common *dpm_to_arm11(struct arm_dpm *dpm)
++{
++	return container_of(dpm, struct arm11_common, dpm);
++}
++
++static int arm11_dpm_prepare(struct arm_dpm *dpm)
++{
++	struct arm11_common *arm11 = dpm_to_arm11(dpm);
++
++	arm11 = container_of(dpm-&gt;arm, struct arm11_common, arm);
++
++	return arm11_run_instr_data_prepare(dpm_to_arm11(dpm));
++}
++
++static int arm11_dpm_finish(struct arm_dpm *dpm)
++{
++	return arm11_run_instr_data_finish(dpm_to_arm11(dpm));
++}
++
++static int arm11_dpm_instr_write_data_dcc(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t data)
++{
++	return arm11_run_instr_data_to_core(dpm_to_arm11(dpm),
++			opcode, &amp;data, 1);
++}
++
++static int arm11_dpm_instr_write_data_r0(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t data)
++{
++	return arm11_run_instr_data_to_core_via_r0(dpm_to_arm11(dpm),
++			opcode, data);
++}
++
++static int arm11_dpm_instr_read_data_dcc(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t *data)
++{
++	return arm11_run_instr_data_from_core(dpm_to_arm11(dpm),
++			opcode, data, 1);
++}
++
++static int arm11_dpm_instr_read_data_r0(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t *data)
++{
++	return arm11_run_instr_data_from_core_via_r0(dpm_to_arm11(dpm),
++			opcode, data);
++}
++
++
++void arm11_dpm_init(struct arm11_common *arm11, uint32_t didr)
++{
++	struct arm_dpm *dpm = &amp;arm11-&gt;dpm;
++
++	dpm-&gt;arm = &amp;arm11-&gt;arm;
++
++	dpm-&gt;didr = didr;
++
++	dpm-&gt;prepare = arm11_dpm_prepare;
++	dpm-&gt;finish = arm11_dpm_finish;
++
++	dpm-&gt;instr_write_data_dcc = arm11_dpm_instr_write_data_dcc;
++	dpm-&gt;instr_write_data_r0 = arm11_dpm_instr_write_data_r0;
++
++	dpm-&gt;instr_read_data_dcc = arm11_dpm_instr_read_data_dcc;
++	dpm-&gt;instr_read_data_r0 = arm11_dpm_instr_read_data_r0;
++}
+--- a/src/target/arm11_dbgtap.h
++++ b/src/target/arm11_dbgtap.h
+@@ -60,4 +60,7 @@ void arm11_sc7_set_vcr(struct arm11_comm
+ int arm11_read_memory_word(struct arm11_common *arm11,
+ 		uint32_t address, uint32_t *result);
+ 
++/* Set up high-level debug module utilities */
++void arm11_dpm_init(struct arm11_common *arm11, uint32_t didr);
++
+ #endif // ARM11_DBGTAP_H
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012738.html">[Openocd-development] [patch 1/7] ARM: new DPM interface
+</A></li>
+	<LI>Next message: <A HREF="012739.html">[Openocd-development] [patch 3/7] ARM11: partial support for	standard ARM register interfaces
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12742">[ date ]</a>
+              <a href="thread.html#12742">[ thread ]</a>
+              <a href="subject.html#12742">[ subject ]</a>
+              <a href="author.html#12742">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

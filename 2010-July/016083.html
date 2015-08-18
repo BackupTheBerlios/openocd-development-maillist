@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/3] mem_ap_read_u32 error propagation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20mem_ap_read_u32%20error%20propagation&In-Reply-To=%3C1279541101-16557-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016101.html">
+   <LINK REL="Next"  HREF="016084.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/3] mem_ap_read_u32 error propagation</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20mem_ap_read_u32%20error%20propagation&In-Reply-To=%3C1279541101-16557-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/3] mem_ap_read_u32 error propagation">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul 19 14:04:59 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016101.html">[Openocd-development] [PATCH] debug: debug entry error	propagation
+</A></li>
+        <LI>Next message: <A HREF="016084.html">[Openocd-development] [PATCH 2/3] arm_adi_v5: error propagation of	mem_ap_read_atomic_u32 failure
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16083">[ date ]</a>
+              <a href="thread.html#16083">[ thread ]</a>
+              <a href="subject.html#16083">[ subject ]</a>
+              <a href="author.html#16083">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/arm_adi_v5.c |   20 +++++++++++++++-----
+ src/target/cortex_m3.c  |   44 +++++++++++++++++++++++++++++++++-----------
+ 2 files changed, 48 insertions(+), 16 deletions(-)
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 9a33d82..496360f 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -1088,11 +1088,21 @@ static int dap_info_command(struct command_context *cmd_ctx,
+ 			command_print(cmd_ctx, &quot;\tROM table in legacy format&quot;);
+ 
+ 		/* Now we read ROM table ID registers, ref. ARM IHI 0029B sec  */
+-		mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFF0, &amp;cid0);
+-		mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFF4, &amp;cid1);
+-		mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFF8, &amp;cid2);
+-		mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFFC, &amp;cid3);
+-		mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFCC, &amp;memtype);
++		retval = mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFF0, &amp;cid0);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFF4, &amp;cid1);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFF8, &amp;cid2);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFFC, &amp;cid3);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = mem_ap_read_u32(dap, (dbgbase&amp;0xFFFFF000) | 0xFCC, &amp;memtype);
++		if (retval != ERROR_OK)
++			return retval;
+ 		retval = dap_run(dap);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index d6090f5..6939890 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -68,7 +68,9 @@ static int cortexm3_dap_read_coreregister_u32(struct adiv5_dap *swjdp,
+ 	/* because the DCB_DCRDR is used for the emulated dcc channel
+ 	 * we have to save/restore the DCB_DCRDR when used */
+ 
+-	mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++	retval = mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* mem_ap_write_u32(swjdp, DCB_DCRSR, regnum); */
+ 	retval = dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
+@@ -107,7 +109,9 @@ static int cortexm3_dap_write_coreregister_u32(struct adiv5_dap *swjdp,
+ 	/* because the DCB_DCRDR is used for the emulated dcc channel
+ 	 * we have to save/restore the DCB_DCRDR when used */
+ 
+-	mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++	retval = mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* mem_ap_write_u32(swjdp, DCB_DCRDR, core_regs[i]); */
+ 	retval = dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
+@@ -297,33 +301,51 @@ static int cortex_m3_examine_exception_reason(struct target *target)
+ 	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	int retval;
+ 
+-	mem_ap_read_u32(swjdp, NVIC_SHCSR, &amp;shcsr);
++	retval = mem_ap_read_u32(swjdp, NVIC_SHCSR, &amp;shcsr);
++	if (retval != ERROR_OK)
++		return retval;
+ 	switch (armv7m-&gt;exception_number)
+ 	{
+ 		case 2:	/* NMI */
+ 			break;
+ 		case 3:	/* Hard Fault */
+-			mem_ap_read_atomic_u32(swjdp, NVIC_HFSR, &amp;except_sr);
++			retval = mem_ap_read_atomic_u32(swjdp, NVIC_HFSR, &amp;except_sr);
++			if (retval != ERROR_OK)
++				return retval;
+ 			if (except_sr &amp; 0x40000000)
+ 			{
+-				mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;cfsr);
++				retval = mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;cfsr);
++				if (retval != ERROR_OK)
++					return retval;
+ 			}
+ 			break;
+ 		case 4:	/* Memory Management */
+-			mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
+-			mem_ap_read_u32(swjdp, NVIC_MMFAR, &amp;except_ar);
++			retval = mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
++			if (retval != ERROR_OK)
++				return retval;
++			retval = mem_ap_read_u32(swjdp, NVIC_MMFAR, &amp;except_ar);
++			if (retval != ERROR_OK)
++				return retval;
+ 			break;
+ 		case 5:	/* Bus Fault */
+-			mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
+-			mem_ap_read_u32(swjdp, NVIC_BFAR, &amp;except_ar);
++			retval = mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
++			if (retval != ERROR_OK)
++				return retval;
++			retval = mem_ap_read_u32(swjdp, NVIC_BFAR, &amp;except_ar);
++			if (retval != ERROR_OK)
++				return retval;
+ 			break;
+ 		case 6:	/* Usage Fault */
+-			mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
++			retval = mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
++			if (retval != ERROR_OK)
++				return retval;
+ 			break;
+ 		case 11:	/* SVCall */
+ 			break;
+ 		case 12:	/* Debug Monitor */
+-			mem_ap_read_u32(swjdp, NVIC_DFSR, &amp;except_sr);
++			retval = mem_ap_read_u32(swjdp, NVIC_DFSR, &amp;except_sr);
++			if (retval != ERROR_OK)
++				return retval;
+ 			break;
+ 		case 14:	/* PendSV */
+ 			break;
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016101.html">[Openocd-development] [PATCH] debug: debug entry error	propagation
+</A></li>
+	<LI>Next message: <A HREF="016084.html">[Openocd-development] [PATCH 2/3] arm_adi_v5: error propagation of	mem_ap_read_atomic_u32 failure
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16083">[ date ]</a>
+              <a href="thread.html#16083">[ thread ]</a>
+              <a href="subject.html#16083">[ subject ]</a>
+              <a href="author.html#16083">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

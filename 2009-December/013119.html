@@ -1,0 +1,740 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as	DPM ops
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/5%5D%20ARM%3A%20implement%20mrc%28%29/mcr%28%29%20as%0A%09DPM%20ops&In-Reply-To=%3C200911302342.27406.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013110.html">
+   <LINK REL="Next"  HREF="013125.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as	DPM ops</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/5%5D%20ARM%3A%20implement%20mrc%28%29/mcr%28%29%20as%0A%09DPM%20ops&In-Reply-To=%3C200911302342.27406.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as	DPM ops">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Dec  1 08:42:27 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013110.html">[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as DPM	ops
+</A></li>
+        <LI>Next message: <A HREF="013125.html">[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as DPM ops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13119">[ date ]</a>
+              <a href="thread.html#13119">[ thread ]</a>
+              <a href="subject.html#13119">[ subject ]</a>
+              <a href="author.html#13119">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 30 November 2009, David Brownell wrote:
+&gt;<i>  &#160;(Patches to move the &quot;mrc&quot; and &quot;mcr&quot; code into
+</I>&gt;<i> &quot;struct arm&quot; are due too ... MIPS and other cores do not support
+</I>&gt;<i> those ARM-specific concepts.)
+</I>
+Needed for testing, even ... here it is.  Goes before slightly
+tweaked versions of the last few patches.
+
+These behave in light testing on Cortex-A8; didn't make time to
+do so with ARM1136.  I'm going to merge the series anyway.
+
+========= CUT HERE
+From: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+Subject: target: &quot;mcr&quot; and &quot;mrc&quot; are ARM-specific
+
+Switch &quot;mrc&quot; and &quot;mcr&quot; commands to be toplevel ARM operations,
+as they should initially have been.
+
+Correct the usage message for both commands:  it matches ARM
+documentation (as one wants!) instead of reordering them to
+match the funky mrc() and mcr() method usage (sigh).
+
+For Cortex-A8: restore a line that got accidentally dropped,
+so the secure monitor mode shadow registers will show again.
+---
+ src/target/arm11.c       |   13 ++
+ src/target/arm720t.c     |   15 ++-
+ src/target/arm920t.c     |   15 ++-
+ src/target/arm926ejs.c   |    5 -
+ src/target/armv4_5.c     |  168 +++++++++++++++++++++++++++++++++++++
+ src/target/armv4_5.h     |   15 +++
+ src/target/cortex_a8.c   |   11 +-
+ src/target/target.c      |  199 ---------------------------------------------
+ src/target/target_type.h |    5 -
+ 9 files changed, 228 insertions(+), 218 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1219,6 +1219,13 @@ static int arm11_remove_watchpoint(struc
+ 	return ERROR_FAIL;
+ }
+ 
++static int arm11_mrc(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm, uint32_t *value);
++static int arm11_mcr(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2, uint32_t CRn,
++		uint32_t CRm, uint32_t value);
++
+ static int arm11_target_create(struct target *target, Jim_Interp *interp)
+ {
+ 	struct arm11_common *arm11;
+@@ -1238,6 +1245,9 @@ static int arm11_target_create(struct ta
+ 
+ 	armv4_5_init_arch_info(target, &amp;arm11-&gt;arm);
+ 
++	arm11-&gt;arm.mrc = arm11_mrc;
++	arm11-&gt;arm.mcr = arm11_mcr;
++
+ 	arm11-&gt;target = target;
+ 
+ 	arm11-&gt;jtag_info.tap = target-&gt;tap;
+@@ -1679,7 +1689,4 @@ struct target_type arm11_target = {
+ 	.target_create =	arm11_target_create,
+ 	.init_target =		arm11_init_target,
+ 	.examine =		arm11_examine,
+-
+-	.mrc =			arm11_mrc,
+-	.mcr =			arm11_mcr,
+ };
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -378,11 +378,24 @@ static int arm720t_init_target(struct co
+ 	return arm7tdmi_init_target(cmd_ctx, target);
+ }
+ 
++/* FIXME remove forward decls */
++static int arm720t_mrc(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t *value);
++static int arm720t_mcr(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t value);
++
+ static int arm720t_init_arch_info(struct target *target,
+ 		struct arm720t_common *arm720t, struct jtag_tap *tap)
+ {
+ 	struct arm7_9_common *arm7_9 = &amp;arm720t-&gt;arm7_9_common;
+ 
++	arm7_9-&gt;armv4_5_common.mrc = arm720t_mrc;
++	arm7_9-&gt;armv4_5_common.mcr = arm720t_mcr;
++
+ 	arm7tdmi_init_arch_info(target, arm7_9, tap);
+ 
+ 	arm720t-&gt;common_magic = ARM720T_COMMON_MAGIC;
+@@ -556,6 +569,4 @@ struct target_type arm720t_target =
+ 	.target_create = arm720t_target_create,
+ 	.init_target = arm720t_init_target,
+ 	.examine = arm7_9_examine,
+-	.mrc = arm720t_mrc,
+-	.mcr = arm720t_mcr,
+ };
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -624,10 +624,23 @@ int arm920t_soft_reset_halt(struct targe
+ 	return ERROR_OK;
+ }
+ 
++/* FIXME remove forward decls */
++static int arm920t_mrc(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t *value);
++static int arm920t_mcr(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t value);
++
+ int arm920t_init_arch_info(struct target *target, struct arm920t_common *arm920t, struct jtag_tap *tap)
+ {
+ 	struct arm7_9_common *arm7_9 = &amp;arm920t-&gt;arm7_9_common;
+ 
++	arm7_9-&gt;armv4_5_common.mrc = arm920t_mrc;
++	arm7_9-&gt;armv4_5_common.mcr = arm920t_mcr;
++
+ 	/* initialize arm7/arm9 specific info (including armv4_5) */
+ 	arm9tdmi_init_arch_info(target, arm7_9, tap);
+ 
+@@ -1452,6 +1465,4 @@ struct target_type arm920t_target =
+ 	.target_create = arm920t_target_create,
+ 	.init_target = arm9tdmi_init_target,
+ 	.examine = arm7_9_examine,
+-	.mrc = arm920t_mrc,
+-	.mcr = arm920t_mcr,
+ };
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -673,6 +673,9 @@ int arm926ejs_init_arch_info(struct targ
+ {
+ 	struct arm7_9_common *arm7_9 = &amp;arm926ejs-&gt;arm7_9_common;
+ 
++	arm7_9-&gt;armv4_5_common.mrc = arm926ejs_mrc;
++	arm7_9-&gt;armv4_5_common.mcr = arm926ejs_mcr;
++
+ 	/* initialize arm7/arm9 specific info (including armv4_5) */
+ 	arm9tdmi_init_arch_info(target, arm7_9, tap);
+ 
+@@ -822,6 +825,4 @@ struct target_type arm926ejs_target =
+ 
+ 	.read_phys_memory = arm926ejs_read_phys_memory,
+ 	.write_phys_memory = arm926ejs_write_phys_memory,
+-	.mrc = arm926ejs_mrc,
+-	.mcr = arm926ejs_mcr,
+ };
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -790,6 +790,137 @@ usage:
+ 	return retval;
+ }
+ 
++static int jim_mcrmrc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct command_context *context;
++	struct target *target;
++	struct arm *arm;
++	int retval;
++
++	context = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (context == NULL) {
++		LOG_ERROR(&quot;%s: no command context&quot;, __func__);
++		return JIM_ERR;
++	}
++	target = get_current_target(context);
++	if (target == NULL) {
++		LOG_ERROR(&quot;%s: no current target&quot;, __func__);
++		return JIM_ERR;
++	}
++	if (!target_was_examined(target)) {
++		LOG_ERROR(&quot;%s: not yet examined&quot;, target_name(target));
++		return JIM_ERR;
++	}
++	arm = target_to_arm(target);
++	if (!is_arm(arm)) {
++		LOG_ERROR(&quot;%s: not an ARM&quot;, target_name(target));
++		return JIM_ERR;
++	}
++
++	if ((argc &lt; 6) || (argc &gt; 7)) {
++		/* FIXME use the command name to verify # params... */
++		LOG_ERROR(&quot;%s: wrong number of arguments&quot;, __func__);
++		return JIM_ERR;
++	}
++
++	int cpnum;
++	uint32_t op1;
++	uint32_t op2;
++	uint32_t CRn;
++	uint32_t CRm;
++	uint32_t value;
++	long l;
++
++	/* NOTE:  parameter sequence matches ARM instruction set usage:
++	 *	MCR	pNUM, op1, rX, CRn, CRm, op2	; write CP from rX
++	 *	MRC	pNUM, op1, rX, CRn, CRm, op2	; read CP into rX
++	 * The &quot;rX&quot; is necessarily omitted; it uses Tcl mechanisms.
++	 */
++	retval = Jim_GetLong(interp, argv[1], &amp;l);
++	if (retval != JIM_OK)
++		return retval;
++	if (l &amp; ~0xf) {
++		LOG_ERROR(&quot;%s: %s %d out of range&quot;, __func__,
++				&quot;coprocessor&quot;, (int) l);
++		return JIM_ERR;
++	}
++	cpnum = l;
++
++	retval = Jim_GetLong(interp, argv[2], &amp;l);
++	if (retval != JIM_OK)
++		return retval;
++	if (l &amp; ~0x7) {
++		LOG_ERROR(&quot;%s: %s %d out of range&quot;, __func__,
++				&quot;op1&quot;, (int) l);
++		return JIM_ERR;
++	}
++	op1 = l;
++
++	retval = Jim_GetLong(interp, argv[3], &amp;l);
++	if (retval != JIM_OK)
++		return retval;
++	if (l &amp; ~0xf) {
++		LOG_ERROR(&quot;%s: %s %d out of range&quot;, __func__,
++				&quot;CRn&quot;, (int) l);
++		return JIM_ERR;
++	}
++	CRn = l;
++
++	retval = Jim_GetLong(interp, argv[4], &amp;l);
++	if (retval != JIM_OK)
++		return retval;
++	if (l &amp; ~0xf) {
++		LOG_ERROR(&quot;%s: %s %d out of range&quot;, __func__,
++				&quot;CRm&quot;, (int) l);
++		return JIM_ERR;
++	}
++	CRm = l;
++
++	retval = Jim_GetLong(interp, argv[5], &amp;l);
++	if (retval != JIM_OK)
++		return retval;
++	if (l &amp; ~0x7) {
++		LOG_ERROR(&quot;%s: %s %d out of range&quot;, __func__,
++				&quot;op2&quot;, (int) l);
++		return JIM_ERR;
++	}
++	op2 = l;
++
++	value = 0;
++
++	/* FIXME don't assume &quot;mrc&quot; vs &quot;mcr&quot; from the number of params;
++	 * that could easily be a typo!  Check both...
++	 *
++	 * FIXME change the call syntax here ... simplest to just pass
++	 * the MRC() or MCR() instruction to be executed.  That will also
++	 * let us support the &quot;mrc2&quot; and &quot;mcr2&quot; opcodes (toggling one bit)
++	 * if that's ever needed.
++	 */
++	if (argc == 7) {
++		retval = Jim_GetLong(interp, argv[6], &amp;l);
++		if (retval != JIM_OK) {
++			return retval;
++		}
++		value = l;
++
++		/* NOTE: parameters reordered! */
++		// ARMV4_5_MCR(cpnum, op1, 0, CRn, CRm, op2)
++		retval = arm-&gt;mcr(target, cpnum, op1, op2, CRn, CRm, value);
++		if (retval != ERROR_OK)
++			return JIM_ERR;
++	} else {
++		/* NOTE: parameters reordered! */
++		// ARMV4_5_MRC(cpnum, op1, 0, CRn, CRm, op2)
++		retval = arm-&gt;mrc(target, cpnum, op1, op2, CRn, CRm, &amp;value);
++		if (retval != ERROR_OK)
++			return JIM_ERR;
++
++		Jim_SetResult(interp, Jim_NewIntObj(interp, value));
++	}
++
++	return JIM_OK;
++}
++
+ static const struct command_registration arm_exec_command_handlers[] = {
+ 	{
+ 		.name = &quot;reg&quot;,
+@@ -811,6 +942,20 @@ static const struct command_registration
+ 		.usage = &quot;&lt;address&gt; [&lt;count&gt; ['thumb']]&quot;,
+ 		.help = &quot;disassemble instructions &quot;,
+ 	},
++	{
++		.name = &quot;mcr&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_mcrmrc,
++		.help = &quot;write coprocessor register&quot;,
++		.usage = &quot;cpnum op1 CRn op2 CRm value&quot;,
++	},
++	{
++		.name = &quot;mrc&quot;,
++		.jim_handler = &amp;jim_mcrmrc,
++		.help = &quot;read coprocessor register&quot;,
++		.usage = &quot;cpnum op1 CRn op2 CRm&quot;,
++	},
++
+ 	COMMAND_REGISTRATION_DONE
+ };
+ const struct command_registration arm_command_handlers[] = {
+@@ -1252,6 +1397,24 @@ static int arm_full_context(struct targe
+ 	return retval;
+ }
+ 
++static int arm_default_mrc(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t *value)
++{
++	LOG_ERROR(&quot;%s doesn't implement MRC&quot;, target_type_name(target));
++	return ERROR_FAIL;
++}
++
++static int arm_default_mcr(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t value)
++{
++	LOG_ERROR(&quot;%s doesn't implement MCR&quot;, target_type_name(target));
++	return ERROR_FAIL;
++}
++
+ int armv4_5_init_arch_info(struct target *target, struct arm *armv4_5)
+ {
+ 	target-&gt;arch_info = armv4_5;
+@@ -1267,5 +1430,10 @@ int armv4_5_init_arch_info(struct target
+ 	if (!armv4_5-&gt;full_context &amp;&amp; armv4_5-&gt;read_core_reg)
+ 		armv4_5-&gt;full_context = arm_full_context;
+ 
++	if (!armv4_5-&gt;mrc)
++		armv4_5-&gt;mrc = arm_default_mrc;
++	if (!armv4_5-&gt;mcr)
++		armv4_5-&gt;mcr = arm_default_mcr;
++
+ 	return ERROR_OK;
+ }
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -112,11 +112,26 @@ struct arm
+ 	/** Handle for the Embedded Trace Module, if one is present. */
+ 	struct etm_context *etm;
+ 
++	/* FIXME all these methods should take &quot;struct arm *&quot; not target */
++
+ 	int (*full_context)(struct target *target);
+ 	int (*read_core_reg)(struct target *target, struct reg *reg,
+ 			int num, enum armv4_5_mode mode);
+ 	int (*write_core_reg)(struct target *target, struct reg *reg,
+ 			int num, enum armv4_5_mode mode, uint32_t value);
++
++	/** Read coprocessor register.  */
++	int (*mrc)(struct target *target, int cpnum,
++			uint32_t op1, uint32_t op2,
++			uint32_t CRn, uint32_t CRm,
++			uint32_t *value);
++
++	/* Write coprocessor register.  */
++	int (*mcr)(struct target *target, int cpnum,
++			uint32_t op1, uint32_t op2,
++			uint32_t CRn, uint32_t CRm,
++			uint32_t value);
++
+ 	void *arch_info;
+ };
+ 
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -936,7 +936,7 @@ static void cortex_a8_post_debug_entry(s
+ 	int retval;
+ 
+ 	/* MRC p15,0,&lt;Rt&gt;,c1,c0,0 ; Read CP15 System Control Register */
+-	retval = target-&gt;type-&gt;mrc(target, 15,
++	retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
+ 			0, 0,	/* op1, op2 */
+ 			1, 0,	/* CRn, CRm */
+ 			&amp;cortex_a8-&gt;cp15_control_reg);
+@@ -947,7 +947,7 @@ static void cortex_a8_post_debug_entry(s
+ 		uint32_t cache_type_reg;
+ 
+ 		/* MRC p15,0,&lt;Rt&gt;,c0,c0,1 ; Read CP15 Cache Type Register */
+-		retval = target-&gt;type-&gt;mrc(target, 15,
++		retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
+ 				0, 1,	/* op1, op2 */
+ 				0, 0,	/* CRn, CRm */
+ 				&amp;cache_type_reg);
+@@ -1535,6 +1535,7 @@ static int cortex_a8_examine_first(struc
+ 	LOG_DEBUG(&quot;ttypr = 0x%08&quot; PRIx32, ttypr);
+ 	LOG_DEBUG(&quot;didr = 0x%08&quot; PRIx32, didr);
+ 
++	armv7a-&gt;armv4_5_common.core_type = ARM_MODE_MON;
+ 	cortex_a8_dpm_setup(cortex_a8, didr);
+ 
+ 	/* Setup Breakpoint Register Pairs */
+@@ -1611,6 +1612,9 @@ static int cortex_a8_init_arch_info(stru
+ 	cortex_a8-&gt;common_magic = CORTEX_A8_COMMON_MAGIC;
+ 	armv4_5-&gt;arch_info = armv7a;
+ 
++	armv4_5-&gt;mrc = cortex_a8_mrc,
++	armv4_5-&gt;mcr = cortex_a8_mcr,
++
+ 	/* prepare JTAG information for the new target */
+ 	cortex_a8-&gt;jtag_info.tap = tap;
+ 	cortex_a8-&gt;jtag_info.scann_size = 4;
+@@ -1626,7 +1630,6 @@ static int cortex_a8_init_arch_info(stru
+ 
+ 	cortex_a8-&gt;fast_reg_read = 0;
+ 
+-
+ 	/* register arch-specific functions */
+ 	armv7a-&gt;examine_debug_reason = NULL;
+ 
+@@ -1752,6 +1755,4 @@ struct target_type cortexa8_target = {
+ 	.target_create = cortex_a8_target_create,
+ 	.init_target = cortex_a8_init_target,
+ 	.examine = cortex_a8_examine,
+-	.mrc = cortex_a8_mrc,
+-	.mcr = cortex_a8_mcr,
+ };
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -44,8 +44,6 @@
+ #include &quot;jtag.h&quot;
+ 
+ 
+-static int jim_mcrmrc(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
+-
+ static int target_array2mem(Jim_Interp *interp, struct target *target, int argc, Jim_Obj *const *argv);
+ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc, Jim_Obj *const *argv);
+ 
+@@ -665,84 +663,6 @@ static void target_reset_examined(struct
+ 	target-&gt;examined = false;
+ }
+ 
+-
+-
+-static int default_mrc(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value)
+-{
+-	LOG_ERROR(&quot;Not implemented: %s&quot;, __func__);
+-	return ERROR_FAIL;
+-}
+-
+-static int default_mcr(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value)
+-{
+-	LOG_ERROR(&quot;Not implemented: %s&quot;, __func__);
+-	return ERROR_FAIL;
+-}
+-
+-static int arm_cp_check(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm)
+-{
+-	/* basic check */
+-	if (!target_was_examined(target))
+-	{
+-		LOG_ERROR(&quot;Target not examined yet&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if ((cpnum &lt;0) || (cpnum &gt; 15))
+-	{
+-		LOG_ERROR(&quot;Illegal co-processor %d&quot;, cpnum);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (op1 &gt; 7)
+-	{
+-		LOG_ERROR(&quot;Illegal op1&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (op2 &gt; 7)
+-	{
+-		LOG_ERROR(&quot;Illegal op2&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (CRn &gt; 15)
+-	{
+-		LOG_ERROR(&quot;Illegal CRn&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (CRm &gt; 15)
+-	{
+-		LOG_ERROR(&quot;Illegal CRm&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-int target_mrc(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value)
+-{
+-	int retval;
+-
+-	retval = arm_cp_check(target, cpnum, op1, op2, CRn, CRm);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	return target-&gt;type-&gt;mrc(target, cpnum, op1, op2, CRn, CRm, value);
+-}
+-
+-int target_mcr(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value)
+-{
+-	int retval;
+-
+-	retval = arm_cp_check(target, cpnum, op1, op2, CRn, CRm);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	return target-&gt;type-&gt;mcr(target, cpnum, op1, op2, CRn, CRm, value);
+-}
+-
+ static int
+ err_read_phys_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+@@ -781,39 +701,6 @@ int target_init(struct command_context *
+ 			return retval;
+ 		}
+ 
+-		/**
+-		 * @todo MCR/MRC are ARM-specific; don't require them in
+-		 * all targets, or for ARMs without coprocessors.
+-		 */
+-		if (target-&gt;type-&gt;mcr == NULL)
+-		{
+-			target-&gt;type-&gt;mcr = default_mcr;
+-		} else
+-		{
+-			const struct command_registration mcr_cmd = {
+-				.name = &quot;mcr&quot;,
+-				.mode = COMMAND_EXEC,
+-				.jim_handler = &amp;jim_mcrmrc,
+-				.help = &quot;write coprocessor&quot;,
+-				.usage = &quot;&lt;cpnum&gt; &lt;op1&gt; &lt;op2&gt; &lt;CRn&gt; &lt;CRm&gt; &lt;value&gt;&quot;,
+-			};
+-			register_command(cmd_ctx, NULL, &amp;mcr_cmd);
+-		}
+-
+-		if (target-&gt;type-&gt;mrc == NULL)
+-		{
+-			target-&gt;type-&gt;mrc = default_mrc;
+-		} else
+-		{
+-			const struct command_registration mrc_cmd = {
+-				.name = &quot;mrc&quot;,
+-				.jim_handler = &amp;jim_mcrmrc,
+-				.help = &quot;read coprocessor&quot;,
+-				.usage = &quot;&lt;cpnum&gt; &lt;op1&gt; &lt;op2&gt; &lt;CRn&gt; &lt;CRm&gt;&quot;,
+-			};
+-			register_command(cmd_ctx, NULL, &amp;mrc_cmd);
+-		}
+-
+ 
+ 		/**
+ 		 * @todo get rid of those *memory_imp() methods, now that all
+@@ -4883,92 +4770,6 @@ COMMAND_HANDLER(handle_fast_load_command
+ 	return retval;
+ }
+ 
+-static int jim_mcrmrc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+-{
+-	struct command_context *context;
+-	struct target *target;
+-	int retval;
+-
+-	context = Jim_GetAssocData(interp, &quot;context&quot;);
+-	if (context == NULL) {
+-		LOG_ERROR(&quot;array2mem: no command context&quot;);
+-		return JIM_ERR;
+-	}
+-	target = get_current_target(context);
+-	if (target == NULL) {
+-		LOG_ERROR(&quot;array2mem: no current target&quot;);
+-		return JIM_ERR;
+-	}
+-
+-	if ((argc &lt; 6) || (argc &gt; 7))
+-	{
+-		return JIM_ERR;
+-	}
+-
+-	int cpnum;
+-	uint32_t op1;
+-	uint32_t op2;
+-	uint32_t CRn;
+-	uint32_t CRm;
+-	uint32_t value;
+-
+-	int e;
+-	long l;
+-	e = Jim_GetLong(interp, argv[1], &amp;l);
+-	if (e != JIM_OK) {
+-		return e;
+-	}
+-	cpnum = l;
+-
+-	e = Jim_GetLong(interp, argv[2], &amp;l);
+-	if (e != JIM_OK) {
+-		return e;
+-	}
+-	op1 = l;
+-
+-	e = Jim_GetLong(interp, argv[3], &amp;l);
+-	if (e != JIM_OK) {
+-		return e;
+-	}
+-	CRn = l;
+-
+-	e = Jim_GetLong(interp, argv[4], &amp;l);
+-	if (e != JIM_OK) {
+-		return e;
+-	}
+-	CRm = l;
+-
+-	e = Jim_GetLong(interp, argv[5], &amp;l);
+-	if (e != JIM_OK) {
+-		return e;
+-	}
+-	op2 = l;
+-
+-	value = 0;
+-
+-	if (argc == 7)
+-	{
+-		e = Jim_GetLong(interp, argv[6], &amp;l);
+-		if (e != JIM_OK) {
+-			return e;
+-		}
+-		value = l;
+-
+-		retval = target_mcr(target, cpnum, op1, op2, CRn, CRm, value);
+-		if (retval != ERROR_OK)
+-			return JIM_ERR;
+-	} else
+-	{
+-		retval = target_mrc(target, cpnum, op1, op2, CRn, CRm, &amp;value);
+-		if (retval != ERROR_OK)
+-			return JIM_ERR;
+-
+-		Jim_SetResult(interp, Jim_NewIntObj(interp, value));
+-	}
+-
+-	return JIM_OK;
+-}
+-
+ static const struct command_registration target_command_handlers[] = {
+ 	{
+ 		.name = &quot;targets&quot;,
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -213,11 +213,6 @@ struct target_type
+ 
+ 	int (*mmu)(struct target *target, int *enabled);
+ 
+-	/* Read coprocessor - arm specific. Default implementation returns error. */
+-	int (*mrc)(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value);
+-
+-	/* Write coprocessor. Default implementation returns error.  */
+-	int (*mcr)(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value);
+ };
+ 
+ #endif // TARGET_TYPE_H
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013110.html">[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as DPM	ops
+</A></li>
+	<LI>Next message: <A HREF="013125.html">[Openocd-development] [patch 3/5] ARM: implement mrc()/mcr() as DPM ops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13119">[ date ]</a>
+              <a href="thread.html#13119">[ thread ]</a>
+              <a href="subject.html#13119">[ subject ]</a>
+              <a href="author.html#13119">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

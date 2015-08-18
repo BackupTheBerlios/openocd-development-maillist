@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3Cc09652430911210022w5dc2adaar1a38ad6d4fc77d49%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012622.html">
+   <LINK REL="Next"  HREF="012640.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3Cc09652430911210022w5dc2adaar1a38ad6d4fc77d49%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sat Nov 21 09:22:50 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012622.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+        <LI>Next message: <A HREF="012640.html">[Openocd-development] Slowly moving from 8 to 32 bit words in jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12639">[ date ]</a>
+              <a href="thread.html#12639">[ thread ]</a>
+              <a href="subject.html#12639">[ subject ]</a>
+              <a href="author.html#12639">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, Nov 20, 2009 at 10:43 PM, Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt; wrote:
+&gt;<i> On Fri, Nov 20, 2009 at 19:05, &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;<i> Just to clarify the whole issue once more, my proposal was actually
+</I>&gt;&gt;&gt;<i> three different things:
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> 1. Making the use of scan_field safer by providing standard handlers
+</I>&gt;&gt;&gt;<i> for the most common cases.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> This not only helps with the readability and reduces trivial
+</I>&gt;&gt;&gt;<i> copy&amp;paste errors. It also makes it much simpler to rewire the
+</I>&gt;&gt;&gt;<i> underlying scan_field in a later step.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> We can relatively easily do away with the scanfields entirely
+</I>&gt;&gt;<i> rather than putting lipstick on it... See the branch I was working on
+</I>&gt;&gt;<i> or jtag_add_dr_out() API for which I'm looking into adding a in_value
+</I>&gt;&gt;<i> as well as the existing &quot;out_value&quot; that it takes today.
+</I>&gt;<i>
+</I>&gt;<i> This still uses an array that needs to be initialized. Your own
+</I>&gt;<i> embeddedice example patch didn't make use of it...
+</I>
+The example on my harddrive that has been put to pasture makes
+use of it :-)
+
+&gt;<i> And by adding out_value the caller is forced to hold all data in
+</I>&gt;<i> uint32_t. My suggestion was intended to make (almost) all data types
+</I>&gt;<i> first class citizens, not just choosing one that is the most commonly
+</I>&gt;<i> used.
+</I>
+The thing that &quot;forces&quot; the users to use 32 bit is the fact that the
+*target* is 32 bit. It doesn't matter what word size the OpenOCD host
+CPU is using in the approach I'm suggesting. It works equally well
+with any *target* word size.
+
+
+&gt;<i> These are two things. The global JTAG device instance and the global
+</I>&gt;<i> command sequence. The TODO is specific on the device instances, but
+</I>&gt;<i> not on command queues.
+</I>
+The whole point is that whether or not that there *is* an actual
+command sequence is something that it is up to the interface
+to implement. Today the interface has that freedom. By exposing
+the queue explicitly in the calling API you remove the ability to
+the interface to drop the implementation of a queue.
+
+The current JTAG API allows for a hardware queue, which is super
+efficient.
+
+&gt;<i> Where is the bottleneck in this case? Latency, memory consumption, cpu
+</I>&gt;<i> load or something else?
+</I>
+The *current* jtag_add_dr_out() implementation breaks down to *two pokes*
+if you have a hardware JTAG queue.
+
+*Anything* you add on top of that is going to increase performance overhead
+siginficantly :-)
+
+To get a sense of perspective, a single malloc() is orders of magnitude more
+work that a synchronous jtag_add_dr_out() w/a hardware queue.
+
+I've profiled this extensively, so it's no coincidence that I ended up with
+the particular jtag_add_dr_out() syntax. Notice that the first argument
+is a constant so with GCC's constant forward propagation, jtag_add_dr_out()
+really *can* boil down to poking two hardware registers...
+
+
+&gt;&gt;<i> Did you look at jtag_add_dr_out() which exists today?
+</I>&gt;<i>
+</I>&gt;<i> git format-patch d14b6ca0^...d14b6ca0
+</I>
+I don't know what you mean by the above against which repository.
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012622.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+	<LI>Next message: <A HREF="012640.html">[Openocd-development] Slowly moving from 8 to 32 bit words in jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12639">[ date ]</a>
+              <a href="thread.html#12639">[ thread ]</a>
+              <a href="subject.html#12639">[ subject ]</a>
+              <a href="author.html#12639">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

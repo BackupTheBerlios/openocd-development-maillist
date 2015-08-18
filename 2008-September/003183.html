@@ -1,0 +1,123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Incorrect chain detection for SoC...
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Incorrect%20chain%20detection%20for%20SoC...&In-Reply-To=%3C20080925215741.GC9533%40braindead1.acher%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003182.html">
+   <LINK REL="Next"  HREF="003185.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Incorrect chain detection for SoC...</H1>
+    <B>Georg Acher</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Incorrect%20chain%20detection%20for%20SoC...&In-Reply-To=%3C20080925215741.GC9533%40braindead1.acher%3E"
+       TITLE="[Openocd-development] Incorrect chain detection for SoC...">acher at in.tum.de
+       </A><BR>
+    <I>Thu Sep 25 23:57:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003182.html">[Openocd-development] Fw: AT91SAM7 flash driver updates
+</A></li>
+        <LI>Next message: <A HREF="003185.html">[Openocd-development] Incorrect chain detection for SoC...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3183">[ date ]</a>
+              <a href="thread.html#3183">[ thread ]</a>
+              <a href="subject.html#3183">[ subject ]</a>
+              <a href="author.html#3183">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+I'm currently working on a settop-box chip from Conexant. It contains two
+ARMs, a 1176 and a 926. The 1176 is the one I'm targeting for flashing over
+JTAG (no debugging or other fancy stuff).
+
+Unfortunately, openocd has huge problems even in detecting in the JTAG
+chain. Already all of the Ids are wrong...
+
+According to the documentation, there are 5 devices in the chain: One
+test/access controller, some security stuff, then the 1176, then the ETB to
+the 1176 and finally the 926.
+
+This is how it looks with the Lauterbach JTAG-tool (that I don't have):
+
+0: IR Length 4 Device No 0x0000 Version No 0 Manufacturer - Man No 0x000
+1: IR Length 4 Device No 0x48A0 Version No 2 Manufacturer Intl CMOS Technology Man No 0x027
+2: IR Length 5 Device No 0x7B76 Version No 1 Manufacturer Conexant (Rockwell) Man No 0x013
+3: IR Length 4 Device No 0xB900 Version No 2 Manufacturer (Generic ARM) Man No 0x787
+4: IR Length 4 Device No 0x0926 Version No 2 Manufacturer Conexant (Rockwell) Man No 0x013
+
+The Lauterbach setup for accessing the 1176 IR is 8 pre bits and 8 post
+bits, for the ETB it's 4 pre and 13 post. The DR setup for the 1176 is 2
+bits pre and 2 post, the ETB-DR is 1 pre and 3 post. Sounds reasonable...
+
+And now the result of the openocd scan (HW is parport wiggler, svn checkout
+a few hours ago):
+
+0x90493013 (Manufacturer: 0x009, Part: 0x0493, Version: 0x9)
+0x95c80787 (Manufacturer: 0x3c3, Part: 0x5c80, Version: 0x9)
+0x0bdbb013 (Manufacturer: 0x009, Part: 0xbdbb, Version: 0x0)
+0x12450027 (Manufacturer: 0x013, Part: 0x2450, Version: 0x1)
+
+And then it detects 224 other devices without IDCODE... 
+
+A cross check with the Xilinx-impact-tool and its USB-JTAG adapter also
+showed the message &quot;too many devices&quot; and then a crash occured ;-) Looks
+like the large number of devices is no HW/level/cable problem.
+
+The part IDs seem to be one bit shifted (2450*2=48a0, bdbb*2=17b76, ...). So
+the openocd-list is in reversed order.
+
+But the first device is missing, after the 0x12450027 the IDCODE is really
+0. I've hacked the detection to allow one 0-IDCODE as the last device, but
+chain validation and the arm11-target failed to initalize with the following
+settings:
+
+jtag_device 4 1 0xf 0xe
+jtag_device 4 1 0xf 0xe
+jtag_device 5 1 0x1f 0xe
+jtag_device 4 1 0xf 0xe
+jtag_device 4 1 0xf 0xe
+
+The result of the arm11-target detection (SCANR is 8 instead of 0x10) also
+indicates the shifted bit like in the IDCODE. Looks like there is one
+additional bit shifted out that noone expects...
+
+Are there any hints what I can do? I'm accepting all ugly hacks ;-)
+
+-- 
+         Georg Acher, <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">acher at in.tum.de</A>         
+         <A HREF="http://www.lrr.in.tum.de/~acher">http://www.lrr.in.tum.de/~acher</A>
+         &quot;Oh no, not again !&quot; The bowl of petunias          
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003182.html">[Openocd-development] Fw: AT91SAM7 flash driver updates
+</A></li>
+	<LI>Next message: <A HREF="003185.html">[Openocd-development] Incorrect chain detection for SoC...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3183">[ date ]</a>
+              <a href="thread.html#3183">[ thread ]</a>
+              <a href="subject.html#3183">[ subject ]</a>
+              <a href="author.html#3183">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

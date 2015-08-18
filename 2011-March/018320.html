@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/4] jlink: add capability dumper and	command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20jlink%3A%20add%20capability%20dumper%20and%0A%09command&In-Reply-To=%3C1299507089-5047-1-git-send-email-plagnioj%40jcrosoft.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018335.html">
+   <LINK REL="Next"  HREF="018323.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/4] jlink: add capability dumper and	command</H1>
+    <B>Jean-Christophe PLAGNIOL-VILLARD</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20jlink%3A%20add%20capability%20dumper%20and%0A%09command&In-Reply-To=%3C1299507089-5047-1-git-send-email-plagnioj%40jcrosoft.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/4] jlink: add capability dumper and	command">plagnioj at jcrosoft.com
+       </A><BR>
+    <I>Mon Mar  7 15:11:26 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018335.html">[Openocd-development] Support for EFM32 Gecko board
+</A></li>
+        <LI>Next message: <A HREF="018323.html">[Openocd-development] [PATCH 2/4] jlink: use tap buffer as 2k
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18320">[ date ]</a>
+              <a href="thread.html#18320">[ thread ]</a>
+              <a href="subject.html#18320">[ subject ]</a>
+              <a href="author.html#18320">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">plagnioj at jcrosoft.com</A>&gt;
+Cc: Nicolas Ferre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">nicolas.ferre at atmel.com</A>&gt;
+Cc: Patrice Vilchez &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">patrice.vilchez at atmel.com</A>&gt;
+---
+ doc/openocd.texi         |    2 +
+ src/jtag/drivers/jlink.c |  102 +++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 103 insertions(+), 1 deletions(-)
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 353daa4..48297ab 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2319,6 +2319,8 @@ This is a write-once setting.
+ 
+ @deffn {Interface Driver} {jlink}
+ Segger jlink USB adapter
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at c</A> command:	jlink caps
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at c</A>     dumps jlink capabilities
+ @c command:	jlink info
+ @c     dumps status
+ @c command:	jlink hw_jtag (2|3)
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index faecab2..d0ce658 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -88,8 +88,73 @@ static uint8_t usb_emu_result_buffer[JLINK_EMU_RESULT_BUFFER_SIZE];
+ #define EMU_CMD_GET_HW_VERSION	0xf0
+ 
+ /* bits return from EMU_CMD_GET_CAPS */
++#define EMU_CAP_RESERVED_1		0
+ #define EMU_CAP_GET_HW_VERSION		1
++#define EMU_CAP_WRITE_DCC		2
++#define EMU_CAP_ADAPTIVE_CLOCKING	3
++#define EMU_CAP_READ_CONFIG		4
++#define EMU_CAP_WRITE_CONFIG		5
++#define EMU_CAP_TRACE			6
++#define EMU_CAP_WRITE_MEM		7
++#define EMU_CAP_READ_MEM		8
++#define EMU_CAP_SPEED_INFO		9
++#define EMU_CAP_EXEC_CODE		10
+ #define EMU_CAP_GET_MAX_BLOCK_SIZE	11
++#define EMU_CAP_GET_HW_INFO		12
++#define EMU_CAP_SET_KS_POWER		13
++#define EMU_CAP_RESET_STOP_TIMED	14
++#define EMU_CAP_RESERVED_2		15
++#define EMU_CAP_MEASURE_RTCK_REACT	16
++#define EMU_CAP_SELECT_IF		17
++#define EMU_CAP_RW_MEM_ARM79		18
++#define EMU_CAP_GET_COUNTERS		19
++#define EMU_CAP_READ_DCC		20
++#define EMU_CAP_GET_CPU_CAPS		21
++#define EMU_CAP_EXEC_CPU_CMD		22
++#define EMU_CAP_SWO			23
++#define EMU_CAP_WRITE_DCC_EX		24
++#define EMU_CAP_UPDATE_FIRMWARE_EX	25
++#define EMU_CAP_FILE_IO			26
++#define EMU_CAP_REGISTER		27
++#define EMU_CAP_INDICATORS		28
++#define EMU_CAP_TEST_NET_SPEED		29
++#define EMU_CAP_RAWTRACE		30
++#define EMU_CAP_RESERVED_3		31
++
++static char *jlink_cap_str[] = {
++	&quot;Always 1.&quot;,
++	&quot;Supports command EMU_CMD_GET_HARDWARE_VERSION&quot;,
++	&quot;Supports command EMU_CMD_WRITE_DCC&quot;,
++	&quot;Supports adaptive clocking&quot;,
++	&quot;Supports command EMU_CMD_READ_CONFIG&quot;,
++	&quot;Supports command EMU_CMD_WRITE_CONFIG&quot;,
++	&quot;Supports trace commands&quot;,
++	&quot;Supports command EMU_CMD_WRITE_MEM&quot;,
++	&quot;Supports command EMU_CMD_READ_MEM&quot;,
++	&quot;Supports command EMU_CMD_GET_SPEED&quot;,
++	&quot;Supports command EMU_CMD_CODE_...&quot;,
++	&quot;Supports command EMU_CMD_GET_MAX_BLOCK_SIZE&quot;,
++	&quot;Supports command EMU_CMD_GET_HW_INFO&quot;,
++	&quot;Supports command EMU_CMD_SET_KS_POWER&quot;,
++	&quot;Supports command EMU_CMD_HW_RELEASE_RESET_STOP_TIMED&quot;,
++	&quot;Reserved&quot;,
++	&quot;Supports command EMU_CMD_MEASURE_RTCK_REACT&quot;,
++	&quot;Supports command EMU_CMD_HW_SELECT_IF&quot;,
++	&quot;Supports command EMU_CMD_READ/WRITE_MEM_ARM79&quot;,
++	&quot;Supports command EMU_CMD_GET_COUNTERS&quot;,
++	&quot;Supports command EMU_CMD_READ_DCC&quot;,
++	&quot;Supports command EMU_CMD_GET_CPU_CAPS&quot;,
++	&quot;Supports command EMU_CMD_EXEC_CPU_CMD&quot;,
++	&quot;Supports command EMU_CMD_SWO&quot;,
++	&quot;Supports command EMU_CMD_WRITE_DCC_EX&quot;,
++	&quot;Supports command EMU_CMD_UPDATE_FIRMWARE_EX&quot;,
++	&quot;Supports command EMU_CMD_FILE_IO&quot;,
++	&quot;Supports command EMU_CMD_REGISTER&quot;,
++	&quot;Supports command EMU_CMD_INDICATORS&quot;,
++	&quot;Supports command EMU_CMD_TEST_NET_SPEED&quot;,
++	&quot;Supports command EMU_CMD_RAWTRACE&quot;,
++	&quot;Reserved&quot;,
++};
+ 
+ /* max speed 12MHz v5.0 jlink */
+ #define JLINK_MAX_SPEED 12000
+@@ -140,6 +205,8 @@ static struct jlink* jlink_handle;
+ static uint16_t vids[] = { VID, 0 };
+ static uint16_t pids[] = { PID, 0 };
+ 
++static uint32_t jlink_caps;
++
+ /***************************************************************************/
+ /* External interface implementation */
+ 
+@@ -540,11 +607,31 @@ static int jlink_get_status(void)
+ 	return ERROR_OK;
+ }
+ 
++#define jlink_dump_printf(context, expr ...)	\
++	do {					\
++	if (context)				\
++		command_print(context, expr);	\
++	else					\
++		LOG_INFO(expr);			\
++	} while(0);
++
++
++static void jlink_caps_dump(struct command_context *ctx)
++{
++	int i;
++
++	jlink_dump_printf(ctx, &quot;J-Link Capabilities&quot;);
++
++	for (i = 1; i &lt; 31; i++)
++		if (jlink_caps &amp; (1 &lt;&lt; i))
++			jlink_dump_printf(ctx, &quot;%s&quot;, jlink_cap_str[i]);
++}
++
+ static int jlink_get_version_info(void)
+ {
+ 	int result;
+ 	int len;
+-	uint32_t jlink_caps, jlink_max_size;
++	uint32_t jlink_max_size;
+ 
+ 	/* query hardware version */
+ 	jlink_simple_command(EMU_CMD_VERSION);
+@@ -651,6 +738,13 @@ COMMAND_HANDLER(jlink_handle_jlink_info_command)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(jlink_handle_jlink_caps_command)
++{
++	jlink_caps_dump(CMD_CTX);
++
++	return ERROR_OK;
++}
++
+ COMMAND_HANDLER(jlink_handle_jlink_hw_jtag_command)
+ {
+ 	switch (CMD_ARGC) {
+@@ -677,6 +771,12 @@ COMMAND_HANDLER(jlink_handle_jlink_hw_jtag_command)
+ 
+ static const struct command_registration jlink_subcommand_handlers[] = {
+ 	{
++		.name = &quot;caps&quot;,
++		.handler = &amp;jlink_handle_jlink_caps_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;show jlink capabilities&quot;,
++	},
++	{
+ 		.name = &quot;info&quot;,
+ 		.handler = &amp;jlink_handle_jlink_info_command,
+ 		.mode = COMMAND_EXEC,
+-- 
+1.7.4.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018335.html">[Openocd-development] Support for EFM32 Gecko board
+</A></li>
+	<LI>Next message: <A HREF="018323.html">[Openocd-development] [PATCH 2/4] jlink: use tap buffer as 2k
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18320">[ date ]</a>
+              <a href="thread.html#18320">[ thread ]</a>
+              <a href="subject.html#18320">[ subject ]</a>
+              <a href="author.html#18320">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

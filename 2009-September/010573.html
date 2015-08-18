@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Numonyx M29W128GH/L and cfi_probe in	flash/cfi.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Numonyx%20M29W128GH/L%20and%20cfi_probe%20in%0A%09flash/cfi.c&In-Reply-To=%3C1887b690909151016x3859ccbdv2e3ff118936f5b39%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010601.html">
+   <LINK REL="Next"  HREF="010576.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Numonyx M29W128GH/L and cfi_probe in	flash/cfi.c</H1>
+    <B>Paul Kurucz</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Numonyx%20M29W128GH/L%20and%20cfi_probe%20in%0A%09flash/cfi.c&In-Reply-To=%3C1887b690909151016x3859ccbdv2e3ff118936f5b39%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Numonyx M29W128GH/L and cfi_probe in	flash/cfi.c">pkurucz.list at gmail.com
+       </A><BR>
+    <I>Tue Sep 15 19:16:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010601.html">[Openocd-development] [Patch] Use a debug base variable for Cortex A8
+</A></li>
+        <LI>Next message: <A HREF="010576.html">[Openocd-development] Numonyx M29W128GH/L and cfi_probe	in	flash/cfi.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10573">[ date ]</a>
+              <a href="thread.html#10573">[ thread ]</a>
+              <a href="subject.html#10573">[ subject ]</a>
+              <a href="author.html#10573">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Just a quick heads-up to anyone who is attempting to get the Numonyx
+M29W128GH/L working with openocd.  It appears the chip has an
+unfortunate errata where sending a 0xFF command to it puts it off in
+the weeds and fails to accept new commands until a 0xF0 is sent to put
+it back into read mode.  See the data sheet link below for more
+detail.
+
+<A HREF="http://www.numonyx.com/Documents/Datasheets/M29W128G.pdf">http://www.numonyx.com/Documents/Datasheets/M29W128G.pdf</A>
+Page. 32: &quot;The device doesn&#8217;t tolerate FFh as a valid command, and
+once FFh is issued to the device, the M29W128G will enter unexpected
+state. Adding a F0h command systematically after FFh command is
+necessary.&quot;
+
+It appears that someone else ran into this with the kernel mtd driver
+a while back.
+<A HREF="http://lists.infradead.org/pipermail/linux-mtd/2008-July/022252.html">http://lists.infradead.org/pipermail/linux-mtd/2008-July/022252.html</A>
+
+----------------------------
+
+... A quick patch to fix the problem.  Based on the fact that the
+comment above calls out 2.6.8-rc2 as the version where the bug
+appeared and it looks like linux 2.6.30.3 -
+drivers/mtd/chips/cfi_util.c - cfi_qry_mode_off() still writes a 0xF0
+and then a 0xFF, I would guess that there aren't many of these chips
+floating around out there.  I don't think that it is necessary or
+advisable to check in this change.  I just wanted it to be available
+when someone does a google search.
+
+pk
+
+Index: flash/cfi.c
+===================================================================
+--- flash/cfi.c (revision 2713)
++++ flash/cfi.c (working copy)
+@@ -2172,6 +2172,13 @@
+                unlock2 = 0x2aaa;
+        }
+
++       /* switch back to read array mode */
++       cfi_command(bank, 0xf0, command);
++       if ((retval = target_write_memory(target, flash_address(bank,
+0, 0x00), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++       {
++               return retval;
++       }
++
+        /* switch to read identifier codes mode (&quot;AUTOSELECT&quot;) */
+        cfi_command(bank, 0xaa, command);
+        if ((retval = target_write_memory(target, flash_address(bank,
+0, unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+@@ -2227,6 +2234,12 @@
+        {
+                return retval;
+        }
++       /* switch back to read array mode */
++       cfi_command(bank, 0xf0, command);
++       if ((retval = target_write_memory(target, flash_address(bank,
+0, 0x00), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++       {
++               return retval;
++       }
+
+        /* check device/manufacturer ID for known non-CFI flashes. */
+        cfi_fixup_non_cfi(bank);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010601.html">[Openocd-development] [Patch] Use a debug base variable for Cortex A8
+</A></li>
+	<LI>Next message: <A HREF="010576.html">[Openocd-development] Numonyx M29W128GH/L and cfi_probe	in	flash/cfi.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10573">[ date ]</a>
+              <a href="thread.html#10573">[ thread ]</a>
+              <a href="subject.html#10573">[ subject ]</a>
+              <a href="author.html#10573">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

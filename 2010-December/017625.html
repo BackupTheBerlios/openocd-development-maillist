@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Aborted; stm32 with too high clock
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Aborted%3B%20stm32%20with%20too%20high%20clock&In-Reply-To=%3CE074921B-8E64-4F42-8FDB-1E7558699F01%40workware.net.au%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017622.html">
+   <LINK REL="Next"  HREF="017628.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Aborted; stm32 with too high clock</H1>
+    <B>Steve Bennett</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Aborted%3B%20stm32%20with%20too%20high%20clock&In-Reply-To=%3CE074921B-8E64-4F42-8FDB-1E7558699F01%40workware.net.au%3E"
+       TITLE="[Openocd-development] Aborted; stm32 with too high clock">steveb at workware.net.au
+       </A><BR>
+    <I>Mon Dec 13 12:47:50 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017622.html">[Openocd-development] Aborted; stm32 with too high clock
+</A></li>
+        <LI>Next message: <A HREF="017628.html">[Openocd-development] Aborted; stm32 with too high clock
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17625">[ date ]</a>
+              <a href="thread.html#17625">[ thread ]</a>
+              <a href="subject.html#17625">[ subject ]</a>
+              <a href="author.html#17625">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On 13/12/2010, at 8:12 PM, Domen Puncer wrote:
+
+&gt;<i> On Thu, Nov 25, 2010 at 15:45, Domen Puncer &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">domen.puncer at visionect.si</A>&gt; wrote:
+</I>&gt;&gt;<i> I can reliably reproduce this one with:
+</I>&gt;&gt;<i> jtag_khz 1000
+</I>&gt;&gt;<i> verify_image my_image.elf
+</I>&gt;&gt;<i> # some prints about too high clock
+</I>&gt;&gt;<i> reset init
+</I>&gt;&gt;<i> # openocd aborts
+</I>&gt;<i> 
+</I>&gt;<i> Additional info.
+</I>&gt;<i> 
+</I>&gt;<i> valgrind:
+</I>&gt;<i> ==32465== Invalid free() / delete / delete[]
+</I>&gt;<i> ==32465==    at 0x4C270BD: free (vg_replace_malloc.c:366)
+</I>&gt;<i> ==32465==    by 0x4B4CD9: Jim_EvalObj (jim.c:527)
+</I>&gt;<i> ==32465==    by 0x4B6DB2: Jim_Eval_Named (jim.c:9644)
+</I>&gt;<i> ==32465==    by 0x424AA4: handle_reset_command (target.c:505)
+</I>&gt;<i> ==32465==    by 0x42F448: script_command_run (command.c:627)
+</I>&gt;<i> ==32465==    by 0x4B4E30: Jim_EvalObj (jim.c:9398)
+</I>&gt;<i> ==32465==    by 0x4B60E8: Jim_EvalCoreCommand (jim.c:11557)
+</I>&gt;<i> ==32465==    by 0x4B4E30: Jim_EvalObj (jim.c:9398)
+</I>&gt;<i> ==32465==    by 0x4B83CC: Jim_CatchCoreCommand (jim.c:12372)
+</I>&gt;<i> ==32465==    by 0x4B4E30: Jim_EvalObj (jim.c:9398)
+</I>&gt;<i> ==32465==    by 0x4B6F8B: Jim_EvalExpression (jim.c:8227)
+</I>&gt;<i> ==32465==    by 0x4B7482: Jim_GetBoolFromExpr (jim.c:8269)
+</I>&gt;<i> ==32465==  Address 0x7feffeb00 is on thread 1's stack
+</I>&gt;<i> ==32465==
+</I>&gt;<i> 
+</I>&gt;<i> And it's really bugging me, because I can't figure out where exactly.
+</I>&gt;<i> 
+</I>&gt;<i> It disappears if I configure jimtcl with ./configure CFLAGS=-g, also
+</I>&gt;<i> disappeared when I inserted some printfs in Jim_EvalObj.
+</I>&gt;<i> 
+</I>&gt;<i> I do have some questions about some code:
+</I>&gt;<i> 1.
+</I>&gt;<i> In jim.c Jim_EvalObj there's a loop:
+</I>&gt;<i> 
+</I>&gt;<i>                /* Now copy in the expanded version */
+</I>&gt;<i>                for (k = 0; k &lt; len; k++) {
+</I>&gt;<i>                    argv[j++] = wordObjPtr-&gt;internalRep.listValue.ele[k];
+</I>&gt;<i>                    Jim_IncrRefCount(wordObjPtr-&gt;internalRep.listValue.ele[k]);
+</I>&gt;<i>                }
+</I>&gt;<i> 
+</I>&gt;<i> but code only allocates space for extra len-1 objects.
+</I>
+There is already one &quot;slot&quot; allocated for the arg. If the arg expands to 'len'
+elements, we only need to allocate 'len-1' more.
+
+Can we see the code being evaluated here?
+&gt;<i> ==32465==    by 0x4B6DB2: Jim_Eval_Named (jim.c:9644)
+</I>
+Cheers,
+Steve
+
+&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 2.
+</I>&gt;<i> src/target/target.c:
+</I>&gt;<i> In handle_reg_command, there is:
+</I>&gt;<i> 	/* display a register */
+</I>&gt;<i> 	if ((CMD_ARGC == 1) || ((CMD_ARGC == 2) &amp;&amp; !((CMD_ARGV[1][0] &gt;= '0')
+</I>&gt;<i> &amp;&amp; (CMD_ARGV[1][0] &lt;= '9'))))
+</I>&gt;<i> 
+</I>&gt;<i> it seems to be that should be written as:
+</I>&gt;<i> 	if ((CMD_ARGC == 1) || ((CMD_ARGC == 2) &amp;&amp; !((CMD_ARGV[0][0] &gt;= '0')
+</I>&gt;<i> &amp;&amp; (CMD_ARGV[0][0] &lt;= '9'))))
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i> 
+</I>
+--
+&#181;Web: Embedded Web Framework - <A HREF="http://uweb.workware.net.au/">http://uweb.workware.net.au/</A>
+WorkWare Systems Pty Ltd
+W: www.workware.net.au      P: 0434 921 300
+E: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">steveb at workware.net.au</A>   F: 07 3102 9221
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017622.html">[Openocd-development] Aborted; stm32 with too high clock
+</A></li>
+	<LI>Next message: <A HREF="017628.html">[Openocd-development] Aborted; stm32 with too high clock
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17625">[ date ]</a>
+              <a href="thread.html#17625">[ thread ]</a>
+              <a href="subject.html#17625">[ subject ]</a>
+              <a href="author.html#17625">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

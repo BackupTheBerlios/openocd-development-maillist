@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/5 v2] ADIv5: Implement function to	lookup CoreSight component
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/5%20v2%5D%20ADIv5%3A%20Implement%20function%20to%0A%09lookup%20CoreSight%20component&In-Reply-To=%3C1288581659-15975-2-git-send-email-marek.vasut%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016909.html">
+   <LINK REL="Next"  HREF="016911.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/5 v2] ADIv5: Implement function to	lookup CoreSight component</H1>
+    <B>Marek Vasut</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/5%20v2%5D%20ADIv5%3A%20Implement%20function%20to%0A%09lookup%20CoreSight%20component&In-Reply-To=%3C1288581659-15975-2-git-send-email-marek.vasut%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/5 v2] ADIv5: Implement function to	lookup CoreSight component">marek.vasut at gmail.com
+       </A><BR>
+    <I>Mon Nov  1 04:20:56 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016909.html">[Openocd-development] [PATCH 1/5 v2] ADIv5: Introduce function to	detect ROM Table location
+</A></li>
+        <LI>Next message: <A HREF="016911.html">[Openocd-development] [PATCH 3/5 v2] CortexA8: Implement debug base	autodetection
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16910">[ date ]</a>
+              <a href="thread.html#16910">[ thread ]</a>
+              <a href="subject.html#16910">[ subject ]</a>
+              <a href="author.html#16910">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch implements &quot;dap_lookup_cs_component()&quot;, which allows to lookup CS
+component by it's identification.
+
+Signed-off-by: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marek.vasut at gmail.com</A>&gt;
+---
+v2: Save apsel and restore it on return
+
+ src/target/arm_adi_v5.c |   41 +++++++++++++++++++++++++++++++++++++++++
+ src/target/arm_adi_v5.h |    4 ++++
+ 2 files changed, 45 insertions(+), 0 deletions(-)
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 4950121..295cb18 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -1062,6 +1062,47 @@ int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
+ 	return ERROR_OK;
+ }
+ 
++int dap_lookup_cs_component(struct adiv5_dap *dap, int apsel,
++			uint32_t dbgbase, uint8_t type, uint32_t *addr)
++{
++	uint32_t apselold;
++ 	uint32_t romentry, entry_offset = 0, component_base, devtype;
++	int retval = ERROR_FAIL;
++
++	if (apsel &gt;= 256)
++		return ERROR_INVALID_ARGUMENTS;
++
++	apselold = dap-&gt;apsel;
++	dap_ap_select(dap, apsel);
++
++	do
++	{
++		retval = mem_ap_read_atomic_u32(dap, (dbgbase&amp;0xFFFFF000) |
++						entry_offset, &amp;romentry);
++		if (retval != ERROR_OK)
++			return retval;
++
++		component_base = (dbgbase &amp; 0xFFFFF000)
++			+ (romentry &amp; 0xFFFFF000);
++
++		if (romentry &amp; 0x1) {
++			retval = mem_ap_read_atomic_u32(dap,
++					(component_base &amp; 0xfffff000) | 0xfcc,
++					&amp;devtype);
++			if ((devtype &amp; 0xff) == type) {
++				*addr = component_base;
++				retval = ERROR_OK;
++				break;
++			}
++		}
++		entry_offset += 4;
++	} while (romentry &gt; 0);
++
++	dap_ap_select(dap, apselold);
++
++	return retval;
++}
++
+ static int dap_info_command(struct command_context *cmd_ctx,
+ 		struct adiv5_dap *dap, int apsel)
+ {
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index 27a2f2f..6c1808a 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -383,6 +383,10 @@ int ahbap_debugport_init(struct adiv5_dap *swjdp);
+ int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
+ 			uint32_t *dbgbase, uint32_t *apid);
+ 
++/* Lookup CoreSight component */
++int dap_lookup_cs_component(struct adiv5_dap *dap, int apsel,
++			uint32_t dbgbase, uint8_t type, uint32_t *addr);
++
+ struct target;
+ 
+ /* Put debug link into SWD mode */
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016909.html">[Openocd-development] [PATCH 1/5 v2] ADIv5: Introduce function to	detect ROM Table location
+</A></li>
+	<LI>Next message: <A HREF="016911.html">[Openocd-development] [PATCH 3/5 v2] CortexA8: Implement debug base	autodetection
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16910">[ date ]</a>
+              <a href="thread.html#16910">[ thread ]</a>
+              <a href="subject.html#16910">[ subject ]</a>
+              <a href="author.html#16910">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

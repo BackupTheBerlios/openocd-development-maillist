@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Does asserting trst and srst at the same	time have unpredictable results?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Does%20asserting%20trst%20and%20srst%20at%20the%20same%0A%09time%20have%20unpredictable%20results%3F&In-Reply-To=%3C200804072106.06208.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001735.html">
+   <LINK REL="Next"  HREF="001740.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Does asserting trst and srst at the same	time have unpredictable results?</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Does%20asserting%20trst%20and%20srst%20at%20the%20same%0A%09time%20have%20unpredictable%20results%3F&In-Reply-To=%3C200804072106.06208.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] Does asserting trst and srst at the same	time have unpredictable results?">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Mon Apr  7 21:06:04 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001735.html">[Openocd-development] Does asserting trst and srst at the same	time have unpredictable results?
+</A></li>
+        <LI>Next message: <A HREF="001740.html">[Openocd-development] Does asserting trst and srst at the same	time have unpredictable results?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1737">[ date ]</a>
+              <a href="thread.html#1737">[ thread ]</a>
+              <a href="subject.html#1737">[ subject ]</a>
+              <a href="author.html#1737">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 07 April 2008 19:58:18 &#216;yvind Harboe wrote:
+&gt;<i> &gt;  This is something different. The LPCs come up with the JTAG pins
+</I>&gt;<i> &gt; ENABLED, no matter what the user's manual is trying to tell us. Very
+</I>&gt;<i> &gt; early in the internal boot ROM that's always executed first (except for
+</I>&gt;<i> &gt; devices with no flash, but on those devices CRP would be useless anyway),
+</I>&gt;<i> &gt; the JTAG pins are disabled by means of the PINSEL register (GPIO pin
+</I>&gt;<i> &gt; control). If CRP is NOT enabled, the JTAG pins will be re-enabled at some
+</I>&gt;<i> &gt; point, and control is transfered to the user application.
+</I>&gt;<i>
+</I>&gt;<i> ROM or Flash? If this is in flash then the behavior of reset could very
+</I>&gt;<i> much depend on what's stored in the flash.
+</I>
+ROM | Flash :)
+
+It's really Flash in most of the LPCs, but at least some of the smallest 
+family members (LPC210[123] IIRC) actually use ROM.
+
+The bootloader code can't normally be changed by a user, because the IAP 
+routines prevent erase/write of the bootloader block(s).
+
+&gt;<i> &gt;  I always assumed that SRST would stop the JTAG clock on (some) -S cores
+</I>&gt;<i> &gt;  because the JTAG clock needs to be synchronized to the processor clock,
+</I>&gt;<i> &gt; hence if the processor clock stops, at least some implementations of that
+</I>&gt;<i> &gt; synchronizer circuit would stop the JTAG clock, too.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  &gt; - We've seen lpc2148 being unresponsive to jtag chain validation(only
+</I>&gt;<i> &gt;  &gt; 1's returned). Perhaps some interfaces happen to assert/deassert srst
+</I>&gt;<i> &gt;  &gt; during startup and thus chain validation could work on some, but not
+</I>&gt;<i> &gt;  &gt; other JTAG devices. Perhaps srst should be asserted/deasserted before
+</I>&gt;<i> &gt;  &gt; jtag chain validation. What delay to use then?? If Dominic is seeing
+</I>&gt;<i> &gt;  &gt; this problem, then perhaps it needs to be &gt;1 second???
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  What should have caused your LPC to go through startup? The code might
+</I>&gt;<i> &gt; assert TRST (it probably should, if TRST is available), but any
+</I>&gt;<i> &gt; communication afterwards should be delayed by jtag_ntrst_delay. Assuming
+</I>&gt;<i> &gt; that delay is large enough to cover internal and external delays,
+</I>&gt;<i> &gt; communication should work.
+</I>&gt;<i>
+</I>&gt;<i> An interface's implementation of the TRST an SRST could leave the pins
+</I>&gt;<i> floating or have transient values during intialisation. I'm thinking that
+</I>&gt;<i> openocd should not only deassert trst/srst before validation, but also
+</I>&gt;<i> cycle an assertion
+</I>&gt;<i> of both pins(as approperiate based upon reset_config + nsrst/ntrst delays).
+</I>
+If you want &quot;attach&quot; behaviour you can't cycle SRST. Attach of course depends 
+on the interface NOT to have transients on the reset pins. Floating pins 
+shouldn't matter. It shouldn't matter if nTRST goes briefly low, and nSRST 
+will have a pull-up on the board.
+
+&gt;<i> &gt;  &gt; - The jtag_add_reset() API does not define what happens when srst &amp;
+</I>&gt;<i> &gt;  &gt; trst changes
+</I>&gt;<i> &gt;  &gt; at the same time. It could vary depending on the driver
+</I>&gt;<i> &gt;  &gt; implementation.
+</I>&gt;<i> &gt;  &gt;
+</I>&gt;<i> &gt;  &gt; I was thinking about changing the high level jtag_add_reset() fn to
+</I>&gt;<i> &gt;  &gt; define what it means to change srst &amp; trst at the same time such that
+</I>&gt;<i> &gt;  &gt; driver differences no longer matter. I need to digest what you are
+</I>&gt;<i> &gt;  &gt; writing and the testing feedback before I could come up with a
+</I>&gt;<i> &gt;  &gt; proposal though.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  We could define that behaviour, but whatever we define might be wrong
+</I>&gt;<i> &gt; for a particular case. If a caller of jtag_add_reset requires a specific
+</I>&gt;<i> &gt; order IMHO the right thing would be to use two calls.
+</I>&gt;<i>
+</I>&gt;<i> We could forbid calls that change both pins at the same time.
+</I>
+Fine with me.
+
+&gt;<i> &gt;  &gt; - today enumeration of the jtag chain happens *before* srst is
+</I>&gt;<i> &gt;  &gt; asserted. This is broken if a CPU turns off the jtag interface or
+</I>&gt;<i> &gt;  &gt; failed to enable it.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  There's hardly anything we can do to enable a target's JTAG interface.
+</I>&gt;<i> &gt; If there's code executing on the target that disables JTAG it will likely
+</I>&gt;<i> &gt; have it disable by the time we get a chance to examine the chain, since
+</I>&gt;<i> &gt; we can't guarantee any timing between releasing reset and executing JTAG
+</I>&gt;<i> &gt; scans. Those devices that are problematic in that regard usually prevent
+</I>&gt;<i> &gt; debug out of reset as well.
+</I>&gt;<i>
+</I>&gt;<i> I was thinking that early startup code *enabled* the jtag interface.
+</I>&gt;<i> So asserting srst
+</I>&gt;<i> and waiting would enable the interface.
+</I>
+Why should it be necessary to enable the JTAG interface? Normally, the JTAG 
+interface is already operational by the time the OpenOCD is launched.
+
+The only scenario I can think of is for example a LPC that's already powered 
+when the JTAG interface is attached. Depending on the state of RTCK the JTAG 
+pins come up as JTAG or GPIO. If the board's pullup/down resistors normally 
+have the JTAG port disabled, a reset would be required to enable the JTAG 
+pins. This should be a very rare case, but could be covered by a full reset 
+(TRST and SRST) AFTER validation failed, if that's fine with the user.
+
+&gt;<i> &gt;  &gt; - since it may be necessary to assert srst before the jtag interface
+</I>&gt;<i> &gt;  &gt; is enabled, then
+</I>&gt;<i> &gt;  &gt; target initialization can't talk to the target during initialization
+</I>&gt;<i> &gt;  &gt; since reset can only
+</I>&gt;<i> &gt;  &gt; occur *after* target initialization. It would be nice to stop this
+</I>&gt;<i> &gt;  &gt; from happening anyway,
+</I>&gt;<i> &gt;  &gt; because it would remove one obstacle from launching the gdb &amp; telnet
+</I>&gt;<i> &gt;  &gt; server before the target has been initialized or the jtag chain has
+</I>&gt;<i> &gt;  &gt; been verified
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  Why should it be necessary to assert srst?
+</I>&gt;<i>
+</I>&gt;<i> if the startup code enables the jtag interface, then asserting +
+</I>&gt;<i> deasserting srst would
+</I>&gt;<i> cause the jtag interface to be anbled.
+</I>&gt;<i>
+</I>&gt;<i> &gt;  &gt; - perhaps jtag chain enumeration should happen during reset rather
+</I>&gt;<i> &gt;  &gt; than at startup?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  That would be broken in case of srst_pulls_trst (e.g. all LPCs).
+</I>&gt;<i>
+</I>&gt;<i> I meant during target_process_reset() before asserting reset.
+</I>
+What would be different if we did it there, instead of where it happens now?
+
+&gt;<i> &gt;  &gt; - today there is a srst/trst delay which can be specified. Perhaps
+</I>&gt;<i> &gt;  &gt; this is a bit too
+</I>&gt;<i> &gt;  &gt; low level to handle the situation above.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;  Not sure what you mean here.
+</I>&gt;<i>
+</I>&gt;<i> If we need to assert/deassert srst &amp; let the startup code run to
+</I>&gt;<i> enable the jtag interface, then that srst delay would not be
+</I>&gt;<i> related to srst delays as such. Perhaps jtag_nsrst_delay is sufficient,
+</I>&gt;<i> I'd think so, but I'm not sure.
+</I>
+See above - I think this is a very rare case.
+
+Regards,
+
+Dominic
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001735.html">[Openocd-development] Does asserting trst and srst at the same	time have unpredictable results?
+</A></li>
+	<LI>Next message: <A HREF="001740.html">[Openocd-development] Does asserting trst and srst at the same	time have unpredictable results?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1737">[ date ]</a>
+              <a href="thread.html#1737">[ thread ]</a>
+              <a href="subject.html#1737">[ subject ]</a>
+              <a href="author.html#1737">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,296 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20adapter%20speed%3A%20require%20init%0A%20script%20setting%20and%20centralize%20activation%20from%20drivers%20to%20core.c&In-Reply-To=%3C96B69F79515196499AC5034EFA5CDC8505555D4F%40NORMBX01.network.int%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018931.html">
+   <LINK REL="Next"  HREF="018938.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c</H1>
+    <B>Jonas Hoerberg</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20adapter%20speed%3A%20require%20init%0A%20script%20setting%20and%20centralize%20activation%20from%20drivers%20to%20core.c&In-Reply-To=%3C96B69F79515196499AC5034EFA5CDC8505555D4F%40NORMBX01.network.int%3E"
+       TITLE="[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c">jhorberg at sauer-danfoss.com
+       </A><BR>
+    <I>Thu Apr 28 13:45:31 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018931.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+        <LI>Next message: <A HREF="018938.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18932">[ date ]</a>
+              <a href="thread.html#18932">[ thread ]</a>
+              <a href="subject.html#18932">[ subject ]</a>
+              <a href="author.html#18932">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Thursday, April 28, 2011 12:38 PM, &#216;yvind Harboe [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>] wrote:
+&gt;<i> 
+</I>&gt;<i> I haven't been able to test, but this does indeed seem
+</I>&gt;<i> like what we need.
+</I>&gt;<i> 
+</I>&gt;<i> Testing anyone?
+</I>&gt;<i> 
+</I>&gt;<i> Do we want to do away with &quot;adapter_speed&quot; as user visible command entirely?
+</I>&gt;<i> 
+</I>&gt;<i> The error message should use adapter_khz instead of &quot;adapter_speed&quot;.
+</I>&gt;<i> 
+</I>
+I do not think there exist a command named &quot;adapter_speed&quot;.
+A patch with a corrected error message is attached.
+
+/Jonas H&#246;rberg
+
+Signed-off-by: Jonas H&#246;rberg &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jhorberg at sauer-danfoss.com</A>&gt;
+---
+ src/jtag/core.c                  |   15 +++++++++++----
+ src/jtag/drivers/amt_jtagaccel.c |    6 ------
+ src/jtag/drivers/ft2232.c        |    6 ------
+ src/jtag/drivers/gw16012.c       |    5 -----
+ src/jtag/drivers/jlink.c         |    5 -----
+ src/jtag/drivers/parport.c       |    4 ----
+ src/jtag/drivers/presto.c        |    7 -------
+ src/jtag/drivers/rlink.c         |    5 -----
+ src/jtag/drivers/usb_blaster.c   |    6 ------
+ src/jtag/zy1000/zy1000.c         |    5 -----
+ 10 files changed, 11 insertions(+), 53 deletions(-)
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 4c5d37a..55bb2a8 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -124,7 +124,7 @@ static struct jtag_event_callback *jtag_event_callbacks;
+ static int speed_khz = 0;
+ /* speed to fallback to when RCLK is requested but not supported */
+ static int rclk_fallback_speed_khz = 0;
+-static enum {CLOCK_MODE_SPEED, CLOCK_MODE_KHZ, CLOCK_MODE_RCLK} clock_mode;
++static enum {CLOCK_MODE_UNSELECTED, CLOCK_MODE_KHZ, CLOCK_MODE_RCLK} clock_mode;
+ static int jtag_speed = 0;
+
+ static struct jtag_interface *jtag = NULL;
+@@ -1389,12 +1389,22 @@ int adapter_init(struct command_context *cmd_ctx)
+                        return retval;
+        }
+
++       if (CLOCK_MODE_UNSELECTED == clock_mode)
++       {
++               LOG_ERROR(&quot;An adapter speed is not selected in the init script.&quot;
++                       &quot; Insert a call to adapter_khz or jtag_rclk to proceed.&quot;);
++               return ERROR_JTAG_INIT_FAILED;
++       }
++
+        int requested_khz = jtag_get_speed_khz();
+        int actual_khz = requested_khz;
+        int jtag_speed_var;
+        retval = jtag_get_speed(&amp;jtag_speed_var);
+        if (retval != ERROR_OK)
+                return retval;
++       retval = jtag-&gt;speed(jtag_speed_var);
++       if (retval != ERROR_OK)
++               return retval;
+        retval = jtag_get_speed_readable(&amp;actual_khz);
+        if (ERROR_OK != retval)
+                LOG_INFO(&quot;adapter-specific clock speed value %d&quot;, jtag_speed_var);
+@@ -1647,9 +1657,6 @@ int jtag_get_speed(int *speed)
+ {
+        switch(clock_mode)
+        {
+-               case CLOCK_MODE_SPEED:
+-                       *speed = jtag_speed;
+-                       break;
+                case CLOCK_MODE_KHZ:
+                        adapter_khz_to_speed(jtag_get_speed_khz(), speed);
+                        break;
+diff --git a/src/jtag/drivers/amt_jtagaccel.c b/src/jtag/drivers/amt_jtagaccel.c
+index ee44a2b..a433e81 100644
+--- a/src/jtag/drivers/amt_jtagaccel.c
++++ b/src/jtag/drivers/amt_jtagaccel.c
+@@ -506,12 +506,6 @@ static int amt_jtagaccel_init(void)
+        aw_control_fsm |= 0x04;
+        AMT_AW(aw_control_fsm);
+
+-       int jtag_speed_var;
+-       int retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-          return retval;
+-       amt_jtagaccel_speed(jtag_speed_var);
+-
+        enum reset_types jtag_reset_config = jtag_get_reset_config();
+        if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+                aw_control_rst &amp;= ~0x8;
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index fdabb64..8c2382a 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -2485,12 +2485,6 @@ static int ft2232_init(void)
+                        return ERROR_JTAG_INIT_FAILED;
+        }
+
+-       int jtag_speed_var;
+-       retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-               return retval;
+-       ft2232_speed(jtag_speed_var);
+-
+        buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+        if ((retval = ft2232_write(buf, 1, &amp;bytes_written)) != ERROR_OK)
+        {
+diff --git a/src/jtag/drivers/gw16012.c b/src/jtag/drivers/gw16012.c
+index 1729299..22a37ac 100644
+--- a/src/jtag/drivers/gw16012.c
++++ b/src/jtag/drivers/gw16012.c
+@@ -529,11 +529,6 @@ static int gw16012_init(void)
+        gw16012_input(&amp;status_port);
+        gw16012_msb = (status_port &amp; 0x80) ^ 0x80;
+
+-       int jtag_speed_var;
+-       int retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-               return retval;
+-       gw16012_speed(jtag_speed_var);
+        gw16012_reset(0, 0);
+
+        return ERROR_OK;
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index 6eb707a..adaa640 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -439,11 +439,6 @@ static int jlink_init(void)
+        jlink_reset(0, 0);
+        jtag_sleep(3000);
+        jlink_tap_init();
+-       int jtag_speed_var;
+-       int retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-               return retval;
+-       jlink_speed(jtag_speed_var);
+
+        /* v5/6 jlink seems to have an issue if the first tap move
+         * is not divisible by 8, so we send a TLR on first power up */
+diff --git a/src/jtag/drivers/parport.c b/src/jtag/drivers/parport.c
+index b61f2f1..ad07791 100644
+--- a/src/jtag/drivers/parport.c
++++ b/src/jtag/drivers/parport.c
+@@ -384,10 +384,6 @@ static int parport_init(void)
+
+        bitbang_interface = &amp;parport_bitbang;
+
+-       int retval = jtag_get_speed(&amp;wait_states);
+-       if (retval != ERROR_OK)
+-               return retval;
+-
+        return ERROR_OK;
+ }
+
+diff --git a/src/jtag/drivers/presto.c b/src/jtag/drivers/presto.c
+index ca6e9d5..2328c26 100644
+--- a/src/jtag/drivers/presto.c
++++ b/src/jtag/drivers/presto.c
+@@ -769,13 +769,6 @@ static int presto_jtag_init(void)
+        }
+        LOG_INFO(&quot;PRESTO open, serial number '%s'&quot;, presto-&gt;serial);
+
+-       /* use JTAG speed setting from configuration file */
+-       int jtag_speed_var;
+-       int retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-               return retval;
+-       presto_jtag_speed(jtag_speed_var);
+-
+        bitq_interface = &amp;presto_bitq;
+        return ERROR_OK;
+ }
+diff --git a/src/jtag/drivers/rlink.c b/src/jtag/drivers/rlink.c
+index 4b3e2ae..5f53dbc 100644
+--- a/src/jtag/drivers/rlink.c
++++ b/src/jtag/drivers/rlink.c
+@@ -1771,11 +1771,6 @@ int rlink_init(void)
+
+        tap_state_queue_init();
+        dtc_queue_init();
+-       int jtag_speed_var;
+-       int retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-               return retval;
+-       rlink_speed(jtag_speed_var);
+        rlink_reset(0, 0);
+
+        return ERROR_OK;
+diff --git a/src/jtag/drivers/usb_blaster.c b/src/jtag/drivers/usb_blaster.c
+index 68867ad..b046b71 100644
+--- a/src/jtag/drivers/usb_blaster.c
++++ b/src/jtag/drivers/usb_blaster.c
+@@ -474,12 +474,6 @@ static int usb_blaster_init(void)
+
+        bitbang_interface = &amp;usb_blaster_bitbang;
+
+-       int jtag_speed_var;
+-       int retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-               return retval;
+-       usb_blaster_speed(jtag_speed_var);
+-
+ #if 0
+ #if BUILD_USB_BLASTER_FTD2XX == 1
+        if ((status = FT_Purge(ftdih, FT_PURGE_RX | FT_PURGE_TX)) != FT_OK)
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 8c37666..7a3a0f2 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -1505,11 +1505,6 @@ int zy1000_init(void)
+
+         /* deassert resets. Important to avoid infinite loop waiting for SRST to deassert */
+        zy1000_reset(0, 0);
+-       int jtag_speed_var;
+-       int retval = jtag_get_speed(&amp;jtag_speed_var);
+-       if (retval != ERROR_OK)
+-               return retval;
+-       zy1000_speed(jtag_speed_var);
+
+ #if BUILD_ZY1000_MASTER
+ #if BUILD_ECOSBOARD
+--
+1.7.2.5
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-adapter-speed-require-init-script-setting-and-centra.patch
+Type: application/octet-stream
+Size: 7109 bytes
+Desc: 0001-adapter-speed-require-init-script-setting-and-centra.patch
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110428/9f02323f/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20110428/9f02323f/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018931.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+	<LI>Next message: <A HREF="018938.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18932">[ date ]</a>
+              <a href="thread.html#18932">[ thread ]</a>
+              <a href="subject.html#18932">[ subject ]</a>
+              <a href="author.html#18932">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

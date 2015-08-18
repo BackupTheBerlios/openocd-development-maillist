@@ -1,0 +1,246 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] NAND write data page refactoring.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20NAND%20write%20data%20page%20refactoring.&In-Reply-To=%3C1261105360-3189-3-git-send-email-dnglaze%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013684.html">
+   <LINK REL="Next"  HREF="013694.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] NAND write data page refactoring.</H1>
+    <B>Dean Glazeski</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20NAND%20write%20data%20page%20refactoring.&In-Reply-To=%3C1261105360-3189-3-git-send-email-dnglaze%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] NAND write data page refactoring.">dnglaze at gmail.com
+       </A><BR>
+    <I>Fri Dec 18 04:02:40 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013684.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+        <LI>Next message: <A HREF="013694.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13685">[ date ]</a>
+              <a href="thread.html#13685">[ thread ]</a>
+              <a href="subject.html#13685">[ subject ]</a>
+              <a href="author.html#13685">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Refactored the write page raw function into two new functions for writing data
+to a NAND device and then another function to finish up a write to a NAND
+device.  This includes some new updates to introduce more error checking to
+existing code.
+---
+ src/flash/nand/core.c |  116 ++++++++++++++++++++++++++-----------------------
+ src/flash/nand/core.h |    3 +
+ 2 files changed, 64 insertions(+), 55 deletions(-)
+
+diff --git a/src/flash/nand/core.c b/src/flash/nand/core.c
+index de601b4..7535247 100644
+--- a/src/flash/nand/core.c
++++ b/src/flash/nand/core.c
+@@ -643,7 +643,8 @@ static int nand_write_plain(struct nand_device *nand, uint32_t address, uint8_t
+ }
+ #endif
+ 
+-int nand_write_page(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
++int nand_write_page(struct nand_device *nand, uint32_t page, uint8_t *data,
++    uint32_t data_size, uint8_t *oob, uint32_t oob_size)
+ {
+ 	uint32_t block;
+ 
+@@ -781,66 +782,43 @@ int nand_read_page_raw(struct nand_device *nand, uint32_t page,
+ 	return ERROR_OK;
+ }
+ 
+-int nand_write_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
++int nand_write_data_page(struct nand_device *nand, uint8_t *data, uint32_t size)
+ {
++	int retval = ERROR_NAND_OPERATION_FAILED;
+ 	uint32_t i;
+-	int retval;
+-	uint8_t status;
+ 
+-	retval = nand_page_command(nand, page, NAND_CMD_SEQIN, !data);
+-	if (ERROR_OK != retval)
+-		return retval;
++	if (nand-&gt;controller-&gt;write_block_data != NULL) {
++		retval = (nand-&gt;controller-&gt;write_block_data)(nand, data, size);
++	}
+ 
+-	if (data)
+-	{
+-		if (nand-&gt;controller-&gt;write_block_data != NULL)
+-			(nand-&gt;controller-&gt;write_block_data)(nand, data, data_size);
+-		else
+-		{
+-			for (i = 0; i &lt; data_size;)
+-			{
+-				if (nand-&gt;device-&gt;options &amp; NAND_BUSWIDTH_16)
+-				{
+-					uint16_t data_buf = le_to_h_u16(data);
+-					nand-&gt;controller-&gt;write_data(nand, data_buf);
+-					data += 2;
+-					i += 2;
+-				}
+-				else
+-				{
+-					nand-&gt;controller-&gt;write_data(nand, *data);
+-					data += 1;
+-					i += 1;
+-				}
++	if (ERROR_NAND_NO_BUFFER == retval) {
++		bool is16bit = nand-&gt;device-&gt;options &amp; NAND_BUSWIDTH_16;
++		uint32_t incr = (is16bit) ? 2 : 1;
++		uint16_t write_data;
++		for (i = 0; i &lt; size; i += incr) {
++			if (is16bit) {
++				write_data = le_to_h_u16(data);
++			} else {
++				write_data = *data;
+ 			}
+-		}
+-	}
+ 
+-	if (oob)
+-	{
+-		if (nand-&gt;controller-&gt;write_block_data != NULL)
+-			(nand-&gt;controller-&gt;write_block_data)(nand, oob, oob_size);
+-		else
+-		{
+-			for (i = 0; i &lt; oob_size;)
+-			{
+-				if (nand-&gt;device-&gt;options &amp; NAND_BUSWIDTH_16)
+-				{
+-					uint16_t oob_buf = le_to_h_u16(data);
+-					nand-&gt;controller-&gt;write_data(nand, oob_buf);
+-					oob += 2;
+-					i += 2;
+-				}
+-				else
+-				{
+-					nand-&gt;controller-&gt;write_data(nand, *oob);
+-					oob += 1;
+-					i += 1;
+-				}
++			retval = nand-&gt;controller-&gt;write_data(nand, write_data);
++			if (ERROR_OK != retval) {
++				break;
+ 			}
++
++			data += incr;
+ 		}
+ 	}
+ 
++	return retval;
++}
++
++int nand_write_finish(struct nand_device *nand)
++{
++	int retval;
++	uint8_t status;
++
+ 	nand-&gt;controller-&gt;command(nand, NAND_CMD_PAGEPROG);
+ 
+ 	retval = nand-&gt;controller-&gt;nand_ready ?
+@@ -849,14 +827,13 @@ int nand_write_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data,
+ 	if (!retval)
+ 		return ERROR_NAND_OPERATION_TIMEOUT;
+ 
+-	if ((retval = nand_read_status(nand, &amp;status)) != ERROR_OK)
+-	{
++	retval = nand_read_status(nand, &amp;status);
++	if (ERROR_OK != retval) {
+ 		LOG_ERROR(&quot;couldn't read status&quot;);
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+-	if (status &amp; NAND_STATUS_FAIL)
+-	{
++	if (status &amp; NAND_STATUS_FAIL) {
+ 		LOG_ERROR(&quot;write operation didn't pass, status: 0x%2.2x&quot;, status);
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+@@ -864,3 +841,32 @@ int nand_write_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data,
+ 	return ERROR_OK;
+ }
+ 
++int nand_write_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
++{
++	int retval;
++
++	retval = nand_page_command(nand, page, NAND_CMD_SEQIN, !data);
++	if (ERROR_OK != retval)
++		return retval;
++
++	if (data) {
++		retval = nand_write_data_page(nand, data, data_size);
++		if (ERROR_OK != retval) {
++			LOG_ERROR(&quot;Unable to write data to NAND device&quot;);
++			return retval;
++		}
++	}
++
++	if (oob) {
++		retval = nand_write_data_page(nand, oob, oob_size);
++		if (ERROR_OK != retval) {
++			LOG_ERROR(&quot;Unable to write OOB data to NAND device&quot;);
++			return retval;
++		}
++	}
++
++	retval = nand_write_finish(nand);
++
++	return retval;
++}
++
+diff --git a/src/flash/nand/core.h b/src/flash/nand/core.h
+index 990114a..88b20e0 100644
+--- a/src/flash/nand/core.h
++++ b/src/flash/nand/core.h
+@@ -212,6 +212,9 @@ int nand_page_command(struct nand_device *nand, uint32_t page,
+ 		uint8_t cmd, bool oob_only);
+ 
+ int nand_read_data_page(struct nand_device *nand, uint8_t *data, uint32_t size);
++int nand_write_data_page(struct nand_device *nand, uint8_t *data, uint32_t size);
++
++int nand_write_finish(struct nand_device *nand);
+ 
+ int nand_read_page_raw(struct nand_device *nand, uint32_t page,
+ 		uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size);
+-- 
+1.6.5.2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013684.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+	<LI>Next message: <A HREF="013694.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13685">[ date ]</a>
+              <a href="thread.html#13685">[ thread ]</a>
+              <a href="subject.html#13685">[ subject ]</a>
+              <a href="author.html#13685">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

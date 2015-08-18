@@ -1,0 +1,511 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] playsxvf regression
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20playsxvf%20regression&In-Reply-To=%3C20090901032052.GA30611%40knossos.aleph1.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010359.html">
+   <LINK REL="Next"  HREF="010276.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] playsxvf regression</H1>
+    <B>Wookey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20playsxvf%20regression&In-Reply-To=%3C20090901032052.GA30611%40knossos.aleph1.co.uk%3E"
+       TITLE="[Openocd-development] playsxvf regression">wookey at wookware.org
+       </A><BR>
+    <I>Tue Sep  1 05:20:53 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010359.html">[Openocd-development] [PATCH v2] Use jtag_rclk instead of jtag_speed for BeagleBoard
+</A></li>
+        <LI>Next message: <A HREF="010276.html">[Openocd-development] playsxvf regression
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10271">[ date ]</a>
+              <a href="thread.html#10271">[ thread ]</a>
+              <a href="subject.html#10271">[ subject ]</a>
+              <a href="author.html#10271">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>+++ Wookey [2009-08-19 20:10 +0100]:
+&gt;<i> +++ &#216;yvind Harboe [2009-07-21 22:56 +0200]:
+</I>&gt;<i> &gt; On Tue, Jul 21, 2009 at 3:07 PM, Wookey&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">wookey at wookware.org</A>&gt; wrote:
+</I>&gt;<i> &gt; &gt; +++ David Brownell [2009-07-20 15:53 -0700]:
+</I>&gt;<i> &gt; &gt;&gt; On Monday 20 July 2009, Wookey wrote:
+</I>&gt;<i> &gt; &gt;&gt; &gt; Error: BUG: TAP path doesn't finish in a stable state
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt; &gt;&gt; Looks like r1980 creating jtag_add_statemove() from the XSVF-specific
+</I>&gt;<i> &gt; &gt;&gt; code might have seeded this problem ... if later changes to the statemove()
+</I>&gt;<i> &gt; &gt;&gt; logic turned some things into errors. &#160;Do r1979 and r1980 behave, or was
+</I>&gt;<i> &gt; &gt;&gt; it already incompatible then?
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt; &gt; OK. I tried HEAD (r2551) and that is the same as debian's &#160;0.2.0+r2529-1
+</I>&gt;<i> &gt; &gt; in this regard.
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt; &gt; Tried to build r1979 but there appears to be something wrong with the
+</I>&gt;<i> &gt; &gt; autofoo because it doesn't build a libopenocd shared library and thus
+</I>&gt;<i> &gt; &gt; doesn't work. I ran out of time trying to work out what was amiss.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Just a thought: did you try --disable-shared?
+</I>&gt;<i> 
+</I>&gt;<i> Thanx very much - that lets it build, and allows me to find that
+</I>&gt;<i> PLAYXSVF is still broken (as is the xscale/ path to find debug_handler).
+</I>&gt;<i> 
+</I>&gt;<i> both these problems are not present in r1609, so I see a long binary chop
+</I>&gt;<i> process ahead where I look for likely relevant changes between those
+</I>&gt;<i> versions. Clues welcome.
+</I>
+OK. I've done some more research and discovered the following:
+
+playxsvf breaks in revision 1614. (It's OK in 1611, next relevant
+change is in 1614 and that version doesn't work with the xsvf file
+posted at te start of this thread). Below is a long log showing what I
+tried and what worked/didn't work.
+
+r1614 was the removal of xsvf_read_xstates, and a chunk in
+handle_xsvf_command and xsvf_add_statemove being changed, all in
+src/xsvf/xsvf.c, by Dick Hollenbeck.
+I'm really not quite sure what this is about but so far as I can see
+the old stuff worked (apart from the 'hang') and the new stuff doesn't.
+
+The executive summary is:
+1) programming CPLD (Xilinx xcr3256) with r1610 or 1611 works fine.
+However it leaves something in a bad state because second and
+subsequent attempts fail in a 'Can't do boundary scan' sort of
+way. Resetting or power-cycling the board does not fix this - but
+unplugging/replugging the USB JTAG dongle does (with both olimex and
+amontec). Something odd there...
+
+2) in r1614 boundary scan is fine but the xsvf programming falls over
+near the start of the process with 
+Error: fatal: unstable state &quot;IREXIT2&quot; used in tap_move_ndx()
+
+3) Specifying the tap rather than using 'plain' in the xsvf command
+gives a different error:
+XSDRTDO mismatch
+TDO mismatch, somewhere near offset 28 in xsvf file, aborting
+After warning that the boundary scan info is wrong (even though it
+just read it right).
+This seems odd. Why would plain work, but specifying which tap to use
+fail earlier?
+
+3) If I try using the svf file instead of the xsvf file is falls over
+earlier in the file than the xsvf case: (line 3)
+ENDIR IDLE
+Error: IDLE is not valid state
+
+Attached is the log, including debug -d 2 for the failed cases. 
+
+The original files are still at
+<A HREF="http://balloonboard.org/files/balloon3/openocd/bugrep/">http://balloonboard.org/files/balloon3/openocd/bugrep/</A>
+
+Have other people used the xsvf functionality since this change? i.e
+is it something about my files/board/setup or is it just broken?
+
+Wookey
+-- 
+Principal hats:  iEndian - Balloonboard - Toby Churchill - Emdebian
+<A HREF="http://wookware.org/">http://wookware.org/</A>
+-------------- next part --------------
+openocd -s utils/openocd -f balloon3-cpld-olimex.cfg -f cpld.cfg
+
+programming with v1610: fine
+same with r1611:
+Open On-Chip Debugger 0.2.0-in-development (2009-09-01-02:37) svn:1611
+
+BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+5000 kHz
+Info : JTAG tap: xcr.tap tap/device found: 0x0494c093 (Manufacturer: 0x049, Part: 0x494c, Version: 0x0)
+Info : JTAG Tap/device matched
+Warn : no gdb ports allocated as no target has been specified
+     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+---|--------------------|---------|------------|------------|------|------|------|---------
+ 0 | xcr.tap            |    Y    | 0x0494c093 | 0x0494c093 | 0x06 | 0x01 | 0x03 | 0x3f
+xsvf processing file: &quot;vhdl/cpld/l3cpld.xsvf&quot;
+XSVF file programmed successfully
+
+-------------
+Then trying again fails:
+Open On-Chip Debugger 0.2.0-in-development (2009-09-01-02:37) svn:1611
+
+BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+5000 kHz
+Error: JTAG communication failure, check connection, JTAG interface, target power etc.
+Error: trying to validate configured JTAG chain anyway...
+Error: Could not validate JTAG scan chain, IR mismatch, scan returned 0xFF. tap=xcr.tap pos=0 expected 0x1 got 3
+Warn : Could not validate JTAG chain, continuing anyway...
+Warn : no gdb ports allocated as no target has been specified
+     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+---|--------------------|---------|------------|------------|------|------|------|---------
+ 0 | xcr.tap            |    Y    | 0x00000000 | 0x0494c093 | 0x06 | 0x01 | 0x03 | 0x3f
+xsvf processing file: &quot;vhdl/cpld/l3cpld.xsvf&quot;
+Warn : TAP (unknown):
+Warn : value captured during scan didn't pass the requested check:
+Warn : captured: 0xFFFFFFFF check_value: 0xF494FFFF check_mask: 0x0FFF8001
+Warn : in_handler: w/o &quot;in_value&quot;, mismatch in SDR
+XSDRTDO mismatch
+TDO mismatch, somewhere near offset 28 in xsvf file, aborting
+Runtime error, file &quot;utils/openocd/cpld.cfg&quot;, line 5:
+
+-----------------
+to fix it we need to unplug/replug the jtag dongle. Resetting the board itself does not help. Why might that be?
+
+here is what goes wrong with -d 2:
+Open On-Chip Debugger 0.2.0-in-development (2009-09-01-02:37) svn:1611
+
+
+BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+Debug: 5 1 configuration.c:88 find_file(): found utils/openocd/balloon3-cpld-olimex.cfg
+Debug: 6 1 configuration.c:88 find_file(): found utils/openocd/base.cfg
+Debug: 8 1 command.c:91 script_command(): script_command - telnet_port
+Debug: 9 1 command.c:108 script_command(): script_command - telnet_port, argv[0]=ocd_telnet_port
+Debug: 10 1 command.c:108 script_command(): script_command - telnet_port, argv[1]=4444
+Debug: 12 1 command.c:91 script_command(): script_command - gdb_port
+Debug: 13 1 command.c:108 script_command(): script_command - gdb_port, argv[0]=ocd_gdb_port
+Debug: 14 1 command.c:108 script_command(): script_command - gdb_port, argv[1]=3333
+Debug: 16 1 command.c:91 script_command(): script_command - tcl_port
+Debug: 17 1 command.c:108 script_command(): script_command - tcl_port, argv[0]=ocd_tcl_port
+Debug: 18 1 command.c:108 script_command(): script_command - tcl_port, argv[1]=6666
+Debug: 20 1 command.c:91 script_command(): script_command - jtag_khz
+Debug: 21 1 command.c:108 script_command(): script_command - jtag_khz, argv[0]=ocd_jtag_khz
+Debug: 22 1 command.c:108 script_command(): script_command - jtag_khz, argv[1]=5000
+Debug: 23 1 jtag.c:2613 handle_jtag_khz_command(): handle jtag khz
+User : 24 1 command.c:383 command_print(): 5000 kHz
+Debug: 25 1 configuration.c:88 find_file(): found utils/openocd/olimex-jtag-tiny.cfg
+Debug: 27 2 command.c:91 script_command(): script_command - interface
+Debug: 28 2 command.c:108 script_command(): script_command - interface, argv[0]=ocd_interface
+Debug: 29 2 command.c:108 script_command(): script_command - interface, argv[1]=ft2232
+Debug: 31 2 command.c:91 script_command(): script_command - ft2232_device_desc
+Debug: 32 2 command.c:108 script_command(): script_command - ft2232_device_desc, argv[0]=ocd_ft2232_device_desc
+Debug: 33 2 command.c:108 script_command(): script_command - ft2232_device_desc, argv[1]=Olimex OpenOCD JTAG TINY
+Debug: 35 2 command.c:91 script_command(): script_command - ft2232_layout
+Debug: 36 2 command.c:108 script_command(): script_command - ft2232_layout, argv[0]=ocd_ft2232_layout
+Debug: 37 2 command.c:108 script_command(): script_command - ft2232_layout, argv[1]=olimex-jtag
+Debug: 39 2 command.c:91 script_command(): script_command - ft2232_vid_pid
+Debug: 40 2 command.c:108 script_command(): script_command - ft2232_vid_pid, argv[0]=ocd_ft2232_vid_pid
+Debug: 41 2 command.c:108 script_command(): script_command - ft2232_vid_pid, argv[1]=0x15ba
+Debug: 42 2 command.c:108 script_command(): script_command - ft2232_vid_pid, argv[2]=0x0004
+Debug: 43 2 configuration.c:88 find_file(): found utils/openocd/xilinx-xcr3256.cfg
+Debug: 44 2 jtag.c:1860 jim_newtap_cmd(): Creating New Tap, Chip: xcr, Tap: tap, Dotted: xcr.tap, 8 params
+Debug: 45 2 jtag.c:1879 jim_newtap_cmd(): Processing option: -irlen
+Debug: 46 2 jtag.c:1879 jim_newtap_cmd(): Processing option: -ircapture
+Debug: 47 2 jtag.c:1879 jim_newtap_cmd(): Processing option: -irmask
+Debug: 48 2 jtag.c:1879 jim_newtap_cmd(): Processing option: -expected-id
+Debug: 49 2 jtag.c:1992 jim_newtap_cmd(): Created Tap: xcr.tap @ abs position 0, irlen 6, capture: 0x1 mask: 0x3
+Debug: 51 3 command.c:91 script_command(): script_command - reset_config
+Debug: 52 3 command.c:108 script_command(): script_command - reset_config, argv[0]=ocd_reset_config
+Debug: 53 3 command.c:108 script_command(): script_command - reset_config, argv[1]=trst_and_srst
+Debug: 54 3 command.c:108 script_command(): script_command - reset_config, argv[2]=separate
+Debug: 56 3 command.c:91 script_command(): script_command - init
+Debug: 57 3 command.c:108 script_command(): script_command - init, argv[0]=ocd_init
+Debug: 58 3 openocd.c:139 handle_init_command(): target init complete
+Debug: 59 3 ft2232.c:1773 ft2232_init_libftdi(): 'ft2232' interface using libftdi with 'olimex-jtag' layout (15ba:0004)
+Debug: 60 223 ft2232.c:1816 ft2232_init_libftdi(): current latency timer: 2
+Debug: 61 224 ft2232.c:2160 olimex_jtag_init(): 80 08 1b
+Debug: 62 225 ft2232.c:2203 olimex_jtag_init(): 82 09 0f
+Debug: 63 226 ft2232.c:285 ft2232_speed(): 86 01 00
+Debug: 64 230 openocd.c:146 handle_init_command(): jtag interface init complete
+Debug: 65 230 jtag.c:2208 jtag_init_inner(): Init JTAG chain
+Debug: 66 230 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 67 230 jtag.c:1455 jtag_reset_callback(): -
+Debug: 68 231 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 69 231 jtag.c:1455 jtag_reset_callback(): -
+Error: 70 236 jtag.c:1511 jtag_examine_chain(): JTAG communication failure, check connection, JTAG interface, target power etc.
+Error: 71 236 jtag.c:2223 jtag_init_inner(): trying to validate configured JTAG chain anyway...
+Debug: 72 236 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 73 236 jtag.c:1455 jtag_reset_callback(): -
+Error: 74 238 jtag.c:1688 jtag_validate_chain(): Could not validate JTAG scan chain, IR mismatch, scan returned 0xFF. tap=xcr.tap pos=0 expected 0x1 got 3
+Warn : 75 238 jtag.c:2228 jtag_init_inner(): Could not validate JTAG chain, continuing anyway...
+Debug: 76 238 openocd.c:152 handle_init_command(): jtag init complete
+Debug: 77 238 openocd.c:155 handle_init_command(): jtag examine complete
+Debug: 78 238 openocd.c:161 handle_init_command(): flash init complete
+Debug: 79 238 openocd.c:165 handle_init_command(): mflash init complete
+Debug: 80 238 openocd.c:169 handle_init_command(): NAND init complete
+Debug: 81 238 openocd.c:173 handle_init_command(): pld init complete
+Warn : 82 238 gdb_server.c:2195 gdb_init(): no gdb ports allocated as no target has been specified
+Debug: 84 238 command.c:91 script_command(): script_command - scan_chain
+Debug: 85 238 command.c:108 script_command(): script_command - scan_chain, argv[0]=ocd_scan_chain
+User : 86 238 command.c:383 command_print():      TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+User : 87 238 command.c:383 command_print(): ---|--------------------|---------|------------|------------|------|------|------|---------
+User : 88 238 command.c:383 command_print():  0 | xcr.tap            |    Y    | 0x00000000 | 0x0494c093 | 0x06 | 0x01 | 0x03 | 0x3f
+Debug: 89 238 configuration.c:88 find_file(): found utils/openocd/cpld.cfg
+Debug: 91 238 command.c:91 script_command(): script_command - xsvf
+Debug: 92 238 command.c:108 script_command(): script_command - xsvf, argv[0]=ocd_xsvf
+Debug: 93 238 command.c:108 script_command(): script_command - xsvf, argv[1]=plain
+Debug: 94 238 command.c:108 script_command(): script_command - xsvf, argv[2]=vhdl/cpld/l3cpld.xsvf
+User : 95 238 xsvf.c:346 handle_xsvf_command(): xsvf processing file: &quot;vhdl/cpld/l3cpld.xsvf&quot;
+Debug: 96 239 xsvf.c:396 handle_xsvf_command(): XREPEAT 0
+Debug: 97 239 xsvf.c:641 handle_xsvf_command(): XENDIR 0x00 RUN/IDLE
+Debug: 98 239 xsvf.c:664 handle_xsvf_command(): XENDDR 00 RUN/IDLE
+Debug: 99 239 xsvf.c:584 handle_xsvf_command(): XSTATE 0x00 RESET
+Debug: 100 239 xsvf.c:260 xsvf_read_xstates(): XSTATE 01 RUN/IDLE
+Debug: 101 239 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 102 239 jtag.c:1455 jtag_reset_callback(): -
+Debug: 103 239 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 104 239 jtag.c:1455 jtag_reset_callback(): -
+Debug: 105 239 xsvf.c:684 handle_xsvf_command(): XSIR 5
+Debug: 106 239 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 107 239 jtag.c:1455 jtag_reset_callback(): -
+Debug: 108 240 xsvf.c:412 handle_xsvf_command(): XSDRSIZE 32
+Debug: 109 240 xsvf.c:367 handle_xsvf_command(): XTDOMASK
+Debug: 110 240 xsvf.c:383 handle_xsvf_command(): XRUNTEST 0 0x00000000
+Debug: 111 240 xsvf.c:451 handle_xsvf_command(): XSDRTDO 32
+Warn : 112 243 jtag.c:1359 jtag_check_value(): TAP (unknown):
+Warn : 113 243 jtag.c:1369 jtag_check_value(): value captured during scan didn't pass the requested check:
+Warn : 114 243 jtag.c:1371 jtag_check_value(): captured: 0xFFFFFFFF check_value: 0xF494FFFF check_mask: 0x0FFF8001
+Warn : 115 243 jtag.c:1323 jtag_read_buffer(): in_handler: w/o &quot;in_value&quot;, mismatch in SDR
+User : 116 243 xsvf.c:510 handle_xsvf_command(): XSDRTDO mismatch
+Debug: 117 243 xsvf.c:1005 handle_xsvf_command(): xsvf failed, setting taps to reasonable state
+User : 118 244 command.c:383 command_print(): TDO mismatch, somewhere near offset 28 in xsvf file, aborting
+Debug: 119 244 command.c:427 run_command(): Command failed with error code -4
+User : 120 244 command.c:629 openocd_jim_vfprintf(): Runtime error, file &quot;utils/openocd/cpld.cfg&quot;, line 5:
+    User : 121 244 command.c:629 openocd_jim_vfprintf(): 
+User : 124 244 command.c:629 openocd_jim_vfprintf(): 
+User : 126 244 command.c:629 openocd_jim_vfprintf(): 
+
+
+------------------
+Using r1614:
+Open On-Chip Debugger 0.2.0-in-development (2009-09-01-03:01) svn:1614
+
+BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+5000 kHz
+Info : JTAG tap: xcr.tap tap/device found: 0x0494c093 (Manufacturer: 0x049, Part: 0x494c, Version: 0x0)
+Info : JTAG Tap/device matched
+Warn : no gdb ports allocated as no target has been specified
+     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+---|--------------------|---------|------------|------------|------|------|------|---------
+ 0 | xcr.tap            |    Y    | 0x0494c093 | 0x0494c093 | 0x06 | 0x01 | 0x03 | 0x3f
+xsvf processing file: &quot;vhdl/cpld/l3cpld.xsvf&quot;
+Error: fatal: unstable state &quot;IREXIT2&quot; used in tap_move_ndx()
+
+-----------
+Doing it with -d 2 we get:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">wookey at kh</A>:~/balloon/balloon-bin/tcl-rel-v1.0/armel/binaries$ openocd -d 2 -s utils/openocd -f balloon3-cpld-olimex.cfg -f cpld.cfg 
+Open On-Chip Debugger 0.2.0-in-development (2009-09-01-03:01) svn:1614
+
+
+BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+Debug: 5 0 configuration.c:88 find_file(): found utils/openocd/balloon3-cpld-olimex.cfg
+Debug: 6 1 configuration.c:88 find_file(): found utils/openocd/base.cfg
+Debug: 8 1 command.c:91 script_command(): script_command - telnet_port
+Debug: 9 1 command.c:108 script_command(): script_command - telnet_port, argv[0]=ocd_telnet_port
+Debug: 10 1 command.c:108 script_command(): script_command - telnet_port, argv[1]=4444
+Debug: 12 1 command.c:91 script_command(): script_command - gdb_port
+Debug: 13 1 command.c:108 script_command(): script_command - gdb_port, argv[0]=ocd_gdb_port
+Debug: 14 1 command.c:108 script_command(): script_command - gdb_port, argv[1]=3333
+Debug: 16 1 command.c:91 script_command(): script_command - tcl_port
+Debug: 17 1 command.c:108 script_command(): script_command - tcl_port, argv[0]=ocd_tcl_port
+Debug: 18 1 command.c:108 script_command(): script_command - tcl_port, argv[1]=6666
+Debug: 20 2 command.c:91 script_command(): script_command - jtag_khz
+Debug: 21 2 command.c:108 script_command(): script_command - jtag_khz, argv[0]=ocd_jtag_khz
+Debug: 22 2 command.c:108 script_command(): script_command - jtag_khz, argv[1]=5000
+Debug: 23 2 jtag.c:2613 handle_jtag_khz_command(): handle jtag khz
+User : 24 2 command.c:383 command_print(): 5000 kHz
+Debug: 25 2 configuration.c:88 find_file(): found utils/openocd/olimex-jtag-tiny.cfg
+Debug: 27 2 command.c:91 script_command(): script_command - interface
+Debug: 28 2 command.c:108 script_command(): script_command - interface, argv[0]=ocd_interface
+Debug: 29 2 command.c:108 script_command(): script_command - interface, argv[1]=ft2232
+Debug: 31 2 command.c:91 script_command(): script_command - ft2232_device_desc
+Debug: 32 3 command.c:108 script_command(): script_command - ft2232_device_desc, argv[0]=ocd_ft2232_device_desc
+Debug: 33 3 command.c:108 script_command(): script_command - ft2232_device_desc, argv[1]=Olimex OpenOCD JTAG TINY
+Debug: 35 3 command.c:91 script_command(): script_command - ft2232_layout
+Debug: 36 3 command.c:108 script_command(): script_command - ft2232_layout, argv[0]=ocd_ft2232_layout
+Debug: 37 3 command.c:108 script_command(): script_command - ft2232_layout, argv[1]=olimex-jtag
+Debug: 39 3 command.c:91 script_command(): script_command - ft2232_vid_pid
+Debug: 40 3 command.c:108 script_command(): script_command - ft2232_vid_pid, argv[0]=ocd_ft2232_vid_pid
+Debug: 41 3 command.c:108 script_command(): script_command - ft2232_vid_pid, argv[1]=0x15ba
+Debug: 42 3 command.c:108 script_command(): script_command - ft2232_vid_pid, argv[2]=0x0004
+Debug: 43 3 configuration.c:88 find_file(): found utils/openocd/xilinx-xcr3256.cfg
+Debug: 44 3 jtag.c:1860 jim_newtap_cmd(): Creating New Tap, Chip: xcr, Tap: tap, Dotted: xcr.tap, 8 params
+Debug: 45 3 jtag.c:1879 jim_newtap_cmd(): Processing option: -irlen
+Debug: 46 3 jtag.c:1879 jim_newtap_cmd(): Processing option: -ircapture
+Debug: 47 3 jtag.c:1879 jim_newtap_cmd(): Processing option: -irmask
+Debug: 48 3 jtag.c:1879 jim_newtap_cmd(): Processing option: -expected-id
+Debug: 49 4 jtag.c:1992 jim_newtap_cmd(): Created Tap: xcr.tap @ abs position 0, irlen 6, capture: 0x1 mask: 0x3
+Debug: 51 4 command.c:91 script_command(): script_command - reset_config
+Debug: 52 4 command.c:108 script_command(): script_command - reset_config, argv[0]=ocd_reset_config
+Debug: 53 4 command.c:108 script_command(): script_command - reset_config, argv[1]=trst_and_srst
+Debug: 54 4 command.c:108 script_command(): script_command - reset_config, argv[2]=separate
+Debug: 56 4 command.c:91 script_command(): script_command - init
+Debug: 57 4 command.c:108 script_command(): script_command - init, argv[0]=ocd_init
+Debug: 58 4 openocd.c:139 handle_init_command(): target init complete
+Debug: 59 4 ft2232.c:1773 ft2232_init_libftdi(): 'ft2232' interface using libftdi with 'olimex-jtag' layout (15ba:0004)
+Debug: 60 274 ft2232.c:1816 ft2232_init_libftdi(): current latency timer: 2
+Debug: 61 275 ft2232.c:2160 olimex_jtag_init(): 80 08 1b
+Debug: 62 276 ft2232.c:2203 olimex_jtag_init(): 82 09 0f
+Debug: 63 277 ft2232.c:285 ft2232_speed(): 86 01 00
+Debug: 64 281 openocd.c:146 handle_init_command(): jtag interface init complete
+Debug: 65 281 jtag.c:2208 jtag_init_inner(): Init JTAG chain
+Debug: 66 281 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 67 281 jtag.c:1455 jtag_reset_callback(): -
+Debug: 68 282 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 69 282 jtag.c:1455 jtag_reset_callback(): -
+Info : 70 287 jtag.c:1577 jtag_examine_chain(): JTAG tap: xcr.tap tap/device found: 0x0494c093 (Manufacturer: 0x049, Part: 0x494c, Version: 0x0)
+Info : 71 287 jtag.c:1615 jtag_examine_chain(): JTAG Tap/device matched
+Debug: 72 287 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 73 287 jtag.c:1455 jtag_reset_callback(): -
+Debug: 74 289 openocd.c:152 handle_init_command(): jtag init complete
+Debug: 75 289 openocd.c:155 handle_init_command(): jtag examine complete
+Debug: 76 289 openocd.c:161 handle_init_command(): flash init complete
+Debug: 77 289 openocd.c:165 handle_init_command(): mflash init complete
+Debug: 78 289 openocd.c:169 handle_init_command(): NAND init complete
+Debug: 79 289 openocd.c:173 handle_init_command(): pld init complete
+Warn : 80 289 gdb_server.c:2195 gdb_init(): no gdb ports allocated as no target has been specified
+Debug: 82 290 command.c:91 script_command(): script_command - scan_chain
+Debug: 83 290 command.c:108 script_command(): script_command - scan_chain, argv[0]=ocd_scan_chain
+User : 84 290 command.c:383 command_print():      TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+User : 85 290 command.c:383 command_print(): ---|--------------------|---------|------------|------------|------|------|------|---------
+User : 86 290 command.c:383 command_print():  0 | xcr.tap            |    Y    | 0x0494c093 | 0x0494c093 | 0x06 | 0x01 | 0x03 | 0x3f
+Debug: 87 290 configuration.c:88 find_file(): found utils/openocd/cpld.cfg
+Debug: 89 290 command.c:91 script_command(): script_command - xsvf
+Debug: 90 290 command.c:108 script_command(): script_command - xsvf, argv[0]=ocd_xsvf
+Debug: 91 290 command.c:108 script_command(): script_command - xsvf, argv[1]=plain
+Debug: 92 290 command.c:108 script_command(): script_command - xsvf, argv[2]=vhdl/cpld/l3cpld.xsvf
+User : 93 290 xsvf.c:321 handle_xsvf_command(): xsvf processing file: &quot;vhdl/cpld/l3cpld.xsvf&quot;
+Debug: 94 290 xsvf.c:371 handle_xsvf_command(): XREPEAT 0
+Debug: 95 290 xsvf.c:584 handle_xsvf_command(): XENDIR 0x00 RUN/IDLE
+Debug: 96 290 xsvf.c:607 handle_xsvf_command(): XENDDR 00 RUN/IDLE
+Debug: 97 290 xsvf.c:558 handle_xsvf_command(): XSTATE 0x00 RESET
+Debug: 98 290 xsvf.c:195 xsvf_add_statemove(): cur_state=RESET goal_state=RESET
+Debug: 99 290 xsvf.c:558 handle_xsvf_command(): XSTATE 0x01 RUN/IDLE
+Debug: 100 290 xsvf.c:195 xsvf_add_statemove(): cur_state=RESET goal_state=RUN/IDLE
+Debug: 101 290 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 102 290 jtag.c:1455 jtag_reset_callback(): -
+Debug: 103 290 xsvf.c:627 handle_xsvf_command(): XSIR 5
+Debug: 104 290 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 105 290 jtag.c:1455 jtag_reset_callback(): -
+Debug: 106 291 xsvf.c:387 handle_xsvf_command(): XSDRSIZE 32
+Debug: 107 291 xsvf.c:342 handle_xsvf_command(): XTDOMASK
+Debug: 108 291 xsvf.c:358 handle_xsvf_command(): XRUNTEST 0 0x00000000
+Debug: 109 291 xsvf.c:426 handle_xsvf_command(): XSDRTDO 32
+Debug: 110 294 xsvf.c:195 xsvf_add_statemove(): cur_state=DRPAUSE goal_state=RUN/IDLE
+Debug: 111 294 xsvf.c:627 handle_xsvf_command(): XSIR 5
+Debug: 112 295 xsvf.c:584 handle_xsvf_command(): XENDIR 0x01 IRPAUSE
+Debug: 113 295 xsvf.c:627 handle_xsvf_command(): XSIR 5
+Debug: 114 296 xsvf.c:584 handle_xsvf_command(): XENDIR 0x00 RUN/IDLE
+Debug: 115 296 xsvf.c:558 handle_xsvf_command(): XSTATE 0x0E IREXIT2
+Debug: 116 296 xsvf.c:195 xsvf_add_statemove(): cur_state=IRPAUSE goal_state=IREXIT2
+Error: 117 296 jtag.c:3070 tap_move_ndx(): fatal: unstable state &quot;IREXIT2&quot; used in tap_move_ndx()
+
+----------------
+Changing xsvf command from:
+xsvf plain vhdl/cpld/l3cpld.xsvf
+to be:
+xsvf xcr.tap vhdl/cpld/l3cpld.xsvf
+Gives a whinge about tap being wrong:
+
+    <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">wookey at kh</A>:~/balloon/balloon-bin/tcl-rel-v1.0/armel/binaries$ openocd -s utils/openocd -f balloon3-cpld-olimex.cfg -f cpld.cfg 
+Open On-Chip Debugger 0.2.0-in-development (2009-09-01-03:01) svn:1614
+
+
+BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+5000 kHz
+Info : JTAG tap: xcr.tap tap/device found: 0x0494c093 (Manufacturer: 0x049, Part: 0x494c, Version: 0x0)
+Info : JTAG Tap/device matched
+Warn : no gdb ports allocated as no target has been specified
+     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+---|--------------------|---------|------------|------------|------|------|------|---------
+ 0 | xcr.tap            |    Y    | 0x0494c093 | 0x0494c093 | 0x06 | 0x01 | 0x03 | 0x3f
+xsvf processing file: &quot;vhdl/cpld/l3cpld.xsvf&quot;
+Warn : TAP xcr.tap:
+Warn : value captured during scan didn't pass the requested check:
+Warn : captured: 0x40111114 check_value: 0xF494FFFF check_mask: 0x0FFF8001
+Warn : in_handler: w/o &quot;in_value&quot;, mismatch in SDR
+XSDRTDO mismatch
+TDO mismatch, somewhere near offset 28 in xsvf file, aborting
+Runtime error, file &quot;utils/openocd/cpld.cfg&quot;, line 6:
+
+-------------------
+Trying with .svf file instead of xsvf:
+svf vhdl/cpld/l3cpld.svf
+
+get a different whinge almost immediately:
+    <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">wookey at kh</A>:~/balloon/balloon-bin/tcl-rel-v1.0/armel/binaries$ openocd -s utilenocd -f balloon3-cpld-olimex.cfg -f cpldsvf.cfg 
+Open On-Chip Debugger 0.2.0-in-development (2009-09-01-03:01) svn:1614
+
+
+BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+5000 kHz
+Info : JTAG tap: xcr.tap tap/device found: 0x0494c093 (Manufacturer: 0x049, Part: 0x494c, Version: 0x0)
+Info : JTAG Tap/device matched
+Warn : no gdb ports allocated as no target has been specified
+     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+---|--------------------|---------|------------|------------|------|------|------|---------
+ 0 | xcr.tap            |    Y    | 0x0494c093 | 0x0494c093 | 0x06 | 0x01 | 0x03 | 0x3f
+svf processing file: &quot;vhdl/cpld/l3cpld.svf&quot;
+TRST OFF
+ENDIR IDLE
+Error: IDLE is not valid state
+Error: fail to run command at line 3
+1 ms used
+svf file programmed failed
+Runtime error, file &quot;utils/openocd/cpldsvf.cfg&quot;, line 5:
+
+same again with -d 2 debug:
+....
+Debug: 91 264 command.c:108 script_command(): script_command - svf, argv[1]=vhdl/cpld/l3cpld.svf
+User : 92 264 svf.c:272 handle_svf_command(): svf processing file: &quot;vhdl/cpld/l3cpld.svf&quot;
+Debug: 93 264 jtag.c:393 jtag_call_event_callbacks(): jtag event: JTAG controller reset (RESET or TRST)
+Debug: 94 264 jtag.c:1455 jtag_reset_callback(): -
+User : 95 264 svf.c:732 svf_run_command(): TRST OFF
+Debug: 96 266 jtag.c:1137 jtag_add_reset(): SRST line released
+Debug: 97 266 svf.c:1355 svf_run_command(): 	trst_mode = OFF
+User : 98 266 svf.c:732 svf_run_command(): ENDIR IDLE
+Error: 99 266 svf.c:766 svf_run_command(): IDLE is not valid state
+Error: 100 266 svf.c:330 handle_svf_command(): fail to run command at line 3
+Debug: 101 266 ft2232.c:1107 olimex_jtag_reset(): trst: 0, srst: 0, high_output: 0x01, high_direction: 0x0f
+User : 102 266 command.c:383 command_print(): 2 ms used
+User : 103 266 command.c:383 command_print(): svf file programmed failed
+Debug: 104 266 command.c:427 run_command(): Command failed with error code -4
+User : 105 266 command.c:629 openocd_jim_vfprintf(): Runtime error, file &quot;utils/openocd/cpldsvf.cfg&quot;, line 5:
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010359.html">[Openocd-development] [PATCH v2] Use jtag_rclk instead of jtag_speed for BeagleBoard
+</A></li>
+	<LI>Next message: <A HREF="010276.html">[Openocd-development] playsxvf regression
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10271">[ date ]</a>
+              <a href="thread.html#10271">[ thread ]</a>
+              <a href="subject.html#10271">[ subject ]</a>
+              <a href="author.html#10271">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

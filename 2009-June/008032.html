@@ -1,0 +1,260 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Openocd and gdb
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Openocd%20and%20gdb&In-Reply-To=%3C4A368B54.80403%40st.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008094.html">
+   <LINK REL="Next"  HREF="008037.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Openocd and gdb</H1>
+    <B>Paul J THACKER</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Openocd%20and%20gdb&In-Reply-To=%3C4A368B54.80403%40st.com%3E"
+       TITLE="[Openocd-development] Openocd and gdb">paul.thacker at st.com
+       </A><BR>
+    <I>Mon Jun 15 19:56:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008094.html">[Openocd-development] libftdi must install at prefix=/usr on linux (doc issue)
+</A></li>
+        <LI>Next message: <A HREF="008037.html">[Openocd-development] Openocd and gdb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8032">[ date ]</a>
+              <a href="thread.html#8032">[ thread ]</a>
+              <a href="subject.html#8032">[ subject ]</a>
+              <a href="author.html#8032">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I'm having trouble getting gdb working with openocd. I can connect, 
+initialize and download to the target, but when I try to step through 
+the code, I get:
+
+Unable to set 32 bit software breakpoint at address 03f80050 - check 
+that memory is read/writable
+
+After some googling, I tried to use:
+
+working_area 0 0x0 0x800000 nobackup
+
+but that just gave me this error:
+
+User : 46 4 command.c:626 openocd_jim_vfprintf(): invalid command name 
+&quot;working_area_0&quot;
+
+Scripts pasted below. I can supply the debug output from openocd if 
+needed. Any ideas?
+
+Thanks,
+Paul
+
+---
+
+openocd -d 3 -f jtagkey-tiny.cfg -f cartesio.cfg
+
+cartesio.cfg:
+
+# Cartesio SoC
+
+if { [info exists CHIPNAME] } {
+    set  _CHIPNAME $CHIPNAME
+} else {
+    set  _CHIPNAME sta2062
+}
+
+if { [info exists ENDIAN] } {
+    set  _ENDIAN $ENDIAN
+} else {
+    set  _ENDIAN little
+}
+
+if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+} else {
+    set _CPUTAPID 0x07926041
+}
+
+# Change the default telnet port...
+telnet_port 4444
+
+# GDB connects here
+gdb_port 3333
+
+reset_config trst_only
+
+#jtag scan chain
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0x0 
+-expected-id $_CPUTAPID
+
+set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+target create $_TARGETNAME arm926ejs -endian $_ENDIAN -chain-position 
+$_TARGETNAME -variant arm926ejs
+
+working_area 0 0x0 0x800000 nobackup
+
+
+jtagkey-tiny.cfg:
+
+#interface
+interface ft2232
+ft2232_device_desc &quot;Amontec JTAGkey A&quot;
+ft2232_layout jtagkey
+ft2232_vid_pid 0x0403 0xcff8
+
+----
+
+arm-linux-gdb v6.6-33
+
+.gdbinit:
+
+# connect to target
+target remote localhost:3333
+
+mon jtag_khz 8
+
+# PLL Initialization
+mon mww 0x101E0014 0x16001701
+mon mww 0x101E0058 0x00000005
+mon mww 0x101E0000 0x00002004
+
+# PLL Enable
+mon mww 0x101E0010 0x10000000
+
+# Peripheral Clock Reg 0
+mon mww 0x101E0034 0x58383FF0
+
+# Peripheral Clock Reg 1
+mon mww 0x101E0048 0x000001FE
+
+mon jtag_khz 6000
+
+# Ensure the SDRAM is under SDMC control
+mon mww 0x101E9000 0x01000008
+
+# Clear remap
+mon mww 0x101E0000 0x00002104
+
+# Enable SDMC and the DLL
+mon mww 0x10110000 0x00E00003
+
+# Program the command delay strategy
+mon mww 0x10110028 0x00000111
+
+# Issue NOP command
+mon mww 0x10110020 0x00000183
+# To do at least two auto-refresh cycles
+mon mww 0x10110024 0x00000001
+
+# Issue NOP command
+mon mww 0x10110020 0x00000183
+
+# Program the auto-refresh period
+mon mww 0x10110024 0x00000046
+
+# Program little endian
+mon mww 0x10110008 0x00000000
+
+# Program tRP timing
+mon mww 0x10110030 0x00000003
+
+# Program tRAS timing
+mon mww 0x10110034 0x00000007
+
+# Program tSREX timing
+mon mww 0x10110038 0x00000013
+
+# Program tWR timing
+mon mww 0x10110044 0x00000002
+
+# Program tRC timing
+mon mww 0x10110048 0x0000000C
+
+# Program tRFC timing
+mon mww 0x1011004C 0x0000000B
+
+# Program tXSR timing
+mon mww 0x10110050 0x00000013
+
+# Program tRRD timing
+mon mww 0x10110054 0x00000002
+
+# Program tMRD timing
+mon mww 0x10110058 0x00000001
+
+# Program tCDLR
+mon mww 0x1011005c 0x00000003
+# Program RAS and CAS for CS0
+mon mww 0x10110104 0x00000304
+
+# Program RAS and CAS for CS1
+mon mww 0x10110124 0x00000304
+
+# Program config register in BRC for CS0
+mon mww 0x10110100 0x00000886
+
+# Program config register in BRC for CS1
+mon mww 0x10110120 0x00000886
+
+# Issue MODE command
+mon mww 0x10110020 0x00000083
+
+#  Data in
+mon mdw 0x00018800 0x00000001
+mon mdw 0x08018800 0x00000001
+
+# Issue NORMAL command
+mon mww 0x10110020 %long 0x00000003
+
+# Enable buffer 1
+mon mww 0x10110420 %long 0x00000001
+
+# Enable buffer 3
+mon mww 0x10110460 %long 0x00000001
+
+# Enable buffer 4
+mon mww 0x10110480 %long 0x00000001
+
+# Enable buffer 5
+mon mww 0x101104A0 %long 0x00000001
+
+# Issue Precharge All command
+mon mww 0x10110020 0x00000103
+
+# Issue NOP command
+mon mww 0x10110020 0x00000183
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008094.html">[Openocd-development] libftdi must install at prefix=/usr on linux (doc issue)
+</A></li>
+	<LI>Next message: <A HREF="008037.html">[Openocd-development] Openocd and gdb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8032">[ date ]</a>
+              <a href="thread.html#8032">[ thread ]</a>
+              <a href="subject.html#8032">[ subject ]</a>
+              <a href="author.html#8032">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

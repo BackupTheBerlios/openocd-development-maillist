@@ -1,0 +1,222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] i.MX21+OpenOCD+gdb
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20i.MX21%2BOpenOCD%2Bgdb&In-Reply-To=%3Cf4870a500812021716x5e16c258ne39727846ae127a4%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003867.html">
+   <LINK REL="Next"  HREF="003876.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] i.MX21+OpenOCD+gdb</H1>
+    <B>Rahul Balani</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20i.MX21%2BOpenOCD%2Bgdb&In-Reply-To=%3Cf4870a500812021716x5e16c258ne39727846ae127a4%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] i.MX21+OpenOCD+gdb">rahulb at ee.ucla.edu
+       </A><BR>
+    <I>Wed Dec  3 02:16:48 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003867.html">[Openocd-development] Updated User Manual (was: Patch to remove	deprecated commands)
+</A></li>
+        <LI>Next message: <A HREF="003876.html">[Openocd-development] i.MX21+OpenOCD+gdb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3875">[ date ]</a>
+              <a href="thread.html#3875">[ thread ]</a>
+              <a href="subject.html#3875">[ subject ]</a>
+              <a href="author.html#3875">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi everyone,
+
+I am new to this mailing list. Since the past few days, I have been working
+on an i.MX21 based Cogent CSB735 SBC on a CSB703 development board using
+OpenOCD (rev: 1187) and gdb 6.8 with an Olimex ARM-USB-OCD. My configuration
+and gdbinit script is given below:
+
+-----------------------------------------------------------------
+# File: openocd.cfg
+# OpenOCD daemon configuration
+telnet_port 4444
+gdb_port 3333
+
+gdb_memory_map enable
+
+#interface
+interface ft2232
+ft2232_device_desc &quot;Olimex OpenOCD JTAG&quot;
+ft2232_layout olimex-jtag
+ft2232_vid_pid 0x15ba 0x0003
+
+jtag_speed 20
+
+# use combined on interfaces or targets that can't set TRST/SRST separately
+reset_config trst_and_srst
+
+# jtag scan chain
+# format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag_device 4 0x1 0x1 0xe
+
+jtag_nsrst_delay 200
+jtag_ntrst_delay 200
+
+target create target0 arm926ejs -endian little -chain-position 0 -variant
+arm926ejs
+
+working_area 0 0xC0800000 0x8000 nobackup
+
+#Initialize the target
+init
+reset run
+sleep 30
+halt
+
+-----------------------------------------------------------------
+
+#File: .gdbinit
+target remote localhost:3333
+
+set endian little
+
+set remote memory-write-packet-size 1024
+set remote memory-write-packet-size fixed
+-----------------------------------------------------------------
+
+I have seen some messages in this mailing list on debug reason MOE=0xc, but
+I did not get any of them when I used jtag_speed 5 or 20. I only got those
+messages when I used jtag_speed 0. And, along with that, the jtag device ID
+reported with speed 0 was wrong.
+
+I have attached the complete log with this mail, but included appropriate
+snippets in the mail text.
+
+I get a DBGACK warning and &quot;debug re-entry&quot; error at:
+
+Debug:   100 295 gdb_server.c:2205 gdb_init(): gdb service for target
+arm926ejs at port 3333
+Warning: 101 295 tcl_server.c:178 tcl_init(): no tcl port specified, using
+default port 6666
+Warning: 102 297 arm7_9_common.c:744 arm7_9_poll(): DBGACK set while target
+was in unknown state. Reset or   initialize target.
+Debug:   103 297 embeddedice.c:401 embeddedice_write_reg(): 0: 0x00000005
+Debug:   104 297 embeddedice.c:401 embeddedice_write_reg(): 0: 0x00000005
+Error:   105 301 arm926ejs.c:352 arm926ejs_examine_debug_reason(): BUG:
+debug re-entry from system speed     access shouldn't be handled here
+
+Then I get an &quot;armv4_5_mode_to_number(): invalid mode value encountered&quot;
+error for cpsr value at:
+
+Debug:   184 1149 target.c:3126 target_handle_event(): event: 21 reset-end -
+no action
+Debug:   185 1149 ft2232.c:1045 olimex_jtag_reset(): trst: 0, srst: 1,
+high_output: 0x0b, high_direction:    0x0f
+Debug:   186 1401 ft2232.c:1045 olimex_jtag_reset(): trst: 0, srst: 0,
+high_output: 0x09, high_direction:    0x0f
+Debug:   188 1804 embeddedice.c:401 embeddedice_write_reg(): 0: 0x00000005
+Debug:   189 1804 embeddedice.c:401 embeddedice_write_reg(): 0: 0x00000005
+Debug:   190 1808 arm926ejs.c:324 arm926ejs_examine_debug_reason(): vector
+catch breakpoint
+Debug:   191 1808 arm7_9_common.c:1156 arm7_9_debug_entry(): target entered
+debug from Thumb state
+Debug:   192 1814 arm7_9_common.c:1160 arm7_9_debug_entry(): r0_thumb:
+0x00000000, pc_thumb: 0xfffffff4
+Error:   193 1826 armv4_5.h:117 armv4_5_mode_to_number(): invalid mode value
+encountered
+Error:   194 1826 arm7_9_common.c:1192 arm7_9_debug_entry(): cpsr contains
+invalid mode value -              communication failure
+Debug:   196 1828 command.c:91 script_command(): script_command - sleep
+
+Then finally, I get an error is when I try to load a program into RAM using
+gdb. After starting openocd, I start gdb as
+
+$ arm-elf-gdb ramtst.elf
+GNU gdb 6.8
+Copyright (C) 2008 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later &lt;<A HREF="http://gnu.org/licenses/gpl.html">http://gnu.org/licenses/gpl.html</A>
+&gt;<i>
+</I>This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type &quot;show copying&quot;
+and &quot;show warranty&quot; for details.
+This GDB was configured as &quot;--host=i686-pc-linux-gnu --target=arm-elf&quot;...
+/home/rahulb/.gdbinit:3: Error in sourced command file:
+No symbol table is loaded.  Use the &quot;file&quot; command.
+0x00000000 in ?? ()
+The target is assumed to be little endian
+The target may not be able to correctly handle a memory-write-packet-size
+of 1024 bytes. Change the packet size? (y or n) [answered Y; input not from
+terminal]
+(gdb) load
+Loading section .text, size 0x33560 lma 0xc0100000
+Load failed
+(gdb) q
+The program is running.  Exit anyway? (y or n) y
+
+This is trying to load the program at RAM address 0xC0100000. This is the 64
+MB external SDRAM mapped at 0xC0000000. The error seems to be coming from
+incorrect x-packets used for binary download, or from incorrect
+implementation of the protocol in openocd:
+
+Debug:   260 33679 gdb_server.c:2031 gdb_input_inner(): received packet:
+'Xc0100000,0:&lt;binary-data&gt;'
+Debug:   261 33679 gdb_server.c:2031 gdb_input_inner(): received packet:
+'X0,3e0:&lt;binary-data&gt;'
+
+Maybe the last line should have been the following, but I am not sure.
+
+Debug:   261 33679 gdb_server.c:2031 gdb_input_inner(): received packet:
+'Xc0100000,3e0:&lt;binary-data&gt;'
+
+It is possible that the first line in X-packet protocol should set base
+address, and then the latter lines should only refer to offsets from that
+base.
+
+Can anyone point me in the right direction for help/hints on solving these
+errors?
+
+I also have an IAR J-Link usb dongle that I used with this board and got
+similar results with the only difference that I was able to use jtag_speed 0
+and jlink did not complain when openocd tried to write to address
+0x00000000, and it kept getting subsequent packets from gdb with
+X3e0,3e0:... , X7C0,3e0:....., . This made me think that maybe this is how
+gdb uses X-packets to break down big binary files.
+
+Thanks,
+Rahul.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/9eec6840/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/9eec6840/attachment.html</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: openocd_imx21_log.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/9eec6840/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/9eec6840/attachment.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003867.html">[Openocd-development] Updated User Manual (was: Patch to remove	deprecated commands)
+</A></li>
+	<LI>Next message: <A HREF="003876.html">[Openocd-development] i.MX21+OpenOCD+gdb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3875">[ date ]</a>
+              <a href="thread.html#3875">[ thread ]</a>
+              <a href="subject.html#3875">[ subject ]</a>
+              <a href="author.html#3875">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

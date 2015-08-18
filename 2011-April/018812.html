@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtag: clarify jtag-&gt;init() and	jtag-&gt;quit() definitions
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%3A%20clarify%20jtag-%3Einit%28%29%20and%0A%09jtag-%3Equit%28%29%20definitions&In-Reply-To=%3C1302724817-25102-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018811.html">
+   <LINK REL="Next"  HREF="018816.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtag: clarify jtag-&gt;init() and	jtag-&gt;quit() definitions</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%3A%20clarify%20jtag-%3Einit%28%29%20and%0A%09jtag-%3Equit%28%29%20definitions&In-Reply-To=%3C1302724817-25102-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] jtag: clarify jtag-&gt;init() and	jtag-&gt;quit() definitions">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Apr 13 22:00:17 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018811.html">[Openocd-development] [PATCH 1/3] Add preliminary support for Freescale iMX53
+</A></li>
+        <LI>Next message: <A HREF="018816.html">[Openocd-development] [PATCH] RTOS Thread awareness support wip
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18812">[ date ]</a>
+              <a href="thread.html#18812">[ thread ]</a>
+              <a href="subject.html#18812">[ subject ]</a>
+              <a href="author.html#18812">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>only set jtag global pointer if jtag-&gt;init() succeeds. Less code,
+more clear what the rules are.
+
+Fix nit that error value from init() was not propagated unmodified.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/jtag/core.c      |   13 +++++++------
+ src/jtag/interface.h |    9 ++++++++-
+ 2 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 68c1257..4c5d37a 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1368,12 +1368,13 @@ int adapter_init(struct command_context *cmd_ctx)
+ 		return ERROR_JTAG_INVALID_INTERFACE;
+ 	}
+ 
+-	jtag = jtag_interface;
+-	if (jtag_interface-&gt;init() != ERROR_OK)
++	int retval;
++	retval = jtag_interface-&gt;init();
++	if (retval != ERROR_OK)
+ 	{
+-		jtag = NULL;
+-		return ERROR_JTAG_INIT_FAILED;
++		return retval;
+ 	}
++	jtag = jtag_interface;
+ 
+ 	/* LEGACY SUPPORT ... adapter drivers  must declare what
+ 	 * transports they allow.  Until they all do so, assume
+@@ -1383,7 +1384,7 @@ int adapter_init(struct command_context *cmd_ctx)
+ 		LOG_ERROR(&quot;Adapter driver '%s' did not declare &quot;
+ 			&quot;which transports it allows; assuming &quot;
+ 			&quot;JTAG-only&quot;, jtag-&gt;name);
+-		int retval = allow_transports(cmd_ctx, jtag_only);
++		retval = allow_transports(cmd_ctx, jtag_only);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 	}
+@@ -1391,7 +1392,7 @@ int adapter_init(struct command_context *cmd_ctx)
+ 	int requested_khz = jtag_get_speed_khz();
+ 	int actual_khz = requested_khz;
+ 	int jtag_speed_var;
+-	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	retval = jtag_get_speed(&amp;jtag_speed_var);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 	retval = jtag_get_speed_readable(&amp;actual_khz);
+diff --git a/src/jtag/interface.h b/src/jtag/interface.h
+index 958af8f..1059436 100644
+--- a/src/jtag/interface.h
++++ b/src/jtag/interface.h
+@@ -231,8 +231,14 @@ struct jtag_interface {
+ 	const struct command_registration *commands;
+ 
+ 	/**
+-	 * Interface driver must initalize any resources and connect to a
++	 * Interface driver must initialize any resources and connect to a
+ 	 * JTAG device.
++	 *
++	 * quit() is invoked if and only if init() succeeds. quit() is always
++	 * invoked if init() succeeds. Same as malloc() + free(). Always
++	 * invoke free() if malloc() succeeds and do not invoke free()
++	 * otherwise.
++	 *
+ 	 * @returns ERROR_OK on success, or an error code on failure.
+ 	 */
+ 	int (*init)(void);
+@@ -240,6 +246,7 @@ struct jtag_interface {
+ 	/**
+ 	 * Interface driver must tear down all resources and disconnect from
+ 	 * the JTAG device.
++	 *
+ 	 * @returns ERROR_OK on success, or an error code on failure.
+ 	 */
+ 	int (*quit)(void);
+-- 
+1.7.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018811.html">[Openocd-development] [PATCH 1/3] Add preliminary support for Freescale iMX53
+</A></li>
+	<LI>Next message: <A HREF="018816.html">[Openocd-development] [PATCH] RTOS Thread awareness support wip
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18812">[ date ]</a>
+              <a href="thread.html#18812">[ thread ]</a>
+              <a href="subject.html#18812">[ subject ]</a>
+              <a href="author.html#18812">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

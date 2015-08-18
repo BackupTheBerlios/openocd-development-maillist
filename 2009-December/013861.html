@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] 0.4.0-rc1 - cannot do &quot;flash	erase_address&quot;
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%200.4.0-rc1%20-%20cannot%20do%20%22flash%0A%09erase_address%22&In-Reply-To=%3C4B3920BE.9000802%40op.pl%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013820.html">
+   <LINK REL="Next"  HREF="013873.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] 0.4.0-rc1 - cannot do &quot;flash	erase_address&quot;</H1>
+    <B>Freddie Chopin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%200.4.0-rc1%20-%20cannot%20do%20%22flash%0A%09erase_address%22&In-Reply-To=%3C4B3920BE.9000802%40op.pl%3E"
+       TITLE="[Openocd-development] 0.4.0-rc1 - cannot do &quot;flash	erase_address&quot;">freddie_chopin at op.pl
+       </A><BR>
+    <I>Mon Dec 28 22:18:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013820.html">[Openocd-development] 0.4.0-rc1 - cannot do &quot;flash	erase_address&quot;
+</A></li>
+        <LI>Next message: <A HREF="013873.html">[Openocd-development] 0.4.0-rc1 - cannot do &quot;flash	erase_address&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13861">[ date ]</a>
+              <a href="thread.html#13861">[ thread ]</a>
+              <a href="subject.html#13861">[ subject ]</a>
+              <a href="author.html#13861">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 2009-12-24 21:55, David Brownell wrote:
+&gt;<i> On Thursday 24 December 2009, Freddie Chopin wrote:
+</I>&gt;&gt;<i> On 2009-12-24 08:34, David Brownell wrote:
+</I>&gt;&gt;&gt;<i> That's a bunch of very off-topic messages for what looks
+</I>&gt;&gt;&gt;<i> more like &quot;you mis-spelled 'address'&quot; ...
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Ups [; Isn't there a way to thorow something like &quot;unknown sub-command&quot;?
+</I>&gt;<i>
+</I>&gt;<i> Surely.  &quot;Someone&quot; would need to write that though.
+</I>&gt;<i>
+</I>&gt;<i> I think it should happen before 0.4 finalizes ...
+</I>
+The source of that mess is (probably...):
+
+&gt;<i> # All commands are registered with an 'ocd_' prefix, while the &quot;real&quot;
+</I>&gt;<i> # command is a wrapper that calls this function.  Its primary purpose is
+</I>&gt;<i> # to discard 'handler' command output,
+</I>&gt;<i> proc ocd_bouncer {name args} {
+</I>&gt;<i> 	set cmd [format &quot;ocd_%s&quot; $name]
+</I>&gt;<i> 	set type [eval ocd_command type $cmd $args]
+</I>&gt;<i> 	if {$type == &quot;native&quot;} {
+</I>&gt;<i> 		return [eval $cmd $args]
+</I>&gt;<i> 	} else {if {$type == &quot;simple&quot;} {
+</I>&gt;<i> 		if {[catch {eval $cmd $args}] == 0} {
+</I>&gt;<i> 			return &quot;&quot;
+</I>&gt;<i> 		} else {
+</I>&gt;<i> 			set errmsg &quot;Command handler execution failed&quot;
+</I>&gt;<i> 		}
+</I>&gt;<i> 	} else {if {$type == &quot;group&quot;} {
+</I>&gt;<i> 		catch {eval ocd_usage $name $args}
+</I>&gt;<i> 		set errmsg [format &quot;%s: command requires more arguments&quot; \
+</I>&gt;<i> 			[concat $name &quot; &quot; $args]]
+</I>&gt;<i> 	} else {
+</I>&gt;<i> 		set errmsg [format &quot;Unknown command type: %s&quot; $type]
+</I>&gt;<i> 	}}}
+</I>&gt;<i> 	return -code error $errmsg
+</I>&gt;<i> }
+</I>
+from src/helper/startup.tcl
+
+I think that something is seriously wrong with it, but... I don't know 
+how to fix that
+
+When the command is &quot;native&quot; its executed, when the command is &quot;simple&quot; 
+this procedure tries to execute it, but when the command is &quot;group&quot; its 
+only passed through ocd_usage (and not executed probably). There is no 
+case of &quot;unknown command&quot; and failure of &quot;group&quot; type is always because 
+of &quot;too few parameters&quot;.
+
+&quot;usage&quot; for &quot;group&quot; always returns something - for known and unknown 
+commands the output is pointless as:
+
+&gt;&gt;<i> usage reset halt
+</I>&gt;<i> add_usage_text &lt;command&gt; [...] &lt;usage_text&gt;]
+</I>&gt;<i> usage [&lt;command&gt; ...]
+</I>&gt;<i> Command handler execution failed
+</I>&gt;<i> in procedure 'usage' called at file &quot;command.c&quot;, line 637
+</I>&gt;<i> called at file &quot;command.c&quot;, line 352
+</I>&gt;&gt;<i> usage reset blah
+</I>&gt;<i> add_usage_text &lt;command&gt; [...] &lt;usage_text&gt;]
+</I>&gt;<i> usage [&lt;command&gt; ...]
+</I>&gt;<i> Command handler execution failed
+</I>&gt;<i> in procedure 'usage' called at file &quot;command.c&quot;, line 637
+</I>&gt;<i> called at file &quot;command.c&quot;, line 352
+</I>
+I'd like to help, but I don't know how - I suppose that some deeper 
+knowledge of OpenOCD is required here.
+
+4\/3!!
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013820.html">[Openocd-development] 0.4.0-rc1 - cannot do &quot;flash	erase_address&quot;
+</A></li>
+	<LI>Next message: <A HREF="013873.html">[Openocd-development] 0.4.0-rc1 - cannot do &quot;flash	erase_address&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13861">[ date ]</a>
+              <a href="thread.html#13861">[ thread ]</a>
+              <a href="subject.html#13861">[ subject ]</a>
+              <a href="author.html#13861">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

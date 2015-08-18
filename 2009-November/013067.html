@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/5] jtag: avoid using interp global	variable
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/5%5D%20jtag%3A%20avoid%20using%20interp%20global%0A%09variable&In-Reply-To=%3C1259550185-25916-2-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013064.html">
+   <LINK REL="Next"  HREF="013065.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/5] jtag: avoid using interp global	variable</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/5%5D%20jtag%3A%20avoid%20using%20interp%20global%0A%09variable&In-Reply-To=%3C1259550185-25916-2-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 1/5] jtag: avoid using interp global	variable">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Nov 30 04:03:01 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013064.html">[Openocd-development] [PATCH 0/5] remove interp global variable
+</A></li>
+        <LI>Next message: <A HREF="013065.html">[Openocd-development] [PATCH 2/5] target: avoid using interp global	variable
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13067">[ date ]</a>
+              <a href="thread.html#13067">[ thread ]</a>
+              <a href="subject.html#13067">[ subject ]</a>
+              <a href="author.html#13067">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Adds 'interp' field to jtag_tap_event_action structure to avoid
+using the global variable of same name.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/jtag/jtag.h |   11 ++++++++---
+ src/jtag/tcl.c  |    8 +++++---
+ 2 files changed, 13 insertions(+), 6 deletions(-)
+
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index d4fafa3..ee96775 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -209,9 +209,14 @@ enum jtag_event {
+ 
+ struct jtag_tap_event_action
+ {
+-	enum jtag_event		event;
+-	Jim_Obj*                 body;
+-	struct jtag_tap_event_action* next;
++	/// The event for which this action will be triggered.
++	enum jtag_event event;
++	/// The interpreter to use for evaluating the @c body.
++	Jim_Interp *interp;
++	/// Contains a script to 'eval' when the @c event is triggered.
++	Jim_Obj *body;
++	// next action in linked list
++	struct jtag_tap_event_action *next;
+ };
+ 
+ /**
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 7ec7fa4..68bb21e 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -341,8 +341,9 @@ static int jtag_tap_configure_event(Jim_GetOptInfo *goi, struct jtag_tap * tap)
+ 		if (!found)
+ 			jteap = calloc(1, sizeof(*jteap));
+ 		else if (NULL != jteap-&gt;body)
+-			Jim_DecrRefCount(interp, jteap-&gt;body);
++			Jim_DecrRefCount(goi-&gt;interp, jteap-&gt;body);
+ 
++		jteap-&gt;interp = goi-&gt;interp;
+ 		jteap-&gt;event = n-&gt;value;
+ 
+ 		Jim_Obj *o;
+@@ -359,6 +360,7 @@ static int jtag_tap_configure_event(Jim_GetOptInfo *goi, struct jtag_tap * tap)
+ 	}
+ 	else if (found)
+ 	{
++		jteap-&gt;interp = goi-&gt;interp;
+ 		Jim_SetResult(goi-&gt;interp,
+ 			Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
+ 	}
+@@ -616,9 +618,9 @@ static void jtag_tap_handle_event(struct jtag_tap *tap, enum jtag_event e)
+ 				tap-&gt;dotted_name, e, nvp-&gt;name,
+ 				Jim_GetString(jteap-&gt;body, NULL));
+ 
+-		if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK)
++		if (Jim_EvalObj(jteap-&gt;interp, jteap-&gt;body) != JIM_OK)
+ 		{
+-			Jim_PrintErrorMessage(interp);
++			Jim_PrintErrorMessage(jteap-&gt;interp);
+ 			continue;
+ 		}
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013064.html">[Openocd-development] [PATCH 0/5] remove interp global variable
+</A></li>
+	<LI>Next message: <A HREF="013065.html">[Openocd-development] [PATCH 2/5] target: avoid using interp global	variable
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13067">[ date ]</a>
+              <a href="thread.html#13067">[ thread ]</a>
+              <a href="subject.html#13067">[ subject ]</a>
+              <a href="author.html#13067">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,415 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/4] produce stack traces on segfaults
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/4%5D%20produce%20stack%20traces%20on%20segfaults&In-Reply-To=%3C1259579057-11547-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013105.html">
+   <LINK REL="Next"  HREF="013104.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/4] produce stack traces on segfaults</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/4%5D%20produce%20stack%20traces%20on%20segfaults&In-Reply-To=%3C1259579057-11547-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/4] produce stack traces on segfaults">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Nov 30 12:04:15 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013105.html">[Openocd-development] [PATCH 1/4] add 'module' helper module
+</A></li>
+        <LI>Next message: <A HREF="013104.html">[Openocd-development] [PATCH 2/4] produce stack traces on	segfaults
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13082">[ date ]</a>
+              <a href="thread.html#13082">[ thread ]</a>
+              <a href="subject.html#13082">[ subject ]</a>
+              <a href="author.html#13082">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Registers a signal handler to catch SIGSEGV in order to display the
+stack where the program crashed.
+
+Adds the 'stack' helper module with generic stack trace routines that
+can be used to implement better debugging messages.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/Makefile.am |    2 +
+ src/helper/stack.c     |  173 ++++++++++++++++++++++++++++++++++++++++++++++++
+ src/helper/stack.h     |  101 ++++++++++++++++++++++++++++
+ src/openocd.c          |   10 ++--
+ 4 files changed, 281 insertions(+), 5 deletions(-)
+ create mode 100644 src/helper/stack.c
+ create mode 100644 src/helper/stack.h
+
+diff --git a/src/helper/Makefile.am b/src/helper/Makefile.am
+index 13bcbd1..51d5550 100644
+--- a/src/helper/Makefile.am
++++ b/src/helper/Makefile.am
+@@ -15,6 +15,7 @@ endif
+ 
+ 
+ libhelper_la_SOURCES = \
++	stack.c \
+ 	binarybuffer.c \
+ 	$(CONFIGFILES) \
+ 	configuration.c \
+@@ -49,6 +50,7 @@ noinst_HEADERS = \
+ 	fileio.h \
+ 	jim.h \
+ 	jim-eventloop.h \
++	stack.h \
+ 	system.h \
+ 	bin2char.c
+ 
+diff --git a/src/helper/stack.c b/src/helper/stack.c
+new file mode 100644
+index 0000000..7f31358
+--- /dev/null
++++ b/src/helper/stack.c
+@@ -0,0 +1,173 @@
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++#include &quot;stack.h&quot;
++#include &quot;module.h&quot;
++#include &quot;log.h&quot;
++
++#include &lt;signal.h&gt;
++#include &lt;execinfo.h&gt;
++
++
++static void stack_dump_symbols_free(struct stack_dump_state *dump)
++{
++	if (NULL == dump-&gt;symbols)
++		return;
++
++	unsigned count = dump-&gt;available;
++	for (unsigned i = 0; NULL != dump-&gt;symbols[i] &amp;&amp; i &lt; count; i++)
++		module_symbol_free(dump-&gt;symbols[i]);
++	free((void *)dump-&gt;symbols);
++	dump-&gt;symbols = NULL;
++}
++int stack_dump_symbols_fill(struct stack_dump_state *dump)
++{
++	if (NULL != dump-&gt;symbols)
++		return 0;
++
++	unsigned count = dump-&gt;available;
++	struct module_symbol **symbols = calloc(count, sizeof(*symbols));
++	if (NULL == symbols)
++		return -ENOMEM;
++
++	dump-&gt;symbols = symbols;
++
++	for (unsigned i = 0; i &lt; count; i++)
++	{
++		void *addr = dump-&gt;raw[i];
++		symbols[i] = module_symbol_by_addr(addr);
++		if (NULL == symbols[i])
++			return -ENOMEM;
++	}
++
++	return 0;
++}
++
++//#define STACK_SIMPLE_STRINGS
++
++static void stack_dump_strings_free(struct stack_dump_state *dump)
++{
++	if (NULL == dump-&gt;stack)
++		return;
++
++#ifndef STACK_SIMPLE_STRINGS
++	unsigned count = dump-&gt;available;
++	for (unsigned i = 0; i &lt; count; i++)
++		free(dump-&gt;stack[i]);
++#endif
++
++	free((void *)dump-&gt;stack);
++}
++int stack_dump_strings_fill(struct stack_dump_state *dump)
++{
++	if (NULL != dump-&gt;stack)
++		return 0;
++
++#ifdef STACK_SIMPLE_STRINGS
++	dump-&gt;stack = backtrace_symbols(dump-&gt;raw, dump-&gt;available);
++	return dump-&gt;stack ? 0 : -ENOMEM;
++#else
++	int retval = stack_dump_symbols_fill(dump);
++	if (0 != retval)
++		return retval;
++
++	unsigned count = dump-&gt;available;
++	char **stack = calloc(count, sizeof(char *));
++	if (NULL == stack)
++		return -ENOMEM;
++
++	dump-&gt;stack = stack;
++
++	for (unsigned i = 0; i &lt; count; i++)
++	{
++		struct module_symbol *sym = dump-&gt;symbols[i];
++		stack[i] = alloc_printf(&quot;[0x%8.8x] %s+0x%2.2zu &quot;
++				&quot;soname=%s (base=%8.8x)&quot;,
++				sym-&gt;sym_addr, sym-&gt;sym_name, sym-&gt;sym_offset,
++				sym-&gt;so_name, sym-&gt;so_addr); 
++		if (NULL == stack[i])
++			return -ENOMEM;
++	}
++
++	return 0;
++#endif
++}
++
++void stack_dump_to_fd(struct stack_dump_state *dump, int fd)
++{
++	backtrace_symbols_fd(dump-&gt;raw, dump-&gt;available, fd);
++}
++
++int stack_fd_dumper(struct stack_dump_state *dump, intptr_t data)
++{
++	stack_dump_to_fd(dump, (int)data);
++	return 0;
++}
++
++int stack_dump(unsigned depth, stack_dumper_t dumper, intptr_t data)
++{
++	void *stack[depth];
++	unsigned nsyms = backtrace(stack, depth);
++
++	struct stack_dump_state state = {
++		.raw = stack,
++		.available = nsyms,
++		.requested = depth,
++	};
++	int retval = (*dumper)(&amp;state, data);
++
++	// stack_dump_fill_symbols() list may need tear-down
++	stack_dump_strings_free(&amp;state);
++	stack_dump_symbols_free(&amp;state);
++
++	return retval;
++}
++
++static void stack_segfault_sighandler(int sig)
++{
++	stack_dump(10, &amp;stack_fd_dumper, 2);
++	exit(1);
++}
++
++int stack_trace_segfaults(void)
++{
++	sighandler_t old = signal(SIGSEGV, &amp;stack_segfault_sighandler);
++	if (SIG_ERR == old)
++		return -errno;
++	return 0;
++}
++
++
++struct stack_walk_dump_state {
++	stack_walker_t walker;
++	intptr_t data;
++};
++
++static int stack_walk_dumper(struct stack_dump_state *dump, intptr_t data)
++{
++	int retval = stack_dump_strings_fill(dump);
++	if (0 != retval)
++		return retval;
++
++	struct stack_walk_dump_state *walk;
++	walk = (struct stack_walk_dump_state *)data;
++
++	struct stack_walk_state state = { .dump = dump };
++	for (unsigned i = 0; i &lt; dump-&gt;available; i++)
++	{
++		state.level = i;
++		state.frame = dump-&gt;stack[i];
++		retval = (*walk-&gt;walker)(&amp;state, walk-&gt;data);
++		if (0 != retval)
++			return retval;
++	}
++	return 0;
++}
++int stack_walk(unsigned depth, stack_walker_t walker, intptr_t data)
++{
++	struct stack_walk_dump_state walk = {
++		.walker = walker,
++		.data = data,
++	};
++	return stack_dump(depth, &amp;stack_walk_dumper, (intptr_t)&amp;walk);
++}
+diff --git a/src/helper/stack.h b/src/helper/stack.h
+new file mode 100644
+index 0000000..e1668d9
+--- /dev/null
++++ b/src/helper/stack.h
+@@ -0,0 +1,101 @@
++#ifndef HELPER_STACK_H
++#define HELPER_STACK_H
++
++#include &quot;types.h&quot;
++
++struct module_symbol;
++
++struct stack_dump_state {
++	/**
++	 * The list of raw stack frames, which may be dumped to a file
++	 * descriptor with stack_dump_to_fd().  The list will contain
++	 * @c available entries, each is the address of one stack frame.
++	 */
++	void *const *raw;
++	/**
++	 * The list of stack frames as module_symbol structures,
++	 * produced by calling stack_dump_symbols().
++	 */
++	struct module_symbol *const *symbols;
++	/**
++	 * The list of stack frames as strings, produced by calling
++	 * stack_dump_fill().  Calls stack_dump_symbols(), if that
++	 * routine has not called prior to being called for this dump.
++	 */
++	char *const *stack;
++
++	/// number of frames produced in @c stack
++	unsigned available;
++
++	/// number of frames requested
++	unsigned requested;
++};
++
++/// The callback used with stack_dump().
++typedef int (*stack_dumper_t)(struct stack_dump_state *dump, intptr_t data);
++
++struct stack_walk_state {
++	/// the stack dump
++	struct stack_dump_state *dump;
++
++	/// current level (out of @c available)
++	unsigned level;
++	/// string with current frame information
++	const char *frame;
++};
++
++/// The callback used with stack_walk().
++typedef int (*stack_walker_t)(struct stack_walk_state *walk, intptr_t data);
++
++/**
++ * Provide stack dumps when a segfault occurs.
++ * @return On success, returns 0; otherwise, an error code.
++ */
++int stack_trace_segfaults(void);
++
++/**
++ * Produces a backtraces for debugging or crashs, passing a new
++ * stack_dump_state to the provided callback function.
++ *
++ * See <A HREF="http://www.gnu.org/software/libc/manual/html_node/Backtraces.html">http://www.gnu.org/software/libc/manual/html_node/Backtraces.html</A>
++ * for more information about these glibc functions.
++ *
++ * @param depth The depth of the stack trace to produce.
++ * @param dumper The callback function that will receive the stack_dump_state.
++ * @param data Private data that can be used by the dumper callback.
++ * @returns Upon success, returns 0; otherwise, the error.
++ */
++int stack_dump(unsigned depth, stack_dumper_t dumper, intptr_t data);
++
++/**
++ * Writes a stack dump to the given file descriptor.
++ * @param dump The stack dump provided to a stack_dumper_t call back.
++ * @param fd The file descriptor to which the stack frame should be written.
++ */
++void stack_dump_to_fd(struct stack_dump_state *dump, int fd);
++
++/**
++ * Fill a stack dump with module_symbol instances, which allows
++ * callbacks to provide more information that available through other
++ * means.
++ */
++int stack_dump_fill_symbols(struct stack_dump_state *dump);
++
++/**
++ * Fill a stack dump with string versions.  This uses malloc, so it is
++ * not safe to call in some contexts (e.g. signal handlers).
++ * @returns Upon success, returns 0; otherwise, the error.
++ */
++int stack_dump_fill_strings(struct stack_dump_state *dump);
++
++
++/**
++ * Pass a stack_walk_state for each level of the stack to the @c walker.
++ * @param depth The depth of the stack trace to produce.
++ * @param walker The callback function that will receive the stack_walk_state.
++ * @param data Private data that can be used by the walker callback.
++ * @returns Upon success, returns 0; otherwise, the error.
++ */
++int stack_walk(unsigned depth, stack_walker_t walker, intptr_t data);
++
++#endif // HELPER_STACK_H
+diff --git a/src/openocd.c b/src/openocd.c
+index 73a24dd..870d905 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -29,6 +29,7 @@
+ #endif
+ 
+ #include &quot;openocd.h&quot;
++#include &quot;stack.h&quot;
+ #include &quot;jtag.h&quot;
+ #include &quot;configuration.h&quot;
+ #include &quot;xsvf.h&quot;
+@@ -246,12 +247,11 @@ void openocd_sleep_postlude(void)
+  * application will have it's own implementation of main(). */
+ int openocd_main(int argc, char *argv[])
+ {
+-	int ret;
+-
+-	/* initialize commandline interface */
+-	struct command_context *cmd_ctx;
++	int ret = stack_trace_segfaults();
++	if (ERROR_OK != ret)
++		return EXIT_FAILURE;
+ 
+-	cmd_ctx = setup_command_handler();
++	struct command_context *cmd_ctx = setup_command_handler();
+ 
+ #if BUILD_IOUTIL
+ 	if (ioutil_init(cmd_ctx) != ERROR_OK)
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013105.html">[Openocd-development] [PATCH 1/4] add 'module' helper module
+</A></li>
+	<LI>Next message: <A HREF="013104.html">[Openocd-development] [PATCH 2/4] produce stack traces on	segfaults
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13082">[ date ]</a>
+              <a href="thread.html#13082">[ thread ]</a>
+              <a href="subject.html#13082">[ subject ]</a>
+              <a href="author.html#13082">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

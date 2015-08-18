@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Convert &quot;script&quot; to jim command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Convert%20%22script%22%20to%20jim%20command&In-Reply-To=%3C200807132153.m6DLr7EW016394%40hades%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002536.html">
+   <LINK REL="Next"  HREF="002546.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Convert &quot;script&quot; to jim command</H1>
+    <B>Charles Hardin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Convert%20%22script%22%20to%20jim%20command&In-Reply-To=%3C200807132153.m6DLr7EW016394%40hades%3E"
+       TITLE="[Openocd-development] [PATCH] Convert &quot;script&quot; to jim command">ckhardin at gmail.com
+       </A><BR>
+    <I>Sun Jul 13 23:53:07 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002536.html">[Openocd-development] [PATCH] using bin2char and adding srcdir	for startup.tcl
+</A></li>
+        <LI>Next message: <A HREF="002546.html">[Openocd-development] stm32 - cortex -problems
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2545">[ date ]</a>
+              <a href="thread.html#2545">[ thread ]</a>
+              <a href="subject.html#2545">[ subject ]</a>
+              <a href="author.html#2545">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This evaluates the file at the correct level for the interpreter and the
+sets and all the globals are then done as expected.
+
+added a const to find_file function to avoid typecasting
+
+Index: src/helper/configuration.c
+===================================================================
+--- src/helper/configuration.c	(revision 805)
++++ src/helper/configuration.c	(working copy)
+@@ -55,7 +55,7 @@
+ }
+ 
+ /* return full path or NULL according to search rules */
+-char *find_file(char *file)
++char *find_file(const char *file)
+ {
+ 	FILE *fp = NULL;
+ 	char **search_dirs = script_search_dirs;
+Index: src/helper/configuration.h
+===================================================================
+--- src/helper/configuration.h	(revision 805)
++++ src/helper/configuration.h	(working copy)
+@@ -29,7 +29,7 @@
+ extern void add_script_search_dir (const char *dir);
+ extern int configuration_output_handler(struct command_context_s *context, const char* line);
+ extern FILE *open_file_from_path (char *file, char *mode);
+-extern char *find_file(char *name);
++extern char *find_file(const char *name);
+ int add_default_dirs(void);
+ 
+ #endif /* CONFIGURATION_H */
+Index: src/openocd.c
+===================================================================
+--- src/openocd.c	(revision 805)
++++ src/openocd.c	(working copy)
+@@ -595,7 +595,7 @@
+ {
+ 	if (argc != 2)
+ 		return JIM_ERR;
+-	char *file = (char*)Jim_GetString(argv[1], NULL);
++	const char *file = Jim_GetString(argv[1], NULL);
+ 	char *full_path = find_file(file);
+ 	if (full_path == NULL)
+ 		return JIM_ERR;
+@@ -615,6 +615,36 @@
+ 	return JIM_OK;
+ }
+ 
++static int Jim_Command_script(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	int retval;
++	const char *file;
++	char *full_path;
++
++	if (argc != 2)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;file name missing&quot;);
++		return JIM_ERR;
++	}
++
++	/* Run a tcl script file */
++	file = Jim_GetString(argv[1], NULL);
++	full_path = find_file(file);
++	if (full_path == NULL)
++	{
++		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++		Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;script: could not open file&quot;, file, NULL);
++		return JIM_ERR;
++	}
++	retval = Jim_EvalFile(interp, full_path);
++	free(full_path);
++	/* convert a return to ok */
++	if (retval == JIM_RETURN)
++		return JIM_OK;
++	return retval;
++}
++
++
+ static size_t openocd_jim_fwrite(const void *_ptr, size_t size, size_t n, void *cookie)
+ {
+ 	size_t nbytes;
+@@ -722,6 +752,7 @@
+ 	Jim_CreateCommand(interp, &quot;openocd_throw&quot;, Jim_Command_openocd_throw, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;find&quot;, Jim_Command_find, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;echo&quot;, Jim_Command_echo, NULL, NULL);
++	Jim_CreateCommand(interp, &quot;script&quot;, Jim_Command_script, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;mem2array&quot;, Jim_Command_mem2array, NULL, NULL );
+ 	Jim_CreateCommand(interp, &quot;array2mem&quot;, Jim_Command_array2mem, NULL, NULL );
+ 
+@@ -745,15 +776,6 @@
+ 	}
+ }
+ 
+-int handle_script_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	if (argc != 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	
+-	/* Run a tcl script file */
+-	return command_run_linef(cmd_ctx, &quot;source [find {%s}]&quot;, args[0]);
+-}
+-
+ command_context_t *setup_command_handler(void)
+ {
+ 	command_context_t *cmd_ctx;
+@@ -772,7 +794,6 @@
+ 	tcl_register_commands(cmd_ctx); /* tcl server commands */
+ 	log_register_commands(cmd_ctx);
+ 	jtag_register_commands(cmd_ctx);
+-	register_command(cmd_ctx, NULL, &quot;script&quot;, handle_script_command, COMMAND_ANY, &quot;execute commands from &lt;file&gt;&quot;);
+ 	xsvf_register_commands(cmd_ctx);
+ 	target_register_commands(cmd_ctx);
+ 	flash_register_commands(cmd_ctx);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002536.html">[Openocd-development] [PATCH] using bin2char and adding srcdir	for startup.tcl
+</A></li>
+	<LI>Next message: <A HREF="002546.html">[Openocd-development] stm32 - cortex -problems
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2545">[ date ]</a>
+              <a href="thread.html#2545">[ thread ]</a>
+              <a href="subject.html#2545">[ subject ]</a>
+              <a href="author.html#2545">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

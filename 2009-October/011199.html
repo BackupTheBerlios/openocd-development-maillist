@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] ADIv5 handling proposal
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ADIv5%20handling%20proposal&In-Reply-To=%3C4AD4AAAC.6090302%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011194.html">
+   <LINK REL="Next"  HREF="011201.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] ADIv5 handling proposal</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ADIv5%20handling%20proposal&In-Reply-To=%3C4AD4AAAC.6090302%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] ADIv5 handling proposal">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Tue Oct 13 18:28:28 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011194.html">[Openocd-development] ADIv5 handling proposal
+</A></li>
+        <LI>Next message: <A HREF="011201.html">[Openocd-development] ADIv5 handling proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11199">[ date ]</a>
+              <a href="thread.html#11199">[ thread ]</a>
+              <a href="subject.html#11199">[ subject ]</a>
+              <a href="author.html#11199">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Yauheni Kaliuta wrote:
+&gt;<i> Hi!
+</I>&gt;<i>
+</I>&gt;<i> On Tue, Oct 13, 2009 at 1:28 PM, Magnus Lundin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">lundin at mlu.mine.nu</A>&gt; wrote:
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Without looking deeply (lot of other work the coming weeks) I think this
+</I>&gt;&gt;<i> is good, but I would like it in a separate file(module). Called
+</I>&gt;&gt;<i> adiv5_component, adiv5_debug or coresight_component ??
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> So the adiv5 code talks to the MEMAP registers but does not handle the
+</I>&gt;&gt;<i> memory mapped components that are accessed through the the MEMAP. This
+</I>&gt;&gt;<i> includes the content of the ROMTABLE.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Hmm, I do not think so.
+</I>&gt;<i>
+</I>&gt;<i> 1) access to components is a part of the same ADIv5 specification IHI
+</I>&gt;<i> 0031A (shouldn't it be called then swjdp.c like it was?)
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>I will expand my ideas a bit more.
+
+No, IHI0031A does not contain the full component specification,  Arm ADI is
+the debug interface, and it does not specify the componets. The 
+specification contains
+some  information about the rom table structure and peripherial 
+identification registers.
+These are specified in the CoreSight Architecture Specification ARM IHI 
+0029B.
+The actual debug comonents are specified in the ArmV7A TRM and Cortex A8 
+TRM.
+
+The importatnt distinction is that debug components are accesed through 
+a memeory space,
+from a target level using memory reads and writes to the relevant memory 
+space/bus.
+These components can also be accesed from the processor core over the 
+memory bus.
+The Arm debug interface is just the set of DP and AP registers that the 
+(recommended)
+external access implementation uses for access to this memory range. SWJ 
+is the method
+to talk to DP and AP through JTAG or SW access.
+
+So the only target property that the component needs is the memory 
+read/write, for the
+components the rest of adiv5 is irrelevant. For a target that controls 
+the components using a
+swjdp interface it is also important to use the correct memap port if 
+there are several, and
+to make sure that direct memory access is used with no cache or virtual 
+addressing handling.
+
+Perhaps we need a taget level structure that describes a &quot;memory port&quot;, 
+something that can
+be read and written like memory.
+The attributes would be
+    * valid memory range
+    * Physical/Virtual memory addressing
+    * Cache handling
+    * Pointer to a &quot;memory port driver&quot; that does the actual
+For a Cortex A8 we would have one &quot;memory port&quot; for each SWJDP-MEMAP 
+port for
+direct physical access and one &quot;memory port&quot; for program memory that 
+uses virtual
+addressing whem MMU is active and also controls cache cleaning and 
+invalidation.
+We can have a separate &quot;memory port&quot; that accesses memory through the CPU.
+Of course twe some work on how to create a user/tcl interface for this 
+structure.
+ 
+ 
+&gt;<i> 2) if you want to have the layer independent of ap and components
+</I>&gt;<i> layers, then there should be no links in that direction, only from
+</I>&gt;<i> components towards DP. As a result the cpu layer, which uses both
+</I>&gt;<i> components and AP accesses should be aware of scanning, handling
+</I>&gt;<i> (storing/freeing...) scanning results and so on.
+</I>&gt;<i>   
+</I>Well, the target layer must be aware that scanning should be done and 
+that there are
+components handled by the &quot;coresight component&quot; layer.  Components do 
+their stuff
+by reading and writing to memory.
+
+Even if we let the componets use the swjdp structure to access memory, I 
+think
+it should be placed in a seperate file.
+
+Best regards,
+Magnus
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011194.html">[Openocd-development] ADIv5 handling proposal
+</A></li>
+	<LI>Next message: <A HREF="011201.html">[Openocd-development] ADIv5 handling proposal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11199">[ date ]</a>
+              <a href="thread.html#11199">[ thread ]</a>
+              <a href="subject.html#11199">[ subject ]</a>
+              <a href="author.html#11199">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

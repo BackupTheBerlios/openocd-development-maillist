@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] ft2232: Add support for selecting	device by bus address
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20ft2232%3A%20Add%20support%20for%20selecting%0A%09device%20by%20bus%20address&In-Reply-To=%3C1276388568-11356-2-git-send-email-stac%40solidgoldbomb.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015840.html">
+   <LINK REL="Next"  HREF="015863.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] ft2232: Add support for selecting	device by bus address</H1>
+    <B>Stacey Sheldon</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20ft2232%3A%20Add%20support%20for%20selecting%0A%09device%20by%20bus%20address&In-Reply-To=%3C1276388568-11356-2-git-send-email-stac%40solidgoldbomb.org%3E"
+       TITLE="[Openocd-development] [PATCH] ft2232: Add support for selecting	device by bus address">stac at solidgoldbomb.org
+       </A><BR>
+    <I>Sun Jun 13 02:22:48 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015840.html">[Openocd-development] Using multiple FLOSS-JTAGs at the same time
+</A></li>
+        <LI>Next message: <A HREF="015863.html">[Openocd-development] [PATCH] ft2232: Add support for selecting	device by bus address
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15841">[ date ]</a>
+              <a href="thread.html#15841">[ thread ]</a>
+              <a href="subject.html#15841">[ subject ]</a>
+              <a href="author.html#15841">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Some ft2232 based devices (such as the FLOSS-JTAG) do
+not include an on-board eeprom.  Without an eeprom, the
+devices do not have a unique serial number.  When you
+have multiple of these devices plugged into the same
+PC, openocd has no way to distinguish between them.
+
+This commit adds the 'ft2232_bus_addr' configuration
+command which allows the user to specify the fully
+qualified bus address of the ft2232 device.  The
+format of the address is the same as for the
+equivalent -s option in lsusb for selecting the device:
+  &lt;bus&gt;:&lt;devnum&gt;
+
+For example, if lsusb reports something like this:
+  Bus 002 Device 084: ID 0403:6010 Future Technology Devices
+                                   International, Ltd FT2232C
+                                   Dual USB-UART/FIFO IC
+
+Then this configuration command will select this device in
+openocd:
+  ft2232_bus_addr 002:084
+
+Hint: You can use 'lsusb -tv' to display your devices in
+tree format to find the device address associated with a
+specific port on a USB hub.
+
+Signed-off-by: Stacey Sheldon &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">stac at solidgoldbomb.org</A>&gt;
+---
+ src/jtag/drivers/ft2232.c |   75 ++++++++++++++++++++++++++++++++++++++++++++-
+ 1 files changed, 74 insertions(+), 1 deletions(-)
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 2ac410a..e866625 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -1,4 +1,7 @@
+ /***************************************************************************
++*   Copyright (C) 2010 by Stacey Sheldon                                  *
++*       Stacey Sheldon &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">stac at solidgoldbomb.org</A>&gt;                           *
++*                                                                         *
+ *   Copyright (C) 2009 by &#195;&#152;yvind Harboe                                   *
+ *	&#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;                               *
+ *                                                                         *
+@@ -153,6 +156,7 @@ static int ft2232_stableclocks(int num_cycles, struct jtag_command* cmd);
+ static char *       ft2232_device_desc_A = NULL;
+ static char*        ft2232_device_desc = NULL;
+ static char*        ft2232_serial  = NULL;
++static char*        ft2232_bus_addr = NULL;
+ static uint8_t		ft2232_latency = 2;
+ static unsigned		ft2232_max_tck = FTDI_2232C_MAX_TCK;
+ 
+@@ -2238,8 +2242,56 @@ static int ft2232_init_libftdi(uint16_t vid, uint16_t pid, int more, int* try_mo
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
++	if (ft2232_bus_addr)
++	{
++		struct ftdi_device_list *ftdi_list;
++		struct ftdi_device_list *ftdi_dev;
++
++		if (ftdi_usb_find_all(&amp;ftdic, &amp;ftdi_list, vid, pid) &lt; 0)
++		{
++			LOG_ERROR(&quot;unable to scan for FT2232 devices: %s&quot;, ftdic.error_str);
++			return ERROR_JTAG_INIT_FAILED;
++		}
++	
++		/* got the list of devices, look for a match */
++		for (ftdi_dev = ftdi_list; ftdi_dev != NULL; ftdi_dev = ftdi_dev-&gt;next)
++		{
++			char path[PATH_MAX + 1] = { 0 };
++
++			if(ftdi_dev-&gt;dev-&gt;bus)
++			{
++				strncat(path, ftdi_dev-&gt;dev-&gt;bus-&gt;dirname, sizeof(path)-1);
++				strncat(path, &quot;:&quot;, sizeof(path)-1);
++			}
++			strncat(path, ftdi_dev-&gt;dev-&gt;filename, sizeof(path)-1);
++			/* check if we have a match on bus address */
++			LOG_DEBUG (&quot;Considering ftdi device at bus addr: %s&quot;, path);
++		    	if (strcmp(ft2232_bus_addr, path) == 0)
++			{
++				/* found a match, break out */
++				LOG_DEBUG (&quot;Matched ftdi device at bus addr: %s&quot;, path);
++				break;
++			}
++		}
++
++		if (!ftdi_dev)
++		{
++			ftdi_list_free(&amp;ftdi_list);
++			LOG_ERROR(&quot;failed to match FT2232 device by addr: %s&quot;, ft2232_bus_addr);
++			return ERROR_JTAG_INIT_FAILED;
++		}
++
++		if (ftdi_usb_open_dev(&amp;ftdic, ftdi_dev-&gt;dev) &lt; 0)
++		{
++			ftdi_list_free(&amp;ftdi_list);
++			LOG_ERROR(&quot;unable to open ftdi device: %s&quot;, ftdic.error_str);
++			return ERROR_JTAG_INIT_FAILED;
++		}
++
++		ftdi_list_free(&amp;ftdi_list);
++	}
+ 	/* context, vendor id, product id */
+-	if (ftdi_usb_open_desc(&amp;ftdic, vid, pid, ft2232_device_desc,
++	else if (ftdi_usb_open_desc(&amp;ftdic, vid, pid, ft2232_device_desc,
+ 				ft2232_serial) &lt; 0)
+ 	{
+ 		if (more)
+@@ -3246,6 +3298,20 @@ COMMAND_HANDLER(ft2232_handle_latency_command)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(ft2232_handle_bus_addr_command)
++{
++	if (CMD_ARGC == 1)
++	{
++		ft2232_bus_addr = strdup(CMD_ARGV[0]);
++	}
++	else
++	{
++		LOG_ERROR(&quot;expected exactly one argument to ft2232_bus_addr &lt;bus:devnum&gt;&quot;);
++	}
++
++	return ERROR_OK;
++}
++
+ static int ft2232_stableclocks(int num_cycles, struct jtag_command* cmd)
+ {
+ 	int retval = 0;
+@@ -4343,6 +4409,13 @@ static const struct command_registration ft2232_command_handlers[] = {
+ 		.usage = &quot;(vid pid)* &quot;,
+ 	},
+ 	{
++		.name = &quot;ft2232_bus_addr&quot;,
++		.handler = &amp;ft2232_handle_bus_addr_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;the bus address of the FTDI FT2232 device&quot;,
++		.usage = &quot;bus:devnum&quot;,
++	},
++	{
+ 		.name = &quot;ft2232_latency&quot;,
+ 		.handler = &amp;ft2232_handle_latency_command,
+ 		.mode = COMMAND_CONFIG,
+-- 
+1.7.0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015840.html">[Openocd-development] Using multiple FLOSS-JTAGs at the same time
+</A></li>
+	<LI>Next message: <A HREF="015863.html">[Openocd-development] [PATCH] ft2232: Add support for selecting	device by bus address
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15841">[ date ]</a>
+              <a href="thread.html#15841">[ thread ]</a>
+              <a href="subject.html#15841">[ subject ]</a>
+              <a href="author.html#15841">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

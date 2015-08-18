@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Thumb disassembler
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Thumb%20disassembler&In-Reply-To=%3CEE382CDA-7D1E-49AD-87C9-5AC20B660049%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004467.html">
+   <LINK REL="Next"  HREF="004472.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Thumb disassembler</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Thumb%20disassembler&In-Reply-To=%3CEE382CDA-7D1E-49AD-87C9-5AC20B660049%40kc8apf.net%3E"
+       TITLE="[Openocd-development] Thumb disassembler">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Mon Jan 19 08:08:50 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004467.html">[Openocd-development] Thumb disassembler
+</A></li>
+        <LI>Next message: <A HREF="004472.html">[Openocd-development] ADuC702x flash plugin patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4468">[ date ]</a>
+              <a href="thread.html#4468">[ thread ]</a>
+              <a href="subject.html#4468">[ subject ]</a>
+              <a href="author.html#4468">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Commited in r1338.
+
+Rick
+
+
+On Jan 18, 2009, at 5:17 PM, Adam Dybkowski wrote:
+
+&gt;<i> Hi.
+</I>&gt;<i>
+</I>&gt;<i> I've tried to disassemble ARM7TDMI Thumb code with openocd (built from
+</I>&gt;<i> repository version 1337) using command:
+</I>&gt;<i>
+</I>&gt;<i> armv4_5 disassemble 0x1000 8 thumb
+</I>&gt;<i>
+</I>&gt;<i> and have not get a Thumb disassembly.
+</I>&gt;<i>
+</I>&gt;<i> I've checked this in file armv4_5.c and think it's a bug in
+</I>&gt;<i> handle_armv4_5_disassemble_command function. I'm attaching a solution,
+</I>&gt;<i> check if it's worth committing.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Index: src/target/armv4_5.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/target/armv4_5.c	(version 1337)
+</I>&gt;<i> +++ src/target/armv4_5.c	(working copy)
+</I>&gt;<i> @@ -404,6 +404,7 @@
+</I>&gt;<i>  	int i;
+</I>&gt;<i>  	arm_instruction_t cur_instruction;
+</I>&gt;<i>  	u32 opcode;
+</I>&gt;<i> +	u16 thumb_opcode;
+</I>&gt;<i>  	int thumb = 0;
+</I>&gt;<i>
+</I>&gt;<i>  	if (armv4_5-&gt;common_magic != ARMV4_5_COMMON_MAGIC)
+</I>&gt;<i> @@ -427,13 +428,27 @@
+</I>&gt;<i>
+</I>&gt;<i>  	for (i = 0; i &lt; count; i++)
+</I>&gt;<i>  	{
+</I>&gt;<i> -		if((retval = target_read_u32(target, address, &amp;opcode)) !=  
+</I>&gt;<i> ERROR_OK)
+</I>&gt;<i> +		if(thumb)
+</I>&gt;<i>  		{
+</I>&gt;<i> -			return retval;
+</I>&gt;<i> +			if((retval = target_read_u16(target, address, &amp;thumb_opcode)) !=
+</I>&gt;<i> ERROR_OK)
+</I>&gt;<i> +			{
+</I>&gt;<i> +				return retval;
+</I>&gt;<i> +			}
+</I>&gt;<i> +			if((retval = thumb_evaluate_opcode(thumb_opcode, address,
+</I>&gt;<i> &amp;cur_instruction)) != ERROR_OK)
+</I>&gt;<i> +			{
+</I>&gt;<i> +				return retval;
+</I>&gt;<i> +			}
+</I>&gt;<i>  		}
+</I>&gt;<i> -		if((retval = arm_evaluate_opcode(opcode, address,  
+</I>&gt;<i> &amp;cur_instruction))
+</I>&gt;<i> != ERROR_OK)
+</I>&gt;<i> +		else
+</I>&gt;<i>  		{
+</I>&gt;<i> -			return retval;
+</I>&gt;<i> +			if((retval = target_read_u32(target, address, &amp;opcode)) !=  
+</I>&gt;<i> ERROR_OK)
+</I>&gt;<i> +			{
+</I>&gt;<i> +				return retval;
+</I>&gt;<i> +			}
+</I>&gt;<i> +			if((retval = arm_evaluate_opcode(opcode, address,  
+</I>&gt;<i> &amp;cur_instruction))
+</I>&gt;<i> != ERROR_OK)
+</I>&gt;<i> +			{
+</I>&gt;<i> +				return retval;
+</I>&gt;<i> +			}
+</I>&gt;<i>  		}
+</I>&gt;<i>  		command_print(cmd_ctx, &quot;%s&quot;, cur_instruction.text);
+</I>&gt;<i>  		address += (thumb) ? 2 : 4;
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> -- 
+</I>&gt;<i> Adam Dybkowski
+</I>&gt;<i> 		<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">adybkows at wp.pl</A>
+</I>&gt;<i> 		<A HREF="http://dybkowski.net/">http://dybkowski.net/</A>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090118/68718ec1/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20090118/68718ec1/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004467.html">[Openocd-development] Thumb disassembler
+</A></li>
+	<LI>Next message: <A HREF="004472.html">[Openocd-development] ADuC702x flash plugin patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4468">[ date ]</a>
+              <a href="thread.html#4468">[ thread ]</a>
+              <a href="subject.html#4468">[ subject ]</a>
+              <a href="author.html#4468">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

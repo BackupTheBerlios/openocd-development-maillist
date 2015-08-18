@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] How to add another debug interface other	than JTAG?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20add%20another%20debug%20interface%20other%0A%09than%20JTAG%3F&In-Reply-To=%3C200910251229.03201.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011636.html">
+   <LINK REL="Next"  HREF="011595.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] How to add another debug interface other	than JTAG?</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20add%20another%20debug%20interface%20other%0A%09than%20JTAG%3F&In-Reply-To=%3C200910251229.03201.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] How to add another debug interface other	than JTAG?">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Oct 25 20:29:03 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011636.html">[Openocd-development] How to add another debug interface other	than JTAG?
+</A></li>
+        <LI>Next message: <A HREF="011595.html">[Openocd-development] How to add another debug interface other	than JTAG?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11594">[ date ]</a>
+              <a href="thread.html#11594">[ thread ]</a>
+              <a href="subject.html#11594">[ subject ]</a>
+              <a href="author.html#11594">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sunday 25 October 2009, simon qian wrote:
+&gt;<i> I want to add a interface_mode command with only one parameter, default is
+</I>&gt;<i> JTAG mode.
+</I>
+As &#216;yvind noted, $SUBJECT is a Big Deal.  It'd be nice if
+we could get a start on that in the 0.4.x series... we
+should start from a more complete proposal.
+
+It seems to me there are several components involved in
+having another debug protocol work.  And that most of them
+need to be in place before a clean SWD patch can merge:
+
+ - Something like what you sketched, in terms configuring a
+   protocol to use for the debug session.  (Or perhaps, for
+   the next chunk of this session...)  Let's continue to use
+   JTAG as the default.
+
+ - Interface support.  Today we have &quot;JTAG adapters&quot;; but
+   with this we may also have &quot;JTAG -or- SWD adapters&quot;, and
+   &quot;SWD adapters&quot; (two-wire only), &quot;SPI adapters&quot;, etc.  So
+   changes might be required like:
+
+      (a) src/interface/* holding a lot of what's now in
+          src/jtag/* ... but not JTAG state machines, etc,
+          or JTAG-only drivers
+      (b) &quot;struct debug_interface&quot; not &quot;struct jtag_interface&quot;
+      (c) new debug interface methods to (c1) retrieve the
+          current mode, and (c2) change it.
+      (d) enumeration models.  SWD, and its yet-to-finalize
+          IEEE 1149.7 cousin, are sort of close to JTAG.
+          But there are more point-to-point models, like how
+          SPI tends to be used at this level.
+      (e) specifically for SWD ... doesn't the SWO trace
+          output imply a new primitive to just collect a
+          stream of trace data?
+
+ - Target support.  Target code may need to know it's using
+   SWD instead of JTAG, e.g. since the state transitions are
+   different, or because they've got to switch out of JTAG
+   mode to get TPIU output.
+
+ - Flash support.  Consider AVR8 connections via SPI; they
+   aren't good for a lot more than flash access.  The same is
+   true for direct read/write access to most SPI flash chips.
+
+ - Reset integration.  Not that this is very clean today; but
+   if one uses JTAG it's at least clear that debug and system
+   reset ought to be different things, if the vendor didn't
+   integrate their ARM core strangely.  I don't think that's
+   quite as clear with the non-JTAG access.  (Plus there's
+   the issue of JTAG reset vs SWD reset issued on the same
+   two wires...)
+
+There are likely a few other points, but I think that hits
+a lot of the major ones.  
+
+
+&gt;<i> In configuration file, it will be as follow to use SWJ interface:
+</I>&gt;<i>         interface_mode swj
+</I>
+Correct me if I'm wrong, but doesn't ARM call this &quot;SWD&quot; mode?
+
+There's a bit of an acronym soup there; &quot;SWJ-DP&quot; is a debug
+port supporting JTAG (the J) and SWD, and at least on Cortex-M3
+it can support trace output using SWO, with a pin labeled SWV,
+so long as SWD is active...
+
+
+&gt;<i> in jtag_register_commands in tcl.c, add:
+</I>&gt;<i> register_command(cmd_ctx, NULL, &quot;interface_mode&quot;,
+</I>&gt;<i> handle_interface_mode_command,
+</I>&gt;<i>   COMMAND_ANY, &quot;set debug interface mode [jtag|swj]&quot;);
+</I>&gt;<i> 
+</I>&gt;<i> And handle_interface_mode_command will be:
+</I>&gt;<i> static int handle_interface_mode_command(struct command_context_s *cmd_ctx,
+</I>&gt;<i> char *cmd, char **args, int argc)
+</I>&gt;<i> {
+</I>&gt;<i>  if (argc != 1)
+</I>&gt;<i>   return ERROR_COMMAND_SYNTAX_ERROR;
+</I>&gt;<i>  int retval = ERROR_OK;
+</I>&gt;<i>  if (strcmp(*args, &quot;jtag&quot;) == 0)
+</I>
+My rule of thumb with respect to generalizing interfaces is
+the &quot;rule of three&quot;:  it's almost certainly NOT general enough
+unless there are at least three peer options.
+
+So I'll suggest you plan a smidgeon more aggressively.  You
+did the AVR8 target stub, yes?  So perhaps you are aware enough
+of AVR8 to include its ISP programming interface (which I called
+SPI above) in your thought and planning.  Not necessarily in
+implementation.
+
+Here, that could map to having the command look up its parameter
+in a table, and invoke the method found by that lookup.
+
+
+&gt;<i>  {
+</I>&gt;<i>   // jtag mode
+</I>&gt;<i>   set_jtag_intarface();
+</I>
+A nitpick:  comments like that are pointless.  :)
+
+More substantively:  clearly that command should be
+able to fail, for e.g. a SWD-only debug adapter.
+
+
+&gt;<i>  }
+</I>&gt;<i>  else if (strcmp(*args, &quot;swj&quot;) == 0)
+</I>&gt;<i>  {
+</I>&gt;<i>   // swj mode
+</I>&gt;<i>   set_swj_intarface();
+</I>
+Likewise.
+
+
+&gt;<i>  }
+</I>&gt;<i>  else
+</I>&gt;<i>  {
+</I>&gt;<i>   // mode not supported
+</I>&gt;<i>   LOG_ERROR(&quot;%s is not supported.&quot;, *args);
+</I>&gt;<i>   return ERROR_FAIL;
+</I>&gt;<i>  }
+</I>&gt;<i>  return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> set_jtag_intarface and set_swj_interface will be implemented in core.c.
+</I>&gt;<i> Is that OK?
+</I>
+I'd think most of their work would be interface-specific; so
+maybe that lookup table should use the current interface?
+At any rate, interface-specific code would get called.
+
+There are a lot of ways to factor that stuff.  I'm not keen
+on adding layers needlessly; I've seen it done too many times,
+only adding complication.  So if you're adding a layer, I'd
+want to know why.
+
+- Dave
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011636.html">[Openocd-development] How to add another debug interface other	than JTAG?
+</A></li>
+	<LI>Next message: <A HREF="011595.html">[Openocd-development] How to add another debug interface other	than JTAG?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11594">[ date ]</a>
+              <a href="thread.html#11594">[ thread ]</a>
+              <a href="subject.html#11594">[ subject ]</a>
+              <a href="author.html#11594">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

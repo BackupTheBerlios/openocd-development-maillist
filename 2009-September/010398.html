@@ -1,0 +1,294 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] new lpc2xxx cfg files layout
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C4AA2F7A7.8000606%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010397.html">
+   <LINK REL="Next"  HREF="010399.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] new lpc2xxx cfg files layout</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C4AA2F7A7.8000606%40duaneellis.com%3E"
+       TITLE="[Openocd-development] new lpc2xxx cfg files layout">openocd at duaneellis.com
+       </A><BR>
+    <I>Sun Sep  6 01:43:35 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010397.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+        <LI>Next message: <A HREF="010399.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10398">[ date ]</a>
+              <a href="thread.html#10398">[ thread ]</a>
+              <a href="subject.html#10398">[ subject ]</a>
+              <a href="author.html#10398">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Freddie,
+
+To david's point:
+
+&gt;&gt;<i> Why not just error out at this point if 
+</I>&gt;&gt;<i> these five variables (__CHIPNAME too!) aren't set?  
+</I>
+I have a suggestion about these files, why don't you follow this format:
+
+The &lt;chipname&gt; file -
+    (a) should just SET a bunch of variables.
+    (b) then source/include the common LPC settings.
+
+An example of what I mean follows.
+
+freddie&gt; I just don't know how to throw an error in TCL code.
+
+See the example below, the command is &quot;error MESSAGE&quot;
+
+
+-Duane.
+
+==============
+
+(a)  example file:   &quot;lpc2101&quot;
+
+global _FLASH_SIZE
+set _FLASH_SIZE 0x2000
+global _RAM_SIZE
+set _RAM_SIZE    0x0800
+global _CPU_TAPID
+set _CPU_TAPID 0x4f1f0f0f
+global _VARIENT
+set _VARIENT     lpc2000_v2
+global _ENDIAN
+set  _ENDIAN      little
+global _CRYSTAL_FREQ
+set _CRYSTAL_FREQ   12345
+...   etc  ... with all settings.
+#
+# THEN... include the generic LPC stuff.
+#
+source [find  chip/lpcGENERIC.tcl]
+
+-- KEY POINT --
+   The line with &quot;global VARNAME&quot; - must come before &quot;set VARNAME VALUE&quot;
+   [nasty quirk with the way JimTCL works, perhaps normal TCL too - not 
+sure]
+
+==========================
+
+(b) The Generic file - 'lpcGENERIC.tcl&quot; would then
+
+#(1) start with two helper functions.
+#
+proc _MUST_EXIST {  NAME  } {
+    global $NAME
+    if { ! [info exists $NAME ] } then {
+        error &quot;Variable: $NAME is not set, cannot continue&quot;
+    }
+}
+
+proc _SET_DEFAULT { NAME VALUE } {
+    global $NAME
+    if { ! [info exists $NAME ] } then {
+          set $NAME $VALUE
+    }
+}
+
+#
+#(2)    Set reasonable defaults for some variables:
+#
+_SET_DEFAULT   foo            1234
+_SET_DEFAULT   bar             4321
+   ... and others ...
+
+#(3)   In English, I would use the phrase &quot;Draw a line in the sand&quot;
+#  Put it another way, there is a scene in movie The Lord Of The Rings
+#   Gandolf on the bridge says:  &quot;YOU SHALL NOT PASS&quot;
+ #  At this point, the barrier tests occur.
+
+_MUST_EXIST  _RAM_SIZE
+_MUST_EXIST  _FLASH_SIZE
+    ... and others ...
+
+#(4) perform the common setup.
+...  what you have in your configuration files ...
+
+==============
+
+
+
+
+
+
+
+&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;&gt;<i> # unknown LPC chip supplied to the script, use config for smallest chip available (LPC2101)
+</I>&gt;&gt;&gt;<i> if { $__CHIPNAME == &quot;lpc2xxx&quot; } {
+</I>&gt;&gt;&gt;<i>       
+</I>&gt;&gt;<i> Why not just error out at this point if these five
+</I>&gt;&gt;<i> variables (__CHIPNAME too!) aren't set?  Warn at least;
+</I>&gt;&gt;<i> after checking for the &quot;no _ prefix&quot; versions of the
+</I>&gt;&gt;<i> symbols.  (If a new LPC chip comes out tomorrow, it
+</I>&gt;&gt;<i> should be usable in OpenOCD without needing to update
+</I>&gt;&gt;<i> this config file.)
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Actually I'd do that, but... I just don't know how to throw an error in 
+</I>&gt;<i> TCL code. The &quot;TCL crash course&quot; in the guide is very simple, and I know 
+</I>&gt;<i> nothing about TCL anyway. Any hint how to do that?
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Simplify:  no double-&quot;_&quot; prefixes should be needed
+</I>&gt;&gt;<i> given a clean error exit earlier.  Though you might
+</I>&gt;&gt;<i> want to &quot;set _FLASH_SIZE ''&quot; (etc) at top of file.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Generally those are here because of what is written above - I don't know 
+</I>&gt;<i> how to throw an error in TCL scripts, that's where those &quot;three levels 
+</I>&gt;<i> of variables&quot; came from.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> I don't like seeing &quot;trst_and_srst&quot; here since it's
+</I>&gt;&gt;<i> possible that boards not wire both.  The &quot;pulls&quot;
+</I>&gt;&gt;<i> seems to be a chip quirk though, thus belongs here
+</I>&gt;&gt;<i> (worth a comment about that, though).
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Maybe a possibility to override the default &quot;trst_and_srst&quot; would be 
+</I>&gt;<i> just enough?
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;&gt;<i> # reset delays
+</I>&gt;&gt;&gt;<i> jtag_nsrst_delay 100
+</I>&gt;&gt;&gt;<i> jtag_ntrst_delay 100
+</I>&gt;&gt;&gt;<i>       
+</I>&gt;&gt;<i> Those delays also don't seem to belong here.  If all boards
+</I>&gt;&gt;<i> really need them because the LPC chips are odd, then add a
+</I>&gt;&gt;<i> comment referencing the relevant issue from the data sheet.
+</I>&gt;&gt;<i> Else strike them.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> The board I have (LPC2103) doesn't work without it. It's probably 
+</I>&gt;<i> because after reset the bootloader is in control and after it decides 
+</I>&gt;<i> that JTAG can be enabled the interface is really enabled.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> (There's a certain amount of &quot;cargo cult
+</I>&gt;&gt;<i> programming&quot; in the config files, and this looks like it's
+</I>&gt;&gt;<i> in that category...)
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Probably, but I have limited knowledge about what is really neccessary 
+</I>&gt;<i> and what is not [;
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> That should be &quot;_TARGETNAME (one underscore) to follow
+</I>&gt;&gt;<i> the standard variable naming convention...
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Explained above &lt;: (the error stuff)
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Since &quot;-endian little&quot; is not configurable, you don't need to
+</I>&gt;&gt;<i> specify it (the default is little endian); don't.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> sure.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> There is no &quot;arm7tdmi-s_r4&quot; variant in the current code; don't
+</I>&gt;&gt;<i> specify that either.  (And if there were, I would not think
+</I>&gt;&gt;<i> that *every* LPC chip uses the same revision.  Hasn't LPC2xxx
+</I>&gt;&gt;<i> been around for a long time, predating that RTL revision?)
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> so what should that be? &quot;arm7tdmi-s&quot;?
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> &quot;-chain-position $__TARGETNAME&quot; is wrong.  Target names and
+</I>&gt;&gt;<i> TAP names should be separate namespaces; don't imply otherwise.
+</I>&gt;&gt;<i> Just spell out &quot;-chain-position $_CHIPNAME.cpu&quot;
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> I was just following the way it is done now [; But when we do a 
+</I>&gt;<i> revolution it's good to fix everything [;
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Don't configure &quot;-work-area-virt 0&quot; if there's no MMU support
+</I>&gt;&gt;<i> (and hence no virtual memory).
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> If that's not obligatory, I'll remove that &lt;:
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> It bothers me to specify &quot;all of SRAM&quot; for work area especially
+</I>&gt;&gt;<i> combined with &quot;no backup&quot;.  If that's how those chips currently
+</I>&gt;&gt;<i> are set up I suppose the LPC users are used to that unfriendly
+</I>&gt;&gt;<i> behavior ... but I'd think a max of 4K or so, at the *end* of
+</I>&gt;&gt;<i> SRAM, would usually suffice.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> I just don't see any use for limiting that. Before flashing you reset 
+</I>&gt;<i> the chip, the SRAM contents are gone anyway, so why preserve the random 
+</I>&gt;<i> garbage that is there? The more RAM is used, the faster the download is.
+</I>&gt;<i>
+</I>&gt;<i> I'll implement some more changes and post a new version of the file 
+</I>&gt;<i> later, probably tomorrow. Still waiting for more suggestions.
+</I>&gt;<i>
+</I>&gt;<i> BTW 1 - is there a way to check just a part of the string in TCL? For 
+</I>&gt;<i> example I could set &quot;variant 1&quot; for all LPCs from LPC23* and LPC24* 
+</I>&gt;<i> group instead of setting that for each of the chips. But that is the 
+</I>&gt;<i> question of philosophy - the groups are fine, because everything that 
+</I>&gt;<i> concerns ONE chip is in ONE place.
+</I>&gt;<i>
+</I>&gt;<i> BTW 2 - I think it would be possible to create a &quot;chain&quot; like that for 
+</I>&gt;<i> all existing targets. That would be good for end users, as now the cfg 
+</I>&gt;<i> files are... well... complicated... By creating such chain, all &quot;magic&quot; 
+</I>&gt;<i> would be hidden inside sth_internals.cfg and meaningful parameters 
+</I>&gt;<i> (name, flash size, clock, etc) would be exposed for the users.
+</I>&gt;<i>
+</I>&gt;<i> 4\/3!!
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010397.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+	<LI>Next message: <A HREF="010399.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10398">[ date ]</a>
+              <a href="thread.html#10398">[ thread ]</a>
+              <a href="subject.html#10398">[ subject ]</a>
+              <a href="author.html#10398">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] BSDL target, how to use JTAG?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20BSDL%20target%2C%20how%20to%20use%20JTAG%3F&In-Reply-To=%3C20101007074512.GE10824%40phantom.vanrein.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016673.html">
+   <LINK REL="Next"  HREF="016675.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] BSDL target, how to use JTAG?</H1>
+    <B>Rick van Rein</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20BSDL%20target%2C%20how%20to%20use%20JTAG%3F&In-Reply-To=%3C20101007074512.GE10824%40phantom.vanrein.org%3E"
+       TITLE="[Openocd-development] BSDL target, how to use JTAG?">rick at openfortress.nl
+       </A><BR>
+    <I>Thu Oct  7 09:45:12 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016673.html">[Openocd-development] BSDL target, how to use JTAG?
+</A></li>
+        <LI>Next message: <A HREF="016675.html">[Openocd-development] BSDL target, how to use JTAG?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16674">[ date ]</a>
+              <a href="thread.html#16674">[ thread ]</a>
+              <a href="subject.html#16674">[ subject ]</a>
+              <a href="author.html#16674">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Oyvind,
+
+&gt;<i> OpenOCD 0.4.0 is getting a bit long in the tooth for getting help on this
+</I>&gt;<i> list. You'll want to move to the master branch.
+</I>
+OK, I'll setup git.  I wanted to get started on stable code, but if things
+I'm running into were already resolved in git that's not worth it.
+
+&gt;<i> Also, it could help if you posted a patch of the code you're trying to
+</I>&gt;<i> implement.
+</I>
+The patch is attached.  Thanks for anything you can teach me.  The big
+problem appears to be lack of documentation, not bugs, which is why
+I wrote to this list.  The patch is incomplete but it has a docfile.
+
+Thanks,
+ -Rick
+-------------- next part --------------
+diff -Nur openocd-0.4.0-orig/doc/bsdl.txt openocd-0.4.0-plus_bsdl/doc/bsdl.txt
+--- openocd-0.4.0-orig/doc/bsdl.txt	1970-01-01 00:00:00.000000000 +0000
++++ openocd-0.4.0-plus_bsdl/doc/bsdl.txt	2010-09-27 21:50:29.000000000 +0000
+@@ -0,0 +1,134 @@
++Generic support for Boundary Scan Definitions
++=============================================
++
++This style of bus access can often be used to control a PCB without knowing
++very much about the main chips on it.  Using the general technique of
++boundary scans, the pins on the device can be controlled from software, thus
++enabling access to most of the logic components on the PCB.
++
++
++Working principle
++-----------------
++
++OpenOCD supports generic access to the boundary scan facilities that are defined and
++published for many chips.  Even if the detailed test/debug specifications are hidden,
++there usually is a boundary scan definition to aid in PCB debugging.  This is why it
++is fruitful to have a generic module to use such definitions.
++
++The so-called Boundary Scan Definition Language, or BSDL for short, specifies which
++registers are accessible over JTAG, and how they are related to pins that are usually
++made available externally.  It specifies scan bits to be inputs, outputs or bidirectional
++or, very interesting, which internal scan bits are used to control others; this is
++often used to set output lines into high-impedance mode where external signals win over
++the internally generated ones.  In other words, it makes pins behave like inputs.
++
++When doing a boundary scan, pin values are clocked into the chip while the older pin
++values are clocked out.  While this serial shift process is taking place, the pins
++will be held to their old values.  So by sending proper values to a chip, it is
++possible to set its external pins to desired values, and when making another round
++it is possible to read in the values on input and high-impedance pins.  All in all,
++the JTAG interface enables us to control chips on the PCB which can handle elongated
++signaling from the processor chip.
++
++In all this, the internal structure of the processor is no required knowledge; only
++its boundary scan definition is, and that is usually public.  There are quicker ways
++of accessing (say) a flash chip on a bus if the processor co-operates, but when faced
++with nothing but the BSDL definition, this generic approach may be the only chance
++we have of accessing chips on the PCB under program control.
++
++
++Reading flash
++-------------
++
++To read the contents of a flash memory, the pins of a processor are set and reset as
++decreed by the datasheet of the chip (or our intuition, our measurements, ...) and
++specifically we set an address to be read on the chip's address lines.  We clock
++it into the chip and apply it to the pins.  The second run of the same process will
++clock out the value read on the data pins.
++
++Mostly, a bus uses strobe signals, such as a MEMREAD pulse that temporary changes
++from its default setting.  If this is the case, clocking in the values to the chip
++happens in a few more stages: first all data, then the same data with read strobe
++signals inverted, then the same data with the strobe back to normal while the data
++is being clocked out.
++
++The cycle for a read therefore comprises of:
++
++1. Clock all signals to the chip, including address lines but with inactive strobe signals;
++
++2. Clock the same to the chip, but now with activated read strobe signals;
++
++3. Clock the same to the chip, with read strobe made inactive again; at the same time,
++   clock the read values out of the chip by reading the data bits.
++
++
++
++Writing flash
++-------------
++
++TODO
++
++
++
++Specification commands
++----------------------
++
++The following command creates a target xyz for TAP xy.z::
++
++	target create xyz generic_bsdl -chain-position xy.z
++
++A target continues to read in a BSDL file holding the chip's boundary scan
++definition:
++
++	xy.z bsdlfile /path/to/somechip.bsdl
++
++Output and bidirectional bits can be set to their resting state which may be
++set, reset or float::
++
++	xy.z force float K L M
++	xy.z force set   N O P
++	xy.z force reset Q R S(*)
++
++Note the form S(*) which covers all elements of an array, so S(0), S(1), and so on.
++If it is needed to revert these forced settings of pins at some later stage, then
++a statement can be issued for that:
++
++	xy.z force none
++
++A few signals must be specified explicitly, to allow control over them by programs
++such as memory dumpers; these are the address and data lines::
++
++	xy.z define address A(*)
++	xy.z define data D(*)
++
++Strobe signals can be setup for reading and writing operations separately.
++The duration of all these strobe signals will last considerably longer than
++under live control by the chip.  Strobes are defined as follows::
++
++	xy.z define readstrobe  MEMSEL
++	xy.z define writestrobe MEMSEL RD_NOTWR
++
++It is good practice to have read_not_write signals set to a resting state that represents
++reading, and only pulse them to writing mode with a strobe.  The same is also true for
++chip-select or bus-select kind of signals signals.
++
++
++Performance
++-----------
++
++The overall performance of flash chip access through this method depends on the speeds
++that can be achieved over thus JTAG interface.  Generally, the number of bits that
++constitute a boundary scan must be clocked in several times for a single operation,
++so there is quite a bit of overhead.
++
++For example, consider using a 6 MHz interface to access a 1 MB flash at 16 bits, if the
++total boundary scan contains 114 bits.  Let's assume about 125 bits of data are actually
++passed around per boundary scan.  Reading takes 3 boundary scans (375 bits) and since the
++1 MB flash can be loaded in 16 bit words, 512*1024 of those boundary scan series must be
++made (196608000 bits).  At 6 MHz, that would take up 33 seconds.
++
++Note that the logic of this procedure will only work if the chip that is being boarded is
++at rest.  The PCB probably provides ways of doing that, not in the last place by holding
++the system reset signal active by pressing a reset button.  Where supported, the JTAG
++cable or the boundary scan logiccould be used to achieve a halted system.
++
+diff -Nur openocd-0.4.0-orig/src/jtag/core.c openocd-0.4.0-plus_bsdl/src/jtag/core.c
+--- openocd-0.4.0-orig/src/jtag/core.c	2010-02-21 20:17:07.000000000 +0000
++++ openocd-0.4.0-plus_bsdl/src/jtag/core.c	2010-10-06 21:55:40.000000000 +0000
+@@ -335,6 +335,7 @@
+ 
+ static void jtag_checks(void)
+ {
++printf (&quot;jtag_trst=%d\n&quot;, jtag_trst);
+ 	assert(jtag_trst == 0);
+ }
+ 
+diff -Nur openocd-0.4.0-orig/src/target/Makefile.am openocd-0.4.0-plus_bsdl/src/target/Makefile.am
+--- openocd-0.4.0-orig/src/target/Makefile.am	2010-02-21 20:17:07.000000000 +0000
++++ openocd-0.4.0-plus_bsdl/src/target/Makefile.am	2010-09-22 14:40:37.000000000 +0000
+@@ -35,7 +35,8 @@
+ 	$(MIPS32_SRC) \
+ 	avrt.c \
+ 	dsp563xx.c \
+-	dsp563xx_once.c
++	dsp563xx_once.c \
++	generic_bsdl.c
+ 
+ TARGET_CORE_SRC = \
+ 	algorithm.c \
+@@ -44,7 +45,8 @@
+ 	breakpoints.c \
+ 	target.c \
+ 	target_request.c \
+-	testee.c
++	testee.c \
++	generic_bsdl.c
+ 
+ ARMV4_5_SRC = \
+ 	armv4_5.c \
+diff -Nur openocd-0.4.0-orig/src/target/Makefile.in openocd-0.4.0-plus_bsdl/src/target/Makefile.in
+--- openocd-0.4.0-orig/src/target/Makefile.in	2010-02-21 20:39:55.000000000 +0000
++++ openocd-0.4.0-plus_bsdl/src/target/Makefile.in	2010-09-22 14:41:01.000000000 +0000
+@@ -75,7 +75,7 @@
+ am_libtarget_la_OBJECTS = $(am__objects_1) $(am__objects_3) \
+ 	$(am__objects_5) $(am__objects_6) $(am__objects_7) \
+ 	$(am__objects_8) $(am__objects_9) avrt.lo dsp563xx.lo \
+-	dsp563xx_once.lo
++	dsp563xx_once.lo generic_bsdl.lo
+ libtarget_la_OBJECTS = $(am_libtarget_la_OBJECTS)
+ DEFAULT_INCLUDES = <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">-I. at am__isrc</A>@ -I$(top_builddir)
+ depcomp = $(SHELL) $(top_srcdir)/depcomp
+diff -Nur openocd-0.4.0-orig/src/target/generic_bsdl.c openocd-0.4.0-plus_bsdl/src/target/generic_bsdl.c
+--- openocd-0.4.0-orig/src/target/generic_bsdl.c	1970-01-01 00:00:00.000000000 +0000
++++ openocd-0.4.0-plus_bsdl/src/target/generic_bsdl.c	2010-10-06 21:59:04.000000000 +0000
+@@ -0,0 +1,873 @@
++/*
++ * GENERIC BSDL flash and command handling.
++ *
++ * This BSDL interface forms a generic target template that can be applied to any TAP that
++ * hosts a BSDL-compliant chip.  Any chip, really.
++ *
++ * The use of this interface is twofold:
++ *  (1) set pins and see how other react (possibly interactive with poking at the hardware)
++ *  (2) generic access to external flash chips by only altering a chip's pins
++ *
++ * This code is shared by OpenFortress Digital signatures, under the same licensing rules
++ * as the rest of OpenOCD.  <A HREF="http://openfortress.nl/">http://openfortress.nl/</A>
++ *
++ * From: Rick van Rein &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">rick at openfortress.nl</A>&gt;
++ */
++ 
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;helper/types.h&gt;
++#include &lt;helper/jim.h&gt;
++#include &lt;helper/time_support.h&gt;
++#include &lt;helper/log.h&gt;
++#include &lt;helper/command.h&gt;
++
++#include &lt;jtag/jtag.h&gt;
++
++#include &lt;target/register.h&gt;
++#include &lt;target/target.h&gt;
++#include &lt;target/target_type.h&gt;
++
++
++
++
++/*
++ *	DATA STRUCTURES
++ */
++
++
++/* Normal scanbits are not very exciting.  It gets interesting when their
++ * values are controlled by another scanbit.  A controlled scanbit refers
++ * to its controlling bit, and indicates whether it is controlled when
++ * that bit is ZERO, or ONE.  Also, it indicates if control causes the
++ * scanbit to be SET, RESET or FLOATed.
++ */
++
++enum scanbittype {
++	SBT_IN,
++	SBT_OUT,
++	SBT_BIDIR,
++	SBT_CONTROL,
++};
++
++#define SBF_CONTROL_BY_ONE	0x00000001
++#define SBF_CONTROL_BY_ZERO	0x00000002
++
++#define SBF_DEFAULT_SET		0x00000010
++#define SBF_DEFAULT_RESET	0x00000020
++
++#define SBF_CONTROLLED_SET	0x00000100
++#define SBF_CONTROLLED_RESET	0x00000200
++#define SBF_CONTROLLED_FLOAT	0x00000400
++
++#define SBF_FORCE_SET		0x00001000
++#define SBF_FORCE_RESET		0x00002000
++#define SBF_FORCE_FLOAT		0x00004000
++
++#define SBF_DEFINE_READSTROBE	0x00000001
++#define SBF_DEFINE_WRITESTROBE	0x00000002
++#define SBF_DEFINE_ADDRESSLINE	0x00000004
++#define SBF_DEFINE_DATALINE	0x00000008
++
++#define SBF_CURRENTLY_SET	0x00000008
++
++struct scanbit {
++	char *sb_name;
++	enum scanbittype sb_type;
++	struct scanbit *sb_controller;
++	uint32_t sb_flags;
++	uint16_t sb_linebit;
++};
++
++struct businfo {
++	uint16_t bus_first;
++	uint16_t bus_size;
++};
++
++struct bsdl_info {
++	unsigned int num_scanbits;
++	struct scanbit *all_scanbits;
++	uint32_t instr_sample;
++	struct businfo bus_address, bus_data;
++};
++
++
++//TODO:ONEDAY// #define target_bsdl_info(tgt) ((struct bsdl_info *) (tgt)-&gt;arch_info)
++#define target_bsdl_info(tgt) (&amp;bsdl_info_tms320vc5401pge)
++
++
++/*
++ *	TODO -- TODO	TODO -- TODO	TODO -- TODO	TODO -- TODO	TODO -- TODO
++ *
++ *	STATIC DEFINITIONS FOR ONE PARTICULAR CHIP TYPE -- IN LIEU OF A BSDL PARSER
++ *
++ *	TODO -- TODO	TODO -- TODO	TODO -- TODO	TODO -- TODO	TODO -- TODO
++ */
++
++static struct scanbit sb_tms320vc5401pge [] = {
++	{ &quot;HCS_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HPIENA&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HBIL&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HRW_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HAS_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HCNTL(0)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HCNTL(1)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HDS1_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;HDS2_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ &quot;HD(0)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [9], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HD(1)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [10], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HD(2)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [11], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HD(3)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [12], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HD(4)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [13], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HD(5)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [14], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HD(6)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [15], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HD(7)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [16], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HINT&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HRDY&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ &quot;BFSX(1)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [29], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BDX(1)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [28], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BFSR(1)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [31], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BDR(1)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;BCLKR(1)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [27], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BCLKX(1)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [30], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ &quot;BFSX(0)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [40], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BDX(0)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [39], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BFSR(0)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [42], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BDR(0)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;BCLKR(0)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [38], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;BCLKX(0)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [41], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;CLKMD(3)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;CLKMD(2)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;CLKMD(1)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;NMI_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;INT_NEG(3)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;INT_NEG(2)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;INT_NEG(1)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;INT_NEG(0)&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;READY&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;RS_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;MP_MC_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ &quot;BIO_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ &quot;HOLD_NEG&quot;, SBT_IN, NULL, 0, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ NULL, SBT_CONTROL, NULL, SBF_DEFAULT_SET, 0 },
++	{ &quot;A(16)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;A(17)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;A(18)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;A(19)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;D(0)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;D(1)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 1 },
++	{ &quot;D(2)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 2 },
++	{ &quot;D(3)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 3 },
++	{ &quot;D(4)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 4 },
++	{ &quot;D(5)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 5 },
++	{ &quot;D(6)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 6 },
++	{ &quot;D(7)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 7 },
++	{ &quot;D(8)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 8 },
++	{ &quot;D(9)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 9 },
++	{ &quot;D(10)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 10 },
++	{ &quot;D(11)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 11 },
++	{ &quot;D(12)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 12 },
++	{ &quot;D(13)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 13 },
++	{ &quot;D(14)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 14 },
++	{ &quot;D(15)&quot;, SBT_BIDIR, &amp;sb_tms320vc5401pge [64], SBF_DEFINE_DATALINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 15 },
++	{ &quot;TOUT0&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;CLKOUT&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;IAQ_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;MSC_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;HOLDA_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;IOSTRB_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;R_W_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;MSTRB_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;IS_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;PS_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;DS_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;XF&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;IACK_NEG&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [63], SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;A(0)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 0 },
++	{ &quot;A(1)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 1 },
++	{ &quot;A(2)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 2 },
++	{ &quot;A(3)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 3 },
++	{ &quot;A(4)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 4 },
++	{ &quot;A(5)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 5 },
++	{ &quot;A(6)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 6 },
++	{ &quot;A(7)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 7 },
++	{ &quot;A(8)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 8 },
++	{ &quot;A(9)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 9 },
++	{ &quot;A(10)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 10 },
++	{ &quot;A(11)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 11 },
++	{ &quot;A(12)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 12 },
++	{ &quot;A(13)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 13 },
++	{ &quot;A(14)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 14 },
++	{ &quot;A(15)&quot;, SBT_OUT, &amp;sb_tms320vc5401pge [61], SBF_DEFINE_ADDRESSLINE | SBF_CONTROL_BY_ONE | SBF_CONTROLLED_FLOAT, 15 },
++};
++
++static struct bsdl_info bsdl_info_tms320vc5401pge = {
++	114, sb_tms320vc5401pge, 0x00000002,
++	{ 0, 16 },
++	{ 0, 16 },
++};
++
++
++/*
++ *	RESET OPERATIONS
++ */
++
++
++/*
++ *	JTAG OPERATIONS
++ */
++
++#ifdef TODO_FUTURE_OPERATION_PERHAPS
++static int bsdl_get_data_size (struct target *tgt, uint32_t *bits) {
++	/* TODO: Logic is flawed for some not-per-byte chips, like TMS320C54x */
++	uint8_t fst = target_bsdl_info(tgt)-&gt;bus_address.bus_first;
++	uint8_t snd = target_bsdl_info(tgt)-&gt;bus_data.bus_size;
++	if (fst &lt; 255) {
++		*bits = 8 &lt;&lt; fst;
++		if ((snd &lt; 255) &amp;&amp; (snd - 3 &gt; fst)) {
++			*bits = 1 &lt;&lt; snd;
++		}
++		return ERROR_OK;
++	} else if (snd &lt; 255) {
++		*bits = 1 &lt;&lt; snd;
++		return ERROR_OK;
++	} else {
++		return ERROR_FAIL;
++	}
++}
++#endif
++
++#ifdef TODO_FUTURE_OPERATION_PERHAPS
++static int bsdl_get_address_size (struct target *tgt, uint32_t *bits) {
++	uint8_t siz = target_bsdl_info(tgt)-&gt;bus_address.bus_size;
++	if (siz &lt; 255) {
++		*bits = siz;
++		return ERROR_OK;
++	} else {
++		return ERROR_FAIL;
++	}
++}
++#endif
++
++static int bsdl_read_word (struct target *tgt, uint32_t addr, uint32_t *data) {
++	struct bsdl_info *bi = target_bsdl_info (tgt);
++	struct scan_field irfield, drfield [3];
++	uint8_t instr[4];
++	uint16_t i, j;
++	int retval;
++	bool strobe, readnow;
++	/*
++	 * 0. Determine current values for each scanbit.  Do not keep track
++	 *    of floating values here, because those cannot be clocked in or
++	 *    out.  Instead, the control bits in the JTAG chain will do this
++	 *    for us.
++	 */
++	for (j=0; j&lt;bi-&gt;num_scanbits; j++) {
++		register uint32_t flags = bi-&gt;all_scanbits [j].sb_flags;
++		register bool bitvalue;
++		/* 0.1. Setup default value as current value */
++		if (flags &amp; SBF_DEFAULT_SET) {
++			bitvalue = 1;
++		} else {
++			bitvalue = 0;
++		}
++		/* 0.2. Override with address/data line value */
++		if (flags &amp; SBF_DEFINE_ADDRESSLINE) {
++			// TODO: Insert address line bit
++		}
++		if (flags &amp; SBF_DEFINE_DATALINE) {
++			// TODO: Insert data line bit (for writes, otherwise set to 1)
++		}
++		/* 0.3. Override with SBF_FORCE_xxx */
++		if (flags &amp; SBF_FORCE_SET) {
++			bitvalue = 1;
++		} else if (flags &amp; SBF_FORCE_RESET) {
++			bitvalue = 0;
++		}
++		/* 0.4. Override with SBF_CONTROL_xxx is left to the control bit hardware */
++		;
++		/* 0.5. Store outcome in scanbit flags field */
++		if (bitvalue) {
++			bi-&gt;all_scanbits [j].sb_flags |=  SBF_CURRENTLY_SET;
++		} else {
++			bi-&gt;all_scanbits [j].sb_flags &amp;= ~SBF_CURRENTLY_SET;
++		}
++	}
++	/*
++	 * 1. Setup JTAG for single chip access to boundary scan register
++	 */
++	irfield.tap = tgt-&gt;tap;
++	irfield.num_bits = irfield.tap-&gt;ir_length;
++	irfield.out_value = instr;
++	buf_set_u32 (irfield.out_value, 0, irfield.num_bits, bi-&gt;instr_sample);
++	irfield.in_value = NULL;
++// printf (&quot;idle or... %d\n&quot;, jtag_add_statemove (TAP_IDLE));
++// printf (&quot;irshift or... %d\n&quot;, jtag_add_statemove (TAP_IRSHIFT));
++// printf (&quot;execute or... %d\n&quot;, jtag_execute_queue ());
++	jtag_add_ir_scan (1, &amp;irfield, jtag_get_end_state ()); /* Other TAPs enter BYPASS */
++	/*
++	 * 2. Setup neutral bits, fill address bus, float data bus  (makes drfield [0])
++	 * 4. As 2. but flip readstrobe pins                        (makes drfield [1])
++	 * 6. As 2. (so: As 4. but flip readstrobe pins once more)  (makes drfield [2])
++	 */
++	for (i=0; i&lt;3; i++) {
++		strobe  = (i==1);
++		readnow = (i==2);
++		drfield [i].tap = tgt-&gt;tap;
++		drfield [i].num_bits = bi-&gt;num_scanbits;
++		/*
++		 * Allocate appropriate fields, using calloc() to zero the bytes.
++		 */
++		// TODO: drfield [i].out_value = calloc (DIV_ROUND_UP (bi-&gt;num_scanbits, 8), 1) || exit (1);
++		drfield [i].out_value = calloc (DIV_ROUND_UP (bi-&gt;num_scanbits, 8), 1);
++		if (readnow) {
++			// TODO: drfield [i].in_value = calloc (DIV_ROUND_UP (bi-&gt;num_scanbits, 8), 1) || exit (1);
++			drfield [i].in_value = calloc (DIV_ROUND_UP (bi-&gt;num_scanbits, 8), 1);
++		} else {
++			drfield [i].in_value = NULL;
++		}
++		/*
++		 * Fill up the buffers with the various bits.  Bits are read and written from
++		 * left to right, that is the bytes from xxx_value [0] to the last, where the
++		 * highest-value bits of the last byte xxx_value [N-1] contain the last few bits.
++		 */
++		for (j=0; j&lt;bi-&gt;num_scanbits; j++) {
++			register uint32_t flags = bi-&gt;all_scanbits [j].sb_flags;
++			register bool bitvalue = (flags &amp; SBF_CURRENTLY_SET) != 0;
++			/* Invert strobe bits if this is the strobe phase being written */
++			if (strobe &amp;&amp; (flags &amp; SBF_DEFINE_READSTROBE)) {
++				bitvalue = !bitvalue;
++			}
++			/* If the bit must be set, make it so in the JTAG clock-out bit set */
++			if (bitvalue) {
++				drfield [i].out_value [j &gt;&gt; 3] |= 0x80 &gt;&gt; (j &amp; 0x0007);
++			}
++		}
++	}
++	/*
++	 * 3. JTAG cycle on 2.
++	 * 5. JTAG cycle on 4.
++	 * 7. JTAG cycle on 6, collecting data bus from what is clocked out
++	 */
++	printf (&quot;drshift or... %d\n&quot;, jtag_add_statemove (TAP_DRSHIFT));
++	jtag_add_dr_scan (3, drfield, jtag_get_end_state ()); /* TAP selected by IR scan */
++	/*
++	 * 8. Harvest results from previous actions, notably data bus from last DR scan
++	 */
++	retval = jtag_execute_queue ();
++	if (retval != ERROR_OK) {
++		jtag_error_clear ();
++		return retval;
++	}
++	// TODO:HARVEST_DATA_FROM_drfield[2].in_value
++	// TODO:return ERROR_OK;
++	return ERROR_FAIL;	/* Not implemented yet */
++}
++
++static int bsdl_write_word (struct target *tgt, uint32_t addr, uint32_t *data, uint8_t bits) {
++	return ERROR_FAIL;	/* Not implemented yet */
++}
++
++
++/*
++ *	MEMORY ACCESS OPERATIONS
++ */
++
++static int bsdl_virt2phys (struct target *target, uint32_t address, uint32_t *physical) {
++	*physical = address;
++	return ERROR_OK;
++}
++
++static int bsdl_read_memory (struct target *tgt, uint32_t adr, uint32_t sz, uint32_t count, uint8_t *buf) {
++	uint32_t dta;
++	uint32_t szi;
++	int ok;
++	while (count-- &gt; 0) {
++		szi = sz;
++		ok = bsdl_read_word (tgt, adr, &amp;dta);
++		if (ok != ERROR_OK) {
++			return ok;
++		}
++		while (szi-- &gt; 0) {
++			*buf++ = dta &gt;&gt; (szi &lt;&lt; 3);
++		}
++		adr += sz;
++	}
++	return ERROR_OK;
++}
++
++static int bsdl_write_memory (struct target *tgt, uint32_t adr, uint32_t sz, uint32_t count, uint8_t *buf) {
++	uint32_t dta;
++	uint32_t szi;
++	int ok;
++	while (count-- &gt; 0) {
++		szi = sz;
++		ok = bsdl_write_word (tgt, adr, &amp;dta, sz &lt;&lt; 3);
++		if (ok != ERROR_OK) {
++			return ok;
++		}
++		while (szi-- &gt; 0) {
++			*buf++ = dta &gt;&gt; (szi &lt;&lt; 3);
++		}
++		adr += sz;
++	}
++	return ERROR_OK;
++}
++
++static int bsdl_bulk_write_memory (struct target *tgt, uint32_t adr, uint32_t count, uint8_t *buf) {
++	fputs (&quot;Not implemented yet: bsdl_bulk_write_memory()\n&quot;, stderr);
++	return ERROR_FAIL;
++}
++
++static int bsdl_checksum_memory (struct target *tgt, uint32_t adr, uint32_t count, uint32_t *csum) {
++	fputs (&quot;Not implemented yet: bsdl_checksum_memory()\n&quot;, stderr);
++	return ERROR_FAIL;
++}
++
++static int bsdl_blank_check_memory (struct target *tgt, uint32_t adr, uint32_t count, uint32_t *blank) {
++	fputs (&quot;Not implemented yet: bsdl_blank_check_memory()\n&quot;, stderr);
++	return ERROR_FAIL;
++}
++
++static int bsdl_mmu (struct target *tgt, int * enabled) {
++	*enabled = 0;
++	return ERROR_OK;
++}
++
++
++/*
++ *	COMMAND INTERFACE OPERATIONS
++ */
++
++static int bsdl_target_create (struct target *tgt, Jim_Interp *interp) {
++	return ERROR_OK;
++}
++
++COMMAND_HANDLER (bsdl_loadfile) {
++	command_print (CMD_CTX, &quot;Not implemented yet: bsdl_loadfile()\n&quot;);
++	return ERROR_FAIL;
++}
++
++COMMAND_HANDLER (bsdl_loadfile_urjtag) {
++	command_print (CMD_CTX, &quot;Not implemented yet: bsdl_loadfile_urjtag()\n&quot;);
++	return ERROR_FAIL;
++}
++
++COMMAND_HELPER (bsdl_forcepins, unsigned int wish, unsigned int unwish) {
++	struct target *tgt;
++	int retval = ERROR_OK;
++	struct scanbit *thisbit;
++	int bits2go;
++	unsigned int thisarg;
++
++	/* Find the target and its boundary scan info */
++	tgt = get_current_target (CMD_CTX);
++
++	/* Iterate over the bits and assign the intended flag */
++	for (thisarg=0; thisarg&lt;CMD_ARGC; thisarg++) {
++		const char *bitstr = CMD_ARGV [thisarg];
++		int bitlen = strlen (bitstr);
++		bool found = 0;
++		/* Scan bit names ending in (*) count as a wildcard match */
++		if ((bitlen &gt; 3) &amp;&amp; !strcmp (bitstr+bitlen-3, &quot;(*)&quot;)) {
++			bitlen -= 2;	/* Compare scan bit names up to and including '(' */
++		} else {
++			bitlen ++;	/* Include '\0' but for safety use strncmp() instead of memcmp() */
++		}
++		thisbit = target_bsdl_info (tgt)-&gt;all_scanbits;
++		bits2go = target_bsdl_info (tgt)-&gt;num_scanbits;
++		while (bits2go &gt; 0) {
++			/* For each of the bits, check if the name matches bitstr/bitlen */
++			if ((thisbit-&gt;sb_name != NULL) &amp;&amp; !strncmp (bitstr, thisbit-&gt;sb_name, bitlen)) {
++				if (wish == SBF_FORCE_FLOAT) {
++					if ((!thisbit-&gt;sb_controller) || !(thisbit-&gt;sb_flags &amp; SBF_CONTROLLED_FLOAT))  {
++						command_print (CMD_CTX, &quot;Error: Bit %s cannot be floated\n&quot;,
++								thisbit-&gt;sb_name);
++					} else {
++						int newflag = thisbit-&gt;sb_controller-&gt;sb_flags;
++						if (thisbit-&gt;sb_flags &amp; SBF_CONTROL_BY_ONE) {
++							newflag |= SBF_FORCE_SET;
++						} else {
++							newflag |= SBF_FORCE_RESET;
++						}
++						if (((SBF_FORCE_SET | SBF_FORCE_RESET) &amp; ~newflag) != 0) {
++							thisbit-&gt;sb_controller-&gt;sb_flags = newflag;
++						} else {
++							command_print (CMD_CTX, &quot;It is not possible to force set and reset %s's controller %s\n&quot;,
++									thisbit-&gt;sb_name, thisbit-&gt;sb_controller-&gt;sb_name? thisbit-&gt;sb_controller-&gt;sb_name: &quot;&quot;);
++						}
++					}
++				}
++				if (thisbit-&gt;sb_flags &amp; unwish) {
++					command_print (CMD_CTX, &quot;Info: Overruling older setting for %s\n&quot;,
++								thisbit-&gt;sb_name);
++				}
++				thisbit-&gt;sb_flags = (thisbit-&gt;sb_flags &amp; ~unwish) | wish;
++				found++;
++			}
++			bits2go--;
++			thisbit++;
++		}
++		if (found == 0) {
++			command_print (CMD_CTX, &quot;Error: Found no scan bits matching %s\n&quot;,
++					bitstr);
++			retval = ERROR_FAIL;
++		} else if (found &gt; 1) {
++			command_print (CMD_CTX, &quot;Info: Changed %d scanbits matching %s\n&quot;,
++					found, bitstr);
++		}
++	}
++
++	/* Check if any bits have been implicitly set to &quot;float&quot; */
++	thisbit = target_bsdl_info (tgt)-&gt;all_scanbits;
++	bits2go = target_bsdl_info (tgt)-&gt;num_scanbits;
++	while (bits2go &gt; 0) {
++		if (thisbit-&gt;sb_controller) {
++			if (thisbit-&gt;sb_controller-&gt;sb_flags &amp; (SBF_FORCE_SET | SBF_FORCE_RESET)) {
++				if (!thisbit-&gt;sb_flags &amp; SBF_FORCE_FLOAT) {
++					thisbit-&gt;sb_flags |= SBF_FORCE_FLOAT;
++					command_print (CMD_CTX, &quot;Warning: Implicit selection of float &quot;
++							&quot;mode on %s\n&quot;, thisbit-&gt;sb_name);
++				}
++			}
++		}
++		thisbit++;
++		bits2go--;
++	}
++
++	/* Return the end result */
++	return retval;
++}
++
++COMMAND_HANDLER (bsdl_forcepins_set) {
++	return CALL_COMMAND_HANDLER (bsdl_forcepins, SBF_FORCE_SET, SBF_FORCE_RESET);
++}
++
++COMMAND_HANDLER (bsdl_forcepins_reset) {
++	return CALL_COMMAND_HANDLER (bsdl_forcepins, SBF_FORCE_RESET, SBF_FORCE_SET);
++}
++
++COMMAND_HANDLER (bsdl_forcepins_float) {
++	return CALL_COMMAND_HANDLER (bsdl_forcepins, SBF_FORCE_FLOAT, 0);
++}
++
++COMMAND_HANDLER (bsdl_forcenone) {
++	struct target *tgt;
++	struct scanbit *thisbit;
++	int bits2go;
++
++	/* Find the target and its boundary scan info */
++	tgt = get_current_target (CMD_CTX);
++
++	/* Iterate over scanbits and clean any forcing flags */
++	thisbit = target_bsdl_info (tgt)-&gt;all_scanbits;
++	bits2go = target_bsdl_info (tgt)-&gt;num_scanbits;
++	while (bits2go &gt; 0) {
++		thisbit-&gt;sb_flags &amp;= ~ (SBF_FORCE_SET | SBF_FORCE_RESET | SBF_FORCE_FLOAT);
++		thisbit++;
++		bits2go--;
++	}
++
++	/* Return the end result */
++	return ERROR_OK;
++}
++
++
++COMMAND_HELPER (bsdl_strobepins, uint32_t strobeflag) {
++	struct target *tgt;
++	int retval = ERROR_OK;
++	struct scanbit *thisbit;
++	int bits2go;
++	unsigned int thisarg;
++
++	/* Find the target and its boundary scan info */
++	tgt = get_current_target (CMD_CTX);
++
++	/* Iterate over the bits and assign the intended flag */
++	for (thisarg=0; thisarg&lt;CMD_ARGC; thisarg++) {
++		const char *bitstr = CMD_ARGV [thisarg];
++		int bitlen = strlen (bitstr);
++		bool found = 0;
++		/* Scan bit names ending in (*) count as a wildcard match */
++		if ((bitlen &gt; 3) &amp;&amp; !strcmp (bitstr+bitlen-3, &quot;(*)&quot;)) {
++			bitlen -= 2;	/* Compare scan bit names up to and including '(' */
++		} else {
++			bitlen ++;	/* Include '\0' but for safety use strncmp() instead of memcmp() */
++		}
++		thisbit = target_bsdl_info (tgt)-&gt;all_scanbits;
++		bits2go = target_bsdl_info (tgt)-&gt;num_scanbits;
++		while (bits2go &gt; 0) {
++			/* For each of the bits, check if the name matches bitstr/bitlen */
++			if ((thisbit-&gt;sb_name != NULL) &amp;&amp; !strncmp (bitstr, thisbit-&gt;sb_name, bitlen)) {
++				thisbit-&gt;sb_flags |= strobeflag;
++				found++;
++			}
++			bits2go--;
++			thisbit++;
++		}
++		if (found == 0) {
++			command_print (CMD_CTX, &quot;Error: Found no scan bits matching %s\n&quot;,
++					bitstr);
++			retval = ERROR_FAIL;
++		} else if (found &gt; 1) {
++			command_print (CMD_CTX, &quot;Info: Changed %d scanbits matching %s\n&quot;,
++					found, bitstr);
++		}
++	}
++
++	/* Return the end result */
++	return retval;
++}
++
++COMMAND_HANDLER (bsdl_define_readstrobe) {
++	return CALL_COMMAND_HANDLER (bsdl_strobepins, SBF_DEFINE_READSTROBE);
++}
++
++COMMAND_HANDLER (bsdl_define_writestrobe) {
++	return CALL_COMMAND_HANDLER (bsdl_strobepins, SBF_DEFINE_WRITESTROBE);
++}
++
++COMMAND_HELPER (bsdl_buspins, struct target *tgt, struct businfo *bus, uint32_t bustp) {
++	int retval = ERROR_OK;
++	const char *bitstr;
++	int bitlen;
++	unsigned int testbit;
++	/* Check arguments */
++	if (CMD_ARGC != 1) {
++		retval = ERROR_INVALID_ARGUMENTS;
++	}
++	bitstr = CMD_ARGV [0];
++	bitlen = strlen (bitstr);
++	if ((bitlen &lt; 4) || (strcmp (bitstr+bitlen-3, &quot;(*)&quot;))) {
++		command_print (CMD_CTX, &quot;Please specify BUS(*) instead of %s\n&quot;, bitstr);
++		retval = ERROR_INVALID_ARGUMENTS;
++	}
++	if (bitlen &gt; 100) {
++		command_print (CMD_CTX, &quot;Scan bit names should not exceed 100 positions\n&quot;);
++		retval = ERROR_INVALID_ARGUMENTS;
++	}
++	if (retval != ERROR_OK) {
++		return retval;
++	}
++	/* Construct the bus */
++	bus-&gt;bus_first = 255;
++	bus-&gt;bus_size = 255;
++	for (testbit=0; testbit &lt; target_bsdl_info(tgt)-&gt;num_scanbits; testbit++) {
++		char testarea [120];
++		struct scanbit *thisbit = target_bsdl_info(tgt)-&gt;all_scanbits;
++		int bits2go = target_bsdl_info(tgt)-&gt;num_scanbits;
++		strcpy (testarea, bitstr);
++		snprintf (testarea + bitlen - 3, 110+3-bitlen, &quot;(%d)&quot;, testbit);
++		while (bits2go &gt; 0) {
++			if (thisbit-&gt;sb_name &amp;&amp; !strcmp (testarea, thisbit-&gt;sb_name)) {
++				if (bus-&gt;bus_first == 255) {
++					bus-&gt;bus_first = testbit;
++				} else if (bus-&gt;bus_size != testbit) {
++					command_print (CMD_CTX, &quot;Error: Bus pins are not incrementally numbered&quot;);
++					retval = ERROR_FAIL;
++				}
++				if (thisbit-&gt;sb_flags &amp; (SBF_DEFINE_ADDRESSLINE | SBF_DEFINE_DATALINE) &amp; ~bustp) {
++					command_print (CMD_CTX, &quot;Error: A pin cannot be part of data bus as well as address bus\n&quot;);
++					retval = ERROR_FAIL;
++				} else {
++					thisbit-&gt;sb_flags |= bustp;
++				}
++				bus-&gt;bus_size = testbit + 1;
++				thisbit-&gt;sb_linebit = testbit;
++			}
++			thisbit++;
++			bits2go--;
++		}
++	}
++	/* Return if we were successful overall */
++	return retval;
++}
++
++COMMAND_HANDLER (bsdl_define_address) {
++	struct target *tgt = get_current_target (CMD_CTX);
++	struct businfo *bus = &amp;target_bsdl_info(tgt)-&gt;bus_address;
++	return CALL_COMMAND_HANDLER (bsdl_buspins, tgt, bus, SBF_DEFINE_ADDRESSLINE);
++}
++
++COMMAND_HANDLER (bsdl_define_data) {
++	struct target *tgt = get_current_target (CMD_CTX);
++	struct businfo *bus = &amp;target_bsdl_info(tgt)-&gt;bus_data;
++	return CALL_COMMAND_HANDLER (bsdl_buspins, tgt, bus, SBF_DEFINE_DATALINE);
++}
++
++
++/*
++ *	GENERIC ROUTINES
++ */
++
++
++#if 0
++COMMAND_HANDLER (bsdl_noop) {
++	return ERROR_OK;
++}
++#endif
++
++int bsdl_init (struct command_context *cmd_ctx, struct target *target) {
++	return ERROR_OK;
++}
++
++
++int bsdl_poll (struct target *target) {
++	return ERROR_OK;
++}
++
++/*
++ *	DRIVER DESCRIPTIVE STRUCTURES
++ */
++
++static const struct command_registration bsdl_commands_define[] = {
++	{
++		.name = &quot;address&quot;,
++		.usage = &quot;pinname...&quot;,
++		.help = &quot;When accessing memory, place the target address on these pins&quot;,
++		.handler = bsdl_define_address,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;data&quot;,
++		.usage = &quot;pinname...&quot;,
++		.help = &quot;When accessing memory, exchange data over these pins&quot;,
++		.handler = bsdl_define_data,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;readstrobe&quot;,
++		.usage = &quot;pinname...&quot;,
++		.help = &quot;When reading from memory, temporarily change these pins to send a strobe signal&quot;,
++		.handler = bsdl_define_readstrobe,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;writestrobe&quot;,
++		.usage = &quot;pinname...&quot;,
++		.help = &quot;When writing to memory, temporarily change these pins to send a strobe signal&quot;,
++		.handler = bsdl_define_writestrobe,
++		.mode = COMMAND_ANY,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++static const struct command_registration bsdl_commands_force[] = {
++	{
++		.name = &quot;set&quot;,
++		.usage = &quot;pinname...&quot;,
++		.help = &quot;During future boundary scans, make sure to set the named pins to 1&quot;,
++		.handler = bsdl_forcepins_set,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;reset&quot;,
++		.usage = &quot;pinname...&quot;,
++		.help = &quot;During future boundary scans, make sure to set the named pins to 0&quot;,
++		.handler = bsdl_forcepins_reset,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;float&quot;,
++		.usage = &quot;pinname...&quot;,
++		.help = &quot;During future boundary scans, make sure to make the named pins float&quot;,
++		.handler = bsdl_forcepins_float,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;none&quot;,
++		.usage = &quot;&quot;,
++		.help = &quot;During future boundary scans, do not force any pin values&quot;,
++		.handler = bsdl_forcenone,
++		.mode = COMMAND_ANY,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++static const struct command_registration bsdl_commands[] = {
++	{
++		.name = &quot;bsdlfile&quot;,
++		.usage = &quot;filename&quot;,
++		.help = &quot;Load BSDL description from named file&quot;,
++		.handler = bsdl_loadfile,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;urjtagfile&quot;,
++		.usage = &quot;filename&quot;,
++		.help = &quot;DEPRECATED: Load JTAG description from named file, created by UrJTAG's bsdl2jtag&quot;,
++		.handler = bsdl_loadfile_urjtag,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;force&quot;,
++		.usage = &quot;'set' ... | 'reset' ... | 'float' ... | 'none'&quot;,
++		.help = &quot;Commands to force the state of pins during upcoming boundary scans&quot;,
++		.chain = bsdl_commands_force,
++		.mode = COMMAND_ANY,
++	},
++	{
++		.name = &quot;define&quot;,
++		.usage = &quot;'address' ... | 'data' ... | 'readstrobe' ... | 'writestrobe' ...&quot;,
++		.help = &quot;Commands to define the functions of pins&quot;,
++		.chain = bsdl_commands_define,
++		.mode = COMMAND_ANY,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++const struct target_type generic_bsdl_target = {
++
++	/* Constants */
++	.name = &quot;generic_bsdl&quot;,
++	.commands = bsdl_commands,
++
++	/* Reset */
++
++	/* JTAG */
++
++	/* Memory */
++	.read_memory = bsdl_read_memory,
++	.read_memory_imp = bsdl_read_memory,
++	.read_phys_memory = bsdl_read_memory,
++	.write_memory = bsdl_write_memory,
++	.write_memory_imp = bsdl_write_memory,
++	.write_phys_memory = bsdl_write_memory,
++	.bulk_write_memory = bsdl_bulk_write_memory,
++	.checksum_memory = bsdl_checksum_memory,
++	.blank_check_memory = bsdl_blank_check_memory,
++	.mmu = bsdl_mmu,
++	.virt2phys = bsdl_virt2phys,
++
++	/* Commands */
++	.target_create = bsdl_target_create,
++
++	/* General setup */
++	.init_target = bsdl_init,
++	.poll = bsdl_poll,
++
++};
++
+diff -Nur openocd-0.4.0-orig/src/target/target.c openocd-0.4.0-plus_bsdl/src/target/target.c
+--- openocd-0.4.0-orig/src/target/target.c	2010-02-21 20:17:07.000000000 +0000
++++ openocd-0.4.0-plus_bsdl/src/target/target.c	2010-10-06 11:02:01.000000000 +0000
+@@ -68,6 +68,7 @@
+ extern struct target_type avr_target;
+ extern struct target_type dsp563xx_target;
+ extern struct target_type testee_target;
++extern struct target_type generic_bsdl_target;
+ 
+ struct target_type *target_types[] =
+ {
+@@ -88,6 +89,7 @@
+ 	&amp;avr_target,
+ 	&amp;dsp563xx_target,
+ 	&amp;testee_target,
++	&amp;generic_bsdl_target,
+ 	NULL,
+ };
+ 
+@@ -3905,7 +3907,7 @@
+ 	Jim_GetOptInfo goi;
+ 	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
+ 
+-	if ((goi.argc == 2) || (goi.argc == 3))
++	if ((goi.argc == 3) || (goi.argc == 4))
+ 	{
+ 		Jim_SetResult_sprintf(goi.interp,
+ 				&quot;usage: %s &lt;address&gt; [&lt;count&gt;]&quot;, cmd_name);
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016673.html">[Openocd-development] BSDL target, how to use JTAG?
+</A></li>
+	<LI>Next message: <A HREF="016675.html">[Openocd-development] BSDL target, how to use JTAG?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16674">[ date ]</a>
+              <a href="thread.html#16674">[ thread ]</a>
+              <a href="subject.html#16674">[ subject ]</a>
+              <a href="author.html#16674">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,305 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out()	to be inlined into inner loops
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20minidriver%3A%20allow%20jtag_add_dr_out%28%29%0A%09to%20be%20inlined%20into%20inner%20loops&In-Reply-To=%3C1259761114-1277-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013219.html">
+   <LINK REL="Next"  HREF="013220.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out()	to be inlined into inner loops</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20minidriver%3A%20allow%20jtag_add_dr_out%28%29%0A%09to%20be%20inlined%20into%20inner%20loops&In-Reply-To=%3C1259761114-1277-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out()	to be inlined into inner loops">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Dec  2 14:38:34 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013219.html">[Openocd-development] gdb_port no longer returns configured port
+</A></li>
+        <LI>Next message: <A HREF="013220.html">[Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out() to be inlined into inner loops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13207">[ date ]</a>
+              <a href="thread.html#13207">[ thread ]</a>
+              <a href="subject.html#13207">[ subject ]</a>
+              <a href="author.html#13207">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Fix 'regression' where jtag_add_dr_out() is no longer inlined
+after refactoring.
+
+The minidrivers strip away all the overhead and allow inner loops
+to communicate directly with a hardware FIFO.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/jtag/Makefile.am     |    2 -
+ src/jtag/core.c          |   14 ---------
+ src/jtag/driver.c        |   10 +++++++
+ src/jtag/jtag.h          |   37 +++----------------------
+ src/jtag/minidriver.h    |   67 ++++++++++++++++++++++++++++++++++++++-------
+ src/jtag/zy1000/zy1000.c |    3 +-
+ 6 files changed, 73 insertions(+), 60 deletions(-)
+
+diff --git a/src/jtag/Makefile.am b/src/jtag/Makefile.am
+index 5254a2b..c762300 100644
+--- a/src/jtag/Makefile.am
++++ b/src/jtag/Makefile.am
+@@ -11,11 +11,9 @@ if MINIDRIVER
+ 
+ if ZY1000
+ DRIVERFILES += zy1000/zy1000.c
+-AM_CPPFLAGS += -I$(srcdir)/zy1000
+ endif
+ if MINIDRIVER_DUMMY
+ DRIVERFILES += minidummy/minidummy.c commands.c
+-AM_CPPFLAGS += -I$(srcdir)/minidummy
+ endif
+ 
+ else
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 9230cc2..cf14394 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -502,20 +502,6 @@ void jtag_add_plain_dr_scan(int in_num_fields, const struct scan_field *in_field
+ 	jtag_set_error(retval);
+ }
+ 
+-void jtag_add_dr_out(struct jtag_tap* tap,
+-		int num_fields, const int* num_bits, const uint32_t* value,
+-		tap_state_t end_state)
+-{
+-	assert(end_state != TAP_RESET);
+-	assert(end_state != TAP_INVALID);
+-
+-	cmd_queue_cur_state = end_state;
+-
+-	interface_jtag_add_dr_out(tap,
+-			num_fields, num_bits, value,
+-			end_state);
+-}
+-
+ void jtag_add_tlr(void)
+ {
+ 	jtag_prelude(TAP_RESET);
+diff --git a/src/jtag/driver.c b/src/jtag/driver.c
+index cadd88e..fe56369 100644
+--- a/src/jtag/driver.c
++++ b/src/jtag/driver.c
+@@ -525,3 +525,13 @@ void interface_jtag_add_callback(jtag_callback1_t callback, jtag_callback_data_t
+ 	jtag_add_callback4(jtag_convert_to_callback4, data0, (jtag_callback_data_t)callback, 0, 0);
+ }
+ 
++void interface_jtag_alloc_in_value32(struct scan_field *field)
++{
++	field-&gt;in_value = (uint8_t *)cmd_queue_alloc(4);
++}
++
++void interface_jtag_add_scan_check_alloc(struct scan_field *field)
++{
++	unsigned num_bytes = DIV_ROUND_UP(field-&gt;num_bits, 8);
++	field-&gt;in_value = (uint8_t *)cmd_queue_alloc(num_bytes);
++}
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index ee96775..4b0e8b2 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -2,7 +2,7 @@
+ *   Copyright (C) 2005 by Dominic Rath                                    *
+ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+ *                                                                         *
+-*   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++*   Copyright (C) 2007-2009 &#216;yvind Harboe                                 *
+ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+@@ -663,37 +663,6 @@ void jtag_sleep(uint32_t us);
+ #define ERROR_JTAG_INIT_SOFT_FAIL    (-110)
+ 
+ /**
+- * jtag_add_dr_out() is a version of jtag_add_dr_scan() which
+- * only scans data out. It operates on 32 bit integers instead
+- * of 8 bit, which makes it a better impedance match with
+- * the calling code which often operate on 32 bit integers.
+- *
+- * Current or end_state can not be TAP_RESET. end_state can be TAP_INVALID
+- *
+- * num_bits[i] is the number of bits to clock out from value[i] LSB first.
+- *
+- * If the device is in bypass, then that is an error condition in
+- * the caller code that is not detected by this fn, whereas
+- * jtag_add_dr_scan() does detect it. Similarly if the device is not in
+- * bypass, data must be passed to it.
+- *
+- * If anything fails, then jtag_error will be set and jtag_execute() will
+- * return an error. There is no way to determine if there was a failure
+- * during this function call.
+- *
+- * This is an inline fn to speed up embedded hosts. Also note that
+- * interface_jtag_add_dr_out() can be a *small* inline function for
+- * embedded hosts.
+- *
+- * There is no jtag_add_dr_outin() version of this fn that also allows
+- * clocking data back in. Patches gladly accepted!
+- */
+-void jtag_add_dr_out(struct jtag_tap* tap,
+-		int num_fields, const int* num_bits, const uint32_t* value,
+-		tap_state_t end_state);
+-
+-
+-/**
+  * Set the current JTAG core execution error, unless one was set
+  * by a previous call previously.  Driver or application code must
+  * use jtag_error_clear to reset jtag_error once this routine has been
+@@ -725,4 +694,8 @@ bool jtag_poll_get_enabled(void);
+  */
+ void jtag_poll_set_enabled(bool value);
+ 
++
++/* The minidriver contains inline versions of JTAG fn's */
++#include &quot;minidriver.h&quot;
++
+ #endif /* JTAG_H */
+diff --git a/src/jtag/minidriver.h b/src/jtag/minidriver.h
+index 392a190..7c8dcd7 100644
+--- a/src/jtag/minidriver.h
++++ b/src/jtag/minidriver.h
+@@ -46,7 +46,14 @@
+ 
+ #ifdef HAVE_JTAG_MINIDRIVER_H
+ 
+-#include &quot;jtag_minidriver.h&quot;
++#if BUILD_ZY1000
++#include &quot;zy1000/jtag_minidriver.h&quot;
++#endif
++
++#if BUILD_MINIDRIVER_DUMMY
++#include &quot;minidummy/jtag_minidriver.h&quot;
++#endif
++
+ 
+ static inline void interface_jtag_alloc_in_value32(struct scan_field *field)
+ {
+@@ -70,16 +77,8 @@ static inline void interface_jtag_add_scan_check_alloc(struct scan_field *field)
+ 
+ #include &quot;commands.h&quot;
+ 
+-static inline void interface_jtag_alloc_in_value32(struct scan_field *field)
+-{
+-	field-&gt;in_value = (uint8_t *)cmd_queue_alloc(4);
+-}
+-
+-static inline void interface_jtag_add_scan_check_alloc(struct scan_field *field)
+-{
+-	unsigned num_bytes = DIV_ROUND_UP(field-&gt;num_bits, 8);
+-	field-&gt;in_value = (uint8_t *)cmd_queue_alloc(num_bytes);
+-}
++void interface_jtag_alloc_in_value32(struct scan_field *field);
++void interface_jtag_add_scan_check_alloc(struct scan_field *field);
+ 
+ void interface_jtag_add_dr_out(struct jtag_tap* tap,
+ 		int num_fields, const int* num_bits, const uint32_t* value,
+@@ -130,4 +129,50 @@ int interface_jtag_execute_queue(void);
+  */
+ int default_interface_jtag_execute_queue(void);
+ 
++/**
++ * jtag_add_dr_out() is a version of jtag_add_dr_scan() which
++ * only scans data out. It operates on 32 bit integers instead
++ * of 8 bit, which makes it a better impedance match with
++ * the calling code which often operate on 32 bit integers.
++ *
++ * Current or end_state can not be TAP_RESET. end_state can be TAP_INVALID
++ *
++ * num_bits[i] is the number of bits to clock out from value[i] LSB first.
++ *
++ * If the device is in bypass, then that is an error condition in
++ * the caller code that is not detected by this fn, whereas
++ * jtag_add_dr_scan() does detect it. Similarly if the device is not in
++ * bypass, data must be passed to it.
++ *
++ * If anything fails, then jtag_error will be set and jtag_execute() will
++ * return an error. There is no way to determine if there was a failure
++ * during this function call.
++ *
++ * This is an inline fn to speed up embedded hosts. Also note that
++ * interface_jtag_add_dr_out() can be a *small* inline function for
++ * embedded hosts.
++ *
++ * There is no jtag_add_dr_outin() version of this fn that also allows
++ * clocking data back in. Patches gladly accepted!
++ */
++
++
++/* NB!!!! this must be inline in order to allow interface_jtag_add_dr_out()
++ * to be inlined!
++ */
++static __inline__ void jtag_add_dr_out(struct jtag_tap* tap,
++		int num_fields, const int* num_bits, const uint32_t* value,
++		tap_state_t end_state)
++{
++	assert(end_state != TAP_RESET);
++	assert(end_state != TAP_INVALID);
++
++	cmd_queue_cur_state = end_state;
++
++	interface_jtag_add_dr_out(tap,
++			num_fields, num_bits, value,
++			end_state);
++}
++
++
+ #endif // MINIDRIVER_H
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 07d840f..c3c93ac 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -20,9 +20,10 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#include &quot;embeddedice.h&quot;
++#include &quot;arm7_9_common.h&quot;
+ #include &quot;minidriver.h&quot;
+ #include &quot;interface.h&quot;
++#include &quot;embeddedice.h&quot;
+ #include &quot;zy1000_version.h&quot;
+ 
+ #include &lt;cyg/hal/hal_io.h&gt;             // low level i/o
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013219.html">[Openocd-development] gdb_port no longer returns configured port
+</A></li>
+	<LI>Next message: <A HREF="013220.html">[Openocd-development] [PATCH] minidriver: allow jtag_add_dr_out() to be inlined into inner loops
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13207">[ date ]</a>
+              <a href="thread.html#13207">[ thread ]</a>
+              <a href="subject.html#13207">[ subject ]</a>
+              <a href="author.html#13207">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

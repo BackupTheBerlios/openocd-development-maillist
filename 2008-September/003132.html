@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Segfault in rev 983
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Segfault%20in%20rev%20983&In-Reply-To=%3C1221179335.9429.9.camel%40crapshoot%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003122.html">
+   <LINK REL="Next"  HREF="003134.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Segfault in rev 983</H1>
+    <B>Nick Foster</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Segfault%20in%20rev%20983&In-Reply-To=%3C1221179335.9429.9.camel%40crapshoot%3E"
+       TITLE="[Openocd-development] Segfault in rev 983">nick at zylight.com
+       </A><BR>
+    <I>Fri Sep 12 02:28:55 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003122.html">[Openocd-development] keep_alive now invokes	target_call_timer_callbacks_now
+</A></li>
+        <LI>Next message: <A HREF="003134.html">[Openocd-development] Segfault in rev 983
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3132">[ date ]</a>
+              <a href="thread.html#3132">[ thread ]</a>
+              <a href="subject.html#3132">[ subject ]</a>
+              <a href="author.html#3132">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+Just getting started with OpenOCD, so please forgive me if this is an
+issue I ought to know about. Here's the config file:
+
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">bistromath at crapshoot</A>:~/cortex-code$ cat openocd.cfg
+#daemon configuration
+telnet_port 4444
+gdb_port 3333
+
+#interface
+interface ft2232
+ft2232_device_desc &quot;Olimex OpenOCD JTAG A&quot;
+ft2232_layout &quot;olimex-jtag&quot;
+ft2232_vid_pid 0x15BA 0x0003
+jtag_speed 100
+
+#use combined on interfaces or targets that can't set TRST/SRST
+separately
+reset_config trst_and_srst separate
+
+#jtag scan chain
+#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag_device 4 0x1 0xf 0xe
+jtag_device 5 0x1 0x1 0x1e
+
+target cortex_m3 little 0
+
+working_area 0 0x20000000 16384 nobackup
+
+#flash configuration
+flash bank stm32x 0x08000000 0x00010000 0 0 0
+
+init
+reset halt
+
+-------------------------------------------------------------
+And here's the GDB log, with backtrace:
+
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">bistromath at crapshoot</A>:~/cortex-code/$ sudo gdb --args /usr/bin/openocd
+--debug 3
+GNU gdb 6.8-debian
+Copyright (C) 2008 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later
+&lt;<A HREF="http://gnu.org/licenses/gpl.html">http://gnu.org/licenses/gpl.html</A>&gt;
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type &quot;show
+copying&quot;
+and &quot;show warranty&quot; for details.
+This GDB was configured as &quot;i486-linux-gnu&quot;...
+(gdb) run
+Starting program: /usr/bin/openocd --debug 3
+[Thread debugging using libthread_db enabled]
+Open On-Chip Debugger 1.0 (2008-09-11-16:46) svn:983
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+Debug:   4 1 configuration.c:88 find_file(): found openocd.cfg
+
+&lt;snip&gt;
+
+Debug:   79 4 openocd.c:107 handle_init_command(): target init complete
+Debug:   80 4 ft2232.c:1379 ft2232_init_ftd2xx(): 'ft2232' interface
+using FTD2XX with 'olimex-jtag' layout (15ba:0003)
+[New Thread 0xb7d826b0 (LWP 9826)]
+[New Thread 0xb7d81b90 (LWP 9829)]
+Debug:   81 498 ft2232.c:1468 ft2232_init_ftd2xx(): current latency
+timer: 2
+Debug:   82 499 ft2232.c:1815 olimex_jtag_init(): 80 08 1b
+Debug:   83 500 ft2232.c:1858 olimex_jtag_init(): 82 09 0f
+Debug:   84 501 ft2232.c:253 ft2232_speed(): 86 64 00
+Debug:   85 510 openocd.c:114 handle_init_command(): jtag interface init
+complete
+Debug:   86 510 jtag.c:1560 jtag_init_inner(): Init JTAG chain
+Debug:   87 510 jtag.c:327 jtag_call_event_callbacks(): jtag event: JTAG
+controller reset (TLR or TRST)
+Debug:   88 510 jtag.c:1301 jtag_reset_callback(): -
+Debug:   89 510 jtag.c:1301 jtag_reset_callback(): -
+Debug:   90 511 jtag.c:327 jtag_call_event_callbacks(): jtag event: JTAG
+controller reset (TLR or TRST)
+Debug:   91 511 jtag.c:1301 jtag_reset_callback(): -
+Debug:   92 511 jtag.c:1301 jtag_reset_callback(): -
+Info:    93 524 jtag.c:1410 jtag_examine_chain(): JTAG device found:
+0x3ba00477 (Manufacturer: 0x23b, Part: 0xba00, Version: 0x3)
+Info:    94 524 jtag.c:1410 jtag_examine_chain(): JTAG device found:
+0x16410041 (Manufacturer: 0x020, Part: 0x6410, Version: 0x1)
+Debug:   95 524 jtag.c:327 jtag_call_event_callbacks(): jtag event: JTAG
+controller reset (TLR or TRST)
+Debug:   96 524 jtag.c:1301 jtag_reset_callback(): -
+Debug:   97 524 jtag.c:1301 jtag_reset_callback(): -
+Debug:   98 526 openocd.c:120 handle_init_command(): jtag init complete
+Debug:   99 526 cortex_swjdp.c:965 ahbap_debugport_init():  
+
+Program received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 0xb7d826b0 (LWP 9826)]
+0xb7dd9246 in vfprintf () from /lib/tls/i686/cmov/libc.so.6
+(gdb) bt
+#0  0xb7dd9246 in vfprintf () from /lib/tls/i686/cmov/libc.so.6
+#1  0xb7dfdc04 in vsnprintf () from /lib/tls/i686/cmov/libc.so.6
+#2  0x08099061 in alloc_vprintf (fmt=0x80f0bf0 &quot;%s&quot;, ap=0x8131148 &quot;&quot;)
+    at log.c:321
+#3  0x080994bd in log_printf (level=LOG_LVL_USER, file=0x80ea9ee
+&quot;log.c&quot;, 
+    line=375, function=0x80eaa24 &quot;keep_alive&quot;, format=0x80f0bf0 &quot;%s&quot;)
+    at log.c:151
+#4  0x080995a3 in keep_alive () at log.c:375
+#5  0x0807c6d1 in swjdp_transaction_endcheck (swjdp=0x8128128)
+    at cortex_swjdp.c:178
+#6  0x0807bc2e in cortex_m3_poll (target=0x8127f00) at cortex_m3.c:384
+#7  0x0804b49b in handle_target (priv=0x0) at target.c:1492
+#8  0x0804caed in target_call_timer_callbacks () at target.c:798
+#9  0x080995ad in keep_alive () at log.c:383
+#10 0x0807c6d1 in swjdp_transaction_endcheck (swjdp=0x8128128)
+    at cortex_swjdp.c:178
+#11 0x0807bc2e in cortex_m3_poll (target=0x8127f00) at cortex_m3.c:384
+#12 0x0804b49b in handle_target (priv=0x0) at target.c:1492
+#13 0x0804caed in target_call_timer_callbacks () at target.c:798
+#14 0x080995ad in keep_alive () at log.c:383
+#15 0x0807c6d1 in swjdp_transaction_endcheck (swjdp=0x8128128)
+    at cortex_swjdp.c:178
+#16 0x0807bc2e in cortex_m3_poll (target=0x8127f00) at cortex_m3.c:384
+---Type &lt;return&gt; to continue, or q &lt;return&gt; to quit---q
+Quit
+
+--------------------------------------------------------------------
+
+Please let me know if there's any additional information I can provide.
+
+Nick
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003122.html">[Openocd-development] keep_alive now invokes	target_call_timer_callbacks_now
+</A></li>
+	<LI>Next message: <A HREF="003134.html">[Openocd-development] Segfault in rev 983
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3132">[ date ]</a>
+              <a href="thread.html#3132">[ thread ]</a>
+              <a href="subject.html#3132">[ subject ]</a>
+              <a href="author.html#3132">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

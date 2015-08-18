@@ -1,0 +1,530 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/3] SVF: clean up,	mostly for TAP 	state name handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20SVF%3A%20clean%20up%2C%0A%09mostly%20for%20TAP%20%09state%20name%20handling&In-Reply-To=%3C63034c040910231328r16d9c784p94222545466c7fad%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011489.html">
+   <LINK REL="Next"  HREF="011520.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/3] SVF: clean up,	mostly for TAP 	state name handling</H1>
+    <B>simon qian</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20SVF%3A%20clean%20up%2C%0A%09mostly%20for%20TAP%20%09state%20name%20handling&In-Reply-To=%3C63034c040910231328r16d9c784p94222545466c7fad%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [patch 1/3] SVF: clean up,	mostly for TAP 	state name handling">simonqian.openocd at gmail.com
+       </A><BR>
+    <I>Fri Oct 23 22:28:10 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011489.html">[Openocd-development] [patch 1/3] SVF: clean up,	mostly for TAP state name handling
+</A></li>
+        <LI>Next message: <A HREF="011520.html">[Openocd-development] [patch 1/3] SVF: clean up,	mostly for TAP  state name handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11516">[ date ]</a>
+              <a href="thread.html#11516">[ thread ]</a>
+              <a href="subject.html#11516">[ subject ]</a>
+              <a href="author.html#11516">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Note:
+If using tap_state_by_name, it MUST be totally compatible with the SVF
+specification(previous version is not match, so I add a private version).
+Otherwise, a change to the global name of state will affact svf
+implementation.
+
+2009/10/23 David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt;
+
+&gt;<i>  - Use the name mappings all the other code uses:
+</I>&gt;<i>    + name-to-state ... needed to add one special case
+</I>&gt;<i>    + state-to-name
+</I>&gt;<i>  - Improve various diagnostics:
+</I>&gt;<i>    + don't complain about a &quot;valid&quot; state when the issue
+</I>&gt;<i>      is actually that it must be &quot;stable&quot;
+</I>&gt;<i>    + say which command was affected
+</I>&gt;<i>  - Misc:
+</I>&gt;<i>    + make more private data and code be static
+</I>&gt;<i>    + use public DIM() not private dimof()
+</I>&gt;<i>    + shorten the affected lines
+</I>&gt;<i>
+</I>&gt;<i> Re the mappings, this means we're more generous in inputs we
+</I>&gt;<i> accept, since case won't matter.  Also our output diagnostics
+</I>&gt;<i> will be a smidgeon more informative, saying &quot;RUN/IDLE&quot; not
+</I>&gt;<i> just &quot;IDLE&quot; (emphasizing that there can be side effects).
+</I>&gt;<i> ---
+</I>&gt;<i> committed this ...
+</I>&gt;<i>
+</I>&gt;<i>  TODO                 |    1
+</I>&gt;<i>  src/jtag/interface.c |    4 +
+</I>&gt;<i>  src/jtag/interface.h |    3 -
+</I>&gt;<i>  src/jtag/jtag.h      |    5 +
+</I>&gt;<i>  src/svf/svf.c        |  135
+</I>&gt;<i> +++++++++++++++++++++----------------------------
+</I>&gt;<i>  5 files changed, 68 insertions(+), 80 deletions(-)
+</I>&gt;<i>
+</I>&gt;<i> --- a/TODO
+</I>&gt;<i> +++ b/TODO
+</I>&gt;<i> @@ -46,7 +46,6 @@ This section list issues that need to be
+</I>&gt;<i>  The following tasks have been suggested for cleaning up the JTAG layer:
+</I>&gt;<i>
+</I>&gt;<i>  - use tap_set_state everywhere to allow logging TAP state transitions
+</I>&gt;<i> -- rename other tap_states to use standard JTAG names (suggested by ML)
+</I>&gt;<i>  - Encapsulate cmd_queue_cur_state and related varaible handling.
+</I>&gt;<i>  - add slick 32 bit versions of jtag_add_xxx_scan() that avoids
+</I>&gt;<i>  buf_set_u32() calls and other evidence of poor impedance match between
+</I>&gt;<i> --- a/src/jtag/interface.c
+</I>&gt;<i> +++ b/src/jtag/interface.c
+</I>&gt;<i> @@ -365,6 +365,10 @@ tap_state_t tap_state_by_name(const char
+</I>&gt;<i>  {
+</I>&gt;<i>        tap_state_t x;
+</I>&gt;<i>
+</I>&gt;<i> +       /* standard SVF name is &quot;IDLE&quot; */
+</I>&gt;<i> +       if (0 == strcasecmp(name, &quot;IDLE&quot;))
+</I>&gt;<i> +               return TAP_IDLE;
+</I>&gt;<i> +
+</I>&gt;<i>        for (x = 0 ; x &lt; TAP_NUM_STATES ; x++) {
+</I>&gt;<i>                /* be nice to the human */
+</I>&gt;<i>                if (0 == strcasecmp(name, tap_state_name(x))) {
+</I>&gt;<i> --- a/src/jtag/interface.h
+</I>&gt;<i> +++ b/src/jtag/interface.h
+</I>&gt;<i> @@ -160,9 +160,6 @@ bool tap_is_state_stable(tap_state_t ast
+</I>&gt;<i>  */
+</I>&gt;<i>  tap_state_t tap_state_transition(tap_state_t current_state, bool tms);
+</I>&gt;<i>
+</I>&gt;<i> -/// Provides user-friendly name lookup of TAP states.
+</I>&gt;<i> -tap_state_t tap_state_by_name(const char *name);
+</I>&gt;<i> -
+</I>&gt;<i>  /// Allow switching between old and new TMS tables. @see tap_get_tms_path
+</I>&gt;<i>  void tap_use_new_tms_table(bool use_new);
+</I>&gt;<i>  /// @returns True if new TMS table is active; false otherwise.
+</I>&gt;<i> --- a/src/jtag/jtag.h
+</I>&gt;<i> +++ b/src/jtag/jtag.h
+</I>&gt;<i> @@ -102,7 +102,10 @@ typedef enum tap_state
+</I>&gt;<i>  * Function tap_state_name
+</I>&gt;<i>  * Returns a string suitable for display representing the JTAG tap_state
+</I>&gt;<i>  */
+</I>&gt;<i> -const char* tap_state_name(tap_state_t state);
+</I>&gt;<i> +const char *tap_state_name(tap_state_t state);
+</I>&gt;<i> +
+</I>&gt;<i> +/// Provides user-friendly name lookup of TAP states.
+</I>&gt;<i> +tap_state_t tap_state_by_name(const char *name);
+</I>&gt;<i>
+</I>&gt;<i>  /// The current TAP state of the pending JTAG command queue.
+</I>&gt;<i>  extern tap_state_t cmd_queue_cur_state;
+</I>&gt;<i> --- a/src/svf/svf.c
+</I>&gt;<i> +++ b/src/svf/svf.c
+</I>&gt;<i> @@ -55,7 +55,7 @@ typedef enum
+</I>&gt;<i>        TRST,
+</I>&gt;<i>  }svf_command_t;
+</I>&gt;<i>
+</I>&gt;<i> -const char *svf_command_name[14] =
+</I>&gt;<i> +static const char *svf_command_name[14] =
+</I>&gt;<i>  {
+</I>&gt;<i>        &quot;ENDDR&quot;,
+</I>&gt;<i>        &quot;ENDIR&quot;,
+</I>&gt;<i> @@ -81,7 +81,7 @@ typedef enum
+</I>&gt;<i>        TRST_ABSENT
+</I>&gt;<i>  }trst_mode_t;
+</I>&gt;<i>
+</I>&gt;<i> -const char *svf_trst_mode_name[4] =
+</I>&gt;<i> +static const char *svf_trst_mode_name[4] =
+</I>&gt;<i>  {
+</I>&gt;<i>        &quot;ON&quot;,
+</I>&gt;<i>        &quot;OFF&quot;,
+</I>&gt;<i> @@ -136,7 +136,6 @@ static const svf_statemove_t svf_statemo
+</I>&gt;<i>        {TAP_IRPAUSE,   TAP_IRPAUSE,    8,
+</I>&gt;<i>  {TAP_IRPAUSE, TAP_IREXIT2, TAP_IRUPDATE, TAP_DRSELECT, TAP_IRSELECT,
+</I>&gt;<i> TAP_IRCAPTURE, TAP_IREXIT1, TAP_IRPAUSE}}
+</I>&gt;<i>  };
+</I>&gt;<i>
+</I>&gt;<i> -char *svf_tap_state_name[TAP_NUM_STATES];
+</I>&gt;<i>
+</I>&gt;<i>  #define XXR_TDI                                                (1 &lt;&lt; 0)
+</I>&gt;<i>  #define XXR_TDO                                                (1 &lt;&lt; 1)
+</I>&gt;<i> @@ -169,8 +168,8 @@ typedef struct
+</I>&gt;<i>        svf_xxr_para_t sdr_para;
+</I>&gt;<i>  }svf_para_t;
+</I>&gt;<i>
+</I>&gt;<i> -svf_para_t svf_para;
+</I>&gt;<i> -const svf_para_t svf_para_init =
+</I>&gt;<i> +static svf_para_t svf_para;
+</I>&gt;<i> +static const svf_para_t svf_para_init =
+</I>&gt;<i>  {
+</I>&gt;<i>  //     frequency,      ir_end_state,   dr_end_state,   runtest_run_state,
+</I>&gt;<i>      runtest_end_state,      trst_mode
+</I>&gt;<i>        0,                      TAP_IDLE,               TAP_IDLE,
+</I>&gt;<i>     TAP_IDLE,                       TAP_IDLE,                       TRST_Z,
+</I>&gt;<i> @@ -207,8 +206,6 @@ typedef struct
+</I>&gt;<i>  static svf_check_tdo_para_t *svf_check_tdo_para = NULL;
+</I>&gt;<i>  static int svf_check_tdo_para_index = 0;
+</I>&gt;<i>
+</I>&gt;<i> -#define dimof(a)                                       (sizeof(a) /
+</I>&gt;<i> sizeof((a)[0]))
+</I>&gt;<i> -
+</I>&gt;<i>  static int svf_read_command_from_file(int fd);
+</I>&gt;<i>  static int svf_check_tdo(void);
+</I>&gt;<i>  static int svf_add_check_para(uint8_t enabled, int buffer_offset, int
+</I>&gt;<i> bit_len);
+</I>&gt;<i> @@ -236,7 +233,7 @@ int svf_register_commands(struct command
+</I>&gt;<i>        return ERROR_OK;
+</I>&gt;<i>  }
+</I>&gt;<i>
+</I>&gt;<i> -void svf_free_xxd_para(svf_xxr_para_t *para)
+</I>&gt;<i> +static void svf_free_xxd_para(svf_xxr_para_t *para)
+</I>&gt;<i>  {
+</I>&gt;<i>        if (NULL != para)
+</I>&gt;<i>        {
+</I>&gt;<i> @@ -263,7 +260,7 @@ void svf_free_xxd_para(svf_xxr_para_t *p
+</I>&gt;<i>        }
+</I>&gt;<i>  }
+</I>&gt;<i>
+</I>&gt;<i> -unsigned svf_get_mask_u32(int bitlen)
+</I>&gt;<i> +static unsigned svf_get_mask_u32(int bitlen)
+</I>&gt;<i>  {
+</I>&gt;<i>        uint32_t bitmask;
+</I>&gt;<i>
+</I>&gt;<i> @@ -283,34 +280,6 @@ unsigned svf_get_mask_u32(int bitlen)
+</I>&gt;<i>        return bitmask;
+</I>&gt;<i>  }
+</I>&gt;<i>
+</I>&gt;<i> -static const char* tap_state_svf_name(tap_state_t state)
+</I>&gt;<i> -{
+</I>&gt;<i> -       const char* ret;
+</I>&gt;<i> -
+</I>&gt;<i> -       switch (state)
+</I>&gt;<i> -       {
+</I>&gt;<i> -       case TAP_RESET:         ret = &quot;RESET&quot;;          break;
+</I>&gt;<i> -       case TAP_IDLE:          ret = &quot;IDLE&quot;;           break;
+</I>&gt;<i> -       case TAP_DRSELECT:      ret = &quot;DRSELECT&quot;;       break;
+</I>&gt;<i> -       case TAP_DRCAPTURE: ret = &quot;DRCAPTURE&quot;;  break;
+</I>&gt;<i> -       case TAP_DRSHIFT:       ret = &quot;DRSHIFT&quot;;        break;
+</I>&gt;<i> -       case TAP_DREXIT1:       ret = &quot;DREXIT1&quot;;        break;
+</I>&gt;<i> -       case TAP_DRPAUSE:       ret = &quot;DRPAUSE&quot;;        break;
+</I>&gt;<i> -       case TAP_DREXIT2:       ret = &quot;DREXIT2&quot;;        break;
+</I>&gt;<i> -       case TAP_DRUPDATE:      ret = &quot;DRUPDATE&quot;;       break;
+</I>&gt;<i> -       case TAP_IRSELECT:      ret = &quot;IRSELECT&quot;;       break;
+</I>&gt;<i> -       case TAP_IRCAPTURE: ret = &quot;IRCAPTURE&quot;;  break;
+</I>&gt;<i> -       case TAP_IRSHIFT:       ret = &quot;IRSHIFT&quot;;        break;
+</I>&gt;<i> -       case TAP_IREXIT1:       ret = &quot;IREXIT1&quot;;        break;
+</I>&gt;<i> -       case TAP_IRPAUSE:       ret = &quot;IRPAUSE&quot;;        break;
+</I>&gt;<i> -       case TAP_IREXIT2:       ret = &quot;IREXIT2&quot;;        break;
+</I>&gt;<i> -       case TAP_IRUPDATE:      ret = &quot;IRUPDATE&quot;;       break;
+</I>&gt;<i> -       default:                        ret = &quot;???&quot;;            break;
+</I>&gt;<i> -       }
+</I>&gt;<i> -
+</I>&gt;<i> -       return ret;
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i>  int svf_add_statemove(tap_state_t state_to)
+</I>&gt;<i>  {
+</I>&gt;<i>        tap_state_t state_from = cmd_queue_cur_state;
+</I>&gt;<i> @@ -322,7 +291,7 @@ int svf_add_statemove(tap_state_t state_
+</I>&gt;<i>                return ERROR_OK;
+</I>&gt;<i>        }
+</I>&gt;<i>
+</I>&gt;<i> -       for (index = 0; index &lt; dimof(svf_statemoves); index++)
+</I>&gt;<i> +       for (index = 0; index &lt; DIM(svf_statemoves); index++)
+</I>&gt;<i>        {
+</I>&gt;<i>                if ((svf_statemoves[index].from == state_from)
+</I>&gt;<i>                        &amp;&amp; (svf_statemoves[index].to == state_to))
+</I>&gt;<i> @@ -337,7 +306,7 @@ int svf_add_statemove(tap_state_t state_
+</I>&gt;<i>                        return ERROR_OK;
+</I>&gt;<i>                }
+</I>&gt;<i>        }
+</I>&gt;<i> -       LOG_ERROR(&quot;SVF: can not move to %s&quot;, tap_state_svf_name(state_to));
+</I>&gt;<i> +       LOG_ERROR(&quot;SVF: can not move to %s&quot;, tap_state_name(state_to));
+</I>&gt;<i>        return ERROR_FAIL;
+</I>&gt;<i>  }
+</I>&gt;<i>
+</I>&gt;<i> @@ -426,10 +395,6 @@ static int handle_svf_command(struct com
+</I>&gt;<i>        svf_buffer_size = 2 * SVF_MAX_BUFFER_SIZE_TO_COMMIT;
+</I>&gt;<i>
+</I>&gt;<i>        memcpy(&amp;svf_para, &amp;svf_para_init, sizeof(svf_para));
+</I>&gt;<i> -       for (i = 0; i &lt; (int)dimof(svf_tap_state_name); i++)
+</I>&gt;<i> -       {
+</I>&gt;<i> -               svf_tap_state_name[i] = (char *)tap_state_svf_name(i);
+</I>&gt;<i> -       }
+</I>&gt;<i>
+</I>&gt;<i>        // TAP_RESET
+</I>&gt;<i>        jtag_add_tlr();
+</I>&gt;<i> @@ -625,11 +590,6 @@ bool svf_tap_state_is_stable(tap_state_t
+</I>&gt;<i>                        || (TAP_DRPAUSE == state) || (TAP_IRPAUSE == state);
+</I>&gt;<i>  }
+</I>&gt;<i>
+</I>&gt;<i> -static int svf_tap_state_is_valid(tap_state_t state)
+</I>&gt;<i> -{
+</I>&gt;<i> -       return state &gt;= 0 &amp;&amp; state &lt; TAP_NUM_STATES;
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i>  static int svf_find_string_in_array(char *str, char **strs, int
+</I>&gt;<i> num_of_element)
+</I>&gt;<i>  {
+</I>&gt;<i>        int i;
+</I>&gt;<i> @@ -823,7 +783,12 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                return ERROR_FAIL;
+</I>&gt;<i>        }
+</I>&gt;<i>
+</I>&gt;<i> -       command = svf_find_string_in_array(argus[0], (char
+</I>&gt;<i> **)svf_command_name, dimof(svf_command_name));
+</I>&gt;<i> +       /* NOTE: we're a bit loose here, because we ignore case in
+</I>&gt;<i> +        * TAP state names (instead of insisting on uppercase).
+</I>&gt;<i> +        */
+</I>&gt;<i> +
+</I>&gt;<i> +       command = svf_find_string_in_array(argus[0],
+</I>&gt;<i> +                       (char **)svf_command_name, DIM(svf_command_name));
+</I>&gt;<i>        switch (command)
+</I>&gt;<i>        {
+</I>&gt;<i>        case ENDDR:
+</I>&gt;<i> @@ -833,23 +798,28 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                        LOG_ERROR(&quot;invalid parameter of %s&quot;, argus[0]);
+</I>&gt;<i>                        return ERROR_FAIL;
+</I>&gt;<i>                }
+</I>&gt;<i> -               i_tmp = svf_find_string_in_array(argus[1], (char
+</I>&gt;<i> **)svf_tap_state_name, dimof(svf_tap_state_name));
+</I>&gt;<i> +
+</I>&gt;<i> +               i_tmp = tap_state_by_name(argus[1]);
+</I>&gt;<i> +
+</I>&gt;<i>                if (svf_tap_state_is_stable(i_tmp))
+</I>&gt;<i>                {
+</I>&gt;<i>                        if (command == ENDIR)
+</I>&gt;<i>                        {
+</I>&gt;<i>                                svf_para.ir_end_state = i_tmp;
+</I>&gt;<i> -                               LOG_DEBUG(&quot;\tir_end_state = %s&quot;,
+</I>&gt;<i> svf_tap_state_name[svf_para.ir_end_state]);
+</I>&gt;<i> +                               LOG_DEBUG(&quot;\tIR end_state = %s&quot;,
+</I>&gt;<i> +                                               tap_state_name(i_tmp));
+</I>&gt;<i>                        }
+</I>&gt;<i>                        else
+</I>&gt;<i>                        {
+</I>&gt;<i>                                svf_para.dr_end_state = i_tmp;
+</I>&gt;<i> -                               LOG_DEBUG(&quot;\tdr_end_state = %s&quot;,
+</I>&gt;<i> svf_tap_state_name[svf_para.dr_end_state]);
+</I>&gt;<i> +                               LOG_DEBUG(&quot;\tDR end_state = %s&quot;,
+</I>&gt;<i> +                                               tap_state_name(i_tmp));
+</I>&gt;<i>                        }
+</I>&gt;<i>                }
+</I>&gt;<i>                else
+</I>&gt;<i>                {
+</I>&gt;<i> -                       LOG_ERROR(&quot;%s is not valid state&quot;, argus[1]);
+</I>&gt;<i> +                       LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
+</I>&gt;<i> +                                       argus[0], argus[1]);
+</I>&gt;<i>                        return ERROR_FAIL;
+</I>&gt;<i>                }
+</I>&gt;<i>                break;
+</I>&gt;<i> @@ -1203,25 +1173,31 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                min_time = 0;
+</I>&gt;<i>                max_time = 0;
+</I>&gt;<i>                i = 1;
+</I>&gt;<i> +
+</I>&gt;<i>                // run_state
+</I>&gt;<i> -               i_tmp = svf_find_string_in_array(argus[i], (char
+</I>&gt;<i> **)svf_tap_state_name, dimof(svf_tap_state_name));
+</I>&gt;<i> -               if (svf_tap_state_is_valid(i_tmp))
+</I>&gt;<i> +               i_tmp = tap_state_by_name(argus[i]);
+</I>&gt;<i> +               if (i_tmp != TAP_INVALID)
+</I>&gt;<i>                {
+</I>&gt;<i>                        if (svf_tap_state_is_stable(i_tmp))
+</I>&gt;<i>                        {
+</I>&gt;<i>                                svf_para.runtest_run_state = i_tmp;
+</I>&gt;<i>
+</I>&gt;<i> -                               // When a run_state is specified, the new
+</I>&gt;<i>  run_state becomes the default end_state
+</I>&gt;<i> +                               /* When a run_state is specified, the new
+</I>&gt;<i> +                                * run_state becomes the default end_state.
+</I>&gt;<i> +                                */
+</I>&gt;<i>                                svf_para.runtest_end_state = i_tmp;
+</I>&gt;<i> -                               LOG_DEBUG(&quot;\trun_state = %s&quot;,
+</I>&gt;<i> svf_tap_state_name[svf_para.runtest_run_state]);
+</I>&gt;<i> +                               LOG_DEBUG(&quot;\trun_state = %s&quot;,
+</I>&gt;<i> +                                               tap_state_name(i_tmp));
+</I>&gt;<i>                                i++;
+</I>&gt;<i>                        }
+</I>&gt;<i>                        else
+</I>&gt;<i>                        {
+</I>&gt;<i> -                               LOG_ERROR(&quot;%s is not valid state&quot;,
+</I>&gt;<i> svf_tap_state_name[i_tmp]);
+</I>&gt;<i> +                               LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
+</I>&gt;<i> +                                       argus[0], tap_state_name(i_tmp));
+</I>&gt;<i>                                return ERROR_FAIL;
+</I>&gt;<i>                        }
+</I>&gt;<i>                }
+</I>&gt;<i> +
+</I>&gt;<i>                // run_count run_clk
+</I>&gt;<i>                if (((i + 2) &lt;= num_of_argu) &amp;&amp; strcmp(argus[i + 1], &quot;SEC&quot;))
+</I>&gt;<i>                {
+</I>&gt;<i> @@ -1255,15 +1231,18 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                // ENDSTATE end_state
+</I>&gt;<i>                if (((i + 2) &lt;= num_of_argu) &amp;&amp; !strcmp(argus[i],
+</I>&gt;<i> &quot;ENDSTATE&quot;))
+</I>&gt;<i>                {
+</I>&gt;<i> -                       i_tmp = svf_find_string_in_array(argus[i + 1],
+</I>&gt;<i> (char **)svf_tap_state_name, dimof(svf_tap_state_name));
+</I>&gt;<i> +                       i_tmp = tap_state_by_name(argus[i + 1]);
+</I>&gt;<i> +
+</I>&gt;<i>                        if (svf_tap_state_is_stable(i_tmp))
+</I>&gt;<i>                        {
+</I>&gt;<i>                                svf_para.runtest_end_state = i_tmp;
+</I>&gt;<i> -                               LOG_DEBUG(&quot;\tend_state = %s&quot;,
+</I>&gt;<i> svf_tap_state_name[svf_para.runtest_end_state]);
+</I>&gt;<i> +                               LOG_DEBUG(&quot;\tend_state = %s&quot;,
+</I>&gt;<i> +                                       tap_state_name(i_tmp));
+</I>&gt;<i>                        }
+</I>&gt;<i>                        else
+</I>&gt;<i>                        {
+</I>&gt;<i> -                               LOG_ERROR(&quot;%s is not valid state&quot;,
+</I>&gt;<i> svf_tap_state_name[i_tmp]);
+</I>&gt;<i> +                               LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
+</I>&gt;<i> +                                       argus[0], tap_state_name(i_tmp));
+</I>&gt;<i>                                return ERROR_FAIL;
+</I>&gt;<i>                        }
+</I>&gt;<i>                        i += 2;
+</I>&gt;<i> @@ -1301,8 +1280,8 @@ static int svf_run_command(struct comman
+</I>&gt;<i>  #else
+</I>&gt;<i>                                if (svf_para.runtest_run_state != TAP_IDLE)
+</I>&gt;<i>                                {
+</I>&gt;<i> -                                       // RUNTEST can only executed in
+</I>&gt;<i> TAP_IDLE
+</I>&gt;<i> -                                       LOG_ERROR(&quot;cannot runtest in %s
+</I>&gt;<i> state&quot;, svf_tap_state_name[svf_para.runtest_run_state]);
+</I>&gt;<i> +                                       LOG_ERROR(&quot;cannot runtest in %s
+</I>&gt;<i> state&quot;,
+</I>&gt;<i> +
+</I>&gt;<i> tap_state_name(svf_para.runtest_run_state));
+</I>&gt;<i>                                        return ERROR_FAIL;
+</I>&gt;<i>                                }
+</I>&gt;<i>
+</I>&gt;<i> @@ -1333,13 +1312,14 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                                return ERROR_FAIL;
+</I>&gt;<i>                        }
+</I>&gt;<i>                        num_of_argu--;          // num of path
+</I>&gt;<i> -                       i_tmp = 1;                      // path is from
+</I>&gt;<i> patameter 1
+</I>&gt;<i> -                       for (i = 0; i &lt; num_of_argu; i++)
+</I>&gt;<i> +                       i_tmp = 1;              /* path is from parameter 1
+</I>&gt;<i> */
+</I>&gt;<i> +                       for (i = 0; i &lt; num_of_argu; i++, i_tmp++)
+</I>&gt;<i>                        {
+</I>&gt;<i> -                               path[i] =
+</I>&gt;<i> svf_find_string_in_array(argus[i_tmp++], (char **)svf_tap_state_name,
+</I>&gt;<i> dimof(svf_tap_state_name));
+</I>&gt;<i> -                               if (!svf_tap_state_is_valid(path[i]))
+</I>&gt;<i> +                               path[i] = tap_state_by_name(argus[i_tmp]);
+</I>&gt;<i> +                               if (path[i] == TAP_INVALID)
+</I>&gt;<i>                                {
+</I>&gt;<i> -                                       LOG_ERROR(&quot;%s is not valid state&quot;,
+</I>&gt;<i> svf_tap_state_name[path[i]]);
+</I>&gt;<i> +                                       LOG_ERROR(&quot;%s: %s is not a valid
+</I>&gt;<i> state&quot;,
+</I>&gt;<i> +                                               argus[0], argus[i_tmp]);
+</I>&gt;<i>                                        free(path);
+</I>&gt;<i>                                        return ERROR_FAIL;
+</I>&gt;<i>                                }
+</I>&gt;<i> @@ -1362,13 +1342,15 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                                if (svf_tap_state_is_stable(path[num_of_argu
+</I>&gt;<i> - 1]))
+</I>&gt;<i>                                {
+</I>&gt;<i>                                        // last state MUST be stable state
+</I>&gt;<i> -                                       // TODO: call path_move
+</I>&gt;<i>                                        jtag_add_pathmove(num_of_argu,
+</I>&gt;<i> path);
+</I>&gt;<i> -                                       LOG_DEBUG(&quot;\tmove to %s by
+</I>&gt;<i> path_move&quot;, svf_tap_state_name[path[num_of_argu - 1]]);
+</I>&gt;<i> +                                       LOG_DEBUG(&quot;\tmove to %s by
+</I>&gt;<i> path_move&quot;,
+</I>&gt;<i> +
+</I>&gt;<i> tap_state_name(path[num_of_argu - 1]));
+</I>&gt;<i>                                }
+</I>&gt;<i>                                else
+</I>&gt;<i>                                {
+</I>&gt;<i> -                                       LOG_ERROR(&quot;%s is not valid state&quot;,
+</I>&gt;<i> svf_tap_state_name[path[num_of_argu - 1]]);
+</I>&gt;<i> +                                       LOG_ERROR(&quot;%s: %s is not a stable
+</I>&gt;<i> state&quot;,
+</I>&gt;<i> +                                               argus[0],
+</I>&gt;<i> +
+</I>&gt;<i> tap_state_name(path[num_of_argu - 1]));
+</I>&gt;<i>                                        free(path);
+</I>&gt;<i>                                        return ERROR_FAIL;
+</I>&gt;<i>                                }
+</I>&gt;<i> @@ -1383,17 +1365,18 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                else
+</I>&gt;<i>                {
+</I>&gt;<i>                        // STATE stable_state
+</I>&gt;<i> -                       state = svf_find_string_in_array(argus[1], (char
+</I>&gt;<i> **)svf_tap_state_name, dimof(svf_tap_state_name));
+</I>&gt;<i> +                       state = tap_state_by_name(argus[1]);
+</I>&gt;<i>                        if (svf_tap_state_is_stable(state))
+</I>&gt;<i>                        {
+</I>&gt;<i>                                LOG_DEBUG(&quot;\tmove to %s by
+</I>&gt;<i> svf_add_statemove&quot;,
+</I>&gt;<i> -                                               svf_tap_state_name[state]);
+</I>&gt;<i> +                                               tap_state_name(state));
+</I>&gt;<i>                                /* FIXME handle statemove failures */
+</I>&gt;<i>                                svf_add_statemove(state);
+</I>&gt;<i>                        }
+</I>&gt;<i>                        else
+</I>&gt;<i>                        {
+</I>&gt;<i> -                               LOG_ERROR(&quot;%s is not valid state&quot;,
+</I>&gt;<i> svf_tap_state_name[state]);
+</I>&gt;<i> +                               LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
+</I>&gt;<i> +                                       argus[0], tap_state_name(state));
+</I>&gt;<i>                                return ERROR_FAIL;
+</I>&gt;<i>                        }
+</I>&gt;<i>                }
+</I>&gt;<i> @@ -1411,7 +1394,9 @@ static int svf_run_command(struct comman
+</I>&gt;<i>                        {
+</I>&gt;<i>                                return ERROR_FAIL;
+</I>&gt;<i>                        }
+</I>&gt;<i> -                       i_tmp = svf_find_string_in_array(argus[1], (char
+</I>&gt;<i> **)svf_trst_mode_name, dimof(svf_trst_mode_name));
+</I>&gt;<i> +                       i_tmp = svf_find_string_in_array(argus[1],
+</I>&gt;<i> +                                       (char **)svf_trst_mode_name,
+</I>&gt;<i> +                                       DIM(svf_trst_mode_name));
+</I>&gt;<i>                        switch (i_tmp)
+</I>&gt;<i>                        {
+</I>&gt;<i>                        case TRST_ON:
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+
+
+-- 
+Best Regards, SimonQian
+<A HREF="http://www.SimonQian.com">http://www.SimonQian.com</A>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091024/f07129f3/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20091024/f07129f3/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011489.html">[Openocd-development] [patch 1/3] SVF: clean up,	mostly for TAP state name handling
+</A></li>
+	<LI>Next message: <A HREF="011520.html">[Openocd-development] [patch 1/3] SVF: clean up,	mostly for TAP  state name handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11516">[ date ]</a>
+              <a href="thread.html#11516">[ thread ]</a>
+              <a href="subject.html#11516">[ subject ]</a>
+              <a href="author.html#11516">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

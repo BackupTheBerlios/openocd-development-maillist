@@ -1,0 +1,121 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] how to scan in/out values with specific	JTAG states
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20how%20to%20scan%20in/out%20values%20with%20specific%0A%09JTAG%20states&In-Reply-To=%3C200902190917.26949.hs4233%40mail.mn-solutions.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004727.html">
+   <LINK REL="Next"  HREF="004732.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] how to scan in/out values with specific	JTAG states</H1>
+    <B>Holger Schurig</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20how%20to%20scan%20in/out%20values%20with%20specific%0A%09JTAG%20states&In-Reply-To=%3C200902190917.26949.hs4233%40mail.mn-solutions.de%3E"
+       TITLE="[Openocd-development] how to scan in/out values with specific	JTAG states">hs4233 at mail.mn-solutions.de
+       </A><BR>
+    <I>Thu Feb 19 09:17:26 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004727.html">[Openocd-development] how to scan in/out values with specific	JTAG states
+</A></li>
+        <LI>Next message: <A HREF="004732.html">[Openocd-development] how to scan in/out values with specific	JTAG states
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4728">[ date ]</a>
+              <a href="thread.html#4728">[ thread ]</a>
+              <a href="subject.html#4728">[ subject ]</a>
+              <a href="author.html#4728">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> A DR scan will go down the full DR scan portion of the state
+</I>&gt;<i> machine. If you add 2 back to back DR scans, I expect it will
+</I>&gt;<i> do what you need.
+</I>
+I'm not sure I understood you fully, but I tried:
+
+static avr32_get_mem(target_t *target, u32 addr, u32 *data)
+{
+        jtag_tap_t *tap = target-&gt;tap;
+        int retval;
+
+        jtag_add_end_state(TAP_IDLE);
+        jtag_set_instr(tap, INST_MEM_WORD_ACCESS);
+
+        scan_field_t field1;
+        field1.tap = tap;
+        field1.num_bits = 35;
+        u8 *data1 = calloc(CEIL(field1.num_bits, 8), 1);
+        buf_set_u32(data1, 0, 4, SYSTEM_BUS_CACHED);
+        buf_set_u32(data1, 4, 30, addr &gt;&gt; 2);
+        buf_set_u32(data1, 34, 1, READ_ACCESS);
+        field1.out_value = data1;
+        field1.out_mask = NULL;
+        field1.in_value = NULL;
+        field1.in_check_value = NULL;
+        field1.in_check_mask = NULL;
+        field1.in_handler = NULL;
+        field1.in_handler_priv = NULL;
+        jtag_add_dr_scan(1, &amp;field1, -1);
+
+        scan_field_t field2;
+        field2.tap = tap;
+        field2.num_bits = 35;
+        u8 *data2 = calloc(CEIL(field2.num_bits, 8), 1);
+        field2.out_value = NULL;
+        field2.out_mask = NULL;
+        field2.in_value = data2;
+        field2.in_check_value = NULL;
+        field2.in_check_mask = NULL;
+        field2.in_handler = NULL;
+        field2.in_handler_priv = NULL;
+        jtag_add_dr_scan(1, &amp;field2, -1);
+
+        retval = jtag_execute_queue();
+        if (retval == ERROR_OK) {
+                *data = buf_get_u32(data2, 0, 32);
+                LOG_DEBUG(&quot;avr32: %08x: %08x&quot;, addr, *data);
+        } else {
+                LOG_ERROR(&quot;avr32: could not read %08x&quot;, addr);
+        }
+        free(data1);
+        free(data2);
+
+        return retval;
+}
+
+
+Unfortunately, this looks like it only gives me back junk data, 
+no matter what address I select. The first result is always 
+0x00000000, then all following results are 0x00000002.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004727.html">[Openocd-development] how to scan in/out values with specific	JTAG states
+</A></li>
+	<LI>Next message: <A HREF="004732.html">[Openocd-development] how to scan in/out values with specific	JTAG states
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4728">[ date ]</a>
+              <a href="thread.html#4728">[ thread ]</a>
+              <a href="subject.html#4728">[ subject ]</a>
+              <a href="author.html#4728">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

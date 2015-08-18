@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 3/2] gdb_server: correctly report	flash sector sizes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/2%5D%20gdb_server%3A%20correctly%20report%0A%09flash%20sector%20sizes&In-Reply-To=%3C201001192248.11437.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014300.html">
+   <LINK REL="Next"  HREF="014304.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 3/2] gdb_server: correctly report	flash sector sizes</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/2%5D%20gdb_server%3A%20correctly%20report%0A%09flash%20sector%20sizes&In-Reply-To=%3C201001192248.11437.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 3/2] gdb_server: correctly report	flash sector sizes">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Jan 20 07:48:11 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014300.html">[Openocd-development] [patch 2/2] gdb_server -- subroutinize memory	map logic
+</A></li>
+        <LI>Next message: <A HREF="014304.html">[Openocd-development] RC1 status report, 19-Jan-2009
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14306">[ date ]</a>
+              <a href="thread.html#14306">[ thread ]</a>
+              <a href="subject.html#14306">[ subject ]</a>
+              <a href="author.html#14306">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Report each region of same-size sectors separately, instead
+of incorrectly reporting that every sector has the same size.
+
+This fixes a longstanding bug, exposed by other recent bugfixes
+in flash handling.
+---
+Sanity tested with:  single and dual bank with uniform sectors;
+dual bank CFI with non-uniform sectors (top boot).
+
+ src/server/gdb_server.c |   81 ++++++++++++++++++++++++++++------------------
+ 1 file changed, 50 insertions(+), 31 deletions(-)
+
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -1613,22 +1613,6 @@ static int decode_xfer_read(char *buf, c
+ 	return 0;
+ }
+ 
+-static int gdb_calc_blocksize(struct flash_bank *bank)
+-{
+-	uint32_t i;
+-	uint32_t block_size = 0xffffffff;
+-
+-	/* loop through all sectors and return smallest sector size */
+-
+-	for (i = 0; i &lt; (uint32_t)bank-&gt;num_sectors; i++)
+-	{
+-		if (bank-&gt;sectors[i].size &lt; block_size)
+-			block_size = bank-&gt;sectors[i].size;
+-	}
+-
+-	return block_size;
+-}
+-
+ static int compare_bank (const void * a, const void * b)
+ {
+ 	struct flash_bank *b1, *b2;
+@@ -1666,7 +1650,6 @@ static int gdb_memory_map(struct connect
+ 	int offset;
+ 	int length;
+ 	char *separator;
+-	int blocksize;
+ 	uint32_t ram_start = 0;
+ 	int i;
+ 
+@@ -1701,29 +1684,65 @@ static int gdb_memory_map(struct connect
+ 			compare_bank);
+ 
+ 	for (i = 0; i &lt; flash_get_bank_count(); i++) {
++		int j;
++		unsigned sector_size = 0;
++		uint32_t start, end;
++
+ 		p = banks[i];
++		start = p-&gt;base;
++		end = p-&gt;base + p-&gt;size;
+ 
+ 		if (ram_start &lt; p-&gt;base)
+ 			xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
+ 				&quot;&lt;memory type=\&quot;ram\&quot; start=\&quot;0x%x\&quot; &quot;
+ 					&quot;length=\&quot;0x%x\&quot;/&gt;\n&quot;,
+-				ram_start, p-&gt;base-ram_start);
++				ram_start, p-&gt;base - ram_start);
+ 
+-		/* If device has uneven sector sizes, eg. str7, lpc
+-		 * we pass the smallest sector size to gdb memory map
+-		 *
+-		 * FIXME Don't lie about flash regions with different
+-		 * sector sizes; just tell GDB about each region as
+-		 * if it were a separate flash device.
++		/* Report adjacent groups of same-size sectors.  So for
++		 * example top boot CFI flash will list an initial region
++		 * with several large sectors (maybe 128KB) and several
++		 * smaller ones at the end (maybe 32KB).  STR7 will have
++		 * regions with 8KB, 32KB, and 64KB sectors; etc.
+ 		 */
+-		blocksize = gdb_calc_blocksize(p);
++		for (j = 0; j &lt; p-&gt;num_sectors; j++) {
++
++			/* start a new group of sectors */
++			if (sector_size == 0) {
++				start = p-&gt;base + p-&gt;sectors[j].offset;
++				xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
++					&quot;&lt;memory type=\&quot;flash\&quot; &quot;
++						&quot;start=\&quot;0x%x\&quot; &quot;,
++					start);
++				sector_size = p-&gt;sectors[j].size;
++				continue;
++			}
++
++			/* finish a group of sectors */
++			if (p-&gt;sectors[j].size != sector_size) {
++				xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
++					&quot;length=\&quot;0x%x\&quot;&gt;\n&quot;
++					&quot;&lt;property name=\&quot;blocksize\&quot;&gt;&quot;
++						&quot;0x%x&lt;/property&gt;\n&quot;
++					&quot;&lt;/memory&gt;\n&quot;,
++					p-&gt;sectors[j].offset - start,
++					sector_size);
++				sector_size = 0;
++			}
++
++			/* else we continue a group we started */
++		}
++
++		/* terminate the last group of sectors */
++		if (sector_size) {
++			xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
++				&quot;length=\&quot;0x%x\&quot;&gt;\n&quot;
++				&quot;&lt;property name=\&quot;blocksize\&quot;&gt;&quot;
++					&quot;0x%x&lt;/property&gt;\n&quot;
++				&quot;&lt;/memory&gt;\n&quot;,
++				p-&gt;size - start,
++				sector_size);
++		}
+ 
+-		xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
+-			&quot;&lt;memory type=\&quot;flash\&quot; start=\&quot;0x%x\&quot; &quot;
+-				&quot;length=\&quot;0x%x\&quot;&gt;\n&quot; \
+-			&quot;&lt;property name=\&quot;blocksize\&quot;&gt;0x%x&lt;/property&gt;\n&quot; \
+-			&quot;&lt;/memory&gt;\n&quot;, \
+-			p-&gt;base, p-&gt;size, blocksize);
+ 		ram_start = p-&gt;base + p-&gt;size;
+ 	}
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014300.html">[Openocd-development] [patch 2/2] gdb_server -- subroutinize memory	map logic
+</A></li>
+	<LI>Next message: <A HREF="014304.html">[Openocd-development] RC1 status report, 19-Jan-2009
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14306">[ date ]</a>
+              <a href="thread.html#14306">[ thread ]</a>
+              <a href="subject.html#14306">[ subject ]</a>
+              <a href="author.html#14306">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

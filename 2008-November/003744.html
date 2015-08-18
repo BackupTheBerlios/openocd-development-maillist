@@ -1,0 +1,115 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Unable to flash TinCanTools Hammer using trunk: Bug?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Unable%20to%20flash%20TinCanTools%20Hammer%20using%0A%20trunk%3A%20Bug%3F&In-Reply-To=%3C492B8FBD.1090009%40nowthor.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003740.html">
+   <LINK REL="Next"  HREF="003719.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Unable to flash TinCanTools Hammer using trunk: Bug?</H1>
+    <B>Carlos Antunes</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Unable%20to%20flash%20TinCanTools%20Hammer%20using%0A%20trunk%3A%20Bug%3F&In-Reply-To=%3C492B8FBD.1090009%40nowthor.com%3E"
+       TITLE="[Openocd-development] Unable to flash TinCanTools Hammer using trunk: Bug?">cmantunes at nowthor.com
+       </A><BR>
+    <I>Tue Nov 25 06:40:13 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003740.html">[Openocd-development] Unable to flash TinCanTools Hammer using trunk: Bug?
+</A></li>
+        <LI>Next message: <A HREF="003719.html">[Openocd-development] Unable to flash TinCanTools Hammer using	trunk: Bug?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3744">[ date ]</a>
+              <a href="thread.html#3744">[ thread ]</a>
+              <a href="subject.html#3744">[ subject ]</a>
+              <a href="author.html#3744">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Rick Altherr wrote:
+&gt;<i>
+</I>&gt;<i> On Nov 23, 2008, at 10:10 AM, Carlos Antunes wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> Rick Altherr wrote:
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> Debug:   298 216881 target.c:1787 target_wait_state(): waiting for 
+</I>&gt;&gt;&gt;&gt;<i> target debug-running...
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> This _appears_ to be coming from arm7_9_dcc_completion().  That 
+</I>&gt;&gt;&gt;<i> method is specified to be called at the end of an arm7_9 write 
+</I>&gt;&gt;&gt;<i> memory block.  It is the only place in the arm7_9 code base where we 
+</I>&gt;&gt;&gt;<i> wait for that particular state.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> Error:   300 217221 target.c:1794 target_wait_state(): timed out 
+</I>&gt;&gt;&gt;&gt;<i> while waiting for target debug-running
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> But we didn't hit that state in time.  This probably has to do with 
+</I>&gt;&gt;&gt;<i> the fact that the device is already halted.  This failure bubbles up 
+</I>&gt;&gt;&gt;<i> and causes the overall flash to fail.  I don't have a arm7_9 based 
+</I>&gt;&gt;&gt;<i> device to test against, but I suggest someone step through the flash 
+</I>&gt;&gt;&gt;<i> routine and specifically the arm7_9 run algorithm code.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I think I found the culprit. Not sure whether it's a bug or a 
+</I>&gt;&gt;<i> feature, though...
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Function &quot;arm7_9_dcc_completion&quot; calls &quot;target_wait_state&quot; to expect 
+</I>&gt;&gt;<i> TARGET_DEBUG_RUNNING. The function &quot;target_wait_state&quot; will 
+</I>&gt;&gt;<i> eventually call &quot;arm7_9_poll&quot;. If one jumps to &quot;arm7_9_common.c:780&quot;, 
+</I>&gt;&gt;<i> one can see that when &quot;target-&gt;state&quot; gets set to TARGET_HALTED if 
+</I>&gt;&gt;<i> the polled state was TARGET_DEBUG_RUNNING.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I changed the parameter of &quot;target_wait_state&quot; on 
+</I>&gt;&gt;<i> &quot;arm7_9_dcc_completion&quot; to TARGET_HALTED and the error I was 
+</I>&gt;&gt;<i> encountering is now gone. However, I am now getting a &quot;DCC write 
+</I>&gt;&gt;<i> failed, expected end address 0x4080804c got 0x4080004c&quot; after a 
+</I>&gt;&gt;<i> message of &quot;Using target buffer at 0x4080004c and of size 0x8000&quot; so 
+</I>&gt;&gt;<i> I have a little bit more digging to do.
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> That seems to imply that the target never resumed.  That would explain 
+</I>&gt;<i> why it is in the halted state when dcc complete is called.  Take a 
+</I>&gt;<i> careful look at the run_alogrithm_inner code and make sure that the 
+</I>&gt;<i> target is actually restarted after the PC has been written.
+</I>&gt;<i>
+</I>
+Another bit of info: even with both &quot;*arm7_9 fast_memory_access*&quot; and 
+&quot;*arm7_9 dcc_downloads*&quot; disable, nothing gets written to the flash. In 
+this case, however, there is no error. The contents of the flash simply 
+do not change.
+
+Carlos Antunes
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003740.html">[Openocd-development] Unable to flash TinCanTools Hammer using trunk: Bug?
+</A></li>
+	<LI>Next message: <A HREF="003719.html">[Openocd-development] Unable to flash TinCanTools Hammer using	trunk: Bug?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3744">[ date ]</a>
+              <a href="thread.html#3744">[ thread ]</a>
+              <a href="subject.html#3744">[ subject ]</a>
+              <a href="author.html#3744">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

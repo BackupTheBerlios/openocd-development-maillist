@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/3] more updates from t2 testcases
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20more%20updates%20from%20t2%20testcases&In-Reply-To=%3C200907241713.09820.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009744.html">
+   <LINK REL="Next"  HREF="009741.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/3] more updates from t2 testcases</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20more%20updates%20from%20t2%20testcases&In-Reply-To=%3C200907241713.09820.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/3] more updates from t2 testcases">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Jul 25 02:13:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009744.html">[Openocd-development] vsllink update to support multiple	dongles by checking USB serial string
+</A></li>
+        <LI>Next message: <A HREF="009741.html">[Openocd-development] [patch 2/3] more ...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9743">[ date ]</a>
+              <a href="thread.html#9743">[ thread ]</a>
+              <a href="subject.html#9743">[ subject ]</a>
+              <a href="author.html#9743">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>More instruction decoding fixes:
+
+	A5.3.5 Load/store multiple
+	A5.3.7 Load word
+
+There was a longstanding bug in Thumb-1 LDM; the rest of the LDM/STM
+fixes are just using width specs to match UAL syntax, except for two
+opcode name typos.  Load word had two bitmask goofs.
+---
+ src/target/arm_disassembler.c |   20 ++++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+--- a/src/target/arm_disassembler.c
++++ b/src/target/arm_disassembler.c
+@@ -1944,17 +1944,21 @@ int evaluate_load_store_multiple_thumb(u
+ 
+ 	if ((opcode &amp; 0xf000) == 0xc000)
+ 	{ /* generic load/store multiple */
++		char *wback = &quot;!&quot;;
++
+ 		if (L)
+ 		{
+ 			instruction-&gt;type = ARM_LDM;
+ 			mnemonic = &quot;LDM&quot;;
++			if (opcode &amp; (1 &lt;&lt; Rn))
++				wback = &quot;&quot;;
+ 		}
+ 		else
+ 		{
+ 			instruction-&gt;type = ARM_STM;
+ 			mnemonic = &quot;STM&quot;;
+ 		}
+-		snprintf(ptr_name,7,&quot;r%i!, &quot;,Rn);
++		snprintf(ptr_name, sizeof ptr_name, &quot;r%i%s, &quot;, Rn, wback);
+ 	}
+ 	else
+ 	{ /* push/pop */
+@@ -2965,22 +2969,22 @@ static int t2ev_ldm_stm(uint32_t opcode,
+ 
+ 	switch (op) {
+ 	case 2:
+-		sprintf(cp, &quot;STMB\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++		sprintf(cp, &quot;STM.W\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
+ 		break;
+ 	case 3:
+ 		if (rn == 13 &amp;&amp; t)
+-			sprintf(cp, &quot;POP\t&quot;);
++			sprintf(cp, &quot;POP.W\t&quot;);
+ 		else
+ 			sprintf(cp, &quot;LDM.W\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
+ 		break;
+ 	case 4:
+ 		if (rn == 13 &amp;&amp; t)
+-			sprintf(cp, &quot;PUSH\t&quot;);
++			sprintf(cp, &quot;PUSH.W\t&quot;);
+ 		else
+-			sprintf(cp, &quot;STM.W\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++			sprintf(cp, &quot;STMDB\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
+ 		break;
+ 	case 5:
+-		sprintf(cp, &quot;LDMB\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++		sprintf(cp, &quot;LDMDB.W\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
+ 		break;
+ 	default:
+ 		return ERROR_INVALID_ARGUMENTS;
+@@ -3279,7 +3283,7 @@ static int t2ev_load_word(uint32_t opcod
+ 
+ 	if (rn == 0xf) {
+ 		immed = opcode &amp; 0x0fff;
+-		if (opcode &amp; (1 &lt;&lt; 23))
++		if ((opcode &amp; (1 &lt;&lt; 23)) == 0)
+ 			immed = -immed;
+ 		sprintf(cp, &quot;LDR\tr%d, %#8.8&quot; PRIx32,
+ 				(int) (opcode &gt;&gt; 12) &amp; 0xf,
+@@ -3317,7 +3321,7 @@ static int t2ev_load_word(uint32_t opcod
+ 	if (((opcode &gt;&gt; 8) &amp; 0xf) == 0xc || (opcode &amp; 0x0900) == 0x0900) {
+ 		char *p1 = &quot;]&quot;, *p2 = &quot;&quot;;
+ 
+-		if (!(opcode &amp; 0x0600))
++		if (!(opcode &amp; 0x0500))
+ 			return ERROR_INVALID_ARGUMENTS;
+ 
+ 		immed = opcode &amp; 0x00ff;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: t2-fix3.patch
+Type: text/x-diff
+Size: 2240 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090724/1dc2fc42/attachment.patch">https://lists.berlios.de/pipermail/openocd-development/attachments/20090724/1dc2fc42/attachment.patch</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009744.html">[Openocd-development] vsllink update to support multiple	dongles by checking USB serial string
+</A></li>
+	<LI>Next message: <A HREF="009741.html">[Openocd-development] [patch 2/3] more ...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9743">[ date ]</a>
+              <a href="thread.html#9743">[ thread ]</a>
+              <a href="subject.html#9743">[ subject ]</a>
+              <a href="author.html#9743">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

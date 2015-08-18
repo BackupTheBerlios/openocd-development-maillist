@@ -1,0 +1,109 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Reset fails LM3S Tempest C5 due to failure to read device class
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20fails%20LM3S%20Tempest%20C5%20due%20to%0A%20failure%20to%20read%20device%20class&In-Reply-To=%3CCAK%3DH08SgkQo0t4TE%3DO-JG7Zznn2%2BgOFEQwzJRh9HdE20FFrhtg%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020648.html">
+   <LINK REL="Next"  HREF="020449.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Reset fails LM3S Tempest C5 due to failure to read device class</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20fails%20LM3S%20Tempest%20C5%20due%20to%0A%20failure%20to%20read%20device%20class&In-Reply-To=%3CCAK%3DH08SgkQo0t4TE%3DO-JG7Zznn2%2BgOFEQwzJRh9HdE20FFrhtg%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Reset fails LM3S Tempest C5 due to failure to read device class">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Mon Aug  1 15:19:13 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020648.html">[Openocd-development] [PATCH 3/3] ft2232: Add casts to avoid warnings
+</A></li>
+        <LI>Next message: <A HREF="020449.html">[Openocd-development] Reset fails LM3S Tempest C5 due to failure to read device class
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20442">[ date ]</a>
+              <a href="thread.html#20442">[ thread ]</a>
+              <a href="subject.html#20442">[ subject ]</a>
+              <a href="author.html#20442">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 30 July 2011 22:48, B &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">bbcu2011 at gmail.com</A>&gt; wrote:
+&gt;<i> Using Open On-Chip Debugger 0.5.0-dev-00948-gd4cd6f0 (2011-07-30-15:55)
+</I>&gt;<i>
+</I>&gt;<i> LM3S3N26-C5 is not detected as a Tempest device and so uses the sysresetreq
+</I>&gt;<i> in place of the needed vectreset in stellaris.cfg.
+</I>&gt;<i>
+</I>&gt;<i> The device class appears to be set by:
+</I>&gt;<i>
+</I>&gt;<i> set device_class [expr (([mrw 0x400fe000] &gt;&gt; 16) &amp; 0xff)]
+</I>&gt;<i>
+</I>&gt;<i> This memory location contains the device class. Tempest is 0x04.
+</I>&gt;<i>
+</I>&gt;<i> There is an errata where LM3S3N26 misreports itself as 0x03.
+</I>&gt;<i>
+</I>&gt;<i> My attempt at a workaround was to define a variable:
+</I>&gt;<i>
+</I>&gt;<i> set DEVICECLASSIS 0x04
+</I>&gt;<i>
+</I>&gt;<i> then call a modified stellaris.cfg:
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> &#160;&#160;&#160; if { [info exists DEVICECLASSIS ] } {
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160; set device_class $DEVICECLASSIS
+</I>&gt;<i> &#160;&#160;&#160; } else {
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160; set device_class [expr (([mrw 0x400fe000] &gt;&gt; 16) &amp; 0xff)]
+</I>&gt;<i> &#160;&#160;&#160; }
+</I>&gt;<i>
+</I>&gt;<i> &#160;&#160;&#160; if {$device_class == 0 || $device_class == 1 || $device_class == 3} {
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160;&#160; # Sandstorm, Fury and DustDevil are able to use NVIC SYSRESETREQ
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160;&#160; cortex_m3 reset_config sysresetreq
+</I>&gt;<i> &#160;&#160;&#160; } else {
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160;&#160; # Tempest and newer default to using NVIC VECTRESET
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160;&#160; # this does mean a reset-init event handler is required to reset
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160;&#160; # any peripherals
+</I>&gt;<i> &#160;&#160;&#160; &#160;&#160;&#160; cortex_m3 reset_config vectreset
+</I>&gt;<i> &#160;&#160;&#160; }
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> The if statement doesn't seem to work properly. Changing the sysresetreq&#160; to
+</I>&gt;<i> vectreset by hand does resolve the issue.
+</I>&gt;<i>
+</I>&gt;<i> Is there something wrong with my if info exists workaround syntax?
+</I>&gt;<i>
+</I>
+you need to use global - see pic32mx.cfg for an example
+
+Cheers
+Spen
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020648.html">[Openocd-development] [PATCH 3/3] ft2232: Add casts to avoid warnings
+</A></li>
+	<LI>Next message: <A HREF="020449.html">[Openocd-development] Reset fails LM3S Tempest C5 due to failure to read device class
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20442">[ date ]</a>
+              <a href="thread.html#20442">[ thread ]</a>
+              <a href="subject.html#20442">[ subject ]</a>
+              <a href="author.html#20442">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

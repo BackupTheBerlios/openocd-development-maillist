@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/5] ADIv5: Introduce function to	detect ROM Table location
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/5%5D%20ADIv5%3A%20Introduce%20function%20to%0A%09detect%20ROM%20Table%20location&In-Reply-To=%3C1288507307-26941-1-git-send-email-marek.vasut%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016898.html">
+   <LINK REL="Next"  HREF="016889.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/5] ADIv5: Introduce function to	detect ROM Table location</H1>
+    <B>Marek Vasut</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/5%5D%20ADIv5%3A%20Introduce%20function%20to%0A%09detect%20ROM%20Table%20location&In-Reply-To=%3C1288507307-26941-1-git-send-email-marek.vasut%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/5] ADIv5: Introduce function to	detect ROM Table location">marek.vasut at gmail.com
+       </A><BR>
+    <I>Sun Oct 31 07:41:43 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016898.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+        <LI>Next message: <A HREF="016889.html">[Openocd-development] [PATCH 2/5] ADIv5: Implement function to	lookup CoreSight component
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16888">[ date ]</a>
+              <a href="thread.html#16888">[ thread ]</a>
+              <a href="subject.html#16888">[ subject ]</a>
+              <a href="author.html#16888">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch adds function called &quot;dap_detect_debug_base()&quot;, which should be
+called to get location of the ROM Table. By walking ROM Table, it's possible to
+discover the location of DAP.
+
+Sadly, some CPUs misreport this value, therefore I had to introduce an fixup
+function, which will be called in case such CPU is detected.
+
+Signed-off-by: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marek.vasut at gmail.com</A>&gt;
+---
+ src/target/arm_adi_v5.c |   58 +++++++++++++++++++++++-----------------------
+ src/target/arm_adi_v5.h |    9 +++++++
+ 2 files changed, 38 insertions(+), 29 deletions(-)
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 3414796..4c54308 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -906,7 +906,7 @@ extern const struct dap_ops jtag_dp_ops;
+  */
+ int ahbap_debugport_init(struct adiv5_dap *dap)
+ {
+-	uint32_t idreg, romaddr, dummy;
++	uint32_t dummy;
+ 	uint32_t ctrlstat;
+ 	int cnt = 0;
+ 	int retval;
+@@ -985,26 +985,6 @@ int ahbap_debugport_init(struct adiv5_dap *dap)
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	/*
+-	 * REVISIT this isn't actually *initializing* anything in an AP,
+-	 * and doesn't care if it's a MEM-AP at all (much less AHB-AP).
+-	 * Should it?  If the ROM address is valid, is this the right
+-	 * place to scan the table and do any topology detection?
+-	 */
+-	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;idreg);
+-	if (retval != ERROR_OK)
+-		return retval;
+-	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;romaddr);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	if ((retval = dap_run(dap)) != ERROR_OK)
+-		return retval;
+-
+-	LOG_DEBUG(&quot;MEM-AP #%&quot; PRId32 &quot; ID Register 0x%&quot; PRIx32
+-		&quot;, Debug ROM Address 0x%&quot; PRIx32,
+-		dap-&gt;apsel, idreg, romaddr);
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -1026,14 +1006,11 @@ is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
+ 			&amp;&amp; ((cid1 &amp; 0x0f) == 0) &amp;&amp; cid0 == 0x0d;
+ }
+ 
+-static int dap_info_command(struct command_context *cmd_ctx,
+-		struct adiv5_dap *dap, int apsel)
++int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
++			uint32_t *dbgbase, uint32_t *apid)
+ {
+-	int retval;
+-	uint32_t dbgbase, apid;
+-	int romtable_present = 0;
+-	uint8_t mem_ap;
+ 	uint32_t apselold;
++	int retval;
+ 
+ 	/* AP address is in bits 31:24 of DP_SELECT */
+ 	if (apsel &gt;= 256)
+@@ -1041,16 +1018,39 @@ static int dap_info_command(struct command_context *cmd_ctx,
+ 
+ 	apselold = dap-&gt;apsel;
+ 	dap_ap_select(dap, apsel);
+-	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;dbgbase);
++
++	retval = dap_queue_ap_read(dap, AP_REG_BASE, dbgbase);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
++	retval = dap_queue_ap_read(dap, AP_REG_IDR, apid);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* Some CPUs are messed up, so fixup if needed. */
++	if (dap-&gt;debug_base_fixup != NULL)
++		dap-&gt;debug_base_fixup(dap, apsel, dbgbase, apid);
++
++	dap_ap_select(dap, apselold);
++
++	return ERROR_OK;
++}
++
++static int dap_info_command(struct command_context *cmd_ctx,
++		struct adiv5_dap *dap, int apsel)
++{
++	int retval;
++	uint32_t dbgbase, apid;
++	int romtable_present = 0;
++	uint8_t mem_ap;
++	uint32_t apselold;
++
++	retval = dap_get_debugbase(dap, apsel, &amp;dbgbase, &amp;apid);
++	if (retval != ERROR_OK)
++		return retval;
++
+ 	/* Now we read ROM table ID registers, ref. ARM IHI 0029B sec  */
+ 	mem_ap = ((apid&amp;0x10000) &amp;&amp; ((apid&amp;0x0F) != 0));
+ 	command_print(cmd_ctx, &quot;AP ID register 0x%8.8&quot; PRIx32, apid);
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index 92469eb..c499755 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -179,6 +179,12 @@ struct adiv5_dap
+ 	/* Size of TAR autoincrement block, ARM ADI Specification requires at least 10 bits */
+ 	uint32_t tar_autoincr_block;
+ 
++	/**
++	 * In case the ROM Table location, reported by the DAP is incorrect,
++	 * call this function to issue a fixup at probe time.
++	 */
++	void		(*debug_base_fixup)(struct adiv5_dap *dap, int apsel,
++					uint32_t *dbgbase, uint32_t *apid);
+ };
+ 
+ /**
+@@ -380,6 +386,9 @@ int mem_ap_write_buf_u32(struct adiv5_dap *swjdp,
+ /* Initialisation of the debug system, power domains and registers */
+ int ahbap_debugport_init(struct adiv5_dap *swjdp);
+ 
++/* Probe the AP for ROM Table location */
++int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
++			uint32_t *dbgbase, uint32_t *apid);
+ 
+ struct target;
+ 
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016898.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+	<LI>Next message: <A HREF="016889.html">[Openocd-development] [PATCH 2/5] ADIv5: Implement function to	lookup CoreSight component
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16888">[ date ]</a>
+              <a href="thread.html#16888">[ thread ]</a>
+              <a href="subject.html#16888">[ subject ]</a>
+              <a href="author.html#16888">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

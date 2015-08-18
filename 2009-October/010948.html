@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] jtag_init changes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_init%20changes&In-Reply-To=%3Cc09652430910050615m2905802bgc068f4cbc4454e6e%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010942.html">
+   <LINK REL="Next"  HREF="010998.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] jtag_init changes</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_init%20changes&In-Reply-To=%3Cc09652430910050615m2905802bgc068f4cbc4454e6e%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] jtag_init changes">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Oct  5 15:15:48 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010942.html">[Openocd-development] jtag_init changes
+</A></li>
+        <LI>Next message: <A HREF="010998.html">[Openocd-development] jtag_init changes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10948">[ date ]</a>
+              <a href="thread.html#10948">[ thread ]</a>
+              <a href="subject.html#10948">[ subject ]</a>
+              <a href="author.html#10948">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Typed up patch attached that gives target script more control over
+how OpenOCD sets up the interface + target before
+examining.
+
+Not tested. Feedback needed!
+
+Change jtag_init to avoid the init without a prior reset:
+
+proc jtag_init {} {
+        #Make sure we reset the hardware before we talk to it
+	jtag arp_init-reset
+}
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/jtag/jtag.h
+===================================================================
+--- src/jtag/jtag.h	(revision 2801)
++++ src/jtag/jtag.h	(working copy)
+@@ -335,8 +335,9 @@
+ extern int  jtag_init(struct command_context_s* cmd_ctx);
+ 
+ /// reset, then initialize JTAG chain
+-extern int  jtag_init_reset(struct command_context_s* cmd_ctx);
+-extern int  jtag_register_commands(struct command_context_s* cmd_ctx);
++extern int jtag_init_reset(struct command_context_s* cmd_ctx);
++extern int jtag_register_commands(struct command_context_s* cmd_ctx);
++extern int jtag_init_inner(struct command_context_s *cmd_ctx);
+ 
+ /**
+  * @file
+Index: src/helper/startup.tcl
+===================================================================
+--- src/helper/startup.tcl	(revision 2801)
++++ src/helper/startup.tcl	(working copy)
+@@ -359,3 +359,13 @@
+ 	} result
+ 	return $result
+ }
++
++
++# Executed during &quot;init&quot;. Can be implemented by target script 
++# tar
++proc jtag_init {} {
++	if {[catch {jtag arp_init} err]!=0} {
++		# try resetting additionally
++		jtag arp_init-reset
++	}
++}
+\ No newline at end of file
+Index: src/jtag/core.c
+===================================================================
+--- src/jtag/core.c	(revision 2801)
++++ src/jtag/core.c	(working copy)
+@@ -1,16 +1,16 @@
+ /***************************************************************************
+- *   Copyright (C) 2005 by Dominic Rath                                    *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
++ *   Copyright (C) 2009 Zachary T Welch                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>                                                  *
+  *                                                                         *
+- *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   Copyright (C) 2007,2008,2009 &#216;yvind Harboe                            *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2009 SoftPLC Corporation                                *
+  *       <A HREF="http://softplc.com">http://softplc.com</A>                                                *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dick at softplc.com</A>                                                      *
+  *                                                                         *
+- *   Copyright (C) 2009 Zachary T Welch                                    *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>                                                  *
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -1230,7 +1230,7 @@
+ 	return ERROR_OK;
+ }
+ 
+-static int jtag_init_inner(struct command_context_s *cmd_ctx)
++int jtag_init_inner(struct command_context_s *cmd_ctx)
+ {
+ 	jtag_tap_t *tap;
+ 	int retval;
+@@ -1334,11 +1334,11 @@
+ 	int retval;
+ 	if ((retval = jtag_interface_init(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+-	if (jtag_init_inner(cmd_ctx) == ERROR_OK)
+-	{
+-		return ERROR_OK;
+-	}
+-	return jtag_init_reset(cmd_ctx);
++
++	if (Jim_Eval_Named(interp, &quot;jtag_init&quot;, __FILE__, __LINE__) != JIM_OK)
++		return ERROR_FAIL;
++
++	return ERROR_OK;
+ }
+ 
+ unsigned jtag_get_speed_khz(void)
+Index: src/jtag/tcl.c
+===================================================================
+--- src/jtag/tcl.c	(revision 2801)
++++ src/jtag/tcl.c	(working copy)
+@@ -410,6 +410,7 @@
+ 
+ 	enum {
+ 		JTAG_CMD_INTERFACE,
++		JTAG_CMD_INIT,
+ 		JTAG_CMD_INIT_RESET,
+ 		JTAG_CMD_NEWTAP,
+ 		JTAG_CMD_TAPENABLE,
+@@ -422,6 +423,7 @@
+ 
+ 	const Jim_Nvp jtag_cmds[] = {
+ 		{ .name = &quot;interface&quot;     , .value = JTAG_CMD_INTERFACE },
++		{ .name = &quot;arp_init&quot;      , .value = JTAG_CMD_INIT },
+ 		{ .name = &quot;arp_init-reset&quot;, .value = JTAG_CMD_INIT_RESET },
+ 		{ .name = &quot;newtap&quot;        , .value = JTAG_CMD_NEWTAP },
+ 		{ .name = &quot;tapisenabled&quot;     , .value = JTAG_CMD_TAPISENABLED },
+@@ -455,6 +457,17 @@
+ 		}
+ 		Jim_SetResultString(goi.interp, jtag_interface-&gt;name, -1);
+ 		return JIM_OK;
++	case JTAG_CMD_INIT:
++		if (goi.argc != 0) {
++			Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
++			return JIM_ERR;
++		}
++		e = jtag_init_inner(context);
++		if (e != ERROR_OK) {
++			Jim_SetResult_sprintf(goi.interp, &quot;error: %d&quot;, e);
++			return JIM_ERR;
++		}
++		return JIM_OK;
+ 	case JTAG_CMD_INIT_RESET:
+ 		if (goi.argc != 0) {
+ 			Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010942.html">[Openocd-development] jtag_init changes
+</A></li>
+	<LI>Next message: <A HREF="010998.html">[Openocd-development] jtag_init changes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10948">[ date ]</a>
+              <a href="thread.html#10948">[ thread ]</a>
+              <a href="subject.html#10948">[ subject ]</a>
+              <a href="author.html#10948">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

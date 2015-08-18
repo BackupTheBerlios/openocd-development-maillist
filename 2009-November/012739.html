@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 3/7] ARM11: partial support for	standard ARM register interfaces
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/7%5D%20ARM11%3A%20partial%20support%20for%0A%09standard%20ARM%20register%20interfaces&In-Reply-To=%3C200911231457.08725.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012742.html">
+   <LINK REL="Next"  HREF="012740.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 3/7] ARM11: partial support for	standard ARM register interfaces</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/7%5D%20ARM11%3A%20partial%20support%20for%0A%09standard%20ARM%20register%20interfaces&In-Reply-To=%3C200911231457.08725.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 3/7] ARM11: partial support for	standard ARM register interfaces">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Nov 23 23:57:08 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012742.html">[Openocd-development] [patch 2/7] ARM11: implement provider for new	DPM interface
+</A></li>
+        <LI>Next message: <A HREF="012740.html">[Openocd-development] [patch 4/7] ARM11: use standard single step	simulation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12739">[ date ]</a>
+              <a href="thread.html#12739">[ thread ]</a>
+              <a href="subject.html#12739">[ subject ]</a>
+              <a href="author.html#12739">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This provides &quot;standard&quot; ARM register support -- with twenty or
+more shadow registers on top of what this code now handles, but
+properly associated with the various core modes -- parallel to
+the current register code.  That is, the current code is stilil
+managing the &quot;current&quot; registers; the new code shadows them.
+
+You can see all the registers with &quot;arm reg&quot;, modify the shadows
+like &quot;r8_fiq&quot; or &quot;sp_abt&quot; with &quot;reg&quot;, and see them get properly
+written back when you step.  (Just don't do that with any of the
+registers managed by the &quot;old&quot; code ...)
+
+It also switches to using more standard code, relying on those
+standard registers, in two places:  (a) the poll status display,
+which now shows core state (ARM/Thumb/...) and mode (Supervisor,
+IRQ, etc); and (b) GDB register access.
+
+So it's not a full migration, there are warts, but it's a small
+more-or-less-comprehensible step that's even somewhat useful.
+Later patches complete the migration.
+---
+ src/target/arm11.c |   66 +++++++++++++++++++++++----------------------------
+ 1 file changed, 31 insertions(+), 35 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -144,9 +144,6 @@ enum arm11_regcache_ids
+ 	ARM11_RC_MAX,
+ };
+ 
+-/* GDB expects ARMs to give R0..R15, CPSR, and 7 FPA dummies */
+-#define ARM11_GDB_REGISTER_COUNT	26
+-
+ static int arm11_on_enter_debug_state(struct arm11_common *arm11);
+ static int arm11_step(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints);
+@@ -226,6 +223,9 @@ static int arm11_on_enter_debug_state(st
+ {
+ 	int retval;
+ 
++	/* REVISIT entire cache should already be invalid !!! */
++	register_cache_invalidate(arm11-&gt;arm.core_cache);
++
+ 	for (size_t i = 0; i &lt; ARRAY_SIZE(arm11-&gt;reg_values); i++)
+ 	{
+ 		arm11-&gt;reg_list[i].valid	= 1;
+@@ -300,6 +300,10 @@ static int arm11_on_enter_debug_state(st
+ 	}
+ #endif
+ 
++	retval = arm_dpm_read_current_registers(&amp;arm11-&gt;dpm);
++	if (retval != ERROR_OK)
++		LOG_ERROR(&quot;DPM REG READ -- fail %d&quot;, retval);
++
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -469,6 +473,9 @@ static int arm11_leave_debug_state(struc
+ 		}
+ 	}
+ 
++/* DEBUG for now, trust &quot;new&quot; code only for shadowed registers */
++retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
++
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -508,6 +515,11 @@ static int arm11_leave_debug_state(struc
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++/* DEBUG use this when &quot;new&quot; code is really managing core registers */
++// retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
++
++	register_cache_invalidate(arm11-&gt;arm.core_cache);
++
+ 	/* restore DSCR */
+ 
+ 	arm11_write_DSCR(arm11, R(DSCR));
+@@ -595,14 +607,13 @@ static int arm11_poll(struct target *tar
+ /* architecture specific status reply */
+ static int arm11_arch_state(struct target *target)
+ {
+-	struct arm11_common *arm11 = target_to_arm11(target);
++	int retval;
+ 
+-	LOG_USER(&quot;target halted due to %s\ncpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;&quot;,
+-			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+-			 R(CPSR),
+-			 R(PC));
++	retval = armv4_5_arch_state(target);
+ 
+-	return ERROR_OK;
++	/* REVISIT also display ARM11-specific MMU and cache status ... */
++
++	return retval;
+ }
+ 
+ /* target request support */
+@@ -1117,31 +1128,6 @@ static int arm11_soft_reset_halt(struct 
+ 	return ERROR_FAIL;
+ }
+ 
+-/* target register access for gdb */
+-static int arm11_get_gdb_reg_list(struct target *target,
+-		struct reg **reg_list[], int *reg_list_size)
+-{
+-	struct arm11_common *arm11 = target_to_arm11(target);
+-
+-	*reg_list_size	= ARM11_GDB_REGISTER_COUNT;
+-	*reg_list		= malloc(sizeof(struct reg*) * ARM11_GDB_REGISTER_COUNT);
+-
+-	/* nine unused legacy FPA registers are expected by GDB */
+-	for (size_t i = 16; i &lt; 24; i++)
+-		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
+-	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+-
+-	for (size_t i = 0; i &lt; ARM11_REGCACHE_COUNT; i++)
+-	{
+-		if (arm11_reg_defs[i].gdb_num == -1)
+-			continue;
+-
+-		(*reg_list)[arm11_reg_defs[i].gdb_num] = arm11-&gt;reg_list + i;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+ /* target memory access
+  * size: 1 = byte (8bit), 2 = half-word (16bit), 4 = word (32bit)
+  * count: number of items of &lt;size&gt;
+@@ -1683,6 +1669,8 @@ static int arm11_examine(struct target *
+ 	uint32_t didr, device_id;
+ 	uint8_t implementor;
+ 
++	/* FIXME split into do-first-time and do-every-time logic ... */
++
+ 	/* check IDCODE */
+ 
+ 	arm11_add_IR(arm11, ARM11_IDCODE, ARM11_TAP_DEFAULT);
+@@ -1755,6 +1743,14 @@ static int arm11_examine(struct target *
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* Build register cache &quot;late&quot;, after target_init(), since we
++	 * want to know if this core supports Secure Monitor mode.
++	 */
++	if (!target_was_examined(target)) {
++		arm11_dpm_init(arm11, didr);
++		retval = arm_dpm_setup(&amp;arm11-&gt;dpm);
++	}
++
+ 	/* ETM on ARM11 still uses original scanchain 6 access mode */
+ 	if (arm11-&gt;arm.etm &amp;&amp; !target_was_examined(target)) {
+ 		*register_get_last_cache_p(&amp;target-&gt;reg_cache) =
+@@ -2030,7 +2026,7 @@ struct target_type arm11_target = {
+ 	.deassert_reset =	arm11_deassert_reset,
+ 	.soft_reset_halt =	arm11_soft_reset_halt,
+ 
+-	.get_gdb_reg_list =	arm11_get_gdb_reg_list,
++	.get_gdb_reg_list =	armv4_5_get_gdb_reg_list,
+ 
+ 	.read_memory =		arm11_read_memory,
+ 	.write_memory =		arm11_write_memory,
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012742.html">[Openocd-development] [patch 2/7] ARM11: implement provider for new	DPM interface
+</A></li>
+	<LI>Next message: <A HREF="012740.html">[Openocd-development] [patch 4/7] ARM11: use standard single step	simulation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12739">[ date ]</a>
+              <a href="thread.html#12739">[ thread ]</a>
+              <a href="subject.html#12739">[ subject ]</a>
+              <a href="author.html#12739">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,250 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/3] allow deferal of init
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20allow%20deferal%20of%20init&In-Reply-To=%3C1259534010-18620-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013054.html">
+   <LINK REL="Next"  HREF="013057.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/3] allow deferal of init</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20allow%20deferal%20of%20init&In-Reply-To=%3C1259534010-18620-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/3] allow deferal of init">zw at superlucidity.net
+       </A><BR>
+    <I>Sun Nov 29 23:33:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013054.html">[Openocd-development] [PATCH 1/3] improve gdb_init() sequence
+</A></li>
+        <LI>Next message: <A HREF="013057.html">[Openocd-development] [PATCH 2/3-&gt;2/4] move server_init() to	openocd_main()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13055">[ date ]</a>
+              <a href="thread.html#13055">[ thread ]</a>
+              <a href="subject.html#13055">[ subject ]</a>
+              <a href="author.html#13055">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Moves the telnet and TCL server startup to server_init(), moving their
+respective command registration in to server_register_commands().
+Adds proper error checking for these particular startup processes.
+
+Adds 'noinit' command to prevent OpenOCD from running 'init' at the end
+up startup, allowing it to be given from telnet or TCL.  This provides
+the old behavior by default, and users can add this command to their
+scripts to get the new behavior.
+
+Improves related error checking in openocd_main().
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/openocd.c       |   56 +++++++++++++++++++++++++++++++-------------------
+ src/server/server.c |   16 +++++++++++++-
+ 2 files changed, 50 insertions(+), 22 deletions(-)
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 7f6af4c..2a65b4d 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -38,9 +38,7 @@
+ #include &quot;mflash.h&quot;
+ 
+ #include &quot;server.h&quot;
+-#include &quot;telnet_server.h&quot;
+ #include &quot;gdb_server.h&quot;
+-#include &quot;tcl_server.h&quot;
+ #include &quot;httpd.h&quot;
+ 
+ #ifdef HAVE_STRINGS_H
+@@ -93,6 +91,16 @@ static int log_target_callback_event_handler(struct target *target, enum target_
+ 
+ int ioutil_init(struct command_context *cmd_ctx);
+ 
++static bool init_at_startup = true;
++
++COMMAND_HANDLER(handle_noinit_command)
++{
++	if (CMD_ARGC != 0)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	init_at_startup = false;
++	return ERROR_OK;
++}
++
+ /* OpenOCD can't really handle failure of this command. Patches welcome! :-) */
+ COMMAND_HANDLER(handle_init_command)
+ {
+@@ -149,13 +157,8 @@ COMMAND_HANDLER(handle_init_command)
+ 		return ERROR_FAIL;
+ 	LOG_DEBUG(&quot;pld init complete&quot;);
+ 
+-	/* initialize tcp server */
+-	server_init();
+-
+ 	/* initialize telnet subsystem */
+-	telnet_init(&quot;Open On-Chip Debugger&quot;);
+ 	gdb_target_add_all(all_targets);
+-	tcl_init(); /* allows tcl to just connect without going thru telnet */
+ 
+ 	target_register_event_callback(log_target_callback_event_handler, CMD_CTX);
+ 
+@@ -166,15 +169,24 @@ static const struct command_registration openocd_command_handlers[] = {
+ 	{
+ 		.name = &quot;version&quot;,
+ 		.handler = &amp;handle_version_command,
+-		.mode = COMMAND_EXEC,
++		.mode = COMMAND_ANY,
+ 		.help = &quot;show program version&quot;,
+ 	},
+ 	{
++		.name = &quot;noinit&quot;,
++		.handler = &amp;handle_noinit_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;Prevent 'init' from being called at startup.&quot;,
++	},
++	{
+ 		.name = &quot;init&quot;,
+ 		.handler = &amp;handle_init_command,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_CONFIG,
+ 		.help = &quot;Initializes configured targets and servers.  &quot;
+-			&quot;If called more than once, does nothing.&quot;,
++			&quot;Changes command mode from CONFIG to EXEC.  &quot;
++			&quot;Unless 'noinit' is called, this command is &quot;
++			&quot;called automatically at the end of startup.&quot;,
++
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+@@ -194,9 +206,7 @@ struct command_context *setup_command_handler(void)
+ 	register_commands(cmd_ctx, NULL, openocd_command_handlers);
+ 	/* register subsystem commands */
+ 	server_register_commands(cmd_ctx);
+-	telnet_register_commands(cmd_ctx);
+ 	gdb_register_commands(cmd_ctx);
+-	tcl_register_commands(cmd_ctx); /* tcl server commands */
+ 	log_register_commands(cmd_ctx);
+ 	jtag_register_commands(cmd_ctx);
+ 	xsvf_register_commands(cmd_ctx);
+@@ -259,7 +269,7 @@ int openocd_main(int argc, char *argv[])
+ 		return EXIT_FAILURE;
+ 
+ 	ret = parse_config_file(cmd_ctx);
+-	if ((ret != ERROR_OK) &amp;&amp; (ret != ERROR_COMMAND_CLOSE_CONNECTION))
++	if (ret != ERROR_OK)
+ 		return EXIT_FAILURE;
+ 
+ #if BUILD_HTTPD
+@@ -267,16 +277,21 @@ int openocd_main(int argc, char *argv[])
+ 		return EXIT_FAILURE;
+ #endif
+ 
+-	if (ret != ERROR_COMMAND_CLOSE_CONNECTION)
++	ret = server_init();
++	if (ERROR_OK != ret)
++		return EXIT_FAILURE;
++
++	if (init_at_startup)
+ 	{
+-		if (command_run_line(cmd_ctx, &quot;init&quot;) != ERROR_OK)
+-			return EXIT_FAILURE;
++		ret = command_run_line(cmd_ctx, &quot;init&quot;);
++		if (ERROR_OK != ret)
++			ret = EXIT_FAILURE;
++	}
+ 
+-		/* handle network connections */
++	/* handle network connections */
++	if (ERROR_OK == ret)
+ 		server_loop(cmd_ctx);
+-	}
+ 
+-	/* shut server down */
+ 	server_quit();
+ 
+ #if BUILD_HTTPD
+@@ -288,6 +303,5 @@ int openocd_main(int argc, char *argv[])
+ 	/* free commandline interface */
+ 	command_done(cmd_ctx);
+ 
+-
+-	return EXIT_SUCCESS;
++	return ret;
+ }
+diff --git a/src/server/server.c b/src/server/server.c
+index 3ba433e..256c590 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -30,6 +30,8 @@
+ #include &quot;server.h&quot;
+ #include &quot;target.h&quot;
+ #include &quot;openocd.h&quot;
++#include &quot;tcl_server.h&quot;
++#include &quot;telnet_server.h&quot;
+ 
+ #include &lt;signal.h&gt;
+ 
+@@ -516,7 +518,11 @@ int server_init(void)
+ 	signal(SIGABRT, sig_handler);
+ #endif
+ 
+-	return ERROR_OK;
++	int ret = tcl_init();
++	if (ERROR_OK != ret)
++		return ret;
++
++	return telnet_init(&quot;Open On-Chip Debugger&quot;);
+ }
+ 
+ int server_quit(void)
+@@ -551,6 +557,14 @@ static const struct command_registration server_command_handlers[] = {
+ 
+ int server_register_commands(struct command_context *cmd_ctx)
+ {
++	int retval = telnet_register_commands(cmd_ctx);
++	if (ERROR_OK != retval)
++		return retval;
++
++	retval = tcl_register_commands(cmd_ctx);
++	if (ERROR_OK != retval)
++		return retval;
++
+ 	return register_commands(cmd_ctx, NULL, server_command_handlers);
+ }
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013054.html">[Openocd-development] [PATCH 1/3] improve gdb_init() sequence
+</A></li>
+	<LI>Next message: <A HREF="013057.html">[Openocd-development] [PATCH 2/3-&gt;2/4] move server_init() to	openocd_main()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13055">[ date ]</a>
+              <a href="thread.html#13055">[ thread ]</a>
+              <a href="subject.html#13055">[ subject ]</a>
+              <a href="author.html#13055">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

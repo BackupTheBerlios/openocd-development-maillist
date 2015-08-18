@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/2] target: move 'extern' decls to	*.h files
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/2%5D%20target%3A%20move%20%27extern%27%20decls%20to%0A%09%2A.h%20files&In-Reply-To=%3C200912081330.19639.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013436.html">
+   <LINK REL="Next"  HREF="013438.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/2] target: move 'extern' decls to	*.h files</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/2%5D%20target%3A%20move%20%27extern%27%20decls%20to%0A%09%2A.h%20files&In-Reply-To=%3C200912081330.19639.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/2] target: move 'extern' decls to	*.h files">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Dec  8 22:30:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013436.html">[Openocd-development] [PATCH] Fix compilation error with gcc	4.4.1
+</A></li>
+        <LI>Next message: <A HREF="013438.html">[Openocd-development] [patch 2/2] target: remove needless &quot;extern&quot;s
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13437">[ date ]</a>
+              <a href="thread.html#13437">[ thread ]</a>
+              <a href="subject.html#13437">[ subject ]</a>
+              <a href="author.html#13437">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The exception being declarations for drivers.  Those should
+arguably be collected into tables by linker scripts, so the
+core doesn't need to know anything except how to cope with
+a set of target or ETM drivers ... but not today.
+---
+Followup on an old request from Zach.  :)
+
+ src/target/arm.h           |    9 +++++++++
+ src/target/arm7_9_common.c |    8 --------
+ src/target/arm9tdmi.c      |    2 --
+ src/target/armv7m.h        |    6 ++++++
+ src/target/cortex_m3.c     |    5 -----
+ 5 files changed, 15 insertions(+), 15 deletions(-)
+
+--- a/src/target/arm.h
++++ b/src/target/arm.h
+@@ -191,6 +191,13 @@ int armv4_5_run_algorithm(struct target 
+ 		int num_reg_params, struct reg_param *reg_params,
+ 		uint32_t entry_point, uint32_t exit_point,
+ 		int timeout_ms, void *arch_info);
++int armv4_5_run_algorithm_inner(struct target *target,
++		int num_mem_params, struct mem_param *mem_params,
++		int num_reg_params, struct reg_param *reg_params,
++		uint32_t entry_point, uint32_t exit_point,
++		int timeout_ms, void *arch_info,
++		int (*run_it)(struct target *target, uint32_t exit_point,
++				int timeout_ms, void *arch_info));
+ 
+ int arm_checksum_memory(struct target *target,
+ 		uint32_t address, uint32_t count, uint32_t *checksum);
+@@ -200,6 +207,8 @@ int arm_blank_check_memory(struct target
+ void arm_set_cpsr(struct arm *arm, uint32_t cpsr);
+ struct reg *arm_reg_current(struct arm *arm, unsigned regnum);
+ 
++void arm_endianness(uint8_t *tmp, void *in, int size, int be, int flip);
++
+ extern struct reg arm_gdb_dummy_fp_reg;
+ extern struct reg arm_gdb_dummy_fps_reg;
+ 
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2679,14 +2679,6 @@ static const uint32_t dcc_code[] =
+ 	0xeafffff9	/*    b   w                   */
+ };
+ 
+-extern int armv4_5_run_algorithm_inner(struct target *target,
+-	int num_mem_params, struct mem_param *mem_params,
+-	int num_reg_params, struct reg_param *reg_params,
+-	uint32_t entry_point, uint32_t exit_point,
+-	int timeout_ms, void *arch_info,
+-	int (*run_it)(struct target *target, uint32_t exit_point,
+-			int timeout_ms, void *arch_info));
+-
+ int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t count, uint8_t *buffer)
+ {
+ 	int retval;
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -269,8 +269,6 @@ int arm9tdmi_clock_data_in(struct arm_jt
+ 	return ERROR_OK;
+ }
+ 
+-extern void arm_endianness(uint8_t *tmp, void *in, int size, int be, int flip);
+-
+ static int arm9endianness(jtag_callback_data_t arg,
+ 	jtag_callback_data_t size, jtag_callback_data_t be,
+ 	jtag_callback_data_t captured)
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -34,6 +34,12 @@
+ #define ARMV7_GDB_HACKS
+ #endif
+ 
++#ifdef ARMV7_GDB_HACKS
++extern uint8_t armv7m_gdb_dummy_cpsr_value[];
++extern struct reg armv7m_gdb_dummy_cpsr_reg;
++#endif
++
++
+ enum armv7m_mode
+ {
+ 	ARMV7M_MODE_THREAD = 0,
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -52,11 +52,6 @@ static void cortex_m3_enable_watchpoints
+ static int cortex_m3_store_core_reg_u32(struct target *target,
+ 		enum armv7m_regtype type, uint32_t num, uint32_t value);
+ 
+-#ifdef ARMV7_GDB_HACKS
+-extern uint8_t armv7m_gdb_dummy_cpsr_value[];
+-extern struct reg armv7m_gdb_dummy_cpsr_reg;
+-#endif
+-
+ static int cortexm3_dap_read_coreregister_u32(struct swjdp_common *swjdp,
+ 		uint32_t *value, int regnum)
+ {
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013436.html">[Openocd-development] [PATCH] Fix compilation error with gcc	4.4.1
+</A></li>
+	<LI>Next message: <A HREF="013438.html">[Openocd-development] [patch 2/2] target: remove needless &quot;extern&quot;s
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13437">[ date ]</a>
+              <a href="thread.html#13437">[ thread ]</a>
+              <a href="subject.html#13437">[ subject ]</a>
+              <a href="author.html#13437">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

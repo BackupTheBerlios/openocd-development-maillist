@@ -1,0 +1,105 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] USBprog adapter failure to correctly scan	IDCODEs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20USBprog%20adapter%20failure%20to%20correctly%20scan%0A%09IDCODEs&In-Reply-To=%3CPine.LNX.4.64.0911032329200.8503%40marshadder.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011950.html">
+   <LINK REL="Next"  HREF="011940.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] USBprog adapter failure to correctly scan	IDCODEs</H1>
+    <B>Peter Denison</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20USBprog%20adapter%20failure%20to%20correctly%20scan%0A%09IDCODEs&In-Reply-To=%3CPine.LNX.4.64.0911032329200.8503%40marshadder.org%3E"
+       TITLE="[Openocd-development] USBprog adapter failure to correctly scan	IDCODEs">openwrt at marshadder.org
+       </A><BR>
+    <I>Wed Nov  4 01:01:03 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011950.html">[Openocd-development] CRC check timeout
+</A></li>
+        <LI>Next message: <A HREF="011940.html">[Openocd-development] USBprog adapter failure to correctly scan	IDCODEs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11939">[ date ]</a>
+              <a href="thread.html#11939">[ thread ]</a>
+              <a href="subject.html#11939">[ subject ]</a>
+              <a href="author.html#11939">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The current code for the USBprog adapter fails right after init when 
+trying to do the DRSCAN for IDCODEs with:
+
+Info : 284 201 core.c:948 jtag_examine_chain_display(): JTAG tap: sam7x256.cpu tap/device found: 0x3f0f0f0f (mfg: 0x787, part: 0xf0f0, ver: 0x3)
+Warn : 285 201 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 480 0x800000ff
+Warn : 286 201 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 512 0x0000007f
+Error: 287 201 core.c:1151 jtag_examine_chain(): double-check your JTAG setup (interface, speed, missing TAPs, ...)
+
+Unfortunately this is down to how the firmware in the adapter is written. 
+Comms is limited to 64 byte USB packets, and the WRITE_READ command can 
+therefore take a maximum of 488 bits (61 bytes after 3 header bytes). The 
+640 bit IDCODE scan is split up into 2 transactions, of which the first 
+completes successfully. There is special-case code for 488-bit commands to 
+hold TMS low on the last bit, so the TAP stays in DRSHIFT. Normally, TMS 
+goes high for the last bit, to bring the TAP out to DREXIT1.
+
+Sadly though, the main loop of the adapter firmware adds a TMS=0, TDI=0 
+clock at the end of every WRITE_READ command. Under normal (entire command 
+fits in 1 transaction) circumstances, this is to make the TAP transition 
+from DREXIT1 to DRPAUSE. With split transactions, this extra clock loses a 
+bit, and the returned data then makes no sense, leading to the &quot;Unexpected 
+idcode&quot; messages above.
+
+I'm working on a solution, but have several options.
+
+a) Add yet more special case &quot;if (bits == 488)&quot; code in the adapter 
+firmware main loop. This is horrible, but a quick fix. Would still go 
+wrong if exactly 488 bits were required.
+
+b) Drop the extra clock from the adapter firmware, and add it in to the 
+OpenOCD driver code. Good solution, but requires coordination of releases 
+of both the adapter firmware and OpenOCD.
+
+c) Drop the existing limited adapter firmware in favour of a more capable 
+protocol, not limited to 64 byte transfers, and understanding complete &quot;do 
+this entire scan&quot; or &quot;do this entire TMS sequence&quot; commands. Even better, 
+but quite some considerable work.
+
+Probably none of this (even a) will get done for 0.3.0, but if anyone has 
+any thoughts, I'd be interested.
+
+-- 
+Peter
+OpenOCD v0.2.0-452-gce88e8a
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011950.html">[Openocd-development] CRC check timeout
+</A></li>
+	<LI>Next message: <A HREF="011940.html">[Openocd-development] USBprog adapter failure to correctly scan	IDCODEs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11939">[ date ]</a>
+              <a href="thread.html#11939">[ thread ]</a>
+              <a href="subject.html#11939">[ subject ]</a>
+              <a href="author.html#11939">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

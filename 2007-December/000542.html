@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Why is check_data + check_mask +	error_handler in the JTAG driver?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Why%20is%20check_data%20%2B%20check_mask%20%2B%0A%09error_handler%20in%20the%20JTAG%20driver%3F&In-Reply-To=%3C200712281324.36647.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000541.html">
+   <LINK REL="Next"  HREF="000543.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Why is check_data + check_mask +	error_handler in the JTAG driver?</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Why%20is%20check_data%20%2B%20check_mask%20%2B%0A%09error_handler%20in%20the%20JTAG%20driver%3F&In-Reply-To=%3C200712281324.36647.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] Why is check_data + check_mask +	error_handler in the JTAG driver?">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Fri Dec 28 13:24:35 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000541.html">[Openocd-development] Why is check_data + check_mask +	error_handler in the JTAG driver?
+</A></li>
+        <LI>Next message: <A HREF="000543.html">[Openocd-development] Why is check_data + check_mask +	error_handler in the JTAG driver?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#542">[ date ]</a>
+              <a href="thread.html#542">[ thread ]</a>
+              <a href="subject.html#542">[ subject ]</a>
+              <a href="author.html#542">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello &#216;yvind,
+
+I agree that the in_check_value/mask is rarely used, but I don't think it 
+could be easily removed.
+
+The original reason for including it was &quot;int embeddedice_read_reg_w_check()&quot; 
+when called via arm7_9_execute_fast_sys_speed(), which in turn gets called 
+from arm7_9_read_memory() or arm7_9_write_memory when 
+arm7_9-&gt;fast_memory_access is set.
+
+The application-specific code schedules the necessary JTAG operations, and 
+doesn't have to access any data returned via JTAG execept for the actual 
+target-data returned in the read case. The JTAG subsystem is able to decide 
+on its own whether there was an error during the operation.
+
+The only alternative I can see would be an in_value buffer for every 
+embeddedice_read_reg_w_check scan that's then parsed by the 
+application-specific code after the call to jtag_execute_queue().
+
+The same is true for the scan_n check - every code that (indirectly) schedules 
+a SCAN_N operation would have to maintain a buffer for in_values from the 
+SCAN_N operations it executes, and sometimes it can't even know whether a 
+call to SCAN_N really results in a SCAN_N operation (if the requested scan 
+chain is already selected we silently return without scheduling a scan).
+
+Similar reasons exist for all other occurences of in_check_value/mask. It 
+greatly simplifies the deferred error checking for large queues of JTAG scan 
+operations.
+
+I don't think we want to remove the error checking - JTAG communication can 
+easily fail - and currently I don't think it's practical to move that error 
+handling to the application specific code.
+
+Best regards,
+
+Dominic
+
+On Friday 28 December 2007 11:16:27 &#216;yvind Harboe wrote:
+&gt;<i> Why is checking the data read back in the JTAG driver instead of in
+</I>&gt;<i> the application code?
+</I>&gt;<i>
+</I>&gt;<i> More than 90% of all JTAG scans fill in the in_check_value &amp; in_check_mask
+</I>&gt;<i> thus:
+</I>&gt;<i>
+</I>&gt;<i> 						field.in_check_value = NULL;
+</I>&gt;<i> 						field.in_check_mask = NULL;
+</I>&gt;<i>
+</I>&gt;<i> The same goes for the error handler in jtag_add_xxx_scan().
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> As far as I can see this is adding lots of code to handle some rare
+</I>&gt;<i> cases that can be trivially dealt with in the application code(outside
+</I>&gt;<i> JTAG driver).
+</I>&gt;<i>
+</I>&gt;<i> I can't see that the JTAG drivers can really take advantage of check_data
+</I>&gt;<i> in any way to make things more efficient.
+</I>&gt;<i>
+</I>&gt;<i> Attached are some purely illustrative modifications to the OpenOCD code
+</I>&gt;<i> which shows what the code would look like w/check_data removed. Lots
+</I>&gt;<i> of code can be deleted.
+</I>&gt;<i>
+</I>&gt;<i> Why do I care? Since our OpenOCD hardware(low latency, limited
+</I>&gt;<i> processing power) is the oposite of PC + USB(lots of processing
+</I>&gt;<i> power, high latency), we modified the JTAG driver to fit this scenario. The
+</I>&gt;<i> OpenOCD JTAG API *can* support low processing power + low latency
+</I>&gt;<i> scenario today(the code needs very little tinkering to make this work),
+</I>&gt;<i> but check_data + error handler are definitely flies in the soup here.
+</I>&gt;<i>
+</I>&gt;<i> Why should anyone else care? Look at how much more tedium check_data/error
+</I>&gt;<i> handler adds to the code.
+</I>&gt;<i>
+</I>&gt;<i> I'm not suggesting a *MASSIVE* patch that would create a big
+</I>&gt;<i> discontinuity, but a
+</I>&gt;<i> rather more smooth approach:
+</I>&gt;<i>
+</I>&gt;<i> 1. Define new JTAG API where the check_data + error handler is marked as
+</I>&gt;<i> obsolete.
+</I>&gt;<i> 2. OpenOCD starts to accept patches that remove usage of check_data +
+</I>&gt;<i> error handler
+</I>&gt;<i> on the application side.
+</I>&gt;<i> 3. once we believe we caught them all: add an ERROR() to the JTAG API to
+</I>&gt;<i> catch anyone trying to pass in error handler or check_data.
+</I>&gt;<i> 4. once we're confident that no code is using check_data + error
+</I>&gt;<i> handler, remove
+</I>&gt;<i> check_data + error handler form JTAG API.
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000541.html">[Openocd-development] Why is check_data + check_mask +	error_handler in the JTAG driver?
+</A></li>
+	<LI>Next message: <A HREF="000543.html">[Openocd-development] Why is check_data + check_mask +	error_handler in the JTAG driver?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#542">[ date ]</a>
+              <a href="thread.html#542">[ thread ]</a>
+              <a href="subject.html#542">[ subject ]</a>
+              <a href="author.html#542">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

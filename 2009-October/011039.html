@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Do not check ir capture if no IDCODE
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Do%20not%20check%20ir%20capture%20if%20no%20IDCODE&In-Reply-To=%3C200910070817.08426.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011034.html">
+   <LINK REL="Next"  HREF="011043.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Do not check ir capture if no IDCODE</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Do%20not%20check%20ir%20capture%20if%20no%20IDCODE&In-Reply-To=%3C200910070817.08426.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Do not check ir capture if no IDCODE">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Oct  7 17:17:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011034.html">[Openocd-development] Do not check ir capture if no IDCODE
+</A></li>
+        <LI>Next message: <A HREF="011043.html">[Openocd-development] Do not check ir capture if no IDCODE
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11039">[ date ]</a>
+              <a href="thread.html#11039">[ thread ]</a>
+              <a href="subject.html#11039">[ subject ]</a>
+              <a href="author.html#11039">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday 07 October 2009, &#216;yvind Harboe wrote:
+&gt;<i> Committed.
+</I>&gt;<i> 
+</I>&gt;<i> Do not check ir capture if there is no IDCODE
+</I>&gt;<i> 
+</I>&gt;<i> Fixes bogus warnings w/imx31/35
+</I>
+Actually we were expecting a patch which just makes this
+use the capture/mask values provided with TAP declaration,
+so this workaround may be short-lived.
+
+Thing is, TAPs without IDCODE support have no exemption
+from the constraint that the two LSBs be b01, and most of
+them conform.  Plus, this is the only place which ignores
+those mask values when checking ircapture results. 
+
+
+&gt;<i> ### Eclipse Workspace Patch 1.0
+</I>&gt;<i> #P openocd
+</I>&gt;<i> Index: src/jtag/core.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/jtag/core.c	(revision 2805)
+</I>&gt;<i> +++ src/jtag/core.c	(working copy)
+</I>&gt;<i> @@ -1108,19 +1108,22 @@
+</I>&gt;<i>  			break;
+</I>&gt;<i>  		}
+</I>&gt;<i> 
+</I>&gt;<i> -		/* Validate the two LSBs, which must be 01 per JTAG spec.
+</I>&gt;<i> -		 * REVISIT we might be able to verify some MSBs too, using
+</I>&gt;<i> -		 * ircapture/irmask attributes.
+</I>&gt;<i> -		 */
+</I>&gt;<i> -		val = buf_get_u32(ir_test, chain_pos, tap-&gt;ir_length);
+</I>&gt;<i> -		if ((val &amp; 0x3) != 1) {
+</I>&gt;<i> -			LOG_ERROR(&quot;%s: IR capture error; saw 0x%0*x not 0x..1&quot;,
+</I>&gt;<i> -					jtag_tap_name(tap),
+</I>&gt;<i> -					(tap-&gt;ir_length + 7) / tap-&gt;ir_length,
+</I>&gt;<i> -					val);
+</I>&gt;<i> +		if (tap-&gt;hasidcode)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			/* Validate the two LSBs, which must be 01 per JTAG spec.
+</I>&gt;<i> +			 * REVISIT we might be able to verify some MSBs too, using
+</I>&gt;<i> +			 * ircapture/irmask attributes.
+</I>&gt;<i> +			 */
+</I>&gt;<i> +			val = buf_get_u32(ir_test, chain_pos, tap-&gt;ir_length);
+</I>&gt;<i> +			if ((val &amp; 0x3) != 1) {
+</I>&gt;<i> +				LOG_ERROR(&quot;%s: IR capture error; saw 0x%0*x not 0x..1&quot;,
+</I>&gt;<i> +						jtag_tap_name(tap),
+</I>&gt;<i> +						(tap-&gt;ir_length + 7) / tap-&gt;ir_length,
+</I>&gt;<i> +						val);
+</I>&gt;<i> 
+</I>&gt;<i> -			retval = ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i> -			goto done;
+</I>&gt;<i> +				retval = ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i> +				goto done;
+</I>&gt;<i> +			}
+</I>&gt;<i>  		}
+</I>&gt;<i>  		LOG_DEBUG(&quot;%s: IR capture 0x%0*x&quot;, jtag_tap_name(tap),
+</I>&gt;<i>  				(tap-&gt;ir_length + 7) / tap-&gt;ir_length, val);
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> -- 
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011034.html">[Openocd-development] Do not check ir capture if no IDCODE
+</A></li>
+	<LI>Next message: <A HREF="011043.html">[Openocd-development] Do not check ir capture if no IDCODE
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11039">[ date ]</a>
+              <a href="thread.html#11039">[ thread ]</a>
+              <a href="subject.html#11039">[ subject ]</a>
+              <a href="author.html#11039">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

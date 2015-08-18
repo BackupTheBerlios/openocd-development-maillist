@@ -1,0 +1,308 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] add documentation about reset	customization
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20add%20documentation%20about%20reset%0A%09customization&In-Reply-To=%3C200910091255.08637.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011110.html">
+   <LINK REL="Next"  HREF="011116.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] add documentation about reset	customization</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20add%20documentation%20about%20reset%0A%09customization&In-Reply-To=%3C200910091255.08637.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] add documentation about reset	customization">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Oct  9 21:55:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011110.html">[Openocd-development] [patch] make PXA255 targets enumerate	sort-of-OK
+</A></li>
+        <LI>Next message: <A HREF="011116.html">[Openocd-development] Advanced Reset Process
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11115">[ date ]</a>
+              <a href="thread.html#11115">[ thread ]</a>
+              <a href="subject.html#11115">[ subject ]</a>
+              <a href="author.html#11115">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We added two overridable procedures; document them, and the
+two jtag arp_* operations they necessarily expose.
+
+Update the comment about the jtag_init_reset() routine; it's
+been obsolete for as long as it's had SRST support.
+---
+ doc/openocd.texi |  120 +++++++++++++++++++++++++++++++++++++++++++++++------
+ src/jtag/core.c  |   29 ++++++++----
+ 2 files changed, 127 insertions(+), 22 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -1530,6 +1530,17 @@ read/write memory on your target, @comma
+ the memory read/write commands.  This includes @command{nand probe}.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> {Overridable Procedure} jtag_init
++This is invoked at server startup to verify that it can talk
++to the scan chain (list of TAPs) which has been configured.
++
++The default implementation first tries @command{jtag arp_init},
++which uses only a lightweight JTAG reset before examining the
++scan chain.
++If that fails, it tries again, using a harder reset
++from the overridable procedure @command{init_reset}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ @anchor{TCP/IP Ports}
+ @section TCP/IP Ports
+ @cindex TCP port
+@@ -2160,8 +2171,9 @@ issues (not limited to errata).
+ For example, certain JTAG commands might need to be issued while
+ the system as a whole is in a reset state (SRST active)
+ but the JTAG scan chain is usable (TRST inactive).
+-(@xref{JTAG Commands}, where the @command{jtag_reset}
+-command is presented.)
++Many systems treat combined assertion of SRST and TRST as a
++trigger for a harder reset than SRST alone.
++Such custom reset handling is discussed later in this chapter.
+ @end itemize
+ 
+ There can also be other issues.
+@@ -2228,7 +2240,7 @@ Possible values are @option{none} (the d
+ 
+ @quotation Tip
+ If your board provides SRST and/or TRST through the JTAG connector,
+-you must declare that or else those signals will not be used.
++you must declare that so those signals can be used.
+ @end quotation
+ 
+ @item
+@@ -2277,6 +2289,81 @@ powerup and pressing a reset button.
+ @end itemize
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at section</A> Custom Reset Handling
++
++OpenOCD has several ways to help support the various reset
++mechanisms provided by chip and board vendors.
++The commands shown in the previous section give standard parameters.
++There are also @emph{event handlers} associated with TAPs or Targets.
++Those handlers are Tcl procedures you can provide, which are invoked
++at particular points in the reset sequence.
++
++After configuring those mechanisms, you might still
++find your board doesn't start up or reset correctly.
++For example, maybe it needs a slightly different sequence
++of SRST and/or TRST manipulations, because of quirks that
++the @command{reset_config} mechanism doesn't address;
++or asserting both might trigger a stronger reset, which
++needs special attention.
++
++Experiment with lower level operations, such as @command{jtag_reset}
++and the @command{jtag arp_*} operations shown here,
++to find a sequence of operations that works.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at xref</A>{JTAG Commands}.
++When you find a working sequence, it can be used to override
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at command</A>{jtag_init}, which fires during OpenOCD startup
++(@pxref{Configuration Stage});
++or @command{init_reset}, which fires during reset processing.
++
++You might also want to provide some project-specific reset
++schemes.  For example, on a multi-target board the standard
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at command</A>{reset} command would reset all targets, but you
++may need the ability to reset only one target at time and
++thus want to avoid using the board-wide SRST signal.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> {Overridable Procedure} init_reset mode
++This is invoked near the beginning of the @command{reset} command,
++usually to provide as much of a cold (power-up) reset as practical.
++By default it is also invoked from @command{jtag_init} if
++the scan chain does not respond to pure JTAG operations.
++The @var{mode} parameter is the parameter given to the
++low level reset command (@option{halt},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at option</A>{init}, or @option{run}), @option{setup},
++or potentially some other value.
++
++The default implementation just invokes @command{jtag arp_init-reset}.
++Replacements will normally build on low level JTAG
++operations such as @command{jtag_reset}.
++Operations here must not address individual TAPs
++(or their associated targets)
++until the JTAG scan chain has first been verified to work.
++
++Implementations must have verified the JTAG scan chain before
++they return.
++This is done by calling @command{jtag arp_init}
++(or @command{jtag arp_init-reset}).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {jtag arp_init}
++This validates the scan chain using just the four
++standard JTAG signals (TMS, TCK, TDI, TDO).
++It starts by issuing a JTAG-only reset.
++Then it performs checks to verify that the scan chain configuration
++matches the TAPs it can observe.
++Those checks include checking IDCODE values for each active TAP,
++and verifying the length of their instruction registers using
++TAP @code{-ircapture} and @code{-irmask} values.
++If these tests all pass, TAP @code{setup} events are
++issued to all TAPs with handlers for that event.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {jtag arp_init-reset}
++This uses TRST and SRST to try resetting
++everything on the JTAG scan chain
++(and anything else connected to SRST).
++It then invokes the logic of @command{jtag arp_init}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ 
+ @node TAP Declaration
+ @chapter TAP Declaration
+@@ -2508,9 +2595,6 @@ there seems to be no problems with JTAG 
+ 
+ @section Other TAP commands
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> @deffn Command {jtag arp_init-reset}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> ... more or less &quot;toggle TRST ... and SRST too, what the heck&quot;
+-
+ @deffn Command {jtag cget} dotted.name @option{-event} name
+ @deffnx Command {jtag configure} dotted.name @option{-event} name string
+ At this writing this TAP attribute
+@@ -3186,7 +3270,7 @@ The following target events are defined:
+ @end ignore
+ @item @b{reset-assert-pre}
+ @* Issued as part of @command{reset} processing
+-after SRST and/or TRST were activated and deactivated,
++after @command{reset_init} was triggered
+ but before SRST alone is re-asserted on the tap.
+ @item @b{reset-assert-post}
+ @* Issued as part of @command{reset} processing
+@@ -3216,10 +3300,11 @@ multiplexing, and so on.
+ the target clocks are fully set up.)
+ @item @b{reset-start}
+ @* Issued as part of @command{reset} processing
+-before either SRST or TRST are activated.
++before @command{reset_init} is called.
+ 
+-This is the most robust place to switch to a low JTAG clock rate, if
+-SRST disables PLLs needed to use a fast clock.
++This is the most robust place to use @command{jtag_rclk}
++or @command{jtag_khz} to switch to a low JTAG clock rate,
++when reset disables PLLs needed to use a fast clock.
+ @ignore
+ @item @b{reset-wait-pos}
+ @* Currently not used
+@@ -5951,6 +6036,17 @@ The @command{reset_config} command shoul
+ to configure how the board and JTAG adapter treat these two
+ signals, and to say if either signal is even present.
+ @xref{Reset Configuration}.
++
++Note that TRST is specially handled.
++It actually signifies JTAG's @sc{reset} state.
++So if the board doesn't support the optional TRST signal,
++or it doesn't support it along with the specified SRST value,
++JTAG reset is triggered with TMS and TCK signals
++instead of the TRST signal.
++And no matter how that JTAG reset is triggered, once
++the scan chain enters @sc{reset} with TRST inactive,
++TAP @code{post-reset} events are delivered to all TAPs
++with handlers for that event.
+ @end deffn
+ 
+ @deffn Command {runtest} @var{num_cycles}
+@@ -5983,7 +6079,7 @@ The @var{tap_state} names used by OpenOC
+ and @command{irscan} commands are:
+ 
+ @itemize @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> @b{RESET} ... should act as if TRST were active
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{RESET} ... acts as if TRST were pulsed
+ @item @b{RUN/IDLE} ... don't assume this always means IDLE
+ @item @b{DRSELECT}
+ @item @b{DRCAPTURE}
+@@ -6014,7 +6110,7 @@ may not be as expected.
+ @item @sc{run/idle}, @sc{drpause}, and @sc{irpause} are reasonable
+ choices after @command{drscan} or @command{irscan} commands,
+ since they are free of JTAG side effects.
+-However, @sc{run/idle} may have side effects that appear at other
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @sc{run/idle} may have side effects that appear at non-JTAG
+ levels, such as advancing the ARM9E-S instruction pipeline.
+ Consult the documentation for the TAP(s) you are working with.
+ @end itemize
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1360,22 +1360,31 @@ int jtag_init_reset(struct command_conte
+ 	if ((retval = jtag_interface_init(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+ 
+-	LOG_DEBUG(&quot;Trying to bring the JTAG controller to life by asserting TRST / TLR&quot;);
++	LOG_DEBUG(&quot;Initializing with hard TRST+SRST reset&quot;);
+ 
+-	/* Reset can happen after a power cycle.
+-	 *
+-	 * Ideally we would only assert TRST or run TLR before the target reset.
++	/*
++	 * This procedure is used by default when OpenOCD triggers a reset.
++	 * It's now done through an overridable Tcl &quot;init_reset&quot; wrapper.
+ 	 *
+-	 * However w/srst_pulls_trst, trst is asserted together with the target
+-	 * reset whether we want it or not.
++	 * This started out as a more powerful &quot;get JTAG working&quot; reset than
++	 * jtag_init_inner(), applying TRST because some chips won't activate
++	 * JTAG without a TRST cycle (presumed to be async, though some of
++	 * those chips synchronize JTAG activation using TCK).
+ 	 *
+-	 * NB! Some targets have JTAG circuitry disabled until a
+-	 * trst &amp; srst has been asserted.
++	 * But some chips only activate JTAG as part of an SRST cycle; SRST
++	 * got mixed in.  So it became a hard reset routine, which got used
++	 * in more places, and which coped with JTAG reset being forced as
++	 * part of SRST (srst_pulls_trst).
+ 	 *
+-	 * NB! here we assume nsrst/ntrst delay are sufficient!
++	 * And even more corner cases started to surface:  TRST and/or SRST
++	 * assertion timings matter; some chips need other JTAG operations;
++	 * TRST/SRST sequences can need to be different from these, etc.
+ 	 *
+-	 * NB! order matters!!!! srst *can* disconnect JTAG circuitry
++	 * Systems should override that wrapper to support system-specific
++	 * requirements that this not-fully-generic code doesn't handle.
+ 	 *
++	 * REVISIT once Tcl code can read the reset_config modes, this won't
++	 * need to be a C routine at all...
+ 	 */
+ 	jtag_add_reset(1, 0); /* TAP_RESET, using TMS+TCK or TRST */
+ 	if (jtag_reset_config &amp; RESET_HAS_SRST)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011110.html">[Openocd-development] [patch] make PXA255 targets enumerate	sort-of-OK
+</A></li>
+	<LI>Next message: <A HREF="011116.html">[Openocd-development] Advanced Reset Process
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11115">[ date ]</a>
+              <a href="thread.html#11115">[ thread ]</a>
+              <a href="subject.html#11115">[ subject ]</a>
+              <a href="author.html#11115">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

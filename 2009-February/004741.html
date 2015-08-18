@@ -1,0 +1,551 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] several PXA270 issues.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20several%20PXA270%20issues.&In-Reply-To=%3C48239d390902211459q33691d35ta5b2b0eebe66742a%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004746.html">
+   <LINK REL="Next"  HREF="004743.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] several PXA270 issues.</H1>
+    <B>Sergey Lapin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20several%20PXA270%20issues.&In-Reply-To=%3C48239d390902211459q33691d35ta5b2b0eebe66742a%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] several PXA270 issues.">slapinid at gmail.com
+       </A><BR>
+    <I>Sat Feb 21 23:59:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004746.html">[Openocd-development] OMAP35XX ICEPICK initialized with urjtag?
+</A></li>
+        <LI>Next message: <A HREF="004743.html">[Openocd-development] several PXA270 issues.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4741">[ date ]</a>
+              <a href="thread.html#4741">[ thread ]</a>
+              <a href="subject.html#4741">[ subject ]</a>
+              <a href="author.html#4741">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi, all!
+
+First of all, pxa270.cfg in current trunk doesn't work, because it has
+bad line in file.
+
+The following patch fixes this problem:
+
+Index: src/target/target/pxa270.cfg
+===================================================================
+--- src/target/target/pxa270.cfg	(revision 1377)
++++ src/target/target/pxa270.cfg	(working copy)
+@@ -32,7 +32,7 @@
+
+
+ set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+-jtag newtap $_TARGETNAME -irlen 7 -ircapture 0x1 -irmask 0x7f
+-expected-id $_CPUTAPID
++jtag newtap $_CHIPNAME cpu -irlen 7 -ircapture 0x1 -irmask 0x7f
+-expected-id $_CPUTAPID
+
+ target create $_TARGETNAME xscale -endian $_ENDIAN -chain-position
+$_TARGETNAME -variant pxa27x
+ # maps to PXA internal RAM. If you are using a PXA255
+
+Second, this doesn't help with SoC itself.
+As the above patch does allow OpenOCD to run, this doesn't help us to
+make target work.
+
+I produced the following config:
+
+source [find interface/jlink.cfg]
+jtag_rclk 2
+jtag_khz 0
+
+#Marvell/Intel PXA270 Script
+
+if { [info exists CHIPNAME] } {	
+   set  _CHIPNAME $CHIPNAME
+} else {	
+   set  _CHIPNAME pxa270
+}
+
+if { [info exists ENDIAN] } {	
+   set  _ENDIAN $ENDIAN
+} else {	
+   set  _ENDIAN little
+}
+
+if { [info exists CPUTAPID ] } {
+   set _CPUTAPID $CPUTAPID
+} else {
+  # force an error till we get a good number
+   set _CPUTAPID 0xffffffff
+}
+
+
+# set jtag_nsrst_delay to the delay introduced by your reset circuit
+# the rest of the needed delays are built into the openocd program
+jtag_nsrst_delay 260
+# set the jtag_ntrst_delay to the delay introduced by a reset circuit
+# the rest of the needed delays are built into the openocd program
+jtag_ntrst_delay 0
+#use combined on interfaces or targets that can't set TRST/SRST separately
+reset_config trst_and_srst separate
+#jtag scan chain
+
+
+set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+jtag newtap $_CHIPNAME cpu -irlen 7 -ircapture 0x1 -irmask 0x7f
+-expected-id $_CPUTAPID
+
+target create $_TARGETNAME xscale -endian $_ENDIAN -chain-position
+$_TARGETNAME -variant pxa27x
+# maps to PXA internal RAM. If you are using a PXA255
+# you must initialize SDRAM or leave this option off
+$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x5c000000
+-work-area-size 0x10000 -work-area-backup 0
+
+#flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt;
+# works for P30 flash
+flash bank cfi 0x00000000 0x1000000 2 4 0
+
+init
+poll
+reset run
+poll
+sleep 200
+poll
+wait_halt
+poll
+armv4_5 reg
+
+And I get the following output with it: (the same happens when I type
+these commands from telnet intarface)
+User : 10 1 command.c:494 command_run_line():
+Debug: 11 1 configuration.c:88 find_file(): found pxa270.cfg
+Debug: 12 1 configuration.c:88 find_file(): found
+/usr/local/lib/openocd/interface/jlink.cfg
+Debug: 14 2 command.c:91 script_command(): script_command - interface
+Debug: 15 2 command.c:108 script_command(): script_command -
+interface, argv[0]=ocd_interface
+Debug: 16 2 command.c:108 script_command(): script_command -
+interface, argv[1]=jlink
+Debug: 18 2 command.c:91 script_command(): script_command - jtag_khz
+Debug: 19 2 command.c:108 script_command(): script_command - jtag_khz,
+argv[0]=ocd_jtag_khz
+Debug: 20 2 command.c:108 script_command(): script_command - jtag_khz, argv[1]=0
+Debug: 21 2 jtag.c:2604 handle_jtag_khz_command(): handle jtag khz
+User : 22 2 command.c:383 command_print(): RCLK - adaptive
+Debug: 24 2 command.c:91 script_command(): script_command - jtag_khz
+Debug: 25 2 command.c:108 script_command(): script_command - jtag_khz,
+argv[0]=ocd_jtag_khz
+Debug: 26 2 command.c:108 script_command(): script_command - jtag_khz, argv[1]=0
+Debug: 27 2 jtag.c:2604 handle_jtag_khz_command(): handle jtag khz
+User : 28 2 command.c:383 command_print(): RCLK - adaptive
+Debug: 30 2 command.c:91 script_command(): script_command - jtag_nsrst_delay
+Debug: 31 2 command.c:108 script_command(): script_command -
+jtag_nsrst_delay, argv[0]=ocd_jtag_nsrst_delay
+Debug: 32 2 command.c:108 script_command(): script_command -
+jtag_nsrst_delay, argv[1]=260
+Debug: 34 2 command.c:91 script_command(): script_command - jtag_ntrst_delay
+Debug: 35 2 command.c:108 script_command(): script_command -
+jtag_ntrst_delay, argv[0]=ocd_jtag_ntrst_delay
+Debug: 36 2 command.c:108 script_command(): script_command -
+jtag_ntrst_delay, argv[1]=0
+...
+(skipped)
+...
+Debug: 62 4 openocd.c:137 handle_init_command(): target init complete
+Error: 63 1087 jlink.c:533 jlink_get_version_info(): J-Link command
+EMU_CMD_VERSION failed (-110)
+
+Info : 64 1090 jlink.c:528 jlink_get_version_info(): J-Link compiled
+Jul 30 2008 11:24:37 ARM Rev.5
+Info : 65 1092 jlink.c:496 jlink_get_status(): Vref = 3.261 TCK = 1
+TDI = 0 TDO = 1 TMS = 0 SRST = 1 TRST = 1
+
+Info : 66 1092 jlink.c:317 jlink_init(): J-Link JTAG Interface ready
+Debug: 67 1092 jlink.c:446 jlink_reset(): trst: 0, srst: 0
+Debug: 68 1094 openocd.c:144 handle_init_command(): jtag interface init complete
+Debug: 69 1094 jtag.c:2199 jtag_init_inner(): Init JTAG chain
+Debug: 70 1094 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 71 1094 jtag.c:1446 jtag_reset_callback(): -
+Debug: 72 1097 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 73 1097 jtag.c:1446 jtag_reset_callback(): -
+Info : 74 1133 jtag.c:1566 jtag_examine_chain(): JTAG tap: pxa270.cpu
+tap/device found: 0x79265013 (Manufacturer: 0x009, Part: 0x9265,
+Version: 0x7)
+Error: 75 1133 jtag.c:1590 jtag_examine_chain(): JTAG tap: pxa270.cpu
+           got: 0x79265013 (mfg: 0x009, part: 0x9265, ver: 0x7)
+Error: 76 1133 jtag.c:1599 jtag_examine_chain(): JTAG tap: pxa270.cpu
+expected 1 of 1: 0xffffffff (mfg: 0x7ff, part: 0xffff, ver: 0xf)
+
+(so, we found our SoC here)
+
+Debug: 78 1133 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 79 1133 jtag.c:1446 jtag_reset_callback(): -
+Debug: 80 1136 openocd.c:150 handle_init_command(): jtag init complete
+Debug: 81 1136 openocd.c:153 handle_init_command(): jtag examine complete
+Debug: 82 1136 openocd.c:159 handle_init_command(): flash init complete
+Debug: 83 1136 openocd.c:163 handle_init_command(): mflash init complete
+Debug: 84 1136 openocd.c:167 handle_init_command(): NAND init complete
+Debug: 85 1136 openocd.c:171 handle_init_command(): pld init complete
+Warn : 86 1136 telnet_server.c:612 telnet_init(): no telnet port
+specified, using default port 4444
+Warn : 87 1136 gdb_server.c:2201 gdb_init(): no gdb port specified,
+using default port 3333
+Debug: 88 1136 gdb_server.c:2225 gdb_init(): gdb service for target
+xscale at port 3333
+Warn : 89 1136 tcl_server.c:178 tcl_init(): no tcl port specified,
+using default port 6666
+Warn : 90 1136 log.c:389 keep_alive(): BUG: keep_alive() was not
+invoked in the 1000ms timelimit. GDB alive packet not sent! (1136)
+Debug: 93 1136 command.c:91 script_command(): script_command - poll
+Debug: 94 1136 command.c:108 script_command(): script_command - poll,
+argv[0]=ocd_poll
+User : 95 1137 target.c:959 target_arch_state(): target state: unknown
+Debug: 97 1137 command.c:91 script_command(): script_command - reset
+Debug: 98 1137 command.c:108 script_command(): script_command - reset,
+argv[0]=ocd_reset
+Debug: 99 1137 command.c:108 script_command(): script_command - reset,
+argv[1]=run
+Debug: 100 1137 target.c:3920 jim_target(): Target command params:
+Debug: 101 1137 target.c:3921 jim_target(): target names
+Debug: 102 1137 target.c:3054 target_handle_event(): event: 11
+reset-start - no action
+Debug: 103 1137 jtag.c:2232 jtag_init_reset(): Trying to bring the
+JTAG controller to life by asserting TRST / RESET
+Debug: 104 1137 jtag.c:1138 jtag_add_reset(): SRST line released
+Debug: 105 1137 jtag.c:1157 jtag_add_reset(): TRST line asserted
+Debug: 106 1137 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 107 1137 jtag.c:1446 jtag_reset_callback(): -
+Debug: 108 1137 jtag.c:1134 jtag_add_reset(): SRST line asserted
+Debug: 109 1137 jtag.c:1157 jtag_add_reset(): TRST line asserted
+Debug: 110 1137 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 111 1137 jtag.c:1446 jtag_reset_callback(): -
+Debug: 112 1137 jtag.c:1134 jtag_add_reset(): SRST line asserted
+Debug: 113 1137 jtag.c:1138 jtag_add_reset(): SRST line released
+Debug: 114 1137 jlink.c:446 jlink_reset(): trst: 1, srst: 0
+Debug: 115 1400 jlink.c:446 jlink_reset(): trst: 1, srst: 1
+Debug: 116 1403 jlink.c:446 jlink_reset(): trst: 0, srst: 1
+Debug: 117 1405 jlink.c:446 jlink_reset(): trst: 0, srst: 0
+Debug: 119 1668 jtag.c:2199 jtag_init_inner(): Init JTAG chain
+Debug: 120 1668 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 121 1668 jtag.c:1446 jtag_reset_callback(): -
+Debug: 122 1672 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 123 1672 jtag.c:1446 jtag_reset_callback(): -
+Info : 124 1708 jtag.c:1566 jtag_examine_chain(): JTAG tap: pxa270.cpu
+tap/device found: 0x79265013 (Manufacturer: 0x009, Part: 0x9265,
+Version: 0x7)
+Error: 125 1708 jtag.c:1590 jtag_examine_chain(): JTAG tap: pxa270.cpu
+            got: 0x79265013 (mfg: 0x009, part: 0x9265, ver: 0x7)
+Error: 126 1708 jtag.c:1599 jtag_examine_chain(): JTAG tap: pxa270.cpu
+expected 1 of 1: 0xffffffff (mfg: 0x7ff, part: 0xffff, ver: 0xf)
+Error: 127 1708 jtag.c:2214 jtag_init_inner(): trying to validate
+configured JTAG chain anyway...
+Debug: 128 1708 jtag.c:385 jtag_call_event_callbacks(): jtag event:
+JTAG controller reset (RESET or TRST)
+Debug: 129 1708 jtag.c:1446 jtag_reset_callback(): -
+Debug: 130 1711 target.c:3920 jim_target(): Target command params:
+Debug: 131 1711 target.c:3921 jim_target(): target names
+Debug: 132 1711 target.c:3920 jim_target(): Target command params:
+Debug: 133 1711 target.c:3921 jim_target(): target names
+Debug: 134 1711 target.c:3054 target_handle_event(): event: 12
+reset-assert-pre - no action
+Debug: 135 1711 xscale.c:1587 xscale_assert_reset(): target-&gt;state: unknown
+
+And then we get:
+Warn : 136 1717 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 137 1717 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 138 1717 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x07
+Warn : 139 1717 jtag.c:1314 jtag_read_buffer(): in_handler: w/o
+&quot;in_value&quot;, mismatch in SDR
+Error: 140 1717 xscale.c:757 xscale_write_dcsr(): JTAG error while writing DCSR
+
+Which is strange;
+
+Debug: 141 1720 jtag.c:1134 jtag_add_reset(): SRST line asserted
+Debug: 142 1720 jlink.c:446 jlink_reset(): trst: 0, srst: 1
+Debug: 143 1723 target.c:3054 target_handle_event(): event: 13
+reset-assert-post - no action
+Debug: 144 1723 target.c:3920 jim_target(): Target command params:
+Debug: 145 1723 target.c:3921 jim_target(): target names
+Debug: 146 1723 target.c:3054 target_handle_event(): event: 14
+reset-deassert-pre - no action
+Debug: 147 1723 xscale.c:1638 xscale_deassert_reset(): -
+Debug: 148 1723 jtag.c:1138 jtag_add_reset(): SRST line released
+Debug: 149 1723 jlink.c:446 jlink_reset(): trst: 0, srst: 0
+Warn : 151 2401 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 152 2401 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 153 2401 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x07
+Warn : 154 2401 jtag.c:1314 jtag_read_buffer(): in_handler: w/o
+&quot;in_value&quot;, mismatch in SDR
+Error: 155 2401 xscale.c:757 xscale_write_dcsr(): JTAG error while writing DCSR
+Debug: 156 2401 configuration.c:88 find_file(): found
+/usr/local/lib/openocd/xscale/debug_handler.bin
+Debug: 157 2401 xscale.c:789 xscale_load_ic(): loading miniIC at 0xfe000820
+Debug: 158 2401 xscale.c:775 parity(): parity of 0xee1ade10 is 0
+Debug: 159 2401 xscale.c:775 parity(): parity of 0xe21dd102 is 1
+Debug: 160 2401 xscale.c:775 parity(): parity of 0x1a000001 is 0
+Debug: 161 2401 xscale.c:775 parity(): parity of 0xe3a0d103 is 1
+Debug: 162 2401 xscale.c:775 parity(): parity of 0xee0ade10 is 1
+Debug: 163 2401 xscale.c:775 parity(): parity of 0xee1efe10 is 0
+Debug: 164 2401 xscale.c:775 parity(): parity of 0x6afffffd is 1
+Debug: 165 2401 xscale.c:775 parity(): parity of 0xee080e10 is 1
+Debug: 166 2427 xscale.c:789 xscale_load_ic(): loading miniIC at 0xfe000840
+Debug: 167 2427 xscale.c:775 parity(): parity of 0xee1efe10 is 0
+Debug: 168 2427 xscale.c:775 parity(): parity of 0x6afffffd is 1
+Debug: 169 2427 xscale.c:775 parity(): parity of 0xee08ee10 is 0
+Debug: 170 2427 xscale.c:775 parity(): parity of 0xe1a00001 is 1
+Debug: 171 2427 xscale.c:775 parity(): parity of 0xeb000170 is 0
+Debug: 172 2427 xscale.c:775 parity(): parity of 0xe1a00002 is 1
+Debug: 173 2427 xscale.c:775 parity(): parity of 0xeb00016e is 0
+Debug: 174 2427 xscale.c:775 parity(): parity of 0xe1a00003 is 0
+Debug: 175 2451 xscale.c:789 xscale_load_ic(): loading miniIC at 0xfe000860
+Debug: 176 2451 xscale.c:775 parity(): parity of 0xeb00016c is 1
+Debug: 177 2451 xscale.c:775 parity(): parity of 0xe1a00004 is 1
+Debug: 178 2451 xscale.c:775 parity(): parity of 0xeb00016a is 1
+Debug: 179 2451 xscale.c:775 parity(): parity of 0xe1a00005 is 0
+Debug: 180 2451 xscale.c:775 parity(): parity of 0xeb000168 is 0
+Debug: 181 2451 xscale.c:775 parity(): parity of 0xe1a00006 is 0
+Debug: 182 2451 xscale.c:775 parity(): parity of 0xeb000166 is 1
+Debug: 183 2451 xscale.c:775 parity(): parity of 0xe1a00007 is 1
+...
+(skipped)
+...
+Debug: 598 3579 xscale.c:789 xscale_load_ic(): loading miniIC at 0xffff0000
+Debug: 599 3579 xscale.c:775 parity(): parity of 0xea804206 is 0
+Debug: 600 3579 xscale.c:775 parity(): parity of 0xeafffffe is 0
+Debug: 601 3579 xscale.c:775 parity(): parity of 0xeafffffe is 0
+Debug: 602 3579 xscale.c:775 parity(): parity of 0xeafffffe is 0
+Debug: 603 3579 xscale.c:775 parity(): parity of 0xeafffffe is 0
+Debug: 604 3579 xscale.c:775 parity(): parity of 0xeafffffe is 0
+Debug: 605 3579 xscale.c:775 parity(): parity of 0xeafffffe is 0
+Debug: 606 3579 xscale.c:775 parity(): parity of 0xeafffffe is 0
+
+And then we get lots of these:
+Warn : 607 3603 log.c:389 keep_alive(): BUG: keep_alive() was not
+invoked in the 1000ms timelimit. GDB alive packet not sent! (1456)
+Warn : 609 3713 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 610 3713 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 611 3713 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x07
+Warn : 612 3713 jtag.c:1314 jtag_read_buffer(): in_handler: w/o
+&quot;in_value&quot;, mismatch in SDR
+Error: 613 3713 xscale.c:757 xscale_write_dcsr(): JTAG error while writing DCSR
+Warn : 614 3718 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 615 3718 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 616 3718 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x07
+Warn : 617 3718 jtag.c:1314 jtag_read_buffer(): in_handler: w/o
+&quot;in_value&quot;, mismatch in SDR
+Error: 618 3718 xscale.c:757 xscale_write_dcsr(): JTAG error while writing DCSR
+Warn : 619 3732 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 620 3732 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 621 3732 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x07
+Warn : 622 3732 jtag.c:1314 jtag_read_buffer(): in_handler: w/o
+&quot;in_value&quot;, mismatch in SDR
+Error: 623 3732 xscale.c:289 xscale_read_dcsr(): JTAG error while reading DCSR
+Debug: 624 3732 xscale.c:1303 xscale_resume(): -
+Debug: 625 3732 xscale.c:1933 xscale_read_memory(): address:
+0xffff0004, size: 0x00000004, count: 0x00000001
+Debug: 626 3732 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 627 3738 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 628 3738 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 629 3738 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 630 3738 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 631 3738 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Debug: 632 3738 target.c:1190 target_read_u32(): address: 0xffff0004 failed
+Debug: 633 3738 xscale.c:1933 xscale_read_memory(): address:
+0xffff0008, size: 0x00000004, count: 0x00000001
+Debug: 634 3738 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 635 3743 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 636 3743 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 637 3743 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 638 3743 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 639 3743 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Debug: 640 3743 target.c:1190 target_read_u32(): address: 0xffff0008 failed
+...
+(skip)
+...
+Debug: 770 3869 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 771 3874 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 772 3874 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 773 3874 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 774 3874 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 775 3874 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Debug: 776 3874 xscale.c:1413 xscale_resume(): writing cpsr with value
+0x00000000
+Debug: 777 3874 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 778 3879 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 779 3879 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 780 3879 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 781 3879 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 782 3879 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Debug: 783 3879 xscale.c:1419 xscale_resume(): writing r7 with value 0x00000000
+Debug: 784 3879 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 785 3884 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 786 3884 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 787 3884 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 788 3884 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 789 3884 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Debug: 790 3884 xscale.c:1419 xscale_resume(): writing r6 with value 0x00000000
+Debug: 791 3884 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 792 3889 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 793 3889 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 794 3889 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 795 3889 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 796 3889 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Debug: 797 3889 xscale.c:1419 xscale_resume(): writing r5 with value 0x00000000
+...
+(skip)
+...Debug: 839 3919 xscale.c:1424 xscale_resume(): writing PC with
+value 0x00000000
+Debug: 840 3919 target.c:696 target_call_event_callbacks(): target
+event 6 (resumed)
+Debug: 841 3919 target.c:3054 target_handle_event(): event: 6 resumed
+- no action
+Debug: 842 3919 xscale.c:1441 xscale_resume(): target resumed
+Debug: 843 3919 target.c:3054 target_handle_event(): event: 15
+reset-deassert-post - no action
+Debug: 844 3919 target.c:3920 jim_target(): Target command params:
+Debug: 845 3919 target.c:3921 jim_target(): target names
+Debug: 846 3919 target.c:3054 target_handle_event(): event: 21
+reset-end - no action
+Warn : 847 3925 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 848 3925 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 849 3925 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 850 3925 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 851 3925 xscale.c:502 xscale_read_tx(): JTAG error while reading TX
+User : 852 3925 xscale.c:1013 xscale_poll(): error while polling TX
+register, reset CPU
+Debug: 853 3925 target.c:696 target_call_event_callbacks(): target
+event 4 (early-halted)
+Debug: 854 3925 target.c:3054 target_handle_event(): event: 4
+early-halted - no action
+Debug: 855 3925 target.c:696 target_call_event_callbacks(): target
+event 5 (halted)
+Debug: 856 3925 target.c:3054 target_handle_event(): event: 5 halted - no action
+User : 857 3925 target.c:959 target_arch_state(): target state: halted
+User : 858 3925 xscale.c:986 xscale_arch_state(): target halted in ARM
+state due to target-not-halted, current mode: User
+cpsr: 0x00000000 pc: 0x00000000
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+...
+(skipped)
+...
+And then we get lots of errors during armv4_5 reg command:
+Debug: 883 4126 command.c:91 script_command(): script_command - reg
+Debug: 884 4126 command.c:108 script_command(): script_command - reg,
+argv[0]=ocd_armv4_5_reg
+Debug: 885 4126 xscale.c:1788 xscale_full_context(): -
+Debug: 886 4126 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 887 4133 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 888 4133 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 889 4133 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 890 4133 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 891 4133 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Debug: 892 4133 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 893 4138 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 894 4138 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 895 4138 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 896 4138 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 897 4138 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+Warn : 898 4163 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 899 4163 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 900 4163 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 901 4163 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 902 4163 xscale.c:386 xscale_receive(): JTAG error while
+receiving data from debug handler
+Debug: 903 4163 xscale.c:582 xscale_write_rx(): polling RX
+Warn : 904 4169 jtag.c:1350 jtag_check_value(): TAP pxa270.cpu:
+Warn : 905 4169 jtag.c:1360 jtag_check_value(): value captured during
+scan didn't pass the requested check:
+Warn : 906 4169 jtag.c:1362 jtag_check_value(): captured: 0x00
+check_value: 0x02 check_mask: 0x06
+Warn : 907 4169 jtag.c:1300 jtag_read_buffer(): in_handler: with
+&quot;in_value&quot;, mismatch in SDR
+Error: 908 4169 xscale.c:589 xscale_write_rx(): JTAG error while writing RX
+...
+
+So, is there any idea on how to fix this stuff? Or any handles to tune?
+
+All the best,
+S.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004746.html">[Openocd-development] OMAP35XX ICEPICK initialized with urjtag?
+</A></li>
+	<LI>Next message: <A HREF="004743.html">[Openocd-development] several PXA270 issues.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4741">[ date ]</a>
+              <a href="thread.html#4741">[ thread ]</a>
+              <a href="subject.html#4741">[ subject ]</a>
+              <a href="author.html#4741">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

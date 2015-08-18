@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Added checks for type-&gt;xxx() functions
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Added%20checks%20for%20type-%3Exxx%28%29%20functions&In-Reply-To=%3Cc09652430804151108o666d6691s74d38e59aa61f96d%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001844.html">
+   <LINK REL="Next"  HREF="001847.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Added checks for type-&gt;xxx() functions</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Added%20checks%20for%20type-%3Exxx%28%29%20functions&In-Reply-To=%3Cc09652430804151108o666d6691s74d38e59aa61f96d%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Added checks for type-&gt;xxx() functions">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Apr 15 20:08:19 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001844.html">[Openocd-development] [COMMIT]new target scripts
+</A></li>
+        <LI>Next message: <A HREF="001847.html">[Openocd-development] TRST &amp; arm7_9 sw_bkpts are broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1846">[ date ]</a>
+              <a href="thread.html#1846">[ thread ]</a>
+              <a href="subject.html#1846">[ subject ]</a>
+              <a href="author.html#1846">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+Added checks for target-&gt;type-&gt;read/write_memory, soft_reset_halt and
+run_algorithm
+that the target has been examined.
+
+In working on this I discovered that embedded ICE registers are not set
+up after a reset(arm7_9_enable_sw_bkpts). I'll have to look at that tomorrow.
+
+
+Index: C:/workspace/openocd/src/target/target.c
+===================================================================
+--- C:/workspace/openocd/src/target/target.c	(revision 580)
++++ C:/workspace/openocd/src/target/target.c	(working copy)
+@@ -489,6 +489,45 @@
+ 	return retval;
+ }
+
++static int target_write_memory_imp(struct target_s *target, u32
+address, u32 size, u32 count, u8 *buffer)
++{
++	if (!target-&gt;type-&gt;examined)
++	{
++		LOG_ERROR(&quot;Target not examined yet&quot;);
++		return ERROR_FAIL;
++	}
++	return target-&gt;type-&gt;write_memory_imp(target, address, size, count, buffer);
++}
++
++static int target_read_memory_imp(struct target_s *target, u32
+address, u32 size, u32 count, u8 *buffer)
++{
++	if (!target-&gt;type-&gt;examined)
++	{
++		LOG_ERROR(&quot;Target not examined yet&quot;);
++		return ERROR_FAIL;
++	}
++	return target-&gt;type-&gt;read_memory_imp(target, address, size, count, buffer);
++}
++
++static int target_soft_reset_halt_imp(struct target_s *target)
++{
++	if (!target-&gt;type-&gt;examined)
++	{
++		LOG_ERROR(&quot;Target not examined yet&quot;);
++		return ERROR_FAIL;
++	}
++	return target-&gt;type-&gt;soft_reset_halt_imp(target);
++}
++
++static int target_run_algorithm_imp(struct target_s *target, int
+num_mem_params, mem_param_t *mem_params, int num_reg_params,
+reg_param_t *reg_param, u32 entry_point, u32 exit_point, int
+timeout_ms, void *arch_info)
++{
++	if (!target-&gt;type-&gt;examined)
++	{
++		LOG_ERROR(&quot;Target not examined yet&quot;);
++		return ERROR_FAIL;
++	}
++	return target-&gt;type-&gt;run_algorithm_imp(target, num_mem_params,
+mem_params, num_reg_params, reg_param, entry_point, exit_point,
+timeout_ms, arch_info);
++}
+
+ int target_init(struct command_context_s *cmd_ctx)
+ {
+@@ -513,6 +552,20 @@
+ 		{
+ 			target-&gt;type-&gt;virt2phys = default_virt2phys;
+ 		}
++		target-&gt;type-&gt;virt2phys = default_virt2phys;
++		/* a non-invasive way(in terms of patches) to add some code that
++		 * runs before the type-&gt;write/read_memory implementation
++		 */
++		target-&gt;type-&gt;write_memory_imp = target-&gt;type-&gt;write_memory;
++		target-&gt;type-&gt;write_memory = target_write_memory_imp;
++		target-&gt;type-&gt;read_memory_imp = target-&gt;type-&gt;read_memory;
++		target-&gt;type-&gt;read_memory = target_read_memory_imp;
++		target-&gt;type-&gt;soft_reset_halt_imp = target-&gt;type-&gt;soft_reset_halt;
++		target-&gt;type-&gt;soft_reset_halt = target_soft_reset_halt_imp;
++		target-&gt;type-&gt;run_algorithm_imp = target-&gt;type-&gt;run_algorithm;
++		target-&gt;type-&gt;run_algorithm = target_run_algorithm_imp;
++
++		
+ 		if (target-&gt;type-&gt;mmu == NULL)
+ 		{
+ 			target-&gt;type-&gt;mmu = default_mmu;
+Index: C:/workspace/openocd/src/target/target.h
+===================================================================
+--- C:/workspace/openocd/src/target/target.h	(revision 580)
++++ C:/workspace/openocd/src/target/target.h	(working copy)
+@@ -132,6 +132,7 @@
+ 	 */
+ 	int (*assert_reset)(struct target_s *target);
+ 	int (*deassert_reset)(struct target_s *target);
++	int (*soft_reset_halt_imp)(struct target_s *target);
+ 	int (*soft_reset_halt)(struct target_s *target);
+ 	
+ 	/* target register access for gdb.
+@@ -149,7 +150,9 @@
+ 	* size: 1 = byte (8bit), 2 = half-word (16bit), 4 = word (32bit)
+ 	* count: number of items of &lt;size&gt;
+ 	*/
++	int (*read_memory_imp)(struct target_s *target, u32 address, u32
+size, u32 count, u8 *buffer);
+ 	int (*read_memory)(struct target_s *target, u32 address, u32 size,
+u32 count, u8 *buffer);
++	int (*write_memory_imp)(struct target_s *target, u32 address, u32
+size, u32 count, u8 *buffer);
+ 	int (*write_memory)(struct target_s *target, u32 address, u32 size,
+u32 count, u8 *buffer);
+ 	
+ 	/* write target memory in multiples of 4 byte, optimized for writing
+large quantities of data */
+@@ -166,6 +169,7 @@
+ 	int (*remove_watchpoint)(struct target_s *target, watchpoint_t *watchpoint);
+
+ 	/* target algorithm support */
++	int (*run_algorithm_imp)(struct target_s *target, int
+num_mem_params, mem_param_t *mem_params, int num_reg_params,
+reg_param_t *reg_param, u32 entry_point, u32 exit_point, int
+timeout_ms, void *arch_info);
+ 	int (*run_algorithm)(struct target_s *target, int num_mem_params,
+mem_param_t *mem_params, int num_reg_params, reg_param_t *reg_param,
+u32 entry_point, u32 exit_point, int timeout_ms, void *arch_info);
+ 	
+ 	int (*register_commands)(struct command_context_s *cmd_ctx);
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001844.html">[Openocd-development] [COMMIT]new target scripts
+</A></li>
+	<LI>Next message: <A HREF="001847.html">[Openocd-development] TRST &amp; arm7_9 sw_bkpts are broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1846">[ date ]</a>
+              <a href="thread.html#1846">[ thread ]</a>
+              <a href="subject.html#1846">[ subject ]</a>
+              <a href="author.html#1846">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

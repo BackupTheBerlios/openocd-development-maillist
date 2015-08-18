@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] tcl_server TCP/IP commands usage?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20tcl_server%20TCP/IP%20commands%20usage%3F&In-Reply-To=%3C1310694348.15898.10.camel%40maxim-desktop%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020060.html">
+   <LINK REL="Next"  HREF="020372.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] tcl_server TCP/IP commands usage?</H1>
+    <B>Maxim Cournoyer</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20tcl_server%20TCP/IP%20commands%20usage%3F&In-Reply-To=%3C1310694348.15898.10.camel%40maxim-desktop%3E"
+       TITLE="[Openocd-development] tcl_server TCP/IP commands usage?">maxim.cournoyer at gmail.com
+       </A><BR>
+    <I>Fri Jul 15 03:45:47 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020060.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+        <LI>Next message: <A HREF="020372.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20266">[ date ]</a>
+              <a href="thread.html#20266">[ thread ]</a>
+              <a href="subject.html#20266">[ subject ]</a>
+              <a href="author.html#20266">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Rodrigo &amp; OpenOCD comrades!
+
+Le jeudi 07 juillet 2011 &#224; 14:55 -0700, Rodrigo Rosa a &#233;crit :
+
+&gt;<i> the c part of your code was very useful. i'm was the telnet port, and
+</I>&gt;<i> ignoring the output i did not care about.
+</I>&gt;<i> now with the gdb port i get:
+</I>&gt;<i>   - &quot;0&quot; for success
+</I>&gt;<i>   - &quot;1&quot; for fail
+</I>&gt;<i>   - a message &quot;invalid command name ....&quot; if the cmd name is invalid
+</I>&gt;<i>   - whatever the command would normally output to the telnet console
+</I>&gt;<i> if i run &quot;capture command_name \x1a&quot; or &quot;capture {command_name
+</I>&gt;<i> command_arguments} \x1a&quot;.
+</I>
+Nice to know this bit of code was useful to you!
+
+&gt;<i> regarding the tcl part: i don't know much about tcl, and i couldn't
+</I>&gt;<i> get answers from you tcl script.
+</I>&gt;<i> examples:
+</I>&gt;<i> &gt; mdh 0x0
+</I>&gt;<i> Sending &quot;mdh 0x0&quot; ... OK.
+</I>&gt;<i> &gt; asdsf
+</I>&gt;<i> Sending &quot;asdsf&quot; ... OK.
+</I>&gt;<i> &gt; sdfsdf
+</I>&gt;<i> Sending &quot;sdfsdf&quot; ... OK.
+</I>&gt;<i> &gt; sdfsd
+</I>&gt;<i> Sending &quot;sdfsd&quot; ... OK.
+</I>&gt;<i> &gt; flash
+</I>&gt;<i> Sending &quot;flash&quot; ... OK.
+</I>&gt;<i> &gt; capture flash
+</I>&gt;<i> Sending &quot;capture flash&quot; ... OK.
+</I>&gt;<i> &gt; capture flash
+</I>&gt;<i> Sending &quot;capture flash&quot; ... OK.
+</I>&gt;<i> &gt; capture asdfs
+</I>&gt;<i> Sending &quot;capture asdfs&quot; ... OK.
+</I>&gt;<i> 
+</I>&gt;<i> the debug console show the output from openocd (warnings, errors, etc)
+</I>&gt;<i> but nothing on the tcl script.
+</I>
+Fetching properly the server's response wasn't too much the focus of my
+original script, and so it did it badly :D.
+
+But with some fresh ideas from folks on the #tcl freenode channel, I
+came up with the following script, which seems to work very well!
+Non-blocking read &amp; fileevent based, this is supposedly the optimal
+solution (and a bit overkill in this simple scenario). Give it a try,
+and feel free to report any problems.
+
+
+        #!/usr/bin/tclsh8.5
+        # Simple tcl client to test OpenOCD tcl_server
+        #
+        # Original script idea by Charles Hardin
+        #
+        &lt;<A HREF="../2008-July/002368.html">http://lists.berlios.de/pipermail/openocd-development/2008-July/002368.html</A>&gt;
+        #
+        # Author: Maxim Cournoyer, 2011
+        
+        # OpenOCD server settings
+        set server localhost
+        set port 6666
+        set EOC \x1a
+        
+        #---------------------------------------------------------------
+        proc get_reply { channelId EOC } {
+        	
+        	set LAST_CHAR &quot;&quot;
+        	set reply &quot;&quot;
+        	
+        	# Loop until we receive $EOC char
+        	while { [string compare $LAST_CHAR $EOC] } {
+        		if { [eof $channelId] || [catch {append line [read
+        $channelId]}] } {
+        			close $channelId
+        			puts &quot;\nConnection or server error.&quot;
+        			exit 1
+        		}
+        		set LAST_CHAR [string index $line end]
+        	}
+        
+        	# Server returns empty string (only EOC received) if OK. Longer
+        output is
+        	# returned in case of wrong command name or if the user
+        specified the command name
+        	# with the capture parameter, e.g.: capture { halt }
+        	if { [string equal $line $EOC] } {
+        		puts &quot;OK.&quot;
+        	} else {
+        		set line &quot;[string range $line 0 end-1]&quot;
+        		puts &quot;$line&quot;
+        	}
+        	
+        	global done_flag
+        	set done_flag 1
+        }
+        #---------------------------------------------------------------
+        
+        puts &quot;Use empty line to exit.&quot;
+        
+        # Open TCP socket
+        set fo [socket $server $port]
+        
+        # Configure the channel in non-blocking mode
+        fconfigure $fo -blocking 0
+        
+        # Configure event driven read command
+        fileevent $fo readable {get_reply $fo $EOC}
+        
+        puts -nonewline stdout &quot;&gt; &quot;
+        flush stdout
+        
+        while { [gets stdin line] &gt; 0 } {
+        
+        	puts -nonewline stdout &quot;Sending \&quot;$line\&quot; ... &quot;
+        	
+        	puts -nonewline $fo &quot;$line$EOC&quot;
+        	flush $fo
+        
+        	# Event driven get_reply routine is being ran.
+        	vwait done_flag
+        	
+        	puts -nonewline stdout &quot;&gt; &quot;
+        	flush stdout
+        }
+        
+        close $fo
+        exit 0
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110714/52fc32df/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110714/52fc32df/attachment.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: face-smile-big.png
+Type: image/png
+Size: 1066 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110714/52fc32df/attachment.png">https://lists.berlios.de/pipermail/openocd-development/attachments/20110714/52fc32df/attachment.png</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020060.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+	<LI>Next message: <A HREF="020372.html">[Openocd-development] tcl_server TCP/IP commands usage?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20266">[ date ]</a>
+              <a href="thread.html#20266">[ thread ]</a>
+              <a href="subject.html#20266">[ subject ]</a>
+              <a href="author.html#20266">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,417 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc 1/4] ARM: start abstracting ADIv5	transports (JTAG/SWD)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%201/4%5D%20ARM%3A%20start%20abstracting%20ADIv5%0A%09transports%20%28JTAG/SWD%29&In-Reply-To=%3C201002250107.16681.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014997.html">
+   <LINK REL="Next"  HREF="014968.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc 1/4] ARM: start abstracting ADIv5	transports (JTAG/SWD)</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%201/4%5D%20ARM%3A%20start%20abstracting%20ADIv5%0A%09transports%20%28JTAG/SWD%29&In-Reply-To=%3C201002250107.16681.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc 1/4] ARM: start abstracting ADIv5	transports (JTAG/SWD)">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Feb 25 10:07:16 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014997.html">[Openocd-development] [patch/rfc 0/4] ADIv5	transport-neutrality updates (for SWD)
+</A></li>
+        <LI>Next message: <A HREF="014968.html">[Openocd-development] [patch/rfc 2/4] ADIv5: use new dap_run()	operation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14966">[ date ]</a>
+              <a href="thread.html#14966">[ thread ]</a>
+              <a href="subject.html#14966">[ subject ]</a>
+              <a href="author.html#14966">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>To support both JTAG and SWD, ADIv5 needs DAP operations which are
+transport-neutral, instead being of JTAG-specific.  This patch:
+
+ - Defines such a transport-neutral interface, abstracting access
+   to DP and AP registers through a conceptual queue of operations.
+   
+ - Builds the first implementation of such a transport with the existing
+   JTAG-specific code.
+
+In contrast to the current JTAG-only interface, the interface adds
+support for two previously-missing (and unused) DAP operations:
+
+ - aborting the current AP transaction (untested);
+ - reading the IDCODE register (tested) ... required for SWD init.
+ 
+The choice of transports may be fixed at the chip, board, or JTAG/SWD
+adapter level.  Or if all the relevant hardware supports both transport
+options, the choice may be made at runtime, This patch provides basic
+infrastructure to support whichever choice is made.
+
+The current &quot;JTAG-only&quot; transport choice policy will necessarily continue
+for now, until SWD support becomes available in OpenOCD.  Later patches
+start phasing out JTAG-specific calls in favor of transport-neutral calls.
+---
+ src/target/arm_adi_v5.c |  115 ++++++++++++++++++++++++++++++++
+ src/target/arm_adi_v5.h |  163 ++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 278 insertions(+)
+
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -350,6 +350,11 @@ int jtagdp_transaction_endcheck(struct s
+  *                                                                         *
+ ***************************************************************************/
+ 
++/* FIXME remove dap_dp_{read,write}_reg() ... these should become the
++ * bodies of the JTAG implementations of dap_queue_dp_{read,write}() and
++ * callers should switch over to the transport-neutral calls.
++ */
++
+ static int dap_dp_write_reg(struct swjdp_common *swjdp,
+ 		uint32_t value, uint8_t reg_addr)
+ {
+@@ -403,6 +408,12 @@ static int dap_ap_bankselect(struct swjd
+ 		return ERROR_OK;
+ }
+ 
++/* FIXME remove dap_ap_{read,write}_reg() and dap_ap_write_reg_u32()
++ * ... these should become the bodies of the JTAG implementations of
++ * dap_queue_ap_{read,write}(), then all their current callers should
++ * switch over to the transport-neutral calls.
++ */
++
+ static int dap_ap_write_reg(struct swjdp_common *swjdp,
+ 		uint32_t reg_addr, uint8_t *out_value_buf)
+ {
+@@ -1143,6 +1154,107 @@ int mem_ap_read_buf_u8(struct swjdp_comm
+ 	return retval;
+ }
+ 
++/*--------------------------------------------------------------------------*/
++
++static int jtag_idcode_q_read(struct swjdp_common *dap,
++		uint8_t *ack, uint32_t *data)
++{
++	struct arm_jtag *jtag_info = dap-&gt;jtag_info;
++	int retval;
++	struct scan_field fields[1];
++
++	jtag_set_end_state(TAP_IDLE);
++
++	/* This is a standard JTAG operation -- no DAP tweakage */
++	retval = arm_jtag_set_instr(jtag_info, JTAG_DP_IDCODE, NULL);
++	if (retval != ERROR_OK)
++		return retval;
++
++	fields[0].tap = jtag_info-&gt;tap;
++	fields[0].num_bits = 32;
++	fields[0].out_value = NULL;
++	fields[0].in_value = (void *) data;
++
++	jtag_add_dr_scan(1, fields, jtag_get_end_state());
++	retval = jtag_get_error();
++	if (retval != ERROR_OK)
++		return retval;
++
++	jtag_add_callback(arm_le_to_h_u32,
++			(jtag_callback_data_t) data);
++
++	return retval;
++}
++
++static int jtag_dp_q_read(struct swjdp_common *dap, unsigned reg,
++		uint32_t *data)
++{
++	return dap_dp_read_reg(dap, data, reg);
++}
++
++static int jtag_dp_q_write(struct swjdp_common *dap, unsigned reg,
++		uint32_t data)
++{
++	return dap_dp_write_reg(dap, data, reg);
++}
++
++static int jtag_ap_q_bankselect(struct swjdp_common *dap, unsigned reg)
++{
++	uint32_t select = reg &amp; 0x000000F0;
++
++	if (select == dap-&gt;ap_bank_value)
++		return ERROR_OK;
++	dap-&gt;ap_bank_value = select;
++
++	select |= dap-&gt;apsel;
++
++	return jtag_dp_q_write(dap, DP_SELECT, select);
++}
++
++static int jtag_ap_q_read(struct swjdp_common *dap, unsigned reg,
++		uint32_t *data)
++{
++	int retval = jtag_ap_q_bankselect(dap, reg);
++
++	if (retval != ERROR_OK)
++		return retval;
++	return dap_ap_read_reg_u32(dap, reg, data);
++}
++
++static int jtag_ap_q_write(struct swjdp_common *dap, unsigned reg,
++		uint32_t data)
++{
++	int retval = jtag_ap_q_bankselect(dap, reg);
++
++	if (retval != ERROR_OK)
++		return retval;
++	return dap_ap_write_reg_u32(dap, reg, data);
++}
++
++static int jtag_ap_q_abort(struct swjdp_common *dap, uint8_t *ack)
++{
++	/* for JTAG, this is the only valid ABORT register operation */
++	return adi_jtag_dp_scan_u32(dap, JTAG_DP_ABORT,
++			0, DPAP_WRITE, 1, NULL, ack);
++}
++
++static int jtag_dp_run(struct swjdp_common *dap)
++{
++	return jtagdp_transaction_endcheck(dap);
++}
++
++static const struct dap_ops jtag_dp_ops = {
++	.queue_idcode_read =	jtag_idcode_q_read,
++	.queue_dp_read =	jtag_dp_q_read,
++	.queue_dp_write =	jtag_dp_q_write,
++	.queue_ap_read =	jtag_ap_q_read,
++	.queue_ap_write =	jtag_ap_q_write,
++	.queue_ap_abort =	jtag_ap_q_abort,
++	.run =			jtag_dp_run,
++};
++
++/*--------------------------------------------------------------------------*/
++
+ /**
+  * Initialize a DAP.  This sets up the power domains, prepares the DP
+  * for further use, and arranges to use AP #0 for all AP operations
+@@ -1164,6 +1276,9 @@ int ahbap_debugport_init(struct swjdp_co
+ 
+ 	LOG_DEBUG(&quot; &quot;);
+ 
++	/* JTAG-DP or SWJ-DP, in JTAG mode */
++	swjdp-&gt;ops = &amp;jtag_dp_ops;
++
+ 	/* Default MEM-AP setup.
+ 	 *
+ 	 * REVISIT AP #0 may be an inappropriate default for this.
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -124,10 +124,22 @@
+  * transport agent; and at least one Access Port (AP), controlling
+  * resource access.  Most common is a MEM-AP, for memory access.
+  *
++ * There are two basic DP transports: JTAG, and ARM's low pin-count SWD.
++ * Accordingly, this interface is responsible for hiding the transport
++ * differences so upper layer code can largely ignore them.
++ *
++ * When the chip is implemented with JTAG-DP or SW-DP, the transport is
++ * fixed as JTAG or SWD, respectively.  Chips incorporating SWJ-DP permit
++ * a choice made at board design time (by only using the SWD pins), or
++ * as part of setting up a debug session (if all the dual-role JTAG/SWD
++ * signals are available).
++ *
+  * @todo Rename &quot;swjdp_common&quot; as &quot;dap&quot;.  Use of SWJ-DP is optional!
+  */
+ struct swjdp_common
+ {
++	const struct dap_ops *ops;
++
+ 	struct arm_jtag *jtag_info;
+ 	/* Control config */
+ 	uint32_t dp_ctrl_stat;
+@@ -175,6 +187,157 @@ struct swjdp_common
+ 
+ };
+ 
++/**
++ * Transport-neutral representation of queued DAP transactions, supporting
++ * both JTAG and SWD transports.  All submitted transactions are logically
++ * queued, until the queue is executed by run().  Some implementations might
++ * execute transactions as soon as they're submitted, but no status is made
++ * availablue until run().
++ */
++struct dap_ops {
++	/** If the DAP transport isn't SWD, it must be JTAG.  Upper level
++	 * code may need to care about the difference in some cases.
++	 */
++	bool	is_swd;
++
++	/** Reads the DAP's IDCODe register. */
++	int (*queue_idcode_read)(struct swjdp_common *dap,
++			uint8_t *ack, uint32_t *data);
++
++	/** DP register read. */
++	int (*queue_dp_read)(struct swjdp_common *dap, unsigned reg,
++			uint32_t *data);
++	/** DP register write. */
++	int (*queue_dp_write)(struct swjdp_common *dap, unsigned reg,
++			uint32_t data);
++
++	/** AP register read. */
++	int (*queue_ap_read)(struct swjdp_common *dap, unsigned reg,
++			uint32_t *data);
++	/** AP register write. */
++	int (*queue_ap_write)(struct swjdp_common *dap, unsigned reg,
++			uint32_t data);
++	/** AP operation abort. */
++	int (*queue_ap_abort)(struct swjdp_common *dap, uint8_t *ack);
++
++	/** Executes all queued DAP operations. */
++	int (*run)(struct swjdp_common *dap);
++};
++
++/**
++ * Queue an IDCODE register read.  This is primarily useful for SWD
++ * transports, where it is required as part of link initialization.
++ * (For JTAG, this register is read as part of scan chain setup.)
++ *
++ * @param dap The DAP used for reading.
++ * @param ack Pointer to where transaction status will be stored.
++ * @param data Pointer saying where to store the IDCODE value.
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_idcode_read(struct swjdp_common *dap,
++		uint8_t *ack, uint32_t *data)
++{
++	return dap-&gt;ops-&gt;queue_idcode_read(dap, ack, data);
++}
++
++/**
++ * Queue a DP register read.
++ * Note that not all DP registers are readable; also, that JTAG and SWD
++ * have slight differences in DP register support.
++ *
++ * @param dap The DAP used for reading.
++ * @param reg The two-bit number of the DP register being read.
++ * @param data Pointer saying where to store the register's value
++ * 	(in host endianness).
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_dp_read(struct swjdp_common *dap,
++		unsigned reg, uint32_t *data)
++{
++	return dap-&gt;ops-&gt;queue_dp_read(dap, reg, data);
++}
++
++/**
++ * Queue a DP register write.
++ * Note that not all DP registers are writable; also, that JTAG and SWD
++ * have slight differences in DP register support.
++ *
++ * @param dap The DAP used for writing.
++ * @param reg The two-bit number of the DP register being written.
++ * @param data Value being written (host endianness)
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_dp_write(struct swjdp_common *dap,
++		unsigned reg, uint32_t data)
++{
++	return dap-&gt;ops-&gt;queue_dp_write(dap, reg, data);
++}
++
++/**
++ * Queue an AP register read.
++ *
++ * @param dap The DAP used for reading.
++ * @param reg The number of the AP register being read.
++ * @param data Pointer saying where to store the register's value
++ * 	(in host endianness).
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_ap_read(struct swjdp_common *dap,
++		unsigned reg, uint32_t *data)
++{
++	return dap-&gt;ops-&gt;queue_ap_read(dap, reg, data);
++}
++
++/**
++ * Queue an AP register write.
++ *
++ * @param dap The DAP used for writing.
++ * @param reg The number of the AP register being written.
++ * @param data Value being written (host endianness)
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_ap_write(struct swjdp_common *dap,
++		unsigned reg, uint32_t data)
++{
++	return dap-&gt;ops-&gt;queue_ap_write(dap, reg, data);
++}
++
++/**
++ * Queue an AP abort operation.  The current AP transaction is aborted,
++ * including any update of the transaction counter.  The AP is left in
++ * an unknown state (so it must be re-initialized).  For use only after
++ * the AP has reported WAIT status for an extended period.
++ *
++ * @param dap The DAP used for writing.
++ * @param ack Pointer to where transaction status will be stored.
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_ap_abort(struct swjdp_common *dap, uint8_t *ack)
++{
++	return dap-&gt;ops-&gt;queue_ap_abort(dap, ack);
++}
++
++/**
++ * Perform all queued DAP operations, and clear any errors posted in the
++ * CTRL_STAT register when they are done.  Note that if more than one AP
++ * operation will be queued, one of the first operations in the queue
++ * should probably enable CORUNDETECT in the CTRL/STAT register.
++ *
++ * @param dap The DAP used.
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_run(struct swjdp_common *dap)
++{
++	return dap-&gt;ops-&gt;run(dap);
++}
++
+ /** Accessor for currently selected DAP-AP number (0..255) */
+ static inline uint8_t dap_ap_get_select(struct swjdp_common *swjdp)
+ {
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014997.html">[Openocd-development] [patch/rfc 0/4] ADIv5	transport-neutrality updates (for SWD)
+</A></li>
+	<LI>Next message: <A HREF="014968.html">[Openocd-development] [patch/rfc 2/4] ADIv5: use new dap_run()	operation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14966">[ date ]</a>
+              <a href="thread.html#14966">[ thread ]</a>
+              <a href="subject.html#14966">[ subject ]</a>
+              <a href="author.html#14966">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

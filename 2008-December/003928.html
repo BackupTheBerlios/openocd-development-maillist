@@ -1,0 +1,368 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH: ep93xx.c speed up.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%20ep93xx.c%20speed%20up.&In-Reply-To=%3CF8198290-7559-49A3-9028-809D94915938%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003924.html">
+   <LINK REL="Next"  HREF="003947.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH: ep93xx.c speed up.</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%20ep93xx.c%20speed%20up.&In-Reply-To=%3CF8198290-7559-49A3-9028-809D94915938%40kc8apf.net%3E"
+       TITLE="[Openocd-development] PATCH: ep93xx.c speed up.">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Fri Dec  5 19:03:57 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003924.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+        <LI>Next message: <A HREF="003947.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3928">[ date ]</a>
+              <a href="thread.html#3928">[ thread ]</a>
+              <a href="subject.html#3928">[ subject ]</a>
+              <a href="author.html#3928">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Dec 5, 2008, at 1:58 AM, Hiroshi Ito wrote:
+
+&gt;<i> From: &quot;&#216;yvind Harboe&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+</I>&gt;&gt;<i> I was not able to apply this patch. Please create patch
+</I>&gt;&gt;<i> against svn trunk and post again. Your first patch
+</I>&gt;&gt;<i> applied fine, so do it in the same manner.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Also add yourself to the copyright at the top of ep93xx.c
+</I>&gt;<i>
+</I>&gt;<i> Sorry for late. I have been offlined few days.
+</I>&gt;<i>
+</I>&gt;<i> here is a patch.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> From: Rick Altherr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>&gt;
+</I>&gt;&gt;&gt;<i> +static void output_data(void)
+</I>&gt;&gt;&gt;<i> +{
+</I>&gt;&gt;&gt;<i> +	int i;
+</I>&gt;&gt;&gt;<i> +	*gpio_data_register = output_value ^ INVERT_BITS;
+</I>&gt;&gt;&gt;<i> +	for ( i = 0; i &lt; 10; i++ )
+</I>&gt;&gt;&gt;<i> +	    ;
+</I>&gt;&gt;&gt;<i> }
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> A for loop like that can't reliably be used as a delay loop.
+</I>&gt;<i>
+</I>&gt;<i> Thank you for your advice.
+</I>&gt;<i> I fix it.
+</I>&gt;<i>
+</I>
+I'm not sure how this fixed it.  The output function still just pushes  
+a value into the data register.  You've simply looped over that so  
+that the value is written to the data register multiple times.  That  
+is really just a non-deterministic delay loop that will vary with the  
+host CPU speed.  The wait for RTCK method is appropriate and is  
+deterministic.  Is there really no way to know how long to wait after  
+the data value has been placed on the pins before changing it without  
+using RTCK?
+
+&gt;<i> --------
+</I>&gt;<i> Hiroshi Ito
+</I>&gt;<i> Media Lab. Inc.,
+</I>&gt;<i> URL <A HREF="http://www.mlb.co.jp">http://www.mlb.co.jp</A> ( Sorry, Japanese only. )
+</I>&gt;<i> TEL +81-3-5294-7255  FAX +81-3-5294-7256
+</I>&gt;<i> Index: src/jtag/ep93xx.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/jtag/ep93xx.c	(revision 1214)
+</I>&gt;<i> +++ src/jtag/ep93xx.c	(working copy)
+</I>&gt;<i> @@ -2,6 +2,9 @@
+</I>&gt;<i>  *   Copyright (C) 2005 by Dominic  
+</I>&gt;<i> Rath                                    *
+</I>&gt;<i>  *    
+</I>&gt;<i> Dominic 
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">.Rath at gmx.de</A>                                                   *
+</I>&gt;<i>   
+</I>&gt;<i> *                                                                         *
+</I>&gt;<i> + *   Copyright (C) 2008 by Hiroshi  
+</I>&gt;<i> Ito                                     *
+</I>&gt;<i> + *    
+</I>&gt;<i> ito 
+</I>&gt;<i> @mlb.co.jp                                                         *
+</I>&gt;<i> +  
+</I>&gt;<i> *                                                                         *
+</I>&gt;<i>  *   This program is free software; you can redistribute it and/or  
+</I>&gt;<i> modify  *
+</I>&gt;<i>  *   it under the terms of the GNU General Public License as  
+</I>&gt;<i> published by  *
+</I>&gt;<i>  *   the Free Software Foundation; either version 2 of the License,  
+</I>&gt;<i> or     *
+</I>&gt;<i> @@ -25,6 +28,11 @@
+</I>&gt;<i> #include &quot;jtag.h&quot;
+</I>&gt;<i> #include &quot;bitbang.h&quot;
+</I>&gt;<i>
+</I>&gt;<i> +/* Cable definition is *only* selectable at compile time */
+</I>&gt;<i> +#if 1
+</I>&gt;<i> +/* Rath's cable */
+</I>&gt;<i> +#define INITIALIZE_G_ON_K	1
+</I>&gt;<i> +
+</I>&gt;<i> #define TDO_BIT		1
+</I>&gt;<i> #define TDI_BIT		2
+</I>&gt;<i> #define TCK_BIT		4
+</I>&gt;<i> @@ -32,12 +40,30 @@
+</I>&gt;<i> #define TRST_BIT	16
+</I>&gt;<i> #define SRST_BIT	32
+</I>&gt;<i> #define VCC_BIT		64
+</I>&gt;<i> +#define RTCK_BIT  	0
+</I>&gt;<i> +#define VTREF_BIT  	0
+</I>&gt;<i>
+</I>&gt;<i> +#define INVERT_BITS  	0
+</I>&gt;<i> +#else
+</I>&gt;<i> +/* ito's cable */
+</I>&gt;<i> +#define INITIALIZE_PORTD_AS_FLOAT	1
+</I>&gt;<i> +
+</I>&gt;<i> +#define VCC_BIT		0
+</I>&gt;<i> +#define TMS_BIT		1
+</I>&gt;<i> +#define SRST_BIT	2
+</I>&gt;<i> +#define TDI_BIT		4
+</I>&gt;<i> +#define TDO_BIT		8
+</I>&gt;<i> +#define TRST_BIT	16
+</I>&gt;<i> +#define RTCK_BIT  	32
+</I>&gt;<i> +#define VTREF_BIT  	64
+</I>&gt;<i> +#define TCK_BIT		128
+</I>&gt;<i> +#define INVERT_BITS  	0/*(SRST_BIT|TRST_BIT)*/
+</I>&gt;<i> +#endif
+</I>&gt;<i> +
+</I>&gt;<i> /* system includes */
+</I>&gt;<i> #include &lt;string.h&gt;
+</I>&gt;<i> #include &lt;stdlib.h&gt;
+</I>&gt;<i> #include &lt;stdio.h&gt;
+</I>&gt;<i> -#include &lt;time.h&gt;
+</I>&gt;<i> #include &lt;sys/mman.h&gt;
+</I>&gt;<i> #include &lt;unistd.h&gt;
+</I>&gt;<i> #include &lt;fcntl.h&gt;
+</I>&gt;<i> @@ -59,8 +85,6 @@
+</I>&gt;<i> int ep93xx_init(void);
+</I>&gt;<i> int ep93xx_quit(void);
+</I>&gt;<i>
+</I>&gt;<i> -struct timespec ep93xx_zzzz;
+</I>&gt;<i> -
+</I>&gt;<i> jtag_interface_t ep93xx_interface =
+</I>&gt;<i> {
+</I>&gt;<i> 	.name = &quot;ep93xx&quot;,
+</I>&gt;<i> @@ -83,11 +107,40 @@
+</I>&gt;<i>
+</I>&gt;<i> int ep93xx_read(void)
+</I>&gt;<i> {
+</I>&gt;<i> -	return !!(*gpio_data_register &amp; TDO_BIT);
+</I>&gt;<i> +	return !!((*gpio_data_register ^ INVERT_BITS ) &amp; TDO_BIT);
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> +static void output_data(void)
+</I>&gt;<i> +{
+</I>&gt;<i> +	*gpio_data_register = output_value ^ INVERT_BITS;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +#if RTCK_BIT &gt; 0
+</I>&gt;<i> +static void ep93xx_wait_rtck(int tck)
+</I>&gt;<i> +{
+</I>&gt;<i> +	int timeout = 4096;
+</I>&gt;<i> +	u8 bits = (*gpio_data_register ^ INVERT_BITS);
+</I>&gt;<i> +	if ( tck ) tck = RTCK_BIT;
+</I>&gt;<i> +#if VTREF_BIT &gt; 0
+</I>&gt;<i> +	if (((*gpio_data_register ^ INVERT_BITS ) &amp; VTREF_BIT) ) {
+</I>&gt;<i> +	    /* target power is not up */
+</I>&gt;<i> +	    return;
+</I>&gt;<i> +	}
+</I>&gt;<i> +#endif
+</I>&gt;<i> +	while (((*gpio_data_register ^ INVERT_BITS) &amp; RTCK_BIT) != tck ) {
+</I>&gt;<i> +	    if ( --timeout &lt;= 0 ) {
+</I>&gt;<i> +		LOG_ERROR(&quot;ep93xx_wait_rtck timed out while waiting for end of  
+</I>&gt;<i> scan(0x%04X).&quot;,
+</I>&gt;<i> +			  *gpio_data_register );
+</I>&gt;<i> +		break;
+</I>&gt;<i> +	    }
+</I>&gt;<i> +	}
+</I>&gt;<i> +}
+</I>&gt;<i> +#endif
+</I>&gt;<i> +
+</I>&gt;<i> void ep93xx_write(int tck, int tms, int tdi)
+</I>&gt;<i> {
+</I>&gt;<i> +	int i = jtag_speed;
+</I>&gt;<i> +
+</I>&gt;<i> 	if (tck)
+</I>&gt;<i> 		output_value |= TCK_BIT;
+</I>&gt;<i> 	else
+</I>&gt;<i> @@ -103,8 +156,15 @@
+</I>&gt;<i> 	else
+</I>&gt;<i> 		output_value &amp;= ~TDI_BIT;
+</I>&gt;<i>
+</I>&gt;<i> -	*gpio_data_register = output_value;
+</I>&gt;<i> -	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i> +	do {
+</I>&gt;<i> +	    output_data();
+</I>&gt;<i> +	} while (i-- &gt; 0)
+</I>&gt;<i> +	      ;
+</I>&gt;<i> +
+</I>&gt;<i> +#if RTCK_BIT &gt; 0
+</I>&gt;<i> +	if ( jtag_speed == 0 )
+</I>&gt;<i> +	    ep93xx_wait_rtck(tck);
+</I>&gt;<i> +#endif
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> /* (1) assert or (0) deassert reset lines */
+</I>&gt;<i> @@ -120,8 +180,7 @@
+</I>&gt;<i> 	else if (srst == 1)
+</I>&gt;<i> 		output_value &amp;= ~SRST_BIT;
+</I>&gt;<i> 	
+</I>&gt;<i> -	*gpio_data_register = output_value;
+</I>&gt;<i> -	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i> +	output_data();
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> int ep93xx_speed(int speed)
+</I>&gt;<i> @@ -136,6 +195,8 @@
+</I>&gt;<i> 	return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> +#ifdef INITIALIZE_G_ON_K
+</I>&gt;<i> +/* set a keypad interface as a GPIO PORT C and PORT D. */
+</I>&gt;<i> static int set_gonk_mode(void)
+</I>&gt;<i> {
+</I>&gt;<i> 	void *syscon;
+</I>&gt;<i> @@ -156,16 +217,16 @@
+</I>&gt;<i>
+</I>&gt;<i> 	return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i> +#endif
+</I>&gt;<i>
+</I>&gt;<i> int ep93xx_init(void)
+</I>&gt;<i> {
+</I>&gt;<i> +#ifdef INITIALIZE_G_ON_K
+</I>&gt;<i> 	int ret;
+</I>&gt;<i> +#endif
+</I>&gt;<i>
+</I>&gt;<i> 	bitbang_interface = &amp;ep93xx_bitbang;	
+</I>&gt;<i>
+</I>&gt;<i> -	ep93xx_zzzz.tv_sec = 0;
+</I>&gt;<i> -	ep93xx_zzzz.tv_nsec = 10000000;
+</I>&gt;<i> -
+</I>&gt;<i> 	dev_mem_fd = open(&quot;/dev/mem&quot;, O_RDWR | O_SYNC);
+</I>&gt;<i> 	if (dev_mem_fd &lt; 0) {
+</I>&gt;<i> 		perror(&quot;open&quot;);
+</I>&gt;<i> @@ -180,12 +241,14 @@
+</I>&gt;<i> 		return ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i> 	}
+</I>&gt;<i>
+</I>&gt;<i> +#ifdef INITIALIZE_G_ON_K
+</I>&gt;<i> 	ret = set_gonk_mode();
+</I>&gt;<i> 	if (ret != ERROR_OK) {
+</I>&gt;<i> 		munmap(gpio_controller, 4096);
+</I>&gt;<i> 		close(dev_mem_fd);
+</I>&gt;<i> 		return ret;
+</I>&gt;<i> 	}
+</I>&gt;<i> +#endif
+</I>&gt;<i>
+</I>&gt;<i> #if 0
+</I>&gt;<i> 	/* Use GPIO port A.  */
+</I>&gt;<i> @@ -206,20 +269,23 @@
+</I>&gt;<i> 	gpio_data_direction_register = gpio_controller + 0x1c;
+</I>&gt;<i> #endif
+</I>&gt;<i>
+</I>&gt;<i> +#ifdef INITIALIZE_PORTD_AS_FLOAT
+</I>&gt;<i> +	/* unused pins are set to input(port D).  */
+</I>&gt;<i> +	gpio_data_direction_register = gpio_controller + 0x1c;
+</I>&gt;<i> +	*gpio_data_direction_register = 0;
+</I>&gt;<i> +#endif
+</I>&gt;<i> +
+</I>&gt;<i> 	/* Use GPIO port C.  */
+</I>&gt;<i> 	gpio_data_register = gpio_controller + 0x08;
+</I>&gt;<i> 	gpio_data_direction_register = gpio_controller + 0x18;
+</I>&gt;<i>
+</I>&gt;<i> -	LOG_INFO(&quot;gpio_data_register      = %p\n&quot;, gpio_data_register);
+</I>&gt;<i> -	LOG_INFO(&quot;gpio_data_direction_reg = %p\n&quot;,  
+</I>&gt;<i> gpio_data_direction_register);
+</I>&gt;<i> 	/*
+</I>&gt;<i> 	 * Configure bit 0 (TDO) as an input, and bits 1-5 (TDI, TCK
+</I>&gt;<i> 	 * TMS, TRST, SRST) as outputs.  Drive TDI and TCK low, and
+</I>&gt;<i> 	 * TMS/TRST/SRST high.
+</I>&gt;<i> 	 */
+</I>&gt;<i> 	output_value = TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+</I>&gt;<i> -	*gpio_data_register = output_value;
+</I>&gt;<i> -	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i> +	output_data();
+</I>&gt;<i>
+</I>&gt;<i> 	/*
+</I>&gt;<i> 	 * Configure the direction register.  1 = output, 0 = input.
+</I>&gt;<i> @@ -227,12 +293,17 @@
+</I>&gt;<i> 	*gpio_data_direction_register =
+</I>&gt;<i> 		TDI_BIT | TCK_BIT | TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+</I>&gt;<i>
+</I>&gt;<i> -	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i> +#if VTREF_BIT &gt; 0
+</I>&gt;<i> +	if (((*gpio_data_register ^ INVERT_BITS ) &amp; VTREF_BIT) ) {
+</I>&gt;<i> +	    LOG_INFO(&quot;target power is off (%X)&quot;, *gpio_data_register);
+</I>&gt;<i> +	}
+</I>&gt;<i> +#endif
+</I>&gt;<i> 	return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> int ep93xx_quit(void)
+</I>&gt;<i> {
+</I>&gt;<i> +	*gpio_data_direction_register = 0;
+</I>&gt;<i>
+</I>&gt;<i> 	return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081205/39d8bd48/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20081205/39d8bd48/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003924.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+	<LI>Next message: <A HREF="003947.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3928">[ date ]</a>
+              <a href="thread.html#3928">[ thread ]</a>
+              <a href="subject.html#3928">[ subject ]</a>
+              <a href="author.html#3928">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

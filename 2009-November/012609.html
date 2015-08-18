@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 5/8] improve 'help' command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/8%5D%20improve%20%27help%27%20command&In-Reply-To=%3C1258742030-30859-6-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012612.html">
+   <LINK REL="Next"  HREF="012618.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 5/8] improve 'help' command</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/8%5D%20improve%20%27help%27%20command&In-Reply-To=%3C1258742030-30859-6-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 5/8] improve 'help' command">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Nov 20 19:33:47 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012612.html">[Openocd-development] [PATCH 4/8] factor help script command into	parts
+</A></li>
+        <LI>Next message: <A HREF="012618.html">[Openocd-development] [PATCH 5/8] improve 'help' command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12609">[ date ]</a>
+              <a href="thread.html#12609">[ thread ]</a>
+              <a href="subject.html#12609">[ subject ]</a>
+              <a href="author.html#12609">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Rewrites 'help' command in C, using new 'cmd_help' for display.  Adds the
+built-in 'help' COMMAND_HANDLER to provide better output than the
+TCL-based script command (e.g. heirarchical listing of commands).
+
+The help string is stored in the command structure, though it conitnues
+to be pushed into the Jim environment.  The current idiomatic usage
+suggests the addition of a usage field as well, to provide two levels
+of detail for users to consume (i.e. terse usage list, or verbose help).
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c   |   56 ++++++++++++++++++++++++++++++++++++++++++++++-
+ src/helper/command.h   |    1 +
+ src/helper/startup.tcl |   18 ---------------
+ 3 files changed, 55 insertions(+), 20 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 87a898f..f135bb0 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -250,6 +250,8 @@ static struct command *command_new(struct command_context *cmd_ctx,
+ 	memset(c, 0, sizeof(struct command));
+ 
+ 	c-&gt;name = strdup(name);
++	if (help)
++		c-&gt;help = strdup(help);
+ 	c-&gt;parent = parent;
+ 	c-&gt;handler = handler;
+ 	c-&gt;mode = mode;
+@@ -273,6 +275,8 @@ static void command_free(struct command *c)
+ 
+ 	if (c-&gt;name)
+ 		free(c-&gt;name);
++	if (c-&gt;help)
++		free((void*)c-&gt;help);
+ 	free(c);
+ }
+ 
+@@ -721,6 +725,52 @@ static int jim_capture(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return retcode;
+ }
+ 
++static COMMAND_HELPER(command_help_find, struct command *head,
++		struct command **out)
++{
++	if (0 == CMD_ARGC)
++		return ERROR_INVALID_ARGUMENTS;
++	*out = command_find(head, CMD_ARGV[0]);
++	if (NULL == *out)
++		return ERROR_INVALID_ARGUMENTS;
++	if (--CMD_ARGC == 0)
++		return ERROR_OK;
++	CMD_ARGV++;
++	return CALL_COMMAND_HANDLER(command_help_find, (*out)-&gt;children, out);
++}
++
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n);
++
++static COMMAND_HELPER(command_help_show_list, struct command *head, unsigned n)
++{
++	for (struct command *c = head; NULL != c; c = c-&gt;next)
++		CALL_COMMAND_HANDLER(command_help_show, c, n);
++	return ERROR_OK;
++}
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n)
++{
++	command_run_linef(CMD_CTX, &quot;cmd_help {%s} {%s} %d&quot;, command_name(c, ' '),
++			c-&gt;help ? : &quot;no help available&quot;, n);
++
++	if (++n &gt;= 2)
++		return ERROR_OK;
++
++	return CALL_COMMAND_HANDLER(command_help_show_list, c-&gt;children, n);
++}
++COMMAND_HANDLER(handle_help_command)
++{
++	struct command *c = CMD_CTX-&gt;commands;
++
++	if (0 == CMD_ARGC)
++		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0);
++
++	int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
++	if (ERROR_OK != retval)
++		return retval;
++
++	return CALL_COMMAND_HANDLER(command_help_show, c, 0);
++}
++
+ /* sleep command sleeps for &lt;n&gt; miliseconds
+  * this is useful in target startup scripts
+  */
+@@ -831,6 +881,10 @@ struct command_context* command_init(const char *startup_tcl)
+ 			&quot;&lt;n&gt; [busy] - sleep for n milliseconds. &quot;
+ 			&quot;\&quot;busy\&quot; means busy wait&quot;);
+ 
++	register_command(context, NULL, &quot;help&quot;,
++			&amp;handle_help_command, COMMAND_ANY,
++			&quot;[&lt;command_name&gt; ...] - show built-in command help&quot;);
++
+ 	return context;
+ }
+ 
+@@ -977,5 +1031,3 @@ COMMAND_HELPER(handle_command_parse_bool, bool *out, const char *label)
+ 	}
+ 	return ERROR_OK;
+ }
+-
+-
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 56bd149..34593f7 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -159,6 +159,7 @@ typedef __COMMAND_HANDLER((*command_handler_t));
+ struct command
+ {
+ 	char *name;
++	const char *help;
+ 	struct command *parent;
+ 	struct command *children;
+ 	command_handler_t handler;
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index 30dc184..ddfef1d 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -58,24 +58,6 @@ proc cmd_help {cmdname h indent} {
+ 	}
+ }
+ 
+-#Print help text for a command. Word wrap
+-#help text that is too wide inside column.
+-proc help {args} {
+-	global ocd_helptext
+-	set cmd $args
+-	foreach a [lsort $ocd_helptext] {
+-		if {[string length $cmd] == 0 || \
+-			[string first $cmd $a] != -1 || \
+-			[string first $cmd [lindex $a 1]] != -1} \
+-		{
+-			cmd_help [lindex $a 0] [lindex $a 1] 0
+-		}
+-	}
+-}
+-
+-add_help_text help &quot;Tcl implementation of help command&quot;
+-
+-
+ # If a fn is unknown to Tcl, we try to execute it as an OpenOCD command
+ #
+ # We also support two level commands. &quot;flash banks&quot; is translated to
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012612.html">[Openocd-development] [PATCH 4/8] factor help script command into	parts
+</A></li>
+	<LI>Next message: <A HREF="012618.html">[Openocd-development] [PATCH 5/8] improve 'help' command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12609">[ date ]</a>
+              <a href="thread.html#12609">[ thread ]</a>
+              <a href="subject.html#12609">[ subject ]</a>
+              <a href="author.html#12609">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

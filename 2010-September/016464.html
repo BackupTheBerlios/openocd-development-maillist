@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] command: capture command now	handles both types commands
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20command%3A%20capture%20command%20now%0A%09handles%20both%20types%20commands&In-Reply-To=%3C1284194782-21013-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016460.html">
+   <LINK REL="Next"  HREF="016463.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] command: capture command now	handles both types commands</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20command%3A%20capture%20command%20now%0A%09handles%20both%20types%20commands&In-Reply-To=%3C1284194782-21013-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] command: capture command now	handles both types commands">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sat Sep 11 10:46:21 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016460.html">[Openocd-development] Error while running gdb
+</A></li>
+        <LI>Next message: <A HREF="016463.html">[Openocd-development] [PATCH 2/2] version command: make it	scriptable
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16464">[ date ]</a>
+              <a href="thread.html#16464">[ thread ]</a>
+              <a href="subject.html#16464">[ subject ]</a>
+              <a href="author.html#16464">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Commands that output progress output and no return value
+will have the progress output captured.
+
+Commands that do not output progress output(tcl commands)
+will return the tcl return value instead.
+
+The advantage here is that it is no longer necessary to
+consider which command one is capturing, it works for
+either.
+
+Example #1: capture progress output:
+
+set foo [capture help]
+
+Example #2: capture tcl return value
+
+set foo [capture {set abc def}]
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/helper/command.c |   26 ++++++++++++++++++++++++--
+ 1 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index ea768b2..6a26690 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -84,14 +84,36 @@ static struct log_capture_state *command_log_capture_start(Jim_Interp *interp)
+ 	return state;
+ }
+ 
+-static void command_log_capture_finish(struct log_capture_state *state)
++/* Classic openocd commands provide progress output which we
++ * will capture and return as a Tcl return value.
++ *
++ * However, if a non-openocd command has been invoked, then it
++ * makes sense to return the tcl return value from that command.
++ *
++ * The tcl return value is empty for openocd commands that provide
++ * progress output.
++ *
++ * Therefore we set the tcl return value only if we actually
++ * captured output.
++ */
++static void command_log_capture_finish(struct log_capture_state *state) 
+ {
+ 	if (NULL == state)
+ 		return;
+ 
+ 	log_remove_callback(tcl_output, state);
+ 
+-	Jim_SetResult(state-&gt;interp, state-&gt;output);
++	int length;
++	const char *str = Jim_GetString(state-&gt;output, &amp;length);
++
++	if (length &gt; 0)
++	{
++		Jim_SetResult(state-&gt;interp, state-&gt;output);
++	} else
++	{
++		/* No output captured, use tcl return value (which could
++		 * be empty too). */
++	}
+ 	Jim_DecrRefCount(state-&gt;interp, state-&gt;output);
+ 
+ 	free(state);
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016460.html">[Openocd-development] Error while running gdb
+</A></li>
+	<LI>Next message: <A HREF="016463.html">[Openocd-development] [PATCH 2/2] version command: make it	scriptable
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16464">[ date ]</a>
+              <a href="thread.html#16464">[ thread ]</a>
+              <a href="subject.html#16464">[ subject ]</a>
+              <a href="author.html#16464">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

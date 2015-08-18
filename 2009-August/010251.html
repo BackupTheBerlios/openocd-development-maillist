@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] AT91SAM9G20-EK.cfg
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20AT91SAM9G20-EK.cfg&In-Reply-To=%3C9095C35E94C6DF41B6298E900A1987374E863E429B%40pscptsrvexc02.psitek.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010250.html">
+   <LINK REL="Next"  HREF="010260.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] AT91SAM9G20-EK.cfg</H1>
+    <B>Pieter Conradie</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20AT91SAM9G20-EK.cfg&In-Reply-To=%3C9095C35E94C6DF41B6298E900A1987374E863E429B%40pscptsrvexc02.psitek.local%3E"
+       TITLE="[Openocd-development] AT91SAM9G20-EK.cfg">Pieter.Conradie at psitek.com
+       </A><BR>
+    <I>Mon Aug 31 13:58:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010250.html">[Openocd-development] AT91SAM9G20-EK.cfg
+</A></li>
+        <LI>Next message: <A HREF="010260.html">[Openocd-development] AT91SAM9G20-EK.cfg
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10251">[ date ]</a>
+              <a href="thread.html#10251">[ thread ]</a>
+              <a href="subject.html#10251">[ subject ]</a>
+              <a href="author.html#10251">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Gary,
+
+Thank you very much for the detailed script! I especially love the intelligent TCL:
+
+while { [expr [read_register 0xfffffc68] &amp; 0x08] != 8 } { sleep 1 }
+
+I want to report my findings to the list at large so everyone is aware that setting up the clocks for the AT91SAM9G20 with OpenOCD was tricky.
+
+I have not identified the root cause of my problem, but have found a workaround. In my case, I want to initialise an AT91SAM9G20 with the same clock values as an AT91SAM9260 (to compare apples with apples). OSC = 18.432 MHz, PLLA = 769.536 MHz, PCK = 192.384 MHz, MCK = 96.192 MHz.
+
+What I have found is that the following sequence works:
+
+# (1) CKGR_MOR : enable the main oscillator (18.432 MHz)
+mww 0xfffffc20 0x00004001
+while { [expr [read_register 0xfffffc68] &amp; 0x01] != 1 } { sleep 1 }
+
+# (2) CKGR_PLLAR: Set PLLA Register for 769.536 MHz (x 167 / 4)
+mww 0xfffffc28 0x20a63f04
+while { [expr [read_register 0xfffffc68] &amp; 0x02] != 2 } { sleep 1 }
+
+# (3) PMC_MCKR : select main OSC + prescaler
+mww 0xfffffc30 0x00000101
+while { [expr [read_register 0xfffffc68] &amp; 0x08] != 8 } { sleep 1 }
+
+# (4) PMC_MCKR : switch to main PLLA + prescaler
+mww 0xfffffc30 0x00001302
+while { [expr [read_register 0xfffffc68] &amp; 0x08] != 8 } { sleep 1 }
+
+# (5) PMC_MCKR : change prescaler
+mww 0xfffffc30 0x0000010a
+while { [expr [read_register 0xfffffc68] &amp; 0x08] != 8 } { sleep 1 }
+
+It is the same steps as yours, and I have added step 5 to switch to my required clock divider settings.
+
+If I directly switch to PRES = clock / 4, MDIV = PRES / 2 during step 3 then the processor clock is at a frequency that is disagreeable with OpenOCD and JTAG debugging (probably veeerrryyy slllooowwww).
+
+Best regards,
+Pieter
+
+-----Original Message-----
+From: Gary Carlson [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">gcarlson at carlson-minot.com</A>]
+Sent: 31 August 2009 10:14 AM
+To: Pieter Conradie
+Cc: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+Subject: AT91SAM9G20-EK.cfg
+
+Hi Peter,
+
+As requested, you will find the file I developed for the AT91SAM9G20-EK
+board I currently have in my possession that I use with a SAM-ICE debugger.
+I haven't quite finished it yet, but it seems to be working quite well on my
+setup at this stage.  Admittedly, I haven't used it yet to debug things that
+depend on the MMU such as the Linux kernel.  For straight code, however, it
+works like a champ with GDB.
+
+I put substantially more comments in the file then are typically found in
+most configuration files.  I did this to make it easier for other people to
+follow the logic and also be cognizant of what they may need to change if
+they adapt it to their own proprietary hardware developments.  The AT91SAM
+processors have many &quot;knobs&quot; that give the processor a great deal of utility
+but also provide ample opportunities to mess up things.
+
+When I observe flaky board behavior, one of the first things I start looking
+for is timing issues. To uncover hidden problems, I did a top to bottom
+review of datasheets for both memory devices and the CPU as I created the
+new configuration file.
+
+One of the discoveries I made was that the settings of SDRAM_CR register
+found in the current scripts violate timing requirements of the SDRAM on the
+AT91SAM9G20 (and likely on the AT91SAM9260 also).  When I noticed the same
+values were also found in Atmel sample source code files, I emailed my
+concerns a few days ago to Atmel.  After reviewing my email they agreed and
+now are in the process of updating their project files.  So if you compare
+the old files against mine, you will notice a new setting for this.
+
+The clock is another issue in the scripts.  The MCLK is advertised to be
+working at 198 MHz, but that is not possible since the speed grade of the
+SDRAM on the evaluation boards is only good with SDCLK equal to or less then
+133 MHz.  You will also see that I don't depend on delays and instead
+physically monitor the clock status registers before moving forward in the
+initialization sequence.
+
+Anyway, although I can't promise you success or that the intermediate file I
+provided is perfect, it hopefully will work better for you then what you
+currently have.  In any case, let me know if this helps you or you have
+other questions.
+
+Gary
+
+
+
+
+On 8/31/09 12:09 AM, &quot;Pieter Conradie&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Pieter.Conradie at psitek.com</A>&gt; wrote:
+
+&gt;<i> Hi Gary,
+</I>&gt;<i>
+</I>&gt;<i> Sorry for being forward, but would you mind posting (or e-mailing) your
+</I>&gt;<i> AT91SAM9G20 script?
+</I>&gt;<i>
+</I>&gt;<i> Attached is the script that I have been working on and a GDB script that Atmel
+</I>&gt;<i> distributes with their example projects. The &#179;reset init&#178; fails when it tries
+</I>&gt;<i> to switch over to the prescaled frequency. According to the datasheet,
+</I>&gt;<i> everything looks OK, but alas, it does not work :(
+</I>&gt;<i>
+</I>&gt;<i> I would love to see how you got it working.
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Pieter
+</I>&gt;<i>
+</I>
+
+Notice
+This email is intended for the addressee only and may contain legally privileged and/or confidential information.  If you have received this email in error and are not the intended recipient, you are hereby informed that you are not entitled to read, broadcast, distribute or in any manner whatsoever use the contents of this email or any attachments thereto.  You are requested to please notify Psitek that you have received the email and then delete it.  Unless clearly stated otherwise, the content and sentiments expressed in this email or any attachments thereto are those of the sender and not of Psitek (Proprietary) Limited.  Psitek does not accept liability for any damages, loss or expense of any nature whatsoever arising (a) out of or in connection with the email or any attachments thereto and/or (b) from any act or omission by the recipient relying upon the content of the email or attachments.  Psitek further disclaims liability for any damages caused by computer and/or software viruses.  Should this email contain the terms of a contract, no binding agreement will result until such time as a written (hardcopy) document is signed on behalf of Psitek.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010250.html">[Openocd-development] AT91SAM9G20-EK.cfg
+</A></li>
+	<LI>Next message: <A HREF="010260.html">[Openocd-development] AT91SAM9G20-EK.cfg
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10251">[ date ]</a>
+              <a href="thread.html#10251">[ thread ]</a>
+              <a href="subject.html#10251">[ subject ]</a>
+              <a href="author.html#10251">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

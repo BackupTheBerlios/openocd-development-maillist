@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Cortex M3: Patch for automatic handling of interrupt mask during stepping
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Cortex%20M3%3A%20Patch%20for%20automatic%20handling%0A%20of%20interrupt%20mask%20during%20stepping&In-Reply-To=%3CBANLkTi%3DDFB%3DwdkjANLG%3DMxfm2k-i5Pehug%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019788.html">
+   <LINK REL="Next"  HREF="019678.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Cortex M3: Patch for automatic handling of interrupt mask during stepping</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Cortex%20M3%3A%20Patch%20for%20automatic%20handling%0A%20of%20interrupt%20mask%20during%20stepping&In-Reply-To=%3CBANLkTi%3DDFB%3DwdkjANLG%3DMxfm2k-i5Pehug%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Cortex M3: Patch for automatic handling of interrupt mask during stepping">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Sat Jun 18 20:29:43 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019788.html">[Openocd-development] Cortex M3: Patch for automatic handling of interrupt mask during stepping
+</A></li>
+        <LI>Next message: <A HREF="019678.html">[Openocd-development] Cortex M3: Patch for automatic handling of interrupt mask during stepping
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19677">[ date ]</a>
+              <a href="thread.html#19677">[ thread ]</a>
+              <a href="subject.html#19677">[ subject ]</a>
+              <a href="author.html#19677">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Resending, Cc to the list got lost somewhere...
+
+On Sat, Jun 18, 2011 at 8:27 PM, Andreas Fritiofson &lt;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>&gt; wrote:
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> On Sat, Jun 18, 2011 at 6:38 PM, Peter Horn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter.horn at bluewin.ch</A>&gt; wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> Hi Andreas
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Am 18.06.2011 17:32, schrieb Andreas Fritiofson:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  Great, but does it really work?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I've tested it with a simple test program containing a main loop and a
+</I>&gt;&gt;<i> SysTick_Handler().
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I've also tested it with a real application in which UART RX interrupts
+</I>&gt;&gt;<i> happen at least once per second (heart beat message of a slave processor
+</I>&gt;&gt;<i> coming in). Without the patch, I wasn't able to do stepping, because each
+</I>&gt;&gt;<i> step ran into the UART handler. Disabling the interrupts led to blocking
+</I>&gt;&gt;<i> because UART output queues overflowed, nothing was received anymore and no
+</I>&gt;&gt;<i> RTOS task switching happened.
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Received data will probably be lost even with your patch, unless you step
+</I>&gt;<i> often enough.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i> With the patch I can do useful work with the debugger again.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  There has been discussions about this on this list in the past. I
+</I>&gt;&gt;&gt;<i> think the conclusion was that there's no way to robustly know GDB's
+</I>&gt;&gt;&gt;<i> intentions based on the remote commands.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> That's true. You can see what GDB does when you read openocds debug
+</I>&gt;&gt;<i> output messages. My comments below are found by observation.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  When you do a source-level step in GDB, it may send a step command to
+</I>&gt;&gt;&gt;<i> OpenOCD. Then we can disable interrupts during the step.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Step commands are issued by GDB when it doesn't know for sure that the
+</I>&gt;&gt;<i> next assembly instruction won't branch. It steps as many times as
+</I>&gt;&gt;<i> required until an address is reached which doesn't belong to the current
+</I>&gt;&gt;<i> line. Exactly this will happen when a pending interrupt triggers: A
+</I>&gt;&gt;<i> branch to the handler and voila, we're on a address that doesn't belong
+</I>&gt;&gt;<i> to the line we're stepping, so GDB stops.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Only the step command is addressed by my patch: It first lets pending
+</I>&gt;&gt;<i> interrupts execute, then disables interrupts, steps over the instruction
+</I>&gt;&gt;<i> and finally re-enables the interrupts.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i> I didn't realize you wanted to _execute_ interrupt handlers during step,
+</I>&gt;<i> just not break in them. That's rather brilliant and probably a good default
+</I>&gt;<i> behaviour.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  But it can also place a breakpoint at the next source line and send a
+</I>&gt;&gt;&gt;<i> continue command.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> GDB uses this strategy when it steps over function call, assuming it
+</I>&gt;&gt;<i> will return to the next instruction after the call. This is done to
+</I>&gt;&gt;<i> speed up things. Instruction stepping takes some milliseconds per step.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> When GDB uses this method to step, interrupt handlers don't disturb
+</I>&gt;&gt;<i> debugging flow because the target isn't stopped before return
+</I>&gt;&gt;<i> from the function call.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The continue command isn't changed by my patch.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  In that case we must leave interrupts enabled.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Right. Interrupts only get disabled during the step over the next
+</I>&gt;&gt;<i> instruction, they are enabled afterward, see above.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This is exactly the problem with the GDB hooks to enable and disable the
+</I>&gt;&gt;<i> isr masking during stepping. They disable the interrupts in both cases
+</I>&gt;&gt;<i> because they act on the GDB step command, not the target step command. My
+</I>&gt;&gt;<i> patch acts on the target step command only.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> The GDB hooks are meant for a different use-case. Sometimes you want to
+</I>&gt;<i> step around and at the same time guarantee that no isr or other code will be
+</I>&gt;<i> run behind your back. Just making sure that the debugger breaks on the
+</I>&gt;<i> expected line may not be enough. That use-case is still available exactly as
+</I>&gt;<i> today, with GDB hooks and maskisr on/off. Which is good.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  Wouldn't that mean an unpredictable difference in behaviour depending
+</I>&gt;&gt;&gt;<i> on how GDB chooses to do the step?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> No. In both cases pending interrupt handlers will be called and in both
+</I>&gt;&gt;<i> cases GDB stops on the next line.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i> I see. I assumed you wanted the same behaviour as the GDB hooks use-case.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i>  Note that I haven't yet looked at the patch so this may not be
+</I>&gt;&gt;&gt;<i> relevant.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I would be glad if you can try it on a real use case.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i> I've briefly checked the patch now. I won't probably have time to test it
+</I>&gt;<i> anytime soon. But basically it looks good. I guess there's no way around
+</I>&gt;<i> requiring setting a breakpoint at the current pc to force any pending isr to
+</I>&gt;<i> run? Also, will it make stepping significantly slower?
+</I>&gt;<i>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110618/8063b0f6/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110618/8063b0f6/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019788.html">[Openocd-development] Cortex M3: Patch for automatic handling of interrupt mask during stepping
+</A></li>
+	<LI>Next message: <A HREF="019678.html">[Openocd-development] Cortex M3: Patch for automatic handling of interrupt mask during stepping
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19677">[ date ]</a>
+              <a href="thread.html#19677">[ thread ]</a>
+              <a href="subject.html#19677">[ subject ]</a>
+              <a href="author.html#19677">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

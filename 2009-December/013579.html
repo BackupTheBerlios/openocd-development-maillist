@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] server: server loop will exhaust	data inputs before sleeping
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20server%3A%20server%20loop%20will%20exhaust%0A%09data%20inputs%20before%20sleeping&In-Reply-To=%3C1260888411-7319-2-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013578.html">
+   <LINK REL="Next"  HREF="013588.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] server: server loop will exhaust	data inputs before sleeping</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20server%3A%20server%20loop%20will%20exhaust%0A%09data%20inputs%20before%20sleeping&In-Reply-To=%3C1260888411-7319-2-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] server: server loop will exhaust	data inputs before sleeping">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Dec 15 15:46:51 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013578.html">[Openocd-development] [PATCH 1/2] ecos: crisper implementation of	timeval_ms()
+</A></li>
+        <LI>Next message: <A HREF="013588.html">[Openocd-development] [PATCH 1/2] ecos: crisper implementation of timeval_ms()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13579">[ date ]</a>
+              <a href="thread.html#13579">[ thread ]</a>
+              <a href="subject.html#13579">[ subject ]</a>
+              <a href="author.html#13579">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>By exhausting data on input, the performance will be more
+consistent + the code more clearly distinguishes between
+polling and processing. A test showed gdb packet load
+performance go from ~1550kByte/s to 1650kBytes/s + being
+more stable.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/server/server.c |   48 +++++++++++++++++++++++++++++++-----------------
+ 1 files changed, 31 insertions(+), 17 deletions(-)
+
+diff --git a/src/server/server.c b/src/server/server.c
+index 75a6bed..f762704 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -292,9 +292,10 @@ int server_loop(struct command_context *command_context)
+ {
+ 	struct service *service;
+ 
++	bool poll = true;
++
+ 	/* used in select() */
+ 	fd_set read_fds;
+-	struct timeval tv;
+ 	int fd_max;
+ 
+ 	/* used in accept() */
+@@ -305,10 +306,6 @@ int server_loop(struct command_context *command_context)
+ 		LOG_ERROR(&quot;couldn't set SIGPIPE to SIG_IGN&quot;);
+ #endif
+ 
+-	/* do regular tasks after at most 10ms */
+-	tv.tv_sec = 0;
+-	tv.tv_usec = 10000;
+-
+ 	while (!shutdown_openocd)
+ 	{
+ 		/* monitor sockets for activity */
+@@ -351,12 +348,24 @@ int server_loop(struct command_context *command_context)
+ #endif
+ #endif
+ 
+-		openocd_sleep_prelude();
+-		kept_alive();
+-
+-		/* Only while we're sleeping we'll let others run */
+-		retval = socket_select(fd_max + 1, &amp;read_fds, NULL, NULL, &amp;tv);
+-		openocd_sleep_postlude();
++		struct timeval tv;
++		tv.tv_sec = 0;
++		if (poll)
++		{
++			/* we're just polling this iteration, this is faster on embedded
++			 * hosts */
++			tv.tv_usec = 0;
++			retval = socket_select(fd_max + 1, &amp;read_fds, NULL, NULL, &amp;tv);
++		} else
++		{
++			/* Every 100ms */
++			tv.tv_usec = 100000;
++			/* Only while we're sleeping we'll let others run */
++			openocd_sleep_prelude();
++			kept_alive();
++			retval = socket_select(fd_max + 1, &amp;read_fds, NULL, NULL, &amp;tv);
++			openocd_sleep_postlude();
++		}
+ 
+ 		if (retval == -1)
+ 		{
+@@ -385,15 +394,20 @@ int server_loop(struct command_context *command_context)
+ #endif
+ 		}
+ 
+-		target_call_timer_callbacks();
+-		process_jim_events(command_context);
+-
+ 		if (retval == 0)
+ 		{
+-			/* do regular tasks after at most 100ms */
+-			tv.tv_sec = 0;
+-			tv.tv_usec = 10000;
++			/* We only execute these callbacks when there was nothing to do or we timed out */
++			target_call_timer_callbacks();
++			process_jim_events(command_context);
++
+ 			FD_ZERO(&amp;read_fds); /* eCos leaves read_fds unchanged in this case!  */
++
++			/* We timed out/there was nothing to do, timeout rather than poll next time */
++			poll = false;
++		} else
++		{
++			/* There was something to do, next time we'll just poll */
++			poll = true;
+ 		}
+ 
+ 		for (service = services; service; service = service-&gt;next)
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013578.html">[Openocd-development] [PATCH 1/2] ecos: crisper implementation of	timeval_ms()
+</A></li>
+	<LI>Next message: <A HREF="013588.html">[Openocd-development] [PATCH 1/2] ecos: crisper implementation of timeval_ms()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13579">[ date ]</a>
+              <a href="thread.html#13579">[ thread ]</a>
+              <a href="subject.html#13579">[ subject ]</a>
+              <a href="author.html#13579">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

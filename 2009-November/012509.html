@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/8] refactor handle_flash_bank_command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/8%5D%20refactor%20handle_flash_bank_command&In-Reply-To=%3C1258541816-15339-4-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012511.html">
+   <LINK REL="Next"  HREF="012512.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/8] refactor handle_flash_bank_command</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/8%5D%20refactor%20handle_flash_bank_command&In-Reply-To=%3C1258541816-15339-4-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/8] refactor handle_flash_bank_command">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 18 11:56:51 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012511.html">[Openocd-development] [PATCH 2/8] rename flash and nand command	helpers
+</A></li>
+        <LI>Next message: <A HREF="012512.html">[Openocd-development] [PATCH 4/8] add support for naming flash banks
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12509">[ date ]</a>
+              <a href="thread.html#12509">[ thread ]</a>
+              <a href="subject.html#12509">[ subject ]</a>
+              <a href="author.html#12509">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Move variables to point of first use, reducing their scope.
+Add driver_name temporary to help arguments be changed later.
+
+Eliminates the useless 'found' variable, changing the code to terminate
+the loop immediate and return its success.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/flash.c |   30 +++++++++++++-----------------
+ 1 files changed, 13 insertions(+), 17 deletions(-)
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index 97d038c..e1d52ce 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -239,25 +239,24 @@ COMMAND_HELPER(flash_command_get_bank, unsigned name_index,
+ 
+ COMMAND_HANDLER(handle_flash_bank_command)
+ {
+-	int retval;
+-	int i;
+-	int found = 0;
+-	struct target *target;
+-
+ 	if (CMD_ARGC &lt; 6)
+ 	{
++		LOG_ERROR(&quot;usage: flash bank &lt;driver&gt; &quot;
++				&quot;&lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt;&quot;);
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
++	struct target *target;
+ 	if ((target = get_target(CMD_ARGV[5])) == NULL)
+ 	{
+ 		LOG_ERROR(&quot;target '%s' not defined&quot;, CMD_ARGV[5]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	for (i = 0; flash_drivers[i]; i++)
++	const char *driver_name = CMD_ARGV[0];
++	for (unsigned i = 0; flash_drivers[i]; i++)
+ 	{
+-		if (strcmp(CMD_ARGV[0], flash_drivers[i]-&gt;name) != 0)
++		if (strcmp(driver_name, flash_drivers[i]-&gt;name) != 0)
+ 			continue;
+ 
+ 		struct flash_bank *p, *c;
+@@ -265,7 +264,7 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 		/* register flash specific commands */
+ 		if (flash_drivers[i]-&gt;register_commands(CMD_CTX) != ERROR_OK)
+ 		{
+-			LOG_ERROR(&quot;couldn't register '%s' commands&quot;, CMD_ARGV[0]);
++			LOG_ERROR(&quot;couldn't register '%s' commands&quot;, driver_name);
+ 			return ERROR_FAIL;
+ 		}
+ 
+@@ -281,10 +280,12 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 		c-&gt;sectors = NULL;
+ 		c-&gt;next = NULL;
+ 
++		int retval;
+ 		retval = CALL_COMMAND_HANDLER(flash_drivers[i]-&gt;flash_bank_command, c);
+ 		if (ERROR_OK != retval)
+ 		{
+-			LOG_ERROR(&quot;'%s' driver rejected flash bank at 0x%8.8&quot; PRIx32 , CMD_ARGV[0], c-&gt;base);
++			LOG_ERROR(&quot;'%s' driver rejected flash bank at 0x%8.8&quot; PRIx32,
++					driver_name, c-&gt;base);
+ 			free(c);
+ 			return retval;
+ 		}
+@@ -305,17 +306,12 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 			c-&gt;bank_number = 0;
+ 		}
+ 
+-		found = 1;
++		return ERROR_OK;
+ 	}
+ 
+ 	/* no matching flash driver found */
+-	if (!found)
+-	{
+-		LOG_ERROR(&quot;flash driver '%s' not found&quot;, CMD_ARGV[0]);
+-		return ERROR_FAIL;
+-	}
+-
+-	return ERROR_OK;
++	LOG_ERROR(&quot;flash driver '%s' not found&quot;, driver_name);
++	return ERROR_FAIL;
+ }
+ 
+ COMMAND_HANDLER(handle_flash_info_command)
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012511.html">[Openocd-development] [PATCH 2/8] rename flash and nand command	helpers
+</A></li>
+	<LI>Next message: <A HREF="012512.html">[Openocd-development] [PATCH 4/8] add support for naming flash banks
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12509">[ date ]</a>
+              <a href="thread.html#12509">[ thread ]</a>
+              <a href="subject.html#12509">[ subject ]</a>
+              <a href="author.html#12509">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

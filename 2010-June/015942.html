@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/4] target: mwX on target object now	supporst phys argument
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20target%3A%20mwX%20on%20target%20object%20now%0A%09supporst%20phys%20argument&In-Reply-To=%3C1277203994-18167-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015932.html">
+   <LINK REL="Next"  HREF="015943.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/4] target: mwX on target object now	supporst phys argument</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20target%3A%20mwX%20on%20target%20object%20now%0A%09supporst%20phys%20argument&In-Reply-To=%3C1277203994-18167-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/4] target: mwX on target object now	supporst phys argument">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Jun 22 12:53:11 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015932.html">[Openocd-development] Error with armadeus APF27 board and	JTAGKEY2 probe [unknown EmbeddedICE version &amp; Segmentation fault]
+</A></li>
+        <LI>Next message: <A HREF="015943.html">[Openocd-development] [PATCH 2/4] target: $_TARGET mdw now has a	phys option
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15942">[ date ]</a>
+              <a href="thread.html#15942">[ thread ]</a>
+              <a href="subject.html#15942">[ subject ]</a>
+              <a href="author.html#15942">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>$_TARGETNAME mww phys 0x10 0xdeadbeef
+
+=&gt; write 0xdeadbeef to physical address 0x10
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/target.c |   33 +++++++++++++++++++++++++--------
+ 1 files changed, 25 insertions(+), 8 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 7513346..d6efe5b 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3950,19 +3950,30 @@ static int jim_target_mw(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	Jim_GetOptInfo goi;
+ 	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
+ 
+-	/* danger! goi.argc will be modified below! */
+-	argc = goi.argc;
+-
+-	if (argc != 2 &amp;&amp; argc != 3)
++	if (goi.argc &lt; 2 || goi.argc &gt; 4)
+ 	{
+ 		Jim_SetResult_sprintf(goi.interp,
+-				&quot;usage: %s &lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;, cmd_name);
++				&quot;usage: %s [phys] &lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;, cmd_name);
+ 		return JIM_ERR;
+ 	}
+ 
++	target_write_fn fn;
++	fn = target_write_memory_fast;
++
++	int e;
++	if (strcmp(Jim_GetString(argv[1], NULL), &quot;phys&quot;) == 0)
++	{
++		/* consume it */
++		struct Jim_Obj *obj;
++		e = Jim_GetOpt_Obj(&amp;goi, &amp;obj);
++		if (e != JIM_OK)
++			return e;
++
++		fn = target_write_phys_memory;
++	}
+ 
+ 	jim_wide a;
+-	int e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+ 	if (e != JIM_OK)
+ 		return e;
+ 
+@@ -3972,13 +3983,19 @@ static int jim_target_mw(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 		return e;
+ 
+ 	jim_wide c = 1;
+-	if (argc == 3)
++	if (goi.argc == 1)
+ 	{
+ 		e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+ 		if (e != JIM_OK)
+ 			return e;
+ 	}
+ 
++	/* all args must be consumed */
++	if (goi.argc != 0)
++	{
++		return JIM_ERR;
++	}
++
+ 	struct target *target = Jim_CmdPrivData(goi.interp);
+ 	unsigned data_size;
+ 	if (strcasecmp(cmd_name, &quot;mww&quot;) == 0) {
+@@ -3994,7 +4011,7 @@ static int jim_target_mw(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 		return JIM_ERR;
+ 	}
+ 
+-	return (target_fill_mem(target, a, target_write_memory_fast, data_size, b, c) == ERROR_OK) ? JIM_OK : JIM_ERR;
++	return (target_fill_mem(target, a, fn, data_size, b, c) == ERROR_OK) ? JIM_OK : JIM_ERR;
+ }
+ 
+ static int jim_target_md(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015932.html">[Openocd-development] Error with armadeus APF27 board and	JTAGKEY2 probe [unknown EmbeddedICE version &amp; Segmentation fault]
+</A></li>
+	<LI>Next message: <A HREF="015943.html">[Openocd-development] [PATCH 2/4] target: $_TARGET mdw now has a	phys option
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15942">[ date ]</a>
+              <a href="thread.html#15942">[ thread ]</a>
+              <a href="subject.html#15942">[ subject ]</a>
+              <a href="author.html#15942">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] arm926ejs halt/resume handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm926ejs%20halt/resume%20handling&In-Reply-To=%3Cc09652430907030714k3fe3ea02ka5117ff7798da679%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009074.html">
+   <LINK REL="Next"  HREF="009079.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] arm926ejs halt/resume handling</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm926ejs%20halt/resume%20handling&In-Reply-To=%3Cc09652430907030714k3fe3ea02ka5117ff7798da679%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] arm926ejs halt/resume handling">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Jul  3 16:14:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009074.html">[Openocd-development] Building openocd on Cygwin - Still trying
+</A></li>
+        <LI>Next message: <A HREF="009079.html">[Openocd-development] Building openocd on Cygwin - Still trying	- Progress !
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9078">[ date ]</a>
+              <a href="thread.html#9078">[ thread ]</a>
+              <a href="subject.html#9078">[ subject ]</a>
+              <a href="author.html#9078">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>arm926ejs has special interpretation of the halt
+reason.
+
+The attached patch interprets unknown debug requests as DBGRQ,
+but does not return an error for interpreting the debug reason.
+
+DBGRQ is not enabled by default (see arm7_9 dbgrq).
+
+Hopefully this should fix &quot;reset run&quot; + &quot;halt&quot; =&gt; not halting
+problems with arm926ejs.
+
+Comments? Insights?
+
+Testing much appreciated!!!
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://www.zylin.com">http://www.zylin.com</A>
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/arm7_9_common.c
+===================================================================
+--- src/target/arm7_9_common.c	(revision 2460)
++++ src/target/arm7_9_common.c	(working copy)
+@@ -1431,18 +1431,10 @@
+ 		context[15] -= 3 * 4;
+ 	}
+ 
+-	if ((target-&gt;debug_reason == DBG_REASON_BREAKPOINT)
+-			|| (target-&gt;debug_reason == DBG_REASON_SINGLESTEP)
+-			|| (target-&gt;debug_reason == DBG_REASON_WATCHPOINT)
+-			|| (target-&gt;debug_reason == DBG_REASON_WPTANDBKPT)
+-			|| ((target-&gt;debug_reason == DBG_REASON_DBGRQ) &amp;&amp; (arm7_9-&gt;use_dbgrq == 0)))
++	if ((target-&gt;debug_reason != DBG_REASON_DBGRQ) || (!arm7_9-&gt;use_dbgrq))
+ 		context[15] -= 3 * ((armv4_5-&gt;core_state == ARMV4_5_STATE_ARM) ? 4 : 2);
+-	else if (target-&gt;debug_reason == DBG_REASON_DBGRQ)
+-		context[15] -= arm7_9-&gt;dbgreq_adjust_pc * ((armv4_5-&gt;core_state == ARMV4_5_STATE_ARM) ? 4 : 2);
+ 	else
+-	{
+-		LOG_ERROR(&quot;unknown debug reason: %i&quot;, target-&gt;debug_reason);
+-	}
++		context[15] -= arm7_9-&gt;dbgreq_adjust_pc * ((armv4_5-&gt;core_state == ARMV4_5_STATE_ARM) ? 4 : 2);
+ 
+ 	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
+ 		return ERROR_FAIL;
+Index: src/target/arm926ejs.c
+===================================================================
+--- src/target/arm926ejs.c	(revision 2460)
++++ src/target/arm926ejs.c	(working copy)
+@@ -333,20 +333,21 @@
+ 			 * openocd development mailing list if you have hardware
+ 			 * to donate to look into this problem....
+ 			 */
+-			LOG_ERROR(&quot;mystery debug reason MOE = 0xc. Try issuing a resume + halt.&quot;);
++			LOG_WARNING(&quot;WARNING: mystery debug reason MOE = 0xc. Try issuing a resume + halt.&quot;);
+ 			target-&gt;debug_reason = DBG_REASON_DBGRQ;
+-			retval = ERROR_TARGET_FAILURE;
+ 			break;
+ 		default:
+-			LOG_ERROR(&quot;BUG: unknown debug reason: 0x%x&quot;, debug_reason);
++			LOG_WARNING(&quot;WARNING: unknown debug reason: 0x%x&quot;, debug_reason);
++			/* Oh agony! should we interpret this as a halt request or
++			 * that the target stopped on it's own accord?
++			 */
+ 			target-&gt;debug_reason = DBG_REASON_DBGRQ;
+ 			/* if we fail here, we won't talk to the target and it will
+ 			 * be reported to be in the halted state */
+-			retval = ERROR_TARGET_FAILURE;
+ 			break;
+ 	}
+ 
+-	return retval;
++	return ERROR_OK;
+ }
+ 
+ uint32_t arm926ejs_get_ttb(target_t *target)
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009074.html">[Openocd-development] Building openocd on Cygwin - Still trying
+</A></li>
+	<LI>Next message: <A HREF="009079.html">[Openocd-development] Building openocd on Cygwin - Still trying	- Progress !
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9078">[ date ]</a>
+              <a href="thread.html#9078">[ thread ]</a>
+              <a href="subject.html#9078">[ subject ]</a>
+              <a href="author.html#9078">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

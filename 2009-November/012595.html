@@ -1,0 +1,460 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/3] target: create/use	register_cache_invalidate()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20target%3A%20create/use%0A%09register_cache_invalidate%28%29&In-Reply-To=%3C200911191916.25364.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012601.html">
+   <LINK REL="Next"  HREF="012594.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/3] target: create/use	register_cache_invalidate()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20target%3A%20create/use%0A%09register_cache_invalidate%28%29&In-Reply-To=%3C200911191916.25364.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/3] target: create/use	register_cache_invalidate()">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Nov 20 04:16:25 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012601.html">[Openocd-development] OpenOCD bites on OpenRD board :/
+</A></li>
+        <LI>Next message: <A HREF="012594.html">[Openocd-development] [patch 2/3] Cortex-A8: mode support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12595">[ date ]</a>
+              <a href="thread.html#12595">[ thread ]</a>
+              <a href="subject.html#12595">[ subject ]</a>
+              <a href="author.html#12595">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Create a generic register_cache_invalidate(), and use it to
+replace three all-but-identical core-specific routines:
+
+ - armv4_5_invalidate_core_regs()
+ - armv7m_invalidate_core_regs
+ - mips32_invalidate_core_regs() too.
+
+Make cache-&gt;num_regs be unsigned, avoiding various errors.
+
+Net code shrink and simplification.
+---
+ src/target/arm7_9_common.c |   11 ++++-------
+ src/target/armv4_5.c       |   16 ----------------
+ src/target/armv4_5.h       |    2 --
+ src/target/armv7m.c        |   15 ---------------
+ src/target/cortex_a8.c     |    5 +++--
+ src/target/cortex_m3.c     |   11 ++++++-----
+ src/target/etm.c           |    2 +-
+ src/target/mips32.c        |   15 ---------------
+ src/target/mips32.h        |    1 -
+ src/target/mips_m4k.c      |    6 +++---
+ src/target/register.c      |   22 +++++++++++++++++++++-
+ src/target/register.h      |    3 ++-
+ src/target/target.c        |    8 ++++----
+ src/target/xscale.c        |    7 +++----
+ 14 files changed, 47 insertions(+), 77 deletions(-)
+
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1040,7 +1040,7 @@ int arm7_9_assert_reset(struct target *t
+ 	target-&gt;state = TARGET_RESET;
+ 	jtag_add_sleep(50000);
+ 
+-	armv4_5_invalidate_core_regs(target);
++	register_cache_invalidate(arm7_9-&gt;armv4_5_common.core_cache);
+ 
+ 	if ((target-&gt;reset_halt) &amp;&amp; ((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) == 0))
+ 	{
+@@ -1224,10 +1224,7 @@ int arm7_9_soft_reset_halt(struct target
+ 	}
+ 
+ 	/* all register content is now invalid */
+-	if ((retval = armv4_5_invalidate_core_regs(target)) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	register_cache_invalidate(armv4_5-&gt;core_cache);
+ 
+ 	/* SVC, ARM state, IRQ and FIQ disabled */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8, 0xd3);
+@@ -1921,7 +1918,7 @@ int arm7_9_resume(struct target *target,
+ 	if (!debug_execution)
+ 	{
+ 		/* registers are now invalid */
+-		armv4_5_invalidate_core_regs(target);
++		register_cache_invalidate(armv4_5-&gt;core_cache);
+ 		target-&gt;state = TARGET_RUNNING;
+ 		if ((retval = target_call_event_callbacks(target, TARGET_EVENT_RESUMED)) != ERROR_OK)
+ 		{
+@@ -2064,7 +2061,7 @@ int arm7_9_step(struct target *target, i
+ 	arm7_9-&gt;disable_single_step(target);
+ 
+ 	/* registers are now invalid */
+-	armv4_5_invalidate_core_regs(target);
++	register_cache_invalidate(armv4_5-&gt;core_cache);
+ 
+ 	if (err != ERROR_OK)
+ 	{
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -436,22 +436,6 @@ static const struct reg_arch_type arm_re
+ 	.set = armv4_5_set_core_reg,
+ };
+ 
+-/** Marks the contents of the register cache as invalid (and clean). */
+-int armv4_5_invalidate_core_regs(struct target *target)
+-{
+-	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+-	unsigned num_regs = armv4_5-&gt;core_cache-&gt;num_regs;
+-	struct reg *reg = armv4_5-&gt;core_cache-&gt;reg_list;
+-
+-	for (unsigned i = 0; i &lt; num_regs; i++, reg++) {
+-		reg-&gt;valid = 0;
+-		reg-&gt;dirty = 0;
+-	}
+-
+-	/* FIXME don't bother returning a value then */
+-	return ERROR_OK;
+-}
+-
+ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *armv4_5_common)
+ {
+ 	int num_regs = ARRAY_SIZE(arm_core_regs);
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -162,8 +162,6 @@ int armv4_5_run_algorithm(struct target 
+ 		uint32_t entry_point, uint32_t exit_point,
+ 		int timeout_ms, void *arch_info);
+ 
+-int armv4_5_invalidate_core_regs(struct target *target);
+-
+ int arm_checksum_memory(struct target *target,
+ 		uint32_t address, uint32_t count, uint32_t *checksum);
+ int arm_blank_check_memory(struct target *target,
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -246,21 +246,6 @@ static int armv7m_write_core_reg(struct 
+ 	return ERROR_OK;
+ }
+ 
+-/** Invalidates cache of core registers set up by armv7m_build_reg_cache(). */
+-int armv7m_invalidate_core_regs(struct target *target)
+-{
+-	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	int i;
+-
+-	for (i = 0; i &lt; armv7m-&gt;core_cache-&gt;num_regs; i++)
+-	{
+-		armv7m-&gt;core_cache-&gt;reg_list[i].valid = 0;
+-		armv7m-&gt;core_cache-&gt;reg_list[i].dirty = 0;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+ /**
+  * Returns generic ARM userspace registers to GDB.
+  * GDB doesn't quite understand that most ARMs don't have floating point
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -545,7 +545,7 @@ static int cortex_a8_resume(struct targe
+ 	target-&gt;state = TARGET_RUNNING;
+ 
+ 	/* registers are now invalid */
+-	armv4_5_invalidate_core_regs(target);
++	register_cache_invalidate(armv4_5-&gt;core_cache);
+ 
+ 	if (!debug_execution)
+ 	{
+@@ -1182,11 +1182,12 @@ static int cortex_a8_remove_breakpoint(s
+ 
+ static int cortex_a8_assert_reset(struct target *target)
+ {
++	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 
+ 	LOG_DEBUG(&quot; &quot;);
+ 
+ 	/* registers are now invalid */
+-	armv4_5_invalidate_core_regs(target);
++	register_cache_invalidate(armv7a-&gt;armv4_5_common.core_cache);
+ 
+ 	target-&gt;state = TARGET_RESET;
+ 
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -221,7 +221,7 @@ static int cortex_m3_endreset_event(stru
+ 	}
+ 	swjdp_transaction_endcheck(swjdp);
+ 
+-	armv7m_invalidate_core_regs(target);
++	register_cache_invalidate(cortex_m3-&gt;armv7m.core_cache);
+ 
+ 	/* make sure we have latest dhcsr flags */
+ 	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+@@ -510,7 +510,7 @@ static int cortex_m3_soft_reset_halt(str
+ 	target-&gt;state = TARGET_RESET;
+ 
+ 	/* registers are now invalid */
+-	armv7m_invalidate_core_regs(target);
++	register_cache_invalidate(cortex_m3-&gt;armv7m.core_cache);
+ 
+ 	while (timeout &lt; 100)
+ 	{
+@@ -617,7 +617,8 @@ static int cortex_m3_resume(struct targe
+ 	target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+ 
+ 	/* registers are now invalid */
+-	armv7m_invalidate_core_regs(target);
++	register_cache_invalidate(armv7m-&gt;core_cache);
++
+ 	if (!debug_execution)
+ 	{
+ 		target-&gt;state = TARGET_RUNNING;
+@@ -673,7 +674,7 @@ static int cortex_m3_step(struct target 
+ 	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 
+ 	/* registers are now invalid */
+-	armv7m_invalidate_core_regs(target);
++	register_cache_invalidate(cortex_m3-&gt;armv7m.core_cache);
+ 
+ 	if (breakpoint)
+ 		cortex_m3_set_breakpoint(target, breakpoint);
+@@ -812,7 +813,7 @@ static int cortex_m3_assert_reset(struct
+ 	target-&gt;state = TARGET_RESET;
+ 	jtag_add_sleep(50000);
+ 
+-	armv7m_invalidate_core_regs(target);
++	register_cache_invalidate(cortex_m3-&gt;armv7m.core_cache);
+ 
+ 	if (target-&gt;reset_halt)
+ 	{
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -234,7 +234,7 @@ static const struct reg_arch_type etm_sc
+ static struct reg *etm_reg_lookup(struct etm_context *etm_ctx, unsigned id)
+ {
+ 	struct reg_cache *cache = etm_ctx-&gt;reg_cache;
+-	int i;
++	unsigned i;
+ 
+ 	for (i = 0; i &lt; cache-&gt;num_regs; i++) {
+ 		struct etm_reg *reg = cache-&gt;reg_list[i].arch_info;
+--- a/src/target/mips32.c
++++ b/src/target/mips32.c
+@@ -175,21 +175,6 @@ int mips32_write_core_reg(struct target 
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_invalidate_core_regs(struct target *target)
+-{
+-	/* get pointers to arch-specific information */
+-	struct mips32_common *mips32 = target-&gt;arch_info;
+-	int i;
+-
+-	for (i = 0; i &lt; mips32-&gt;core_cache-&gt;num_regs; i++)
+-	{
+-		mips32-&gt;core_cache-&gt;reg_list[i].valid = 0;
+-		mips32-&gt;core_cache-&gt;reg_list[i].dirty = 0;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+ int mips32_get_gdb_reg_list(struct target *target, struct reg **reg_list[], int *reg_list_size)
+ {
+ 	/* get pointers to arch-specific information */
+--- a/src/target/mips32.h
++++ b/src/target/mips32.h
+@@ -147,7 +147,6 @@ int mips32_examine(struct target *target
+ 
+ int mips32_register_commands(struct command_context *cmd_ctx);
+ 
+-int mips32_invalidate_core_regs(struct target *target);
+ int mips32_get_gdb_reg_list(struct target *target,
+ 		struct reg **reg_list[], int *reg_list_size);
+ 
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -309,7 +309,7 @@ int mips_m4k_assert_reset(struct target 
+ 	target-&gt;state = TARGET_RESET;
+ 	jtag_add_sleep(50000);
+ 
+-	mips32_invalidate_core_regs(target);
++	register_cache_invalidate(mips32-&gt;core_cache);
+ 
+ 	if (target-&gt;reset_halt)
+ 	{
+@@ -410,7 +410,7 @@ int mips_m4k_resume(struct target *targe
+ 	target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+ 
+ 	/* registers are now invalid */
+-	mips32_invalidate_core_regs(target);
++	register_cache_invalidate(mips32-&gt;core_cache);
+ 
+ 	if (!debug_execution)
+ 	{
+@@ -467,7 +467,7 @@ int mips_m4k_step(struct target *target,
+ 	mips_ejtag_exit_debug(ejtag_info);
+ 
+ 	/* registers are now invalid */
+-	mips32_invalidate_core_regs(target);
++	register_cache_invalidate(mips32-&gt;core_cache);
+ 
+ 	if (breakpoint)
+ 		mips_m4k_set_breakpoint(target, breakpoint);
+--- a/src/target/register.c
++++ b/src/target/register.c
+@@ -28,11 +28,20 @@
+ #include &quot;register.h&quot;
+ #include &quot;log.h&quot;
+ 
++/**
++ * @file
++ * Holds utilities to work with register caches.
++ *
++ * OpenOCD uses machine registers internally, and exposes them by name
++ * to Tcl scripts.  Sets of related registers are grouped into caches.
++ * For example, a CPU core will expose a set of registers, and there
++ * may be separate registers associated with debug or trace modules.
++ */
+ 
+ struct reg* register_get_by_name(struct reg_cache *first,
+ 		const char *name, bool search_all)
+ {
+-	int i;
++	unsigned i;
+ 	struct reg_cache *cache = first;
+ 
+ 	while (cache)
+@@ -65,6 +74,17 @@ struct reg_cache** register_get_last_cac
+ 	return cache_p;
+ }
+ 
++/** Marks the contents of the register cache as invalid (and clean). */
++void register_cache_invalidate(struct reg_cache *cache)
++{
++	struct reg *reg = cache-&gt;reg_list;
++
++	for (unsigned n = cache-&gt;num_regs; n != 0; n--, reg++) {
++		reg-&gt;valid = 0;
++		reg-&gt;dirty = 0;
++	}
++}
++
+ static int register_get_dummy_core_reg(struct reg *reg)
+ {
+ 	return ERROR_OK;
+--- a/src/target/register.h
++++ b/src/target/register.h
+@@ -41,7 +41,7 @@ struct reg_cache
+ 	char *name;
+ 	struct reg_cache *next;
+ 	struct reg *reg_list;
+-	int num_regs;
++	unsigned num_regs;
+ };
+ 
+ struct reg_arch_type
+@@ -53,6 +53,7 @@ struct reg_arch_type
+ struct reg* register_get_by_name(struct reg_cache *first,
+ 		const char *name, bool search_all);
+ struct reg_cache** register_get_last_cache_p(struct reg_cache **first);
++void register_cache_invalidate(struct reg_cache *cache);
+ 
+ void register_init_dummy(struct reg *reg);
+ 
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1860,7 +1860,7 @@ COMMAND_HANDLER(handle_reg_command)
+ {
+ 	struct target *target;
+ 	struct reg *reg = NULL;
+-	int count = 0;
++	unsigned count = 0;
+ 	char *value;
+ 
+ 	LOG_DEBUG(&quot;-&quot;);
+@@ -1875,7 +1875,7 @@ COMMAND_HANDLER(handle_reg_command)
+ 		count = 0;
+ 		while (cache)
+ 		{
+-			int i;
++			unsigned i;
+ 
+ 			command_print(CMD_CTX, &quot;===== %s&quot;, cache-&gt;name);
+ 
+@@ -1917,10 +1917,10 @@ COMMAND_HANDLER(handle_reg_command)
+ 		count = 0;
+ 		while (cache)
+ 		{
+-			int i;
++			unsigned i;
+ 			for (i = 0; i &lt; cache-&gt;num_regs; i++)
+ 			{
+-				if (count++ == (int)num)
++				if (count++ == num)
+ 				{
+ 					reg = &amp;cache-&gt;reg_list[i];
+ 					break;
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1322,7 +1322,7 @@ static int xscale_resume(struct target *
+ 	if (!debug_execution)
+ 	{
+ 		/* registers are now invalid */
+-		armv4_5_invalidate_core_regs(target);
++		register_cache_invalidate(armv4_5-&gt;core_cache);
+ 		target-&gt;state = TARGET_RUNNING;
+ 		target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
+ 	}
+@@ -1401,8 +1401,7 @@ static int xscale_step_inner(struct targ
+ 	target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
+ 
+ 	/* registers are now invalid */
+-	if ((retval = armv4_5_invalidate_core_regs(target)) != ERROR_OK)
+-		return retval;
++	register_cache_invalidate(armv4_5-&gt;core_cache);
+ 
+ 	/* wait for and process debug entry */
+ 	if ((retval = xscale_debug_entry(target)) != ERROR_OK)
+@@ -1538,7 +1537,7 @@ static int xscale_deassert_reset(struct 
+ 		breakpoint = breakpoint-&gt;next;
+ 	}
+ 
+-	armv4_5_invalidate_core_regs(target);
++	register_cache_invalidate(xscale-&gt;armv4_5_common.core_cache);
+ 
+ 	/* FIXME mark hardware watchpoints got unset too.  Also,
+ 	 * at least some of the XScale registers are invalid...
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012601.html">[Openocd-development] OpenOCD bites on OpenRD board :/
+</A></li>
+	<LI>Next message: <A HREF="012594.html">[Openocd-development] [patch 2/3] Cortex-A8: mode support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12595">[ date ]</a>
+              <a href="thread.html#12595">[ thread ]</a>
+              <a href="subject.html#12595">[ subject ]</a>
+              <a href="author.html#12595">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Fix ep93xx compile on armel / arm
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20ep93xx%20compile%20on%20armel%20/%20arm&In-Reply-To=%3C20081117163254.GB16519%40greenwood%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003611.html">
+   <LINK REL="Next"  HREF="003612.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Fix ep93xx compile on armel / arm</H1>
+    <B>Uwe Hermann</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20ep93xx%20compile%20on%20armel%20/%20arm&In-Reply-To=%3C20081117163254.GB16519%40greenwood%3E"
+       TITLE="[Openocd-development] [PATCH] Fix ep93xx compile on armel / arm">uwe at hermann-uwe.de
+       </A><BR>
+    <I>Mon Nov 17 17:32:54 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003611.html">[Openocd-development] [PATCH] Fix ep93xx compile on armel / arm
+</A></li>
+        <LI>Next message: <A HREF="003612.html">[Openocd-development] [PATCH] Fix typos.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3651">[ date ]</a>
+              <a href="thread.html#3651">[ thread ]</a>
+              <a href="subject.html#3651">[ subject ]</a>
+              <a href="author.html#3651">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, Nov 07, 2008 at 01:59:36AM +0100, Uwe Hermann wrote:
+&gt;<i> Hi,
+</I>&gt;<i> 
+</I>&gt;<i> I've updated the OpenOCD Debian package to r1130 yesterday, and the
+</I>&gt;<i> Debian autobuild daemons found a compile problem with ep93xx on the
+</I>&gt;<i> 'armel' architecture, see
+</I>&gt;<i> 
+</I>&gt;<i> <A HREF="http://buildd.debian.org/fetch.cgi?pkg=openocd;ver=0.0%2Br1130-1;arch=armel;stamp=1225973025">http://buildd.debian.org/fetch.cgi?pkg=openocd;ver=0.0%2Br1130-1;arch=armel;stamp=1225973025</A>
+</I>&gt;<i> 
+</I>&gt;<i> The problem is how nanosleep() is being called. I'm actually surprised
+</I>&gt;<i> that it ever worked and doesn't break on other architectures.
+</I>&gt;<i> 
+</I>&gt;<i> My Linux nanosleep(2) manpage says this:
+</I>&gt;<i> 
+</I>&gt;<i>        #include &lt;time.h&gt;
+</I>&gt;<i>        int nanosleep(const struct timespec *req, struct timespec *rem);
+</I>&gt;<i> 
+</I>&gt;<i> The /usr/include/time.h file says:
+</I>&gt;<i> 
+</I>&gt;<i>        extern int nanosleep (__const struct timespec *__requested_time,
+</I>&gt;<i>                              struct timespec *__remaining);
+</I>&gt;<i> 
+</I>&gt;<i> However, in src/jtag/ep93xx.c nanosleep() is always called as
+</I>&gt;<i> 
+</I>&gt;<i>        struct timespec ep93xx_zzzz;
+</I>&gt;<i>        nanosleep(ep93xx_zzzz);
+</I>&gt;<i> 
+</I>&gt;<i> which doesn't really work, as (a) the first argument should be a
+</I>&gt;<i> pointer (not a struct), and (b) there are two arguments, not only one.
+</I>&gt;<i> 
+</I>&gt;<i> The fix is probably:
+</I>&gt;<i> 
+</I>&gt;<i>        nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> See attached patch for a fix. I've tested it on an ARM box and confirmed
+</I>&gt;<i> that it really fixes the compile.
+</I>
+*ping*
+
+Can somebody please review/commit this patch? Thanks!
+
+
+&gt;<i> HTH, Uwe.
+</I>&gt;<i> -- 
+</I>&gt;<i> <A HREF="http://www.hermann-uwe.de">http://www.hermann-uwe.de</A>  | <A HREF="http://www.holsham-traders.de">http://www.holsham-traders.de</A>
+</I>&gt;<i> <A HREF="http://www.crazy-hacks.org">http://www.crazy-hacks.org</A> | <A HREF="http://www.unmaintained-free-software.org">http://www.unmaintained-free-software.org</A>
+</I>
+&gt;<i> Index: src/jtag/ep93xx.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/jtag/ep93xx.c	(Revision 1142)
+</I>&gt;<i> +++ src/jtag/ep93xx.c	(Arbeitskopie)
+</I>&gt;<i> @@ -40,6 +40,7 @@
+</I>&gt;<i>  #include &lt;sys/mman.h&gt;
+</I>&gt;<i>  #include &lt;unistd.h&gt;
+</I>&gt;<i>  #include &lt;fcntl.h&gt;
+</I>&gt;<i> +#include &lt;time.h&gt;
+</I>&gt;<i>  
+</I>&gt;<i>  static u8 output_value = 0x0;
+</I>&gt;<i>  static int dev_mem_fd;
+</I>&gt;<i> @@ -103,7 +104,7 @@
+</I>&gt;<i>  		output_value &amp;= TDI_BIT;
+</I>&gt;<i>  
+</I>&gt;<i>  	*gpio_data_register = output_value;
+</I>&gt;<i> -	nanosleep(ep93xx_zzzz);
+</I>&gt;<i> +	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i>  /* (1) assert or (0) deassert reset lines */
+</I>&gt;<i> @@ -120,7 +121,7 @@
+</I>&gt;<i>  		output_value &amp;= SRST_BIT;
+</I>&gt;<i>  	
+</I>&gt;<i>  	*gpio_data_register = output_value;
+</I>&gt;<i> -	nanosleep(ep93xx_zzzz);
+</I>&gt;<i> +	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i>  int ep93xx_speed(int speed)
+</I>&gt;<i> @@ -218,7 +219,7 @@
+</I>&gt;<i>  	 */
+</I>&gt;<i>  	output_value = TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+</I>&gt;<i>  	*gpio_data_register = output_value;
+</I>&gt;<i> -	nanosleep(ep93xx_zzzz);
+</I>&gt;<i> +	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i>  
+</I>&gt;<i>  	/*
+</I>&gt;<i>  	 * Configure the direction register.  1 = output, 0 = input.
+</I>&gt;<i> @@ -226,7 +227,7 @@
+</I>&gt;<i>  	*gpio_data_direction_register =
+</I>&gt;<i>  		TDI_BIT | TCK_BIT | TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+</I>&gt;<i>  
+</I>&gt;<i> -	nanosleep(ep93xx_zzzz);
+</I>&gt;<i> +	nanosleep(&amp;ep93xx_zzzz, NULL);
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>
+&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+-- 
+<A HREF="http://www.hermann-uwe.de">http://www.hermann-uwe.de</A>  | <A HREF="http://www.holsham-traders.de">http://www.holsham-traders.de</A>
+<A HREF="http://www.crazy-hacks.org">http://www.crazy-hacks.org</A> | <A HREF="http://www.unmaintained-free-software.org">http://www.unmaintained-free-software.org</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003611.html">[Openocd-development] [PATCH] Fix ep93xx compile on armel / arm
+</A></li>
+	<LI>Next message: <A HREF="003612.html">[Openocd-development] [PATCH] Fix typos.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3651">[ date ]</a>
+              <a href="thread.html#3651">[ thread ]</a>
+              <a href="subject.html#3651">[ subject ]</a>
+              <a href="author.html#3651">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

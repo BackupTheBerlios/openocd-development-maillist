@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] fast enable/disable command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fast%20enable/disable%20command&In-Reply-To=%3CB8B26F211A66434887C806A8DEE3577BFE93%40kpsrv1.kpatents.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002005.html">
+   <LINK REL="Next"  HREF="002008.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] fast enable/disable command</H1>
+    <B>Ville Voipio</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fast%20enable/disable%20command&In-Reply-To=%3CB8B26F211A66434887C806A8DEE3577BFE93%40kpsrv1.kpatents.local%3E"
+       TITLE="[Openocd-development] fast enable/disable command">Ville.Voipio at kpatents.com
+       </A><BR>
+    <I>Thu Apr 24 09:46:27 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002005.html">[Openocd-development] fast enable/disable command
+</A></li>
+        <LI>Next message: <A HREF="002008.html">[Openocd-development] fast enable/disable command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2006">[ date ]</a>
+              <a href="thread.html#2006">[ thread ]</a>
+              <a href="subject.html#2006">[ subject ]</a>
+              <a href="author.html#2006">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> First of all, we need a check on correct number of words being
+</I>&gt;<i> received by DCC download routine running on the target,
+</I>&gt;<i> if this matches, it means everything went smooth.
+</I>
+Yup. That check at least makes it sure that no words were
+missed. And that check does not require any extra code for
+the target (as the index register can be checked afterwards).
+
+&gt;<i> Actually, the code looks still pretty long.
+</I>
+Well. Anything that splits 32-bit words into octets will
+need to use around twenty instruction cycles per word, at 
+least. But in this case the pseudo-C code may look longer 
+than the real assembly code. Also, the code size may be shrunk
+a bit at the expense of execution time (loop).
+
+But see below for a very small-space high-intergrity solution.
+
+---
+
+&gt;<i> Well, data upload to RAM is typically a development, not a production
+</I>&gt;<i> thing, so eve basic check preventing just data overrun (which is the
+</I>&gt;<i> most critical thing here) would be fine.
+</I>&gt;<i> In case of programming flash memory, it is good to have some stronger check
+</I>&gt;<i> afterwards, but this is rather task for a flash driver.
+</I>
+If my development RAM image is wrong, I suffer for an hour figuring 
+out what went wrong. If something goes wrong in production, I may 
+suffer a week at a customer's site in a jungle somewhere far away 
+with some very angry people around. No airconditioning, wierd
+food, no Internet.
+
+But I need to get the program in there fast. Fast and secure is
+a bad combination, but I am trying. So, I upload a compressed
+(simple RLE) flash image into RAM and then the flasher code burns
+it into the flash.
+
+As the image is compressed, I need to know it is correct before
+doing anything with it (as missing words or similar things may
+wreak havoc in decompression). So, I run a CRC over that. It
+would be even safer to run a CRC on the flash, as well, but
+that takes a considerable amount of time with a 2-megabyte flash.
+(And if the flash is broken, then we have problems anyway, so
+let's just assume it isn't.)
+
+At the moment I am using around 11-14 s with a 2 MB flash
+containing a file system and some software. (FT2232-based
+programmer in use, empty flash to start with.)
+
+On the other hand, time is not a real issue with development code.
+I have a 200 kB image in the RAM and check its intergrity in
+much less than a second (dry decompress, calculate CRC16). Even
+though development is usually done in a hurry, not often in that 
+hurry.
+
+---
+
+&gt;<i> Either the code has to be uploaded along with the DCC downloader, 
+</I>&gt;<i> which eats memory, or afterwards, which adds a communication 
+</I>&gt;<i> turnaround, which is exactly what fast writes try to avoid.
+</I>
+True, but... An &quot;afterwards FNV&quot; code:
+
+hash = OFFSET_BASIS;
+for (;;)
+  {
+  data = *ptr++;
+  hash *= FNV_MULTIPLIER;
+  hash ^= data;
+  }
+
+Now, as everything is in registers, hash can be preloaded, 
+FNV_MULTIPLIER can be preloaded, ptr can be preloaded. 
+Then the loop itself has actually only a fetch from memory
+(with incremet), XOR, multiplication and a branch. No
+conditional branching, as we can take care of that with a
+watchpoint in the data. Looks like 4 instruction words.
+
+So, then the full cycle from the OpenOCD side is:
+
+- backup the DCC uploader code memory (6 words)
+- upload the DCC uploader
+- set the relevant register (*ptr)
+- run the uploader and flood DCC with data
+- halt the uploader when done
+
+- check the *ptr register for correct value
+
+- upload the FNV code in place of the uploader (4 words)
+- upload the relevant registers (*ptr, FNV_MULTIPLIER, hash)
+- set up a watchpoint to the end of the data
+- wait till the watchpoint triggers
+- get the hash (1 register), check it
+- restore the code memory (6 words)
+
+This is slower than calculating on the fly, but still it
+takes maybe ten cycles per octet, which means a rate of
+100000 kB/s / MHz. (That is, 10 MB/s for a 100 MHz core.)
+This adds considerable overhead for small transfers (setting
+the watchpoint, mainly), but for large transfers the setup
+overhead is negligible.
+
+How'bout?
+
+- Ville
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080424/9b4deba4/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080424/9b4deba4/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002005.html">[Openocd-development] fast enable/disable command
+</A></li>
+	<LI>Next message: <A HREF="002008.html">[Openocd-development] fast enable/disable command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2006">[ date ]</a>
+              <a href="thread.html#2006">[ thread ]</a>
+              <a href="subject.html#2006">[ subject ]</a>
+              <a href="author.html#2006">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

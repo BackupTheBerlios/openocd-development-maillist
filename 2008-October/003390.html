@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Get USB endpoints for jlink from USB	device descriptor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Get%20USB%20endpoints%20for%20jlink%20from%20USB%0A%09device%20descriptor&In-Reply-To=%3C20081014214922.GC10591%40apfelkorn%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003396.html">
+   <LINK REL="Next"  HREF="003399.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Get USB endpoints for jlink from USB	device descriptor</H1>
+    <B>Peter 'p2' De Schrijver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Get%20USB%20endpoints%20for%20jlink%20from%20USB%0A%09device%20descriptor&In-Reply-To=%3C20081014214922.GC10591%40apfelkorn%3E"
+       TITLE="[Openocd-development] [PATCH] Get USB endpoints for jlink from USB	device descriptor">p2 at debian.org
+       </A><BR>
+    <I>Tue Oct 14 23:49:22 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003396.html">[Openocd-development] target scripts
+</A></li>
+        <LI>Next message: <A HREF="003399.html">[Openocd-development] docs patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3390">[ date ]</a>
+              <a href="thread.html#3390">[ thread ]</a>
+              <a href="subject.html#3390">[ subject ]</a>
+              <a href="author.html#3390">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+This patch reads the USB endpoints for the jlink adapter from the device descriptor
+instead of hardcoding them. This is necessary because not all jlink implementations
+use the same endpoint addresses. The jlink adapter embedded in the IAR LPC-P2378-SK
+board uses endpoint 5 for input and 2 for output for example.
+
+Cheers,
+
+Peter.
+
+Index: src/jtag/jlink.c
+===================================================================
+--- src/jtag/jlink.c	(revision 1046)
++++ src/jtag/jlink.c	(working copy)
+@@ -49,9 +49,6 @@
+ #define VID 0x1366
+ #define PID 0x0101
+ 
+-#define JLINK_WRITE_ENDPOINT	0x02
+-#define JLINK_READ_ENDPOINT		0x81
+-
+ #define JLINK_USB_TIMEOUT		100
+ 
+ #define JLINK_IN_BUFFER_SIZE			8192
+@@ -108,6 +105,8 @@
+ typedef struct jlink_jtag
+ {
+ 	struct usb_dev_handle* usb_handle;
++	uint8_t read_endpoint;
++	uint8_t write_endpoint;
+ } jlink_jtag_t;
+ 
+ jlink_jtag_t *jlink_usb_open(void);
+@@ -757,6 +756,30 @@
+ 		{
+ 			if ((dev-&gt;descriptor.idVendor == VID) &amp;&amp; (dev-&gt;descriptor.idProduct == PID))
+ 			{
++				int i;
++
++				if (dev-&gt;config-&gt;interface-&gt;num_altsetting != 1) {
++					LOG_INFO(&quot;%d configurations found iso expected 1&quot;,
++						dev-&gt;config-&gt;interface-&gt;num_altsetting);
++					continue;
++				}
++
++				if	(dev-&gt;config-&gt;interface-&gt;altsetting-&gt;bNumEndpoints !=2) {
++					LOG_INFO(&quot;%d endpoints found iso expected 2&quot;,
++						dev-&gt;config-&gt;interface-&gt;altsetting-&gt;bNumEndpoints);
++					continue;
++				}
++
++				for (i=0; i&lt;2; i++) {
++					uint8_t endpoint;
++					
++					endpoint = dev-&gt;config-&gt;interface-&gt;altsetting-&gt;endpoint[i].bEndpointAddress;
++					if (endpoint &amp; USB_ENDPOINT_DIR_MASK)
++						result-&gt;read_endpoint = endpoint &amp; USB_ENDPOINT_ADDRESS_MASK;
++					else
++						result-&gt;write_endpoint = endpoint &amp; USB_ENDPOINT_ADDRESS_MASK;
++				}
++
+ 				result-&gt;usb_handle = usb_open(dev);
+ 				
+ 				/* usb_set_configuration required under win32 */
+@@ -770,6 +793,8 @@
+ 				 */
+ 				usb_set_altinterface(result-&gt;usb_handle, 0);
+ #endif				
++
++				
+ 				return result;
+ 			}
+ 		}
+@@ -858,7 +883,7 @@
+ 		return -1;
+ 	}
+ 	
+-	result = usb_bulk_write(jlink_jtag-&gt;usb_handle, JLINK_WRITE_ENDPOINT, \
++	result = usb_bulk_write(jlink_jtag-&gt;usb_handle, jlink_jtag-&gt;write_endpoint, \
+ 		usb_out_buffer, out_length, JLINK_USB_TIMEOUT);
+ 	
+ 	DEBUG_JTAG_IO(&quot;jlink_usb_write, out_length = %d, result = %d&quot;, out_length, result);
+@@ -872,7 +897,7 @@
+ /* Read data from USB into in_buffer. */
+ int jlink_usb_read(jlink_jtag_t *jlink_jtag)
+ {
+-	int result = usb_bulk_read(jlink_jtag-&gt;usb_handle, JLINK_READ_ENDPOINT, \
++	int result = usb_bulk_read(jlink_jtag-&gt;usb_handle, jlink_jtag-&gt;read_endpoint, \
+ 		usb_in_buffer, JLINK_IN_BUFFER_SIZE, JLINK_USB_TIMEOUT);
+ 
+ 	DEBUG_JTAG_IO(&quot;jlink_usb_read, result = %d&quot;, result);
+@@ -886,7 +911,7 @@
+ /* Read the result from the previous EMU cmd into result_buffer. */
+ int jlink_usb_read_emu_result(jlink_jtag_t *jlink_jtag)
+ {
+-	int result = usb_bulk_read(jlink_jtag-&gt;usb_handle, JLINK_READ_ENDPOINT, \
++	int result = usb_bulk_read(jlink_jtag-&gt;usb_handle, jlink_jtag-&gt;read_endpoint, \
+ 		usb_emu_result_buffer, JLINK_EMU_RESULT_BUFFER_SIZE, JLINK_USB_TIMEOUT);
+ 
+ 	DEBUG_JTAG_IO(&quot;jlink_usb_read_result, result = %d&quot;, result);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003396.html">[Openocd-development] target scripts
+</A></li>
+	<LI>Next message: <A HREF="003399.html">[Openocd-development] docs patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3390">[ date ]</a>
+              <a href="thread.html#3390">[ thread ]</a>
+              <a href="subject.html#3390">[ subject ]</a>
+              <a href="author.html#3390">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

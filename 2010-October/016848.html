@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/3] CortexA8: Setup debug_base	according to variant
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20CortexA8%3A%20Setup%20debug_base%0A%09according%20to%20variant&In-Reply-To=%3C1288315061-23319-1-git-send-email-marek.vasut%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016866.html">
+   <LINK REL="Next"  HREF="016850.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/3] CortexA8: Setup debug_base	according to variant</H1>
+    <B>Marek Vasut</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20CortexA8%3A%20Setup%20debug_base%0A%09according%20to%20variant&In-Reply-To=%3C1288315061-23319-1-git-send-email-marek.vasut%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/3] CortexA8: Setup debug_base	according to variant">marek.vasut at gmail.com
+       </A><BR>
+    <I>Fri Oct 29 03:17:39 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016866.html">[Openocd-development] Problems with workareasize and STM32F100 (8kB of RAM)
+</A></li>
+        <LI>Next message: <A HREF="016850.html">[Openocd-development] [PATCH 2/3] CortexA8: Introduce Freescale	i.MX51 variant
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16848">[ date ]</a>
+              <a href="thread.html#16848">[ thread ]</a>
+              <a href="subject.html#16848">[ subject ]</a>
+              <a href="author.html#16848">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>In this patch, I introduce the use of -variant parameter, so I can adjust the
+debug_base accordingly.
+
+So far, only the OMAP3530 and AM/DM37x CPUs, which utilize the Cortex A8 core
+are supported by OpenOCD and both of these use the same Cortex A8 Debug Access
+Port address (0x54011000).
+
+There are other CPU manufacturers, who use different address for the Cortex A8
+Debug Access Port though. As I was unable to figure out a way to detect the
+address of DAP, this should at least work around the problem until there is a
+proper solution.
+
+Signed-off-by: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marek.vasut at gmail.com</A>&gt;
+---
+ src/target/cortex_a8.c  |   11 ++++++++++-
+ tcl/target/amdm37x.cfg  |    3 ++-
+ tcl/target/omap3530.cfg |    3 ++-
+ 3 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 8b4ced5..64b78bd 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1719,7 +1719,16 @@ static int cortex_a8_examine_first(struct target *target)
+ 	LOG_DEBUG(&quot;TODO - autoconfigure&quot;);
+ 
+ 	/* Here we shall insert a proper ROM Table scan */
+-	armv7a-&gt;debug_base = OMAP3530_DEBUG_BASE;
++	if (strcmp(target-&gt;variant, &quot;amdm37x&quot;) == 0)
++		armv7a-&gt;debug_base = OMAP3530_DEBUG_BASE;
++	else if (strcmp(target-&gt;variant, &quot;omap3530&quot;) == 0)
++		armv7a-&gt;debug_base = OMAP3530_DEBUG_BASE;
++	else {
++		LOG_DEBUG(&quot;Unknown CPU variant&quot;);
++		return ERROR_FAIL;
++	}
++
++	LOG_DEBUG(&quot;Using Cortex A8, %s variant&quot;, target-&gt;variant);
+ 
+ 	/* We do one extra read to ensure DAP is configured,
+ 	 * we call ahbap_debugport_init(swjdp) instead
+diff --git a/tcl/target/amdm37x.cfg b/tcl/target/amdm37x.cfg
+index ab18681..3776435 100644
+--- a/tcl/target/amdm37x.cfg
++++ b/tcl/target/amdm37x.cfg
+@@ -142,7 +142,8 @@ jtag configure $_CHIPNAME.jrc -event setup &quot;jtag tapenable $_CHIPNAME.dap&quot;
+ 
+ # Create the CPU target to be used with GDB:  Cortex-A8, using DAP
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.dap
++target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.dap \
++	-variant amdm37x
+ 
+ # The DM37x has 64K of SRAM starting at address 0x4020_0000.  Allow the first
+ # 16K to be used as a scratchpad for OpenOCD.
+diff --git a/tcl/target/omap3530.cfg b/tcl/target/omap3530.cfg
+index ba130a9..e7b598f 100644
+--- a/tcl/target/omap3530.cfg
++++ b/tcl/target/omap3530.cfg
+@@ -36,7 +36,8 @@ jtag newtap $_CHIPNAME jrc -irlen 6 -ircapture 0x1 -irmask 0x3f \
+ 
+ # GDB target:  Cortex-A8, using DAP
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.dap
++target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.dap \
++	-variant omap3530
+ 
+ # SRAM: 64K at 0x4020.0000; use the first 16K
+ $_TARGETNAME configure -work-area-phys 0x40200000 -work-area-size 0x4000
+-- 
+1.7.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016866.html">[Openocd-development] Problems with workareasize and STM32F100 (8kB of RAM)
+</A></li>
+	<LI>Next message: <A HREF="016850.html">[Openocd-development] [PATCH 2/3] CortexA8: Introduce Freescale	i.MX51 variant
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16848">[ date ]</a>
+              <a href="thread.html#16848">[ thread ]</a>
+              <a href="subject.html#16848">[ subject ]</a>
+              <a href="author.html#16848">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 reset halt segfault on Mac OS X
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20reset%20halt%20segfault%20on%20Mac%20OS%20X&In-Reply-To=%3C02B974E0-F8F3-47F7-B0BC-83D73F621A65%40esden.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017300.html">
+   <LINK REL="Next"  HREF="017302.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 reset halt segfault on Mac OS X</H1>
+    <B>Piotr Esden-Tempski</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20reset%20halt%20segfault%20on%20Mac%20OS%20X&In-Reply-To=%3C02B974E0-F8F3-47F7-B0BC-83D73F621A65%40esden.net%3E"
+       TITLE="[Openocd-development] STM32 reset halt segfault on Mac OS X">piotr at esden.net
+       </A><BR>
+    <I>Tue Nov 30 00:53:21 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017300.html">[Openocd-development] STM32 reset halt segfault on Mac OS X
+</A></li>
+        <LI>Next message: <A HREF="017302.html">[Openocd-development] STM32 reset halt segfault on Mac OS X
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17301">[ date ]</a>
+              <a href="thread.html#17301">[ thread ]</a>
+              <a href="subject.html#17301">[ subject ]</a>
+              <a href="author.html#17301">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Nov 29, 2010, at 3:19 PM, Piotr Esden-Tempski wrote:
+
+&gt;<i> 
+</I>&gt;<i> On Nov 29, 2010, at 12:39 PM, &#216;yvind Harboe wrote:
+</I>&gt;<i> 
+</I>&gt;&gt;<i> Better.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Could you try HEAD w/master branch?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> #0  0x0000000100073314 in mem_ap_read_atomic_u32 (dap=0x10032f540,
+</I>&gt;&gt;&gt;<i> address=1, value=0x10032e800) at arm_adi_v5.c:214
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> =&gt; this doesn't point to anything sensible, it's the tailend of the fn.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> Also try w/-O0
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> CFLAGS=&quot;-O0 -g&quot; configure ...
+</I>&gt;&gt;<i> make clean
+</I>&gt;&gt;<i> make
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> I did that but it does not change anything. It is still failing at the same line. For more context maybe this helps. This is the signal I get:
+</I>&gt;<i> Program received signal EXC_BAD_ACCESS, Could not access memory.
+</I>&gt;<i> Reason: 13 at address: 0x0000000000000000
+</I>&gt;<i> 0x000000010007325c in mem_ap_read_atomic_u32 (dap=0x10032f540, address=1, value=0x10032e800) at arm_adi_v5.c:214
+</I>&gt;<i> 
+</I>&gt;<i> Also I stepped through the code and this is what is happening:
+</I>&gt;<i> jim_target_reset (interp=0x100308c90, argc=3, argv=0x7fff5fbfc9d8) at target.c:4321
+</I>&gt;<i> cortex_m3_assert_reset (target=0x10032e950) at cortex_m3.c:921
+</I>&gt;<i> mem_ap_read_atomic_u32 (dap=0x10032f7b0, address=3758157296, value=0x10032f6b0) at arm_adi_v5.c:209
+</I>&gt;<i> dap_run (dap=0x10032f7b0) at arm_adi_v5.h:337
+</I>&gt;<i> jtag_dp_run (dap=0x10032f7b0) at adi_v5_jtag.c:435
+</I>&gt;<i> jtagdp_transaction_endcheck (dap=0x10032f7b0) at adi_v5_jtag.c:222
+</I>&gt;<i> jtag_dp_run (dap=0x10032f7b0) at adi_v5_jtag.c:436
+</I>&gt;<i> dap_run (dap=0x10032f7b0) at arm_adi_v5.h:339
+</I>&gt;<i> mem_ap_read_atomic_u32 (dap=0x10032f7b0, address=3758157296, value=0x10032f6b0) at arm_adi_v5.c:214
+</I>&gt;<i> 
+</I>&gt;<i> these calls work correctly in that order each calling the next. As soon as dap_run returns the mem_ap_read_atomic_u32 function wants to return the dap_run value but failes with the memory access error quoted before. I have never seen such wired behavior before.
+</I>
+I did some more poking. Maybe it will be useful. As this seems to be a memory problem I thought maybe electric-fence will tell us something useful. So I compiled oocd with libefence, and this is what I get:
+
+Starting program: /opt/mine/bin/openocd -f interface/flossjtag.cfg -f board/open-bldc.cfg
+Reading symbols for shared libraries .++++........ done
+
+  Electric Fence 2.1 Copyright (C) 1987-1998 Bruce Perens.
+
+ElectricFence Aborting: free(1003061b0): address not from malloc().
+
+Program received signal SIGILL, Illegal instruction.
+0x00007fff82ac8616 in __kill ()
+(gdb) bt
+#0  0x00007fff82ac8616 in __kill ()
+#1  0x0000000100002ec8 in EF_Abort (pattern=0x10012a2a8 &quot;free(%a): address not from malloc().&quot;) at print.c:137
+#2  0x0000000100002596 in free (address=0x1003061b0) at efence.c:699
+#3  0x00000001000e0301 in SetListFromAny (interp=0x100403e40, objPtr=0x1005e4fc0) at jim.c:5453
+#4  0x00000001000e0c29 in Jim_ListLength (interp=0x100403e40, objPtr=0x1005e4fc0) at jim.c:5728
+#5  0x00000001000edde5 in Jim_ProcCoreCommand (interp=0x100403e40, argc=4, argv=0x7fff5fbff240) at jim.c:11775
+#6  0x00000001000e86b7 in Jim_EvalObj (interp=0x100403e40, scriptObjPtr=0x100415fc0) at jim.c:9422
+#7  0x00000001000e8fd3 in Jim_Eval_Named (interp=0x100403e40, script=0x10012dd48 &quot;\n\n\nproc alias {name args} {\n\tset prefix $args\n\tproc $name args prefix {\n\t\ttailcall {*}$prefix {*}$args\n\t}\n}\n\n\nproc lambda {arglist args} {\n\tset name [ref {} function lambda.finalizer]\n\ttailcall proc $&quot;..., filename=0x10012dd3b &quot;stdlib.tcl&quot;, lineno=1) at jim.c:9661
+#8  0x0000000100101a18 in Jim_stdlibInit (interp=0x100403e40) at jim-stdlib.c:7
+#9  0x00000001000f4124 in Jim_InitStaticExtensions (interp=0x100403e40) at jim-load-static-exts.c:10
+#10 0x00000001000d1363 in command_init (startup_tcl=0x10012fd80 &quot;# Defines basic Tcl procs that must exist for OpenOCD scripts to work.\n#\n# Embedded into OpenOCD executable\n#\n\n\n# We need to explicitly redirect this to the OpenOCD command\n# as Tcl defines the exit p&quot;..., interp=0x100403e40) at command.c:1338
+#11 0x00000001000039dc in setup_command_handler (interp=0x0) at openocd.c:267
+#12 0x0000000100003ae1 in openocd_main (argc=5, argv=0x7fff5fbff488) at openocd.c:314
+#13 0x0000000100003153 in main (argc=5, argv=0x7fff5fbff488) at main.c:42
+
+I have no clue about the internals of Jim so maybe I just did something wrong. But who knows it may help. :)
+
+Cheers Esden
+
+--
+Blog: <A HREF="http://www.esden.net">http://www.esden.net</A>
+Projects:
+<A HREF="http://open-bldc.org">http://open-bldc.org</A>
+<A HREF="http://paparazziuav.org">http://paparazziuav.org</A>
+<A HREF="http://github.org/esden/floss-jtag">http://github.org/esden/floss-jtag</A>
+<A HREF="http://github.org/esden/summon-arm-toolchain">http://github.org/esden/summon-arm-toolchain</A>
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: PGP.sig
+Type: application/pgp-signature
+Size: 203 bytes
+Desc: This is a digitally signed message part
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20101129/c9a25811/attachment.pgp">https://lists.berlios.de/pipermail/openocd-development/attachments/20101129/c9a25811/attachment.pgp</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017300.html">[Openocd-development] STM32 reset halt segfault on Mac OS X
+</A></li>
+	<LI>Next message: <A HREF="017302.html">[Openocd-development] STM32 reset halt segfault on Mac OS X
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17301">[ date ]</a>
+              <a href="thread.html#17301">[ thread ]</a>
+              <a href="subject.html#17301">[ subject ]</a>
+              <a href="author.html#17301">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/4] ARM: move opcode macros to	&lt;target/arm_opcodes.h&gt;
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/4%5D%20ARM%3A%20move%20opcode%20macros%20to%0A%09%3Ctarget/arm_opcodes.h%3E&In-Reply-To=%3C200912080104.10682.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013415.html">
+   <LINK REL="Next"  HREF="013443.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/4] ARM: move opcode macros to	&lt;target/arm_opcodes.h&gt;</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/4%5D%20ARM%3A%20move%20opcode%20macros%20to%0A%09%3Ctarget/arm_opcodes.h%3E&In-Reply-To=%3C200912080104.10682.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/4] ARM: move opcode macros to	&lt;target/arm_opcodes.h&gt;">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Dec  8 10:04:10 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013415.html">[Openocd-development] [patch 2/4] ARM: move opcode macros to &lt;target/arm_opcodes.h&gt;
+</A></li>
+        <LI>Next message: <A HREF="013443.html">[Openocd-development] [patch 2/4] ARM: move opcode macros to	&lt;target/arm_opcodes.h&gt;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13424">[ date ]</a>
+              <a href="thread.html#13424">[ thread ]</a>
+              <a href="subject.html#13424">[ subject ]</a>
+              <a href="author.html#13424">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 07 December 2009, Nicolas Pitre wrote:
+&gt;<i> On Mon, 7 Dec 2009, David Brownell wrote:
+</I>&gt;<i> 
+</I>&gt;<i> &gt; Move the ARM opcode macros from &lt;target/armv4_5.h&gt;, and a few
+</I>&gt;<i> &gt; Thumb2 ones from &lt;target/armv7m.h&gt;, to more appropriate homes
+</I>&gt;<i> &gt; in a new &lt;target/arm_opcodes.h&gt; file.
+</I>&gt;<i> 
+</I>&gt;<i> What about changing the names of a couple of those macros as well?
+</I>
+I think that'd be a good thing to do.  Wasn't what I was aiming
+for in this patch series though.
+
+
+&gt;<i> Say  
+</I>&gt;<i> ARMV4_5_STMIA().  This isn't an instruction for ARMv4 or ARMv5 only.  I 
+</I>&gt;<i> think all ARM architecture version always had them.  I can understand 
+</I>&gt;<i> the logic to add the architecture level from which an instructionwas 
+</I>&gt;<i> introduced e.g. ARMV5_BKPT().  But all ARMV4_5_* are rather misleading.
+</I>
+Agreed.  And &quot;architecture level&quot; doesn't fully address the
+problem either.  By and large I'd take the version tags off,
+even for breakpoints.  Kind of like I've been doing with all
+the other ARM symbols that aren't actually tied to some core
+or architecture version!
+
+ 
+&gt;<i> &gt; Tightening up some of the line lengths turned up a curious artifact:
+</I>&gt;<i> &gt; the macros for the Thumb opcodes are all 32 bits wide, not 16 bits.
+</I>&gt;<i> &gt; There's currently no explanation for why it's done that way...
+</I>&gt;<i> 
+</I>&gt;<i> When pushing instruction in the CPU pipeline through scan chain 1 on an 
+</I>&gt;<i> ARM9TDMI (or compatible) CPU core, you need to use 32 bits for the 
+</I>&gt;<i> instruction field.  If in Thumb mode, the 16-bit Thumb instructions have 
+</I>&gt;<i> to be duplicated on both 16-bit nibbles of the 32-bit field.
+</I>
+So that doubling would only need to be done when pushing a Thumb
+opcode through the pipeline ... but here it's done always.  Before
+Thumb2, there were only a couple 32-bit instructions.  And since
+they were for branches, we wouldn't run them in debug mode.
+
+
+&gt;<i> From Section B.7 &quot;Determining the core and system state&quot; of &quot;ARM9E-S 
+</I>&gt;<i> Core Technical Reference Manual&quot; (DDI0240A.pdf):
+</I>&gt;<i> 
+</I>&gt;<i> |   Note
+</I>&gt;<i> |
+</I>&gt;<i> |   Because all Thumb instructions are only 16 bits long,
+</I>
+Maybe back then they were!  Now it's acknowledged that there
+are two models even for those 32-bit branch instructions.
+One is to execute in two halves, with IRQ possible between
+the halves.  The other is to execute as one opcode.  I'd
+guess those original Thumb cores (which got a *LOT* of
+mileage!) took the two-halves approach.
+
+
+&gt;<i> |   			the simplest 
+</I>&gt;<i> |   method, when shifting scan chain 1, is to repeat the instruction. For
+</I>&gt;<i> |   example, the encoding for BX R0 is 0x4700, so when 0x47004700 shifts
+</I>&gt;<i> |   into scan chain 1, the debugger does not have to keep track of the half
+</I>&gt;<i> |   of the bus on which the processor expects to read the data.
+</I>
+So it's an implementation shortcut.  Though ... I'm not sure when
+we'd be pushing Thumb opcodes through the pipeline of an ARM9 (or
+presumably ARM7 too?) core!  Generally the model seems to be to
+keep the core in ARM state except when it's running code.  Only
+the Cortex-M cores do otherwise, I think.
+
+Thanks for the info, that sounds likely to be the intent.  It was
+that way in the original SVN checkin.  I'm unlikely to check what
+Dominic's thesis had to say on this topic.  :)
+
+- Dave
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013415.html">[Openocd-development] [patch 2/4] ARM: move opcode macros to &lt;target/arm_opcodes.h&gt;
+</A></li>
+	<LI>Next message: <A HREF="013443.html">[Openocd-development] [patch 2/4] ARM: move opcode macros to	&lt;target/arm_opcodes.h&gt;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13424">[ date ]</a>
+              <a href="thread.html#13424">[ thread ]</a>
+              <a href="subject.html#13424">[ subject ]</a>
+              <a href="author.html#13424">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,517 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] arm: error propagation of	arm_jtag_set_instr
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm%3A%20error%20propagation%20of%0A%09arm_jtag_set_instr&In-Reply-To=%3C1279543087-18384-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016086.html">
+   <LINK REL="Next"  HREF="016088.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] arm: error propagation of	arm_jtag_set_instr</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm%3A%20error%20propagation%20of%0A%09arm_jtag_set_instr&In-Reply-To=%3C1279543087-18384-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] arm: error propagation of	arm_jtag_set_instr">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul 19 14:38:07 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016086.html">[Openocd-development] [PATCH] arm_adi_v5: dap_run() error	propagation
+</A></li>
+        <LI>Next message: <A HREF="016088.html">[Openocd-development] [PATCH] adi_jtag_ error propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16087">[ date ]</a>
+              <a href="thread.html#16087">[ thread ]</a>
+              <a href="subject.html#16087">[ subject ]</a>
+              <a href="author.html#16087">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/adi_v5_jtag.c   |    5 ++++-
+ src/target/arm7_9_common.c |   27 +++++++++++++++++++++------
+ src/target/arm7tdmi.c      |   17 +++++++++++++----
+ src/target/arm920t.c       |   14 +++++++++++---
+ src/target/arm926ejs.c     |   16 ++++++++++++----
+ src/target/arm966e.c       |    8 ++++++--
+ src/target/arm9tdmi.c      |   16 ++++++++++++----
+ src/target/embeddedice.c   |   22 +++++++++++++++++-----
+ src/target/etm.c           |   10 ++++++++--
+ src/target/feroceon.c      |    5 ++++-
+ 10 files changed, 108 insertions(+), 32 deletions(-)
+
+diff --git a/src/target/adi_v5_jtag.c b/src/target/adi_v5_jtag.c
+index 0a374be..185bd54 100644
+--- a/src/target/adi_v5_jtag.c
++++ b/src/target/adi_v5_jtag.c
+@@ -86,8 +86,11 @@ int adi_jtag_dp_scan(struct adiv5_dap *dap,
+ 	struct arm_jtag *jtag_info = dap-&gt;jtag_info;
+ 	struct scan_field fields[2];
+ 	uint8_t out_addr_buf;
++	int retval;
+ 
+-	arm_jtag_set_instr(jtag_info, instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* Scan out a read or write operation using some DP or AP register.
+ 	 * For APACC access with any sticky error flag set, this is discarded.
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index b742dae..abfb21b 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -690,9 +690,13 @@ int arm7_9_execute_sys_speed(struct target *target)
+ 	/* set RESTART instruction */
+ 	if (arm7_9-&gt;need_bypass_before_restart) {
+ 		arm7_9-&gt;need_bypass_before_restart = 0;
+-		arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++		retval = arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, 0x4, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, 0x4, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	long long then = timeval_ms();
+ 	int timeout;
+@@ -738,13 +742,18 @@ static int arm7_9_execute_fast_sys_speed(struct target *target)
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct arm_jtag *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 	struct reg *dbg_stat = &amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_DBG_STAT];
++	int retval;
+ 
+ 	/* set RESTART instruction */
+ 	if (arm7_9-&gt;need_bypass_before_restart) {
+ 		arm7_9-&gt;need_bypass_before_restart = 0;
+-		arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++		retval = arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, 0x4, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, 0x4, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (!set)
+ 	{
+@@ -1744,13 +1753,19 @@ static int arm7_9_restart_core(struct target *target)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct arm_jtag *jtag_info = &amp;arm7_9-&gt;jtag_info;
++	int retval;
+ 
+ 	/* set RESTART instruction */
+ 	if (arm7_9-&gt;need_bypass_before_restart) {
+ 		arm7_9-&gt;need_bypass_before_restart = 0;
+-		arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++
++		retval = arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, 0x4, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, 0x4, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	jtag_add_runtest(1, TAP_IDLE);
+ 	return jtag_execute_queue();
+diff --git a/src/target/arm7tdmi.c b/src/target/arm7tdmi.c
+index 541adc8..8befe2b 100644
+--- a/src/target/arm7tdmi.c
++++ b/src/target/arm7tdmi.c
+@@ -68,7 +68,9 @@ static int arm7tdmi_examine_debug_reason(struct target *target)
+ 		{
+ 			return retval;
+ 		}
+-		arm_jtag_set_instr(&amp;arm7_9-&gt;jtag_info, arm7_9-&gt;jtag_info.intest_instr, NULL, TAP_DRPAUSE);
++		retval = arm_jtag_set_instr(&amp;arm7_9-&gt;jtag_info, arm7_9-&gt;jtag_info.intest_instr, NULL, TAP_DRPAUSE);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 2, fields, TAP_DRPAUSE);
+ 		if ((retval = jtag_execute_queue()) != ERROR_OK)
+@@ -117,8 +119,11 @@ static __inline int arm7tdmi_clock_out_inner(struct arm_jtag *jtag_info, uint32_
+ static __inline int arm7tdmi_clock_out(struct arm_jtag *jtag_info,
+ 		uint32_t out, uint32_t *deprecated, int breakpoint)
+ {
++	int retval;
+ 	arm_jtag_scann(jtag_info, 0x1, TAP_DRPAUSE);
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	return arm7tdmi_clock_out_inner(jtag_info, out, breakpoint);
+ }
+@@ -133,7 +138,9 @@ static int arm7tdmi_clock_data_in(struct arm_jtag *jtag_info, uint32_t *in)
+ 	{
+ 		return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 1;
+ 	fields[0].out_value = NULL;
+@@ -217,7 +224,9 @@ static int arm7tdmi_clock_data_in_endianness(struct arm_jtag *jtag_info,
+ 	{
+ 		return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 1;
+ 	fields[0].out_value = NULL;
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 7627b25..c5064c1 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -89,11 +89,14 @@ static int arm920t_read_cp15_physical(struct target *target,
+ 	uint8_t access_type_buf = 1;
+ 	uint8_t reg_addr_buf = reg_addr &amp; 0x3f;
+ 	uint8_t nr_w_buf = 0;
++	int retval;
+ 
+ 	jtag_info = &amp;arm920t-&gt;arm7_9_common.jtag_info;
+ 
+ 	arm_jtag_scann(jtag_info, 0xf, TAP_IDLE);
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 1;
+ 	fields[0].out_value = &amp;access_type_buf;
+@@ -137,13 +140,16 @@ static int arm920t_write_cp15_physical(struct target *target,
+ 	uint8_t reg_addr_buf = reg_addr &amp; 0x3f;
+ 	uint8_t nr_w_buf = 1;
+ 	uint8_t value_buf[4];
++	int retval;
+ 
+ 	jtag_info = &amp;arm920t-&gt;arm7_9_common.jtag_info;
+ 
+ 	buf_set_u32(value_buf, 0, 32, value);
+ 
+ 	arm_jtag_scann(jtag_info, 0xf, TAP_IDLE);
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 1;
+ 	fields[0].out_value = &amp;access_type_buf;
+@@ -192,7 +198,9 @@ static int arm920t_execute_cp15(struct target *target, uint32_t cp15_opcode,
+ 	jtag_info = &amp;arm920t-&gt;arm7_9_common.jtag_info;
+ 
+ 	arm_jtag_scann(jtag_info, 0xf, TAP_IDLE);
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	buf_set_u32(cp15_opcode_buf, 0, 32, cp15_opcode);
+ 
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index aa38d27..3765f23 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -67,7 +67,9 @@ static int arm926ejs_cp15_read(struct target *target, uint32_t op1, uint32_t op2
+ 	{
+ 		return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+@@ -120,7 +122,9 @@ static int arm926ejs_cp15_read(struct target *target, uint32_t op1, uint32_t op2
+ 	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, address, *value);
+ #endif
+ 
+-	arm_jtag_set_instr(jtag_info, 0xc, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, 0xc, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	return ERROR_OK;
+ }
+@@ -155,7 +159,9 @@ static int arm926ejs_cp15_write(struct target *target, uint32_t op1, uint32_t op
+ 	{
+ 		return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = value_buf;
+@@ -205,7 +211,9 @@ static int arm926ejs_cp15_write(struct target *target, uint32_t op1, uint32_t op
+ 	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, address, value);
+ #endif
+ 
+-	arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, 0xf, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/arm966e.c b/src/target/arm966e.c
+index b4207c8..170e3cc 100644
+--- a/src/target/arm966e.c
++++ b/src/target/arm966e.c
+@@ -88,7 +88,9 @@ static int arm966e_read_cp15(struct target *target, int reg_addr, uint32_t *valu
+ 	{
+ 		return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	/* REVISIT: table 7-2 shows that bits 31-31 need to be
+@@ -142,7 +144,9 @@ int arm966e_write_cp15(struct target *target, int reg_addr, uint32_t value)
+ 	{
+ 		return retval;
+ 	}
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = value_buf;
+diff --git a/src/target/arm9tdmi.c b/src/target/arm9tdmi.c
+index 0749a56..fd50703 100644
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -103,7 +103,9 @@ int arm9tdmi_examine_debug_reason(struct target *target)
+ 		{
+ 			return retval;
+ 		}
+-		arm_jtag_set_instr(&amp;arm7_9-&gt;jtag_info, arm7_9-&gt;jtag_info.intest_instr, NULL, TAP_DRPAUSE);
++		retval = arm_jtag_set_instr(&amp;arm7_9-&gt;jtag_info, arm7_9-&gt;jtag_info.intest_instr, NULL, TAP_DRPAUSE);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 3, fields, TAP_DRPAUSE);
+ 		if ((retval = jtag_execute_queue()) != ERROR_OK)
+@@ -157,7 +159,9 @@ int arm9tdmi_clock_out(struct arm_jtag *jtag_info, uint32_t instr,
+ 		return retval;
+ 	}
+ 
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = out_buf;
+@@ -215,7 +219,9 @@ int arm9tdmi_clock_data_in(struct arm_jtag *jtag_info, uint32_t *in)
+ 		return retval;
+ 	}
+ 
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+@@ -281,7 +287,9 @@ int arm9tdmi_clock_data_in_endianness(struct arm_jtag *jtag_info,
+ 		return retval;
+ 	}
+ 
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+diff --git a/src/target/embeddedice.c b/src/target/embeddedice.c
+index 7ef4ac4..965260c 100644
+--- a/src/target/embeddedice.c
++++ b/src/target/embeddedice.c
+@@ -344,10 +344,13 @@ int embeddedice_read_reg_w_check(struct reg *reg,
+ 	struct scan_field fields[3];
+ 	uint8_t field1_out[1];
+ 	uint8_t field2_out[1];
++	int retval;
+ 
+ 	arm_jtag_scann(ice_reg-&gt;jtag_info, 0x2, TAP_IDLE);
+ 
+-	arm_jtag_set_instr(ice_reg-&gt;jtag_info, ice_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(ice_reg-&gt;jtag_info, ice_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* bits 31:0 -- data (ignored here) */
+ 	fields[0].num_bits = 32;
+@@ -405,9 +408,12 @@ int embeddedice_receive(struct arm_jtag *jtag_info, uint32_t *data, uint32_t siz
+ 	struct scan_field fields[3];
+ 	uint8_t field1_out[1];
+ 	uint8_t field2_out[1];
++	int retval;
+ 
+ 	arm_jtag_scann(jtag_info, 0x2, TAP_IDLE);
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+@@ -487,12 +493,13 @@ static int embeddedice_set_reg_w_exec(struct reg *reg, uint8_t *buf)
+ void embeddedice_write_reg(struct reg *reg, uint32_t value)
+ {
+ 	struct embeddedice_reg *ice_reg = reg-&gt;arch_info;
++	int retval;
+ 
+ 	LOG_DEBUG(&quot;%i: 0x%8.8&quot; PRIx32 &quot;&quot;, ice_reg-&gt;addr, value);
+ 
+ 	arm_jtag_scann(ice_reg-&gt;jtag_info, 0x2, TAP_IDLE);
+ 
+-	arm_jtag_set_instr(ice_reg-&gt;jtag_info, ice_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(ice_reg-&gt;jtag_info, ice_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
+ 
+ 	uint8_t reg_addr = ice_reg-&gt;addr &amp; 0x1f;
+ 	embeddedice_write_reg_inner(ice_reg-&gt;jtag_info-&gt;tap, reg_addr, value);
+@@ -521,9 +528,12 @@ int embeddedice_send(struct arm_jtag *jtag_info, uint32_t *data, uint32_t size)
+ 	uint8_t field0_out[4];
+ 	uint8_t field1_out[1];
+ 	uint8_t field2_out[1];
++	int retval;
+ 
+ 	arm_jtag_scann(jtag_info, 0x2, TAP_IDLE);
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = field0_out;
+@@ -575,7 +585,9 @@ int embeddedice_handshake(struct arm_jtag *jtag_info, int hsbit, uint32_t timeou
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+ 	arm_jtag_scann(jtag_info, 0x2, TAP_IDLE);
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+diff --git a/src/target/etm.c b/src/target/etm.c
+index 61ee99a..5c42fb5 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -496,6 +496,7 @@ static int etm_read_reg_w_check(struct reg *reg,
+ 	const struct etm_reg_info *r = etm_reg-&gt;reg_info;
+ 	uint8_t reg_addr = r-&gt;addr &amp; 0x7f;
+ 	struct scan_field fields[3];
++	int retval;
+ 
+ 	if (etm_reg-&gt;reg_info-&gt;mode == WO) {
+ 		LOG_ERROR(&quot;BUG: can't read write-only register %s&quot;, r-&gt;name);
+@@ -505,7 +506,9 @@ static int etm_read_reg_w_check(struct reg *reg,
+ 	LOG_DEBUG(&quot;%s (%u)&quot;, r-&gt;name, reg_addr);
+ 
+ 	arm_jtag_scann(etm_reg-&gt;jtag_info, 0x6, TAP_IDLE);
+-	arm_jtag_set_instr(etm_reg-&gt;jtag_info, etm_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(etm_reg-&gt;jtag_info, etm_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = reg-&gt;value;
+@@ -577,6 +580,7 @@ static int etm_write_reg(struct reg *reg, uint32_t value)
+ 	const struct etm_reg_info *r = etm_reg-&gt;reg_info;
+ 	uint8_t reg_addr = r-&gt;addr &amp; 0x7f;
+ 	struct scan_field fields[3];
++	int retval;
+ 
+ 	if (etm_reg-&gt;reg_info-&gt;mode == RO) {
+ 		LOG_ERROR(&quot;BUG: can't write read--only register %s&quot;, r-&gt;name);
+@@ -586,7 +590,9 @@ static int etm_write_reg(struct reg *reg, uint32_t value)
+ 	LOG_DEBUG(&quot;%s (%u): 0x%8.8&quot; PRIx32 &quot;&quot;, r-&gt;name, reg_addr, value);
+ 
+ 	arm_jtag_scann(etm_reg-&gt;jtag_info, 0x6, TAP_IDLE);
+-	arm_jtag_set_instr(etm_reg-&gt;jtag_info, etm_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	retval = arm_jtag_set_instr(etm_reg-&gt;jtag_info, etm_reg-&gt;jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	uint8_t tmp1[4];
+diff --git a/src/target/feroceon.c b/src/target/feroceon.c
+index ea22ca0..6ca432a 100644
+--- a/src/target/feroceon.c
++++ b/src/target/feroceon.c
+@@ -78,6 +78,7 @@ static int feroceon_dummy_clock_out(struct arm_jtag *jtag_info, uint32_t instr)
+ 	uint8_t out_buf[4];
+ 	uint8_t instr_buf[4];
+ 	uint8_t sysspeed_buf = 0x0;
++	int retval;
+ 
+ 	/* prepare buffer */
+ 	buf_set_u32(out_buf, 0, 32, 0);
+@@ -86,7 +87,9 @@ static int feroceon_dummy_clock_out(struct arm_jtag *jtag_info, uint32_t instr)
+ 
+ 	arm_jtag_scann(jtag_info, 0x1, TAP_DRPAUSE);
+ 
+-	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_DRPAUSE);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = out_buf;
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016086.html">[Openocd-development] [PATCH] arm_adi_v5: dap_run() error	propagation
+</A></li>
+	<LI>Next message: <A HREF="016088.html">[Openocd-development] [PATCH] adi_jtag_ error propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16087">[ date ]</a>
+              <a href="thread.html#16087">[ thread ]</a>
+              <a href="subject.html#16087">[ subject ]</a>
+              <a href="author.html#16087">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,218 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] RESET problem with LPC2148
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20RESET%20problem%20with%20LPC2148&In-Reply-To=%3CJLEAKDMELBINENLADICFAEMBDAAA.fischermi%40t-online.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002235.html">
+   <LINK REL="Next"  HREF="002237.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] RESET problem with LPC2148</H1>
+    <B>Michael Fischer</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20RESET%20problem%20with%20LPC2148&In-Reply-To=%3CJLEAKDMELBINENLADICFAEMBDAAA.fischermi%40t-online.de%3E"
+       TITLE="[Openocd-development] RESET problem with LPC2148">fischermi at t-online.de
+       </A><BR>
+    <I>Sat Jun  7 16:34:54 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002235.html">[Openocd-development] [PATCH] Feroceon fixes
+</A></li>
+        <LI>Next message: <A HREF="002237.html">[Openocd-development] RESET problem with LPC2148 (part 2)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2236">[ date ]</a>
+              <a href="thread.html#2236">[ thread ]</a>
+              <a href="subject.html#2236">[ subject ]</a>
+              <a href="author.html#2236">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+I think we could have a RESET problem with the FT2232 device,
+depending on the hardware architecture of the FT2232 itself.
+Yes the FT2232 works for all targets like STR, SAM, LPC and
+more. But I think it works becasue the reset lines are very
+fast. I will explain this in details later.
+
+I try to get the J-Link working. Here only STR and SAM is working
+on my desk. But the LPC will not work with the openocd / j-link
+combination.
+
+The difference between FT2232 and J-Link is for example how to
+control the SRST and TRST line. The FT2232 can control both lines
+with ONE command, and the J-Link need two commands here. One
+command for each line.
+
+I have make some measurements and have attached the picture here.
+
+Line1 is SRST and Line2 is TRST.
+daemon_startup is set to attach.
+
+After starting openocd, the target will be reset and the result
+look like:
+
+$ ./openocd -f jtagkey.cfg
+Open On-Chip Debugger 1.0 (2008-06-07-13:43) svn:
+$URL: <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c">http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c</A> $
+Info:    options.c:50 configuration_output_handler(): jtag_khz: 10, 1000
+Info:    ft2232.c:970 jtagkey_reset(): trst: 1, srst: 1
+Info:    ft2232.c:970 jtagkey_reset(): trst: 0, srst: 0
+Info:    options.c:50 configuration_output_handler(): Open On-Chip Debugger
+1.0
+(2008-06-07-13:43) svn:
+Info:    jtag.c:1389 jtag_examine_chain(): JTAG device found: 0x4f1f0f0f
+(Manufa
+cturer: 0x787, Part: 0xf1f0, Version: 0x4)
+
+You will find the picture named &quot;startup_reset_ft2232&quot;. Depending
+from the architecture of the FT2232 and the software of openocd the
+srst and trst line will go at the SAME time to low, and at the SAME
+time to high. The FT2232 had the possibility to control the SRST and
+TRST line in one command.
+
+Is this a correct behaviour here, could we assert SRST and TRST at the
+same time? Do we need no setup time for example the TRST signal?
+
+Yes the FT2232 works for all targets like, STR, LPC, SAM and so on,
+but wait for the next picture.
+
+Now I start a telnet session and use the reset command, the result
+look like:
+
+Info:    server.c:78 add_connection(): accepting 'telnet' connection from 0
+Info:    ft2232.c:970 jtagkey_reset(): trst: 1, srst: 0
+Info:    ft2232.c:970 jtagkey_reset(): trst: 1, srst: 1
+Info:    ft2232.c:970 jtagkey_reset(): trst: 0, srst: 0
+Info:    jtag.c:1389 jtag_examine_chain(): JTAG device found: 0x4f1f0f0f
+(Manufa
+cturer: 0x787, Part: 0xf1f0, Version: 0x4)
+Info:    ft2232.c:970 jtagkey_reset(): trst: 1, srst: 1
+Info:    ft2232.c:970 jtagkey_reset(): trst: 0, srst: 0
+User:    target.c:957 target_arch_state(): target state: halted
+User:    armv4_5.c:307 armv4_5_arch_state(): target halted in Thumb state
+due to
+ debug request, current mode: Supervisor
+cpsr: 0xa00000f3 pc: 0x7fffd2a2
+
+Here the TRST will be set active, and after this both TRST and SRST
+will be active and after a short time inactive. The result is
+&quot;reset_pre_ft2232&quot;. Here I have triggered on the first falling edge of
+SRST (Line 1). It looks like a short SRST glitch. I think the target
+will not react on it. After this both lines will be set low and high.
+Which will look like &quot;reset_post_ft2232&quot;.
+
+Btw, I am using a LPC2148 target here and could halt the target with
+the reset command. But with the J-Link I could not halt the target, take
+a look at the picture.
+
+Depending of the software api of the J-Link we must use two command to
+control the SRST and TRST line. Here the reset takes about 4ms and you will
+see a displacement between the SRST and TRST line.
+
+The result of the reset command from telnet look like:
+
+Info:    jlink.c:444 jlink_reset(): trst: 1, srst: 0
+Info:    jlink.c:444 jlink_reset(): trst: 1, srst: 1
+Info:    jlink.c:444 jlink_reset(): trst: 0, srst: 0
+Info:    jtag.c:1389 jtag_examine_chain(): JTAG device found: 0x4f1f0f0f
+(Manufa
+cturer: 0x787, Part: 0xf1f0, Version: 0x4)
+Info:    jlink.c:444 jlink_reset(): trst: 1, srst: 1
+Info:    jlink.c:444 jlink_reset(): trst: 0, srst: 0
+User:    target.c:436 target_process_reset(): Timed out waiting for halt
+after r
+eset
+
+Take a look at the picture too:
+
+reset_startup_jlink
+reset_pre_jlink
+reset_post_jlink
+
+I think it works with the FT2232, because the LPC target will not see the
+SRST in the pre phase.
+
+I have the same problem with the presto and the LPC here, that he could not
+halt the target, but I have not meassured up to now. Btw, the presto had
+only the SRST signal.
+
+What do you think, could this be the problem of the J-Link?
+Do we handle the reset correct with the FT2232?
+
+Best regards,
+
+Michael
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: startup_reset_jlink.png
+Type: image/png
+Size: 10856 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment.png">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment.png</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: reset_post_ft2232.png
+Type: image/png
+Size: 10594 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0001.png">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0001.png</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: reset_post_jlink.png
+Type: image/png
+Size: 10753 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0002.png">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0002.png</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: reset_pre_ft2232.png
+Type: image/png
+Size: 11328 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0003.png">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0003.png</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: reset_pre_jlink.png
+Type: image/png
+Size: 10828 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0004.png">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0004.png</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: startup_reset_ftd2232.png
+Type: image/png
+Size: 11377 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0005.png">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/f34674d1/attachment-0005.png</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002235.html">[Openocd-development] [PATCH] Feroceon fixes
+</A></li>
+	<LI>Next message: <A HREF="002237.html">[Openocd-development] RESET problem with LPC2148 (part 2)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2236">[ date ]</a>
+              <a href="thread.html#2236">[ thread ]</a>
+              <a href="subject.html#2236">[ subject ]</a>
+              <a href="author.html#2236">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

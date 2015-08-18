@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH 4/7] semihosting: move semihosting cmd to arm cmd group
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%204/7%5D%20semihosting%3A%20move%20semihosting%20cmd%20to%20arm%20cmd%20group&In-Reply-To=%3Cmailman.123.1331735960.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014985.html">
+   <LINK REL="Next"  HREF="014983.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH 4/7] semihosting: move semihosting cmd to arm cmd group</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%204/7%5D%20semihosting%3A%20move%20semihosting%20cmd%20to%20arm%20cmd%20group&In-Reply-To=%3Cmailman.123.1331735960.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH 4/7] semihosting: move semihosting cmd to arm cmd group">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Fri Feb 26 00:37:31 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014985.html">[PATCH 3/7] armv7m: add missing command chain
+</A></li>
+        <LI>Next message: <A HREF="014983.html">[PATCH 5/7] docs: rename arm7_9 semihosting to arm semihosting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14987">[ date ]</a>
+              <a href="thread.html#14987">[ thread ]</a>
+              <a href="subject.html#14987">[ subject ]</a>
+              <a href="author.html#14987">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Move arm7_9 semihosting to the arm cmd group - now arm semihosting.
+Add setup_semihosting callback for configuring core semihosting support.
+
+Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+ src/target/arm.h           |    2 +
+ src/target/arm7_9_common.c |   60 +++++++++++--------------------------------
+ src/target/armv4_5.c       |   48 +++++++++++++++++++++++++++++++++++
+ src/target/armv7m.c        |    3 --
+ 4 files changed, 66 insertions(+), 47 deletions(-)
+
+diff --git a/src/target/arm.h b/src/target/arm.h
+index 6b304e9..ee4bd76 100644
+--- a/src/target/arm.h
++++ b/src/target/arm.h
+@@ -132,6 +132,8 @@ struct arm {
+ 	/** Value to be returned by semihosting SYS_ERRNO request. */
+ 	int semihosting_errno;
+ 
++	int (*setup_semihosting)(struct target *target, int enable);
++
+ 	/** Backpointer to the target. */
+ 	struct target *target;
+ 
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 2176729..f9deb83 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2834,54 +2834,32 @@ COMMAND_HANDLER(handle_arm7_9_dcc_downloads_command)
+ 	return ERROR_OK;
+ }
+ 
+-COMMAND_HANDLER(handle_arm7_9_semihosting_command)
++int arm7_9_setup_semihosting(struct target *target, int enable)
+ {
+-	struct target *target = get_current_target(CMD_CTX);
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+ 	if (!is_arm7_9(arm7_9))
+ 	{
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7/ARM9 target&quot;);
++		LOG_USER(&quot;current target isn't an ARM7/ARM9 target&quot;);
+ 		return ERROR_TARGET_INVALID;
+ 	}
+ 
+-	if (CMD_ARGC &gt; 0)
+-	{
+-		int semihosting;
+-
+-		COMMAND_PARSE_ENABLE(CMD_ARGV[0], semihosting);
+-
+-		if (!target_was_examined(target))
+-		{
+-			LOG_ERROR(&quot;Target not examined yet&quot;);
+-			return ERROR_FAIL;
+-		}
+-
+-		if (arm7_9-&gt;has_vector_catch) {
+-			struct reg *vector_catch = &amp;arm7_9-&gt;eice_cache
+-					-&gt;reg_list[EICE_VEC_CATCH];
+-
+-			if (!vector_catch-&gt;valid)
+-				embeddedice_read_reg(vector_catch);
+-			buf_set_u32(vector_catch-&gt;value, 2, 1, semihosting);
+-			embeddedice_store_reg(vector_catch);
+-		} else {
+-			/* TODO: allow optional high vectors and/or BKPT_HARD */
+-			if (semihosting)
+-				breakpoint_add(target, 8, 4, BKPT_SOFT);
+-			else
+-				breakpoint_remove(target, 8); 
+-		}
+-
+-		/* FIXME never let that &quot;catch&quot; be dropped! */
+-		arm7_9-&gt;armv4_5_common.is_semihosting = semihosting;
++	if (arm7_9-&gt;has_vector_catch) {
++		struct reg *vector_catch = &amp;arm7_9-&gt;eice_cache
++				-&gt;reg_list[EICE_VEC_CATCH];
+ 
++		if (!vector_catch-&gt;valid)
++			embeddedice_read_reg(vector_catch);
++		buf_set_u32(vector_catch-&gt;value, 2, 1, enable);
++		embeddedice_store_reg(vector_catch);
++	} else {
++		/* TODO: allow optional high vectors and/or BKPT_HARD */
++		if (enable)
++			breakpoint_add(target, 8, 4, BKPT_SOFT);
++		else
++			breakpoint_remove(target, 8);
+ 	}
+ 
+-	command_print(CMD_CTX, &quot;semihosting is %s&quot;,
+-			arm7_9-&gt;armv4_5_common.is_semihosting
+-			? &quot;enabled&quot; : &quot;disabled&quot;);
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -2906,6 +2884,7 @@ int arm7_9_init_arch_info(struct target *target, struct arm7_9_common *arm7_9)
+ 	armv4_5-&gt;read_core_reg = arm7_9_read_core_reg;
+ 	armv4_5-&gt;write_core_reg = arm7_9_write_core_reg;
+ 	armv4_5-&gt;full_context = arm7_9_full_context;
++	armv4_5-&gt;setup_semihosting = arm7_9_setup_semihosting;
+ 
+ 	retval = arm_init_arch_info(target, armv4_5);
+ 	if (retval != ERROR_OK)
+@@ -2939,13 +2918,6 @@ static const struct command_registration arm7_9_any_command_handlers[] = {
+ 		.usage = &quot;['enable'|'disable']&quot;,
+ 		.help = &quot;use DCC downloads for larger memory writes&quot;,
+ 	},
+-	{
+-		&quot;semihosting&quot;,
+-		.handler = handle_arm7_9_semihosting_command,
+-		.mode = COMMAND_EXEC,
+-		.usage = &quot;['enable'|'disable']&quot;,
+-		.help = &quot;activate support for semihosting operations&quot;,
+-	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ const struct command_registration arm7_9_command_handlers[] = {
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index a4a15b4..5d814f2 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -794,6 +794,47 @@ usage:
+ 	return retval;
+ }
+ 
++COMMAND_HANDLER(handle_arm_semihosting_command)
++{
++	struct target *target = get_current_target(CMD_CTX);
++	struct arm *arm = target ? target_to_arm(target) : NULL;
++
++	if (!is_arm(arm)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM&quot;);
++		return ERROR_FAIL;
++	}
++
++	if (CMD_ARGC &gt; 0)
++	{
++		int semihosting;
++
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], semihosting);
++
++		if (!target_was_examined(target))
++		{
++			LOG_ERROR(&quot;Target not examined yet&quot;);
++			return ERROR_FAIL;
++		}
++
++		if (arm-&gt;setup_semihosting)
++		{
++			if (arm-&gt;setup_semihosting(target, semihosting) != ERROR_OK) {
++				LOG_ERROR(&quot;Failed to Configure semihosting&quot;);
++				return ERROR_FAIL;
++			}
++
++			/* FIXME never let that &quot;catch&quot; be dropped! */
++			arm-&gt;is_semihosting = semihosting;
++		}
++	}
++
++	command_print(CMD_CTX, &quot;semihosting is %s&quot;,
++			arm-&gt;is_semihosting
++			? &quot;enabled&quot; : &quot;disabled&quot;);
++
++	return ERROR_OK;
++}
++
+ static int jim_mcrmrc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	struct command_context *context;
+@@ -959,6 +1000,13 @@ static const struct command_registration arm_exec_command_handlers[] = {
+ 		.help = &quot;read coprocessor register&quot;,
+ 		.usage = &quot;cpnum op1 CRn op2 CRm&quot;,
+ 	},
++	{
++		&quot;semihosting&quot;,
++		.handler = handle_arm_semihosting_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;['enable'|'disable']&quot;,
++		.help = &quot;activate support for semihosting operations&quot;,
++	},
+ 
+ 	COMMAND_REGISTRATION_DONE
+ };
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index ec11176..056ac7b 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -878,9 +878,6 @@ static const struct command_registration armv7m_exec_command_handlers[] = {
+ };
+ const struct command_registration armv7m_command_handlers[] = {
+ 	{
+-		.chain = arm_command_handlers,
+-	},
+-	{
+ 		.name = &quot;dap&quot;,
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;Cortex DAP command group&quot;,
+-- 
+1.6.5.1.1367.gcd48
+
+
+--------------060608010801070405080908--
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014985.html">[PATCH 3/7] armv7m: add missing command chain
+</A></li>
+	<LI>Next message: <A HREF="014983.html">[PATCH 5/7] docs: rename arm7_9 semihosting to arm semihosting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14987">[ date ]</a>
+              <a href="thread.html#14987">[ thread ]</a>
+              <a href="subject.html#14987">[ subject ]</a>
+              <a href="author.html#14987">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

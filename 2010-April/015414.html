@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/2]simplify and unconfuse	target_run_algorithm()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/2%5Dsimplify%20and%20unconfuse%0A%09target_run_algorithm%28%29&In-Reply-To=%3C201004031851.43412.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015413.html">
+   <LINK REL="Next"  HREF="015415.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/2]simplify and unconfuse	target_run_algorithm()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/2%5Dsimplify%20and%20unconfuse%0A%09target_run_algorithm%28%29&In-Reply-To=%3C201004031851.43412.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/2]simplify and unconfuse	target_run_algorithm()">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Apr  4 03:51:43 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015413.html">[Openocd-development] [patch 0/2]
+</A></li>
+        <LI>Next message: <A HREF="015415.html">[Openocd-development] [patch 2/2] target: are we running	algorithm code?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15414">[ date ]</a>
+              <a href="thread.html#15414">[ thread ]</a>
+              <a href="subject.html#15414">[ subject ]</a>
+              <a href="author.html#15414">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Subject: 
+From: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+
+For some reason there were *two* schemes for interposing logic.  One
+is a standard procedural wapper around the target method invocation.
+The other (superfluous) one hacked the method table by splicing
+a second procedural wrapper into the method table.
+
+Remove the latter:
+
+	* Rename its  slightly-more-featureful wrapper so it becomes
+	  the standard procedural wrapper, leaving its added logic
+	  (where it should have been in the first place.
+
+          Also add a paranoia check, to report targets that don't
+	  support algorithms without traversing a NULL pointer.
+
+	
+	  ... and tweak its code structure a bit so it's easier to
+	      modify
+
+	* Get rid of the method table hacks.
+
+
+This is a net simplification, which makes it simpler to analyse what's
+going on, and then interpose logic by ensuring there's only one natural
+place for it to live.
+
+------------
+---
+ src/target/target.c      |   50 +++++++++++++++++++++++++++++----------------
+ src/target/target_type.h |    2 -
+ 2 files changed, 33 insertions(+), 19 deletions(-)
+
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -629,16 +629,46 @@ static int target_soft_reset_halt_imp(st
+ 	return target-&gt;type-&gt;soft_reset_halt_imp(target);
+ }
+ 
+-static int target_run_algorithm_imp(struct target *target, int num_mem_params, struct mem_param *mem_params, int num_reg_params, struct reg_param *reg_param, uint32_t entry_point, uint32_t exit_point, int timeout_ms, void *arch_info)
++/**
++ * Downloads a target-specific native code algorithm to the target,
++ * and executes it.  * Note that some targets may need to set up, enable,
++ * and tear down a breakpoint (hard or * soft) to detect algorithm
++ * termination, while others may support  lower overhead schemes where
++ * soft breakpoints embedded in the algorithm automatically terminate the
++ * algorithm.
++ *
++ * @param target used to run the algorithm
++ * @param arch_info target-specific description of the algorithm.
++ */
++int target_run_algorithm(struct target *target,
++		int num_mem_params, struct mem_param *mem_params,
++		int num_reg_params, struct reg_param *reg_param,
++		uint32_t entry_point, uint32_t exit_point,
++		int timeout_ms, void *arch_info)
+ {
++	int retval = ERROR_FAIL;
++
+ 	if (!target_was_examined(target))
+ 	{
+ 		LOG_ERROR(&quot;Target not examined yet&quot;);
+-		return ERROR_FAIL;
++		goto done;
+ 	}
+-	return target-&gt;type-&gt;run_algorithm_imp(target, num_mem_params, mem_params, num_reg_params, reg_param, entry_point, exit_point, timeout_ms, arch_info);
++	if (target-&gt;type-&gt;run_algorithm) {
++		LOG_ERROR(&quot;Target type '%s' does not support %s&quot;,
++				target_type_name(target), __func__);
++		goto done;
++	}
++
++	retval = target-&gt;type-&gt;run_algorithm(target,
++			num_mem_params, mem_params,
++			num_reg_params, reg_param,
++			entry_point, exit_point, timeout_ms, arch_info);
++
++done:
++	return retval;
+ }
+ 
++
+ int target_read_memory(struct target *target,
+ 		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+@@ -711,17 +741,6 @@ int target_step(struct target *target,
+ }
+ 
+ 
+-int target_run_algorithm(struct target *target,
+-		int num_mem_params, struct mem_param *mem_params,
+-		int num_reg_params, struct reg_param *reg_param,
+-		uint32_t entry_point, uint32_t exit_point,
+-		int timeout_ms, void *arch_info)
+-{
+-	return target-&gt;type-&gt;run_algorithm(target,
+-			num_mem_params, mem_params, num_reg_params, reg_param,
+-			entry_point, exit_point, timeout_ms, arch_info);
+-}
+-
+ /**
+  * Reset the @c examined flag for the given target.
+  * Pure paranoia -- targets are zeroed on allocation.
+@@ -785,9 +804,6 @@ static int target_init_one(struct comman
+ 	type-&gt;soft_reset_halt_imp = target-&gt;type-&gt;soft_reset_halt;
+ 	type-&gt;soft_reset_halt = target_soft_reset_halt_imp;
+ 
+-	type-&gt;run_algorithm_imp = target-&gt;type-&gt;run_algorithm;
+-	type-&gt;run_algorithm = target_run_algorithm_imp;
+-
+ 	/* Sanity-check MMU support ... stub in what we must, to help
+ 	 * implement it in stages, but warn if we need to do so.
+ 	 */
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -146,8 +146,6 @@ struct target_type
+ 	 */
+ 	int (*remove_watchpoint)(struct target *target, struct watchpoint *watchpoint);
+ 
+-	/* target algorithm support */
+-	int (*run_algorithm_imp)(struct target *target, int num_mem_params, struct mem_param *mem_params, int num_reg_params, struct reg_param *reg_param, uint32_t entry_point, uint32_t exit_point, int timeout_ms, void *arch_info);
+ 	/**
+ 	 * Target algorithm support.  Do @b not call this method directly,
+ 	 * use target_run_algorithm() instead.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015413.html">[Openocd-development] [patch 0/2]
+</A></li>
+	<LI>Next message: <A HREF="015415.html">[Openocd-development] [patch 2/2] target: are we running	algorithm code?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15414">[ date ]</a>
+              <a href="thread.html#15414">[ thread ]</a>
+              <a href="subject.html#15414">[ subject ]</a>
+              <a href="author.html#15414">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

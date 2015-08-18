@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] add overridable Tcl &quot;init_reset&quot;
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20add%20overridable%20Tcl%20%22init_reset%22&In-Reply-To=%3C200910082344.47462.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011118.html">
+   <LINK REL="Next"  HREF="011110.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] add overridable Tcl &quot;init_reset&quot;</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20add%20overridable%20Tcl%20%22init_reset%22&In-Reply-To=%3C200910082344.47462.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] add overridable Tcl &quot;init_reset&quot;">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Oct  9 08:44:47 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011118.html">[Openocd-development] Cross compiler for ARM7 bare metal
+</A></li>
+        <LI>Next message: <A HREF="011110.html">[Openocd-development] [patch] make PXA255 targets enumerate	sort-of-OK
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11111">[ date ]</a>
+              <a href="thread.html#11111">[ thread ]</a>
+              <a href="subject.html#11111">[ subject ]</a>
+              <a href="author.html#11111">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This abstracts the &quot;jtag arp_init-reset&quot; call into a method
+called from OpenOCD startup and reset processing.
+
+Platforms which have different requirements for how such hard
+resets must be performed can now override &quot;init_reset&quot; instead
+of needing to rebuild custom hacked versions of the server.
+---
+ NEWS                   |    1 +
+ src/helper/startup.tcl |   29 +++++++++++++++++++++--------
+ 2 files changed, 22 insertions(+), 8 deletions(-)
+
+--- a/NEWS
++++ b/NEWS
+@@ -8,6 +8,7 @@ JTAG Layer:
+     New reset_config options for SRST gating the JTAG clock (or not)
+     TAP declaration no longer requires ircapture and mask attributes
+     New &quot;post-reset&quot; event handler for TAP-invariant setup code
++    Overridable Tcl &quot;init_reset&quot; and &quot;jtag_init&quot; procedures
+ 
+ Target Layer:
+     New commands for use with Cortex-M3 processors:
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -134,6 +134,23 @@ proc ocd_gdb_restart {target_id} {
+ 	reset halt
+ }
+ 
++
++# This reset logic may be overridden by board/target/... scripts as needed
++# to provide a reset that, if possible, is close to a power-up reset.
++#
++# Exit requirements include:  (a) JTAG must be working, (b) the scan
++# chain was validated with &quot;jtag arp_init&quot; (or equivalent), (c) nothing
++# stays in reset.  No TAP-specific scans were performed.  It's OK if
++# some targets haven't been reset yet; they may need TAP-specific scans.
++#
++# The &quot;mode&quot; values include:  halt, init, run (from &quot;reset&quot; command);
++# startup (at OpenOCD server startup, when JTAG may not yet work); and
++# potentially more (for reset types like cold, warm, etc)
++proc init_reset { mode } {
++	jtag arp_init-reset
++}
++
++
+ global in_process_reset
+ set in_process_reset 0
+ 
+@@ -189,10 +206,7 @@ proc ocd_process_reset_inner { MODE } {
+ 
+ 	# Use TRST or TMS/TCK operations to reset all the tap controllers.
+ 	# TAP reset events get reported; they might enable some taps.
+-	#
+-	# REVISIT arp_init-reset pulses SRST (if it can) with TRST active;
+-	# but SRST events aren't reported (unlike &quot;jtag arp_reset&quot;, below)
+-	jtag arp_init-reset
++	init_reset $MODE
+ 
+ 	# Examine all targets on enabled taps.
+ 	foreach t $targets {
+@@ -361,11 +375,11 @@ proc capture_catch {a} {
+ }
+ 
+ 
+-# Executed during &quot;init&quot;. Can be implemented by target script 
+-# tar
++# Executed during &quot;init&quot;. Can be overridden
++# by board/target/... scripts
+ proc jtag_init {} {
+ 	if {[catch {jtag arp_init} err]!=0} {
+ 		# try resetting additionally
+-		jtag arp_init-reset
++		init_reset startup
+ 	}
+-}
+\ No newline at end of file
++}
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011118.html">[Openocd-development] Cross compiler for ARM7 bare metal
+</A></li>
+	<LI>Next message: <A HREF="011110.html">[Openocd-development] [patch] make PXA255 targets enumerate	sort-of-OK
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11111">[ date ]</a>
+              <a href="thread.html#11111">[ thread ]</a>
+              <a href="subject.html#11111">[ subject ]</a>
+              <a href="author.html#11111">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

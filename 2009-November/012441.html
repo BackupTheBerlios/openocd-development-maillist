@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/3] ARM: standard disassembler uses	Thumb2 entry
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM%3A%20standard%20disassembler%20uses%0A%09Thumb2%20entry&In-Reply-To=%3C200911161223.43749.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012444.html">
+   <LINK REL="Next"  HREF="012446.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/3] ARM: standard disassembler uses	Thumb2 entry</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM%3A%20standard%20disassembler%20uses%0A%09Thumb2%20entry&In-Reply-To=%3C200911161223.43749.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/3] ARM: standard disassembler uses	Thumb2 entry">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Nov 16 21:23:43 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012444.html">[Openocd-development] [patch 3/3] ARM11: register (most) standard	ARM commands
+</A></li>
+        <LI>Next message: <A HREF="012446.html">[Openocd-development] OpenOCD 0.3.1 available in Fedora repositories
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12441">[ date ]</a>
+              <a href="thread.html#12441">[ thread ]</a>
+              <a href="subject.html#12441">[ subject ]</a>
+              <a href="author.html#12441">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Tweak &quot;standard&quot; ARM disassembler diagnostics to fail if the target
+is not &quot;an ARM&quot; (vs. not &quot;an ARMV4/5&quot;), so it makes more sense for
+cores inheriting this as the &quot;generic&quot; disassembler.
+
+Also, to use the Thumb2 entry instead of the original Thumb entry.
+This makes it work better for both newer cores (which support those
+added instructions) and for BL and BLX instructions on older cores.
+(Those instructions are 32-bits, which requires curious state-aware
+code to go through a 16-bit decode interface...)
+
+Plus minor cleanups, notably to have fewer exit paths and to make
+sure they all return failure codes.
+---
+ src/target/arm_disassembler.c |    8 +++--
+ src/target/armv4_5.c          |   64 ++++++++++++++++++----------------------
+ 2 files changed, 36 insertions(+), 36 deletions(-)
+
+--- a/src/target/arm_disassembler.c
++++ b/src/target/arm_disassembler.c
+@@ -1784,8 +1784,12 @@ static int evaluate_b_bl_blx_thumb(uint1
+ 	}
+ 
+ 	/* TODO: deal correctly with dual opcode (prefixed) BL/BLX;
+-	 * these are effectively 32-bit instructions even in Thumb1.
+-	 * Might be simplest to always use the Thumb2 decoder.
++	 * these are effectively 32-bit instructions even in Thumb1.  For
++	 * disassembly, it's simplest to always use the Thumb2 decoder.
++	 *
++	 * But some cores will evidently handle them as two instructions,
++	 * where exceptions may occur between the two.  The ETMv3.2+ ID
++	 * register has a bit which exposes this behavior.
+ 	 */
+ 
+ 	snprintf(instruction-&gt;text, 128,
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -439,19 +439,14 @@ COMMAND_HANDLER(handle_armv4_5_disassemb
+ {
+ 	int retval = ERROR_OK;
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
++	struct arm *arm = target ? target_to_arm(target) : NULL;
+ 	uint32_t address;
+ 	int count = 1;
+-	int i;
+-	struct arm_instruction cur_instruction;
+-	uint32_t opcode;
+-	uint16_t thumb_opcode;
+ 	int thumb = 0;
+ 
+-	if (armv4_5-&gt;common_magic != ARMV4_5_COMMON_MAGIC)
+-	{
+-		command_print(cmd_ctx, &quot;current target isn't an ARMV4/5 target&quot;);
+-		return ERROR_OK;
++	if (!is_arm(arm)) {
++		command_print(cmd_ctx, &quot;current target isn't an ARM&quot;);
++		return ERROR_FAIL;
+ 	}
+ 
+ 	switch (argc) {
+@@ -477,37 +472,38 @@ COMMAND_HANDLER(handle_armv4_5_disassemb
+ usage:
+ 		command_print(cmd_ctx,
+ 			&quot;usage: armv4_5 disassemble &lt;address&gt; [&lt;count&gt; ['thumb']]&quot;);
+-		return ERROR_OK;
++		count = 0;
++		retval = ERROR_FAIL;
+ 	}
+ 
+-	for (i = 0; i &lt; count; i++)
+-	{
+-		if (thumb)
+-		{
+-			if ((retval = target_read_u16(target, address, &amp;thumb_opcode)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
+-			if ((retval = thumb_evaluate_opcode(thumb_opcode, address, &amp;cur_instruction)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
+-		}
+-		else {
+-			if ((retval = target_read_u32(target, address, &amp;opcode)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
+-			if ((retval = arm_evaluate_opcode(opcode, address, &amp;cur_instruction)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
++	while (count-- &gt; 0) {
++		struct arm_instruction cur_instruction;
++
++		if (thumb) {
++			/* Always use Thumb2 disassembly for best handling
++			 * of 32-bit BL/BLX, and to work with newer cores
++			 * (some ARMv6, all ARMv7) that use Thumb2.
++			 */
++			retval = thumb2_opcode(target, address,
++					&amp;cur_instruction);
++			if (retval != ERROR_OK)
++				break;
++		} else {
++			uint32_t opcode;
++
++			retval = target_read_u32(target, address, &amp;opcode);
++			if (retval != ERROR_OK)
++				break;
++			retval = arm_evaluate_opcode(opcode, address,
++					&amp;cur_instruction) != ERROR_OK;
++			if (retval != ERROR_OK)
++				break;
+ 		}
+ 		command_print(cmd_ctx, &quot;%s&quot;, cur_instruction.text);
+-		address += (thumb) ? 2 : 4;
++		address += cur_instruction.instruction_size;
+ 	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ int armv4_5_register_commands(struct command_context *cmd_ctx)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012444.html">[Openocd-development] [patch 3/3] ARM11: register (most) standard	ARM commands
+</A></li>
+	<LI>Next message: <A HREF="012446.html">[Openocd-development] OpenOCD 0.3.1 available in Fedora repositories
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12441">[ date ]</a>
+              <a href="thread.html#12441">[ thread ]</a>
+              <a href="subject.html#12441">[ subject ]</a>
+              <a href="author.html#12441">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

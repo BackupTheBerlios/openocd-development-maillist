@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] added pathmove command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20added%20pathmove%20command&In-Reply-To=%3Cc09652430906100019h71383b99x38e46df17e2b923f%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007911.html">
+   <LINK REL="Next"  HREF="007897.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] added pathmove command</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20added%20pathmove%20command&In-Reply-To=%3Cc09652430906100019h71383b99x38e46df17e2b923f%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] added pathmove command">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Jun 10 09:19:05 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007911.html">[Openocd-development] Disable continuous polling during reset
+</A></li>
+        <LI>Next message: <A HREF="007897.html">[Openocd-development] added pathmove command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7893">[ date ]</a>
+              <a href="thread.html#7893">[ thread ]</a>
+              <a href="subject.html#7893">[ subject ]</a>
+              <a href="author.html#7893">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+Does OMAP/BeagleBoard need this?
+
+This &quot;pathmove&quot; command is ready for testing &amp; feedback.
+I've done some quick smoketests and it reveals some interesting
+points in terms of where error checking should go... Discussed
+yesterday.
+
+No patch to openocd.texi, because I believe that text should
+be written after some discussion/feedback and testing is complete.
+
+The pathmove command is intended to be used together with
+dr/irscan in reset scripts.
+
+
+&gt;<i> pathmove run/idle drselect drcapture drshift drpause
+</I>BUG: DRSHIFT -&gt; DRPAUSE isn't a valid TAP transition
+Runtime error, file &quot;command.c&quot;, line 453:
+    pathmove: failed
+&gt;<i> pathmove run/idle drselect drcapture drshift drexit drpause
+</I>Runtime error, file &quot;command.c&quot;, line 453:
+    endstate: drexit invalid
+&gt;<i> pathmove run/idle drselect drcapture drshift exitdr drpause
+</I>Runtime error, file &quot;command.c&quot;, line 453:
+    endstate: exitdr invalid
+&gt;<i> pathmove run/idle drselect drcapture drshift drexit1 drpause
+</I>&gt;<i> pathmove run/idle drselect drcapture drshift drexit1 drpause
+</I>&gt;<i> pathmove run/idle drselect drcapture drshift drexit1 drpause
+</I>
+
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://consulting.zylin.com">http://consulting.zylin.com</A>
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/jtag/tcl.c
+===================================================================
+--- src/jtag/tcl.c	(revision 2179)
++++ src/jtag/tcl.c	(working copy)
+@@ -189,6 +189,7 @@
+ static int handle_runtest_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
++static int Jim_Command_pathmove(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
+ static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args);
+ 
+ static int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -658,6 +659,7 @@
+ 		COMMAND_EXEC, &quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
+ 	register_jim(cmd_ctx, &quot;drscan&quot;, Jim_Command_drscan, &quot;execute DR scan &lt;device&gt; &lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
+ 	register_jim(cmd_ctx, &quot;flush_count&quot;, Jim_Command_flush_count, &quot;returns number of times the JTAG queue has been flushed&quot;);
++	register_jim(cmd_ctx, &quot;pathmove&quot;, Jim_Command_pathmove, &quot;move JTAG to state1 then to state2, state3, etc. &lt;state1&gt;,&lt;state2&gt;,&lt;stat3&gt;...&quot;);
+ 
+ 	register_command(cmd_ctx, NULL, &quot;verify_ircapture&quot;, handle_verify_ircapture_command,
+ 		COMMAND_ANY, &quot;verify value captured during Capture-IR &lt;enable|disable&gt;&quot;);
+@@ -1308,6 +1310,48 @@
+ }
+ 
+ 
++static int Jim_Command_pathmove(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++{
++	tap_state_t states[8];
++
++	if ((argc &lt; 2) || ((size_t)argc &gt; (sizeof(states)/sizeof(*states)+1)))
++	{
++		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
++		return JIM_ERR;
++	}
++
++	int i;
++	for (i=0; i&lt;argc-1; i++)
++	{
++		const char *cp;
++		cp = Jim_GetString( args[i+1], NULL );
++		states[i] = tap_state_by_name(cp);
++		if( states[i] &lt; 0 )
++		{
++			/* update the error message */
++			Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp );
++			return JIM_ERR;
++		}
++	}
++
++	if ((jtag_add_statemove(states[0]) != ERROR_OK) || ( jtag_execute_queue()!= ERROR_OK))
++	{
++		Jim_SetResultString(interp, &quot;pathmove: jtag execute failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	jtag_add_pathmove(argc-2, states+1);
++
++	if (jtag_execute_queue()!= ERROR_OK)
++	{
++		Jim_SetResultString(interp, &quot;pathmove: failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	return JIM_OK;
++}
++
++
+ static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+ {
+ 	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_get_flush_queue_count()));
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007911.html">[Openocd-development] Disable continuous polling during reset
+</A></li>
+	<LI>Next message: <A HREF="007897.html">[Openocd-development] added pathmove command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7893">[ date ]</a>
+              <a href="thread.html#7893">[ thread ]</a>
+              <a href="subject.html#7893">[ subject ]</a>
+              <a href="author.html#7893">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

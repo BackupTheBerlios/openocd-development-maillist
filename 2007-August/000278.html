@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Some leftover patches for 192
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Some%20leftover%20patches%20for%20192&In-Reply-To=%3C46BDB78F.3020109%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000276.html">
+   <LINK REL="Next"  HREF="000279.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Some leftover patches for 192</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Some%20leftover%20patches%20for%20192&In-Reply-To=%3C46BDB78F.3020109%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] Some leftover patches for 192">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Sat Aug 11 15:20:15 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000276.html">[Openocd-development] Some leftover patches for 192
+</A></li>
+        <LI>Next message: <A HREF="000279.html">[Openocd-development] Some leftover patches for 192
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#278">[ date ]</a>
+              <a href="thread.html#278">[ thread ]</a>
+              <a href="subject.html#278">[ subject ]</a>
+              <a href="author.html#278">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Pavel Chromy wrote:
+&gt;<i>
+</I>&gt;<i> at91sam7.c: num_sectors is not set during probe (the patch sets it to 
+</I>&gt;<i> 1, discussed before),
+</I>&gt;<i> erase function shall check last sector against num_sectors rather than 
+</I>&gt;<i> number of lockbits.
+</I>&gt;<i>
+</I>This breaks existing behavior and scripts !
+I oppose it unless we make sure that old scripts keep working with 
+warnings at least for some revisions.
+Formally I think it is a correct change.
+
+/Magnus
+
+&gt;<i>
+</I>&gt;<i> ------------------------------------------------------------------------
+</I>&gt;<i>
+</I>&gt;<i> Index: src/flash/at91sam7.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/flash/at91sam7.c	(revision 192)
+</I>&gt;<i> +++ src/flash/at91sam7.c	(working copy)
+</I>&gt;<i> @@ -326,6 +326,7 @@
+</I>&gt;<i>  	at91sam7_info-&gt;cidr_version = cidr&amp;0x001F;
+</I>&gt;<i>  	bank-&gt;size = NVPSIZ[at91sam7_info-&gt;cidr_nvpsiz];
+</I>&gt;<i>  	at91sam7_info-&gt;target_name = &quot;Unknown&quot;;
+</I>&gt;<i> +	bank-&gt;num_sectors = 1; /* Support just for bulk erase of the whole device */
+</I>&gt;<i>  	
+</I>&gt;<i>  	DEBUG(&quot;nvptyp: 0x%3.3x, arch: 0x%4.4x&quot;, at91sam7_info-&gt;cidr_nvptyp, at91sam7_info-&gt;cidr_arch );
+</I>&gt;<i>  
+</I>&gt;<i> @@ -565,7 +566,7 @@
+</I>&gt;<i>  		return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>  	}	
+</I>&gt;<i>  	
+</I>&gt;<i> -	if ((first &lt; 0) || (last &lt; first) || (last &gt;= at91sam7_info-&gt;num_lockbits))
+</I>&gt;<i> +	if ((first &lt; 0) || (last &lt; first) || (last &gt;= bank-&gt;num_sectors))
+</I>&gt;<i>  	{
+</I>&gt;<i>  		return ERROR_FLASH_SECTOR_INVALID;
+</I>&gt;<i>  	}
+</I>&gt;<i> @@ -574,7 +575,7 @@
+</I>&gt;<i>  	at91sam7_read_clock_info(bank);	
+</I>&gt;<i>         at91sam7_set_flash_mode(bank,FMR_TIMING_FLASH);
+</I>&gt;<i>  
+</I>&gt;<i> -	if ((first == 0) &amp;&amp; (last == (at91sam7_info-&gt;num_lockbits-1)))
+</I>&gt;<i> +	if ((first == 0) &amp;&amp; (last == (bank-&gt;num_sectors-1)))
+</I>&gt;<i>  	{
+</I>&gt;<i>  		return at91sam7_flash_command(bank, EA, 0);
+</I>&gt;<i>  	}
+</I>&gt;<i> Index: src/jtag/presto.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/jtag/presto.c	(revision 192)
+</I>&gt;<i> +++ src/jtag/presto.c	(working copy)
+</I>&gt;<i> @@ -67,7 +67,7 @@
+</I>&gt;<i>  int presto_bitq_out(int tms, int tdi, int tdo_req);
+</I>&gt;<i>  int presto_bitq_flush(void);
+</I>&gt;<i>  int presto_bitq_sleep(unsigned long us);
+</I>&gt;<i> -int presto_bitq_reset(int rst, int en);
+</I>&gt;<i> +int presto_bitq_reset(int trst, int srst);
+</I>&gt;<i>  int presto_bitq_in_rdy(void);
+</I>&gt;<i>  int presto_bitq_in(void);
+</I>&gt;<i>  
+</I>&gt;<i>   
+</I>&gt;<i> ------------------------------------------------------------------------
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000276.html">[Openocd-development] Some leftover patches for 192
+</A></li>
+	<LI>Next message: <A HREF="000279.html">[Openocd-development] Some leftover patches for 192
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#278">[ date ]</a>
+              <a href="thread.html#278">[ thread ]</a>
+              <a href="subject.html#278">[ subject ]</a>
+              <a href="author.html#278">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

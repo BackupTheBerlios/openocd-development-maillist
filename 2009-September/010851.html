@@ -1,0 +1,809 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] new lpc2xxx cfg files layout
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C774298.93606.qm%40web27303.mail.ukl.yahoo.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010849.html">
+   <LINK REL="Next"  HREF="010852.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] new lpc2xxx cfg files layout</H1>
+    <B>Rolf Meeser</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C774298.93606.qm%40web27303.mail.ukl.yahoo.com%3E"
+       TITLE="[Openocd-development] new lpc2xxx cfg files layout">rolfm_9dq at yahoo.de
+       </A><BR>
+    <I>Sun Sep 27 22:25:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010849.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+        <LI>Next message: <A HREF="010852.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10851">[ date ]</a>
+              <a href="thread.html#10851">[ thread ]</a>
+              <a href="subject.html#10851">[ subject ]</a>
+              <a href="author.html#10851">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Freddie,
+
+I didn't find the time yet to write a few comments. But here they are:
+They are all meant to be constructive and friendly! :-)
+
+
+How would you write a board file for a board with two LPC2103 in the chain?
+A simple
+source [find target/lpc2103.cfg]
+source [find target/lpc2103.cfg]
+wouldn't work because it would try to declare two targets with the same name (lpc2103.cpu).
+
+Previously it was possible to write:
+set CHIPNAME chip1
+source [find target/lpc2103.cfg]
+set CHIPNAME chip2
+source [find target/lpc2103.cfg]
+It gave you two targets chip1.cpu and chip2.cpu.
+
+
+Regarding the clock speed: What you call CRYSTAL_FREQ is the frequency that is in use when you do the flash programming. In order to be able to maximize the download speed, I want to enable the PLL in the &quot;reset init&quot; script. This operating frequency isn't really related to the crystal frequency, and I think the name CRYSTAL_FREQ is misleading.
+Many people in the past had problems with flash programming because they specified the crystal frequency where they should have used the real CCLK!
+
+This clock frequency is something that the user should specify in a board file.
+
+The reset init script must be available to the user, because he needs it to add the PLL initialization. Where would I enable the PLL when a default reset init script is already defined in the target script?
+
+
+The working area should start at 0x40000200. This makes sure that there is no conflict with possible temporary storage of IAP code (has been a problem in the past, although the 0x40000000--0x400001FF area should have been used by ISP code only).
+A strict requirement is to not touch the upper 32 bytes of the internal SRAM. This RAM area is definitely used by the IAP routines internally!
+
+There are devices with external memory bus. A user might want to use an external RAM for the working area instead of the internal SRAM. Therefore I think the working area declaration is board specific and doesn't belong to the target declaration.
+
+What do you think about modifying the LPC2000 flash driver to adapt itself to the various devices? It can read the part id and auto-configure itself. You could keep the FLASH_SIZE and RAM_SIZE variables to override any automatic detection. I feel it would make life a lot easier!
+
+Regards,
+Rolf
+
+
+--- Freddie Chopin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">freddie_chopin at op.pl</A>&gt; schrieb am So, 27.9.2009:
+
+&gt;<i> Von: Freddie Chopin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">freddie_chopin at op.pl</A>&gt;
+</I>&gt;<i> Betreff: Re: [Openocd-development] new lpc2xxx cfg files layout
+</I>&gt;<i> An: &quot;openocd-development&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>&gt;
+</I>&gt;<i> Datum: Sonntag, 27. September 2009, 21:05
+</I>&gt;<i> Be it your way...
+</I>&gt;<i> 
+</I>&gt;<i> 4\/3!!
+</I>&gt;<i> 
+</I>&gt;<i> -----Integrierter Anhang folgt-----
+</I>&gt;<i> 
+</I>&gt;<i> Index: tcl/target/lpc2103.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2103.cfg&#160;&#160;&#160; (revision
+</I>&gt;<i> 2744)
+</I>&gt;<i> +++ tcl/target/lpc2103.cfg&#160;&#160;&#160; (working
+</I>&gt;<i> copy)
+</I>&gt;<i> @@ -1,38 +1,19 @@
+</I>&gt;<i> -# NXP LPC2103 ARM7TDMI-S with 32kB Flash and 8kB SRAM,
+</I>&gt;<i> clocked with 12MHz crystal
+</I>&gt;<i> +# NXP LPC2103 ARM7TDMI-S with 32kB Flash and 8kB SRAM
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# do not use this file directly! the caller has to specify
+</I>&gt;<i> CRYSTAL_FREQ with:
+</I>&gt;<i> +# set CRYSTAL_FREQ &lt;frequency in Hz&gt;
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CHIPNAME] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _CHIPNAME $CHIPNAME
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set _CHIPNAME lpc2103
+</I>&gt;<i> -}
+</I>&gt;<i> +set CHIPNAME lpc2103
+</I>&gt;<i> +set FLASH_SIZE 0x8000
+</I>&gt;<i> +set RAM_SIZE 0x2000
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists ENDIAN] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _ENDIAN $ENDIAN
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set _ENDIAN little
+</I>&gt;<i> -}
+</I>&gt;<i> +set VARIANT lpc2000_v2
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CPUTAPID ] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID $CPUTAPID
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID 0x4f1f0f0f
+</I>&gt;<i> -}
+</I>&gt;<i> +set CPUTAPID 0x4f1f0f0f
+</I>&gt;<i>  
+</I>&gt;<i> -# LPC2000 -&gt; SRST causes TRST
+</I>&gt;<i> -reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i> +set JTAG_FREQ 1000000
+</I>&gt;<i>  
+</I>&gt;<i> -# reset delays
+</I>&gt;<i> -jtag_nsrst_delay 100
+</I>&gt;<i> -jtag_ntrst_delay 100
+</I>&gt;<i> +set RESET_CONFIG trst_and_srst
+</I>&gt;<i>  
+</I>&gt;<i> -jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> -
+</I>&gt;<i> -set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> -target create $_TARGETNAME arm7tdmi -endian $_ENDIAN
+</I>&gt;<i> -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+</I>&gt;<i> -
+</I>&gt;<i> -# 8kB of internal SRAM
+</I>&gt;<i> -$_TARGETNAME configure -work-area-virt 0 -work-area-phys
+</I>&gt;<i> 0x40000000 -work-area-size 0x2000 -work-area-backup 0
+</I>&gt;<i> -
+</I>&gt;<i> -# 32kB of internal Flash, core clocked with 12MHz crystal
+</I>&gt;<i> -# flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0
+</I>&gt;<i> &lt;target#&gt; &lt;variant&gt; &lt;clock&gt;
+</I>&gt;<i> [calc_checksum]
+</I>&gt;<i> -flash bank lpc2000 0x0 0x8000 0 0 0 lpc2000_v2 12000
+</I>&gt;<i> calc_checksum
+</I>&gt;<i> +source [find target/lpc2xxx_internals.tcl]
+</I>&gt;<i> Index: tcl/target/lpc2124.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2124.cfg&#160;&#160;&#160; (revision
+</I>&gt;<i> 2744)
+</I>&gt;<i> +++ tcl/target/lpc2124.cfg&#160;&#160;&#160; (working
+</I>&gt;<i> copy)
+</I>&gt;<i> @@ -1,42 +1,19 @@
+</I>&gt;<i> -#LPC-2124 CPU
+</I>&gt;<i> +# NXP LPC2124 ARM7TDMI-S with 256kB Flash and 16kB SRAM
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# do not use this file directly! the caller has to specify
+</I>&gt;<i> CRYSTAL_FREQ with:
+</I>&gt;<i> +# set CRYSTAL_FREQ &lt;frequency in Hz&gt;
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CHIPNAME] } {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _CHIPNAME $CHIPNAME
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _CHIPNAME lpc2124
+</I>&gt;<i> -}
+</I>&gt;<i> +set CHIPNAME lpc2124
+</I>&gt;<i> +set FLASH_SIZE 0x40000
+</I>&gt;<i> +set RAM_SIZE 0x4000
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists ENDIAN] } {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _ENDIAN $ENDIAN
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _ENDIAN little
+</I>&gt;<i> -}
+</I>&gt;<i> +set VARIANT lpc2000_v1
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CPUTAPID ] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID $CPUTAPID
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160; # force an error till we get a good number
+</I>&gt;<i> -&#160; &#160; set _CPUTAPID 0x4f1f0f0f
+</I>&gt;<i> -}
+</I>&gt;<i> +set CPUTAPID 0x4f1f0f0f
+</I>&gt;<i>  
+</I>&gt;<i> +set JTAG_FREQ 1000000
+</I>&gt;<i>  
+</I>&gt;<i> -#use combined on interfaces or targets that can't set
+</I>&gt;<i> TRST/SRST separately
+</I>&gt;<i> -reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i> +set RESET_CONFIG trst_and_srst
+</I>&gt;<i>  
+</I>&gt;<i> -# reset delays
+</I>&gt;<i> -jtag_nsrst_delay 100
+</I>&gt;<i> -jtag_ntrst_delay 100
+</I>&gt;<i> -
+</I>&gt;<i> -jtag_khz 1000
+</I>&gt;<i> -
+</I>&gt;<i> -#jtag scan chain
+</I>&gt;<i> -jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> -
+</I>&gt;<i> -set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> -target create $_TARGETNAME arm7tdmi -endian $_ENDIAN
+</I>&gt;<i> -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+</I>&gt;<i> -
+</I>&gt;<i> -$_TARGETNAME configure -work-area-virt 0 -work-area-phys
+</I>&gt;<i> 0x40000000 -work-area-size 0x4000 -work-area-backup 0
+</I>&gt;<i> -
+</I>&gt;<i> -
+</I>&gt;<i> -#flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt;
+</I>&gt;<i> &lt;chip_width&gt; &lt;bus_width&gt;
+</I>&gt;<i> -flash bank lpc2000 0x0 0x40000 0 0 0 lpc2000_v1 14745
+</I>&gt;<i> calc_checksum
+</I>&gt;<i> +source [find target/lpc2xxx_internals.tcl]
+</I>&gt;<i> Index: tcl/target/lpc2129.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2129.cfg&#160;&#160;&#160; (revision
+</I>&gt;<i> 2744)
+</I>&gt;<i> +++ tcl/target/lpc2129.cfg&#160;&#160;&#160; (working
+</I>&gt;<i> copy)
+</I>&gt;<i> @@ -1,41 +1,19 @@
+</I>&gt;<i> -#LPC-2129 CPU
+</I>&gt;<i> +# NXP LPC2129 ARM7TDMI-S with 256kB Flash and 16kB SRAM
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# do not use this file directly! the caller has to specify
+</I>&gt;<i> CRYSTAL_FREQ with:
+</I>&gt;<i> +# set CRYSTAL_FREQ &lt;frequency in Hz&gt;
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i>  
+</I>&gt;<i> +set CHIPNAME lpc2129
+</I>&gt;<i> +set FLASH_SIZE 0x40000
+</I>&gt;<i> +set RAM_SIZE 0x4000
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CHIPNAME] } {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _CHIPNAME $CHIPNAME
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _CHIPNAME lpc2129
+</I>&gt;<i> -}
+</I>&gt;<i> +set VARIANT lpc2000_v1
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists ENDIAN] } {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _ENDIAN $ENDIAN
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _ENDIAN little
+</I>&gt;<i> -}
+</I>&gt;<i> +set CPUTAPID 0x4f1f0f0f
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CPUTAPID ] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID $CPUTAPID
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160; # force an error till we get a good number
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID 0xffffffff
+</I>&gt;<i> -}
+</I>&gt;<i> +set JTAG_FREQ 1000000
+</I>&gt;<i>  
+</I>&gt;<i> +set RESET_CONFIG trst_and_srst
+</I>&gt;<i>  
+</I>&gt;<i> -#use combined on interfaces or targets that can't set
+</I>&gt;<i> TRST/SRST separately
+</I>&gt;<i> -reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i> -
+</I>&gt;<i> -# reset delays
+</I>&gt;<i> -jtag_nsrst_delay 100
+</I>&gt;<i> -jtag_ntrst_delay 100
+</I>&gt;<i> -
+</I>&gt;<i> -#jtag scan chain
+</I>&gt;<i> -jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> -
+</I>&gt;<i> -
+</I>&gt;<i> -set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> -target create $_TARGETNAME arm7tdmi -endian $_ENDIAN
+</I>&gt;<i> -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+</I>&gt;<i> -
+</I>&gt;<i> -$_TARGETNAME configure -work-area-virt 0 -work-area-phys
+</I>&gt;<i> 0x40000000 -work-area-size 0x4000 -work-area-backup 0
+</I>&gt;<i> -
+</I>&gt;<i> -#flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt;
+</I>&gt;<i> &lt;chip_width&gt; &lt;bus_width&gt;
+</I>&gt;<i> -flash bank lpc2000 0x0 0x40000 0 0 0 lpc2000_v1 14765
+</I>&gt;<i> calc_checksum
+</I>&gt;<i> +source [find target/lpc2xxx_internals.tcl]
+</I>&gt;<i> Index: tcl/target/lpc2148.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2148.cfg&#160;&#160;&#160; (revision
+</I>&gt;<i> 2744)
+</I>&gt;<i> +++ tcl/target/lpc2148.cfg&#160;&#160;&#160; (working
+</I>&gt;<i> copy)
+</I>&gt;<i> @@ -1,55 +1,20 @@
+</I>&gt;<i> -# Use RCLK. If RCLK is not available fall back to 500kHz.
+</I>&gt;<i> -#
+</I>&gt;<i> -# Depending on cabling you might be able to eek this up to
+</I>&gt;<i> 2000kHz.
+</I>&gt;<i> -jtag_rclk 500
+</I>&gt;<i> +# NXP LPC2148 ARM7TDMI-S with 512kB Flash (12kB occupied
+</I>&gt;<i> by bootloader) and
+</I>&gt;<i> +# 32kB Local On-Chip SRAM (40kB total)
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# do not use this file directly! the caller has to specify
+</I>&gt;<i> CRYSTAL_FREQ with:
+</I>&gt;<i> +# set CRYSTAL_FREQ &lt;frequency in Hz&gt;
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CHIPNAME] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _CHIPNAME $CHIPNAME
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set _CHIPNAME lpc2148
+</I>&gt;<i> -}
+</I>&gt;<i> +set CHIPNAME lpc2148
+</I>&gt;<i> +set FLASH_SIZE 0x7d000
+</I>&gt;<i> +set RAM_SIZE 0x8000
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists ENDIAN] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _ENDIAN $ENDIAN
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set _ENDIAN little
+</I>&gt;<i> -}
+</I>&gt;<i> +set VARIANT lpc2000_v2
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CPUTAPID ] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID $CPUTAPID
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID 0x4f1f0f0f
+</I>&gt;<i> -}
+</I>&gt;<i> +set CPUTAPID 0x4f1f0f0f
+</I>&gt;<i>  
+</I>&gt;<i> -jtag_nsrst_delay 200
+</I>&gt;<i> -jtag_ntrst_delay 200
+</I>&gt;<i> +set JTAG_FREQ 1000000
+</I>&gt;<i>  
+</I>&gt;<i> -# NOTE!!! LPCs need reset pulled while RTCK is low. 0 to
+</I>&gt;<i> activate
+</I>&gt;<i> -# JTAG, power-on reset is not enough, i.e. you need to
+</I>&gt;<i> perform a
+</I>&gt;<i> -# reset before being able to talk to the LPC2148, attach
+</I>&gt;<i> is not possible.
+</I>&gt;<i> +set RESET_CONFIG trst_and_srst
+</I>&gt;<i>  
+</I>&gt;<i> -reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i> -
+</I>&gt;<i> -jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> -
+</I>&gt;<i> -set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> -target create $_TARGETNAME arm7tdmi -endian $_ENDIAN
+</I>&gt;<i> -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+</I>&gt;<i> -
+</I>&gt;<i> -$_TARGETNAME configure -work-area-virt 0 -work-area-phys
+</I>&gt;<i> 0x40000000 -work-area-size 0x4000 -work-area-backup 0
+</I>&gt;<i> -
+</I>&gt;<i> -$_TARGETNAME configure -event reset-init {
+</I>&gt;<i> -&#160;&#160;&#160; # Force target into ARM state
+</I>&gt;<i> -&#160;&#160;&#160; armv4_5 core_state arm
+</I>&gt;<i> -
+</I>&gt;<i> -&#160;&#160;&#160; # Do not remap 0x0000-0x0020 to
+</I>&gt;<i> anything but the flash (i.e. select
+</I>&gt;<i> -&#160;&#160;&#160; # &quot;User Flash Mode&quot; where interrupt
+</I>&gt;<i> vectors are _not_ remapped,
+</I>&gt;<i> -&#160;&#160;&#160; # and reside in flash instead).
+</I>&gt;<i> -&#160;&#160;&#160; #
+</I>&gt;<i> -&#160;&#160;&#160; # See section 7.1 on page 32 (&quot;Memory
+</I>&gt;<i> Mapping control register&quot;) in
+</I>&gt;<i> -&#160;&#160;&#160; # &quot;UM10139: Volume 1: LPC214x User
+</I>&gt;<i> Manual&quot;, Rev. 02 -- 25 July 2006.
+</I>&gt;<i> -&#160;&#160;&#160; # <A HREF="http://www.standardics.nxp.com/support/documents/microcontrollers/pdf/user.manual.lpc2141.lpc2142.lpc2144.lpc2146.lpc2148.pdf">http://www.standardics.nxp.com/support/documents/microcontrollers/pdf/user.manual.lpc2141.lpc2142.lpc2144.lpc2146.lpc2148.pdf</A>
+</I>&gt;<i> -&#160;&#160;&#160; mwb 0xE01FC040 0x01
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i> -# flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0
+</I>&gt;<i> &lt;target#&gt; &lt;variant&gt; &lt;clock&gt;
+</I>&gt;<i> [calc_checksum]
+</I>&gt;<i> -flash bank lpc2000 0x0 0x7d000 0 0 0 lpc2000_v2 14765
+</I>&gt;<i> calc_checksum
+</I>&gt;<i> +source [find target/lpc2xxx_internals.tcl]
+</I>&gt;<i> Index: tcl/target/lpc2294.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2294.cfg&#160;&#160;&#160; (revision
+</I>&gt;<i> 2744)
+</I>&gt;<i> +++ tcl/target/lpc2294.cfg&#160;&#160;&#160; (working
+</I>&gt;<i> copy)
+</I>&gt;<i> @@ -1,38 +1,19 @@
+</I>&gt;<i> -if { [info exists CHIPNAME] } {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _CHIPNAME $CHIPNAME
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _CHIPNAME lpc2294
+</I>&gt;<i> -}
+</I>&gt;<i> +# NXP LPC2294 ARM7TDMI-S with 256kB Flash and 16kB SRAM
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# do not use this file directly! the caller has to specify
+</I>&gt;<i> CRYSTAL_FREQ with:
+</I>&gt;<i> +# set CRYSTAL_FREQ &lt;frequency in Hz&gt;
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists ENDIAN] } {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _ENDIAN $ENDIAN
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160;set&#160; _ENDIAN little
+</I>&gt;<i> -}
+</I>&gt;<i> +set CHIPNAME lpc2294
+</I>&gt;<i> +set FLASH_SIZE 0x40000
+</I>&gt;<i> +set RAM_SIZE 0x4000
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CPUTAPID ] } {
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID $CPUTAPID
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160; # force an error till we get a good number
+</I>&gt;<i> -&#160;&#160;&#160;set _CPUTAPID 0xffffffff
+</I>&gt;<i> -}
+</I>&gt;<i> +set VARIANT lpc2000_v1
+</I>&gt;<i>  
+</I>&gt;<i> -jtag_nsrst_delay 200
+</I>&gt;<i> -jtag_ntrst_delay 200
+</I>&gt;<i> +set CPUTAPID 0x4f1f0f0f
+</I>&gt;<i>  
+</I>&gt;<i> -#use combined on interfaces or targets that can't set
+</I>&gt;<i> TRST/SRST separately
+</I>&gt;<i> -reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i> +set JTAG_FREQ 1000000
+</I>&gt;<i>  
+</I>&gt;<i> -#jtag scan chain
+</I>&gt;<i> -jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> +set RESET_CONFIG trst_and_srst
+</I>&gt;<i>  
+</I>&gt;<i> -set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> -target create $_TARGETNAME arm7tdmi -endian $_ENDIAN
+</I>&gt;<i> -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+</I>&gt;<i> -$_TARGETNAME configure -work-area-virt 0 -work-area-phys
+</I>&gt;<i> 0x40000000 -work-area-size 0x4000 -work-area-backup 0
+</I>&gt;<i> -
+</I>&gt;<i> -#flash configuration
+</I>&gt;<i> -#flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0
+</I>&gt;<i> &lt;target#&gt; &lt;variant&gt;
+</I>&gt;<i> -flash bank lpc2000 0x0 0x40000 0 0 0 lpc2000_v1 14765
+</I>&gt;<i> calc_checksum
+</I>&gt;<i> -
+</I>&gt;<i> -# For more information about the configuration files, take
+</I>&gt;<i> a look at:
+</I>&gt;<i> -# openocd.texi
+</I>&gt;<i> +source [find target/lpc2xxx_internals.tcl]
+</I>&gt;<i> Index: tcl/target/lpc2378.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2378.cfg&#160;&#160;&#160; (revision
+</I>&gt;<i> 2744)
+</I>&gt;<i> +++ tcl/target/lpc2378.cfg&#160;&#160;&#160; (working
+</I>&gt;<i> copy)
+</I>&gt;<i> @@ -1,49 +1,20 @@
+</I>&gt;<i> -# NXP LPC2378 ARM7TDMI-S with 512kB Flash and 32kB Local
+</I>&gt;<i> On-Chip SRAM (58kB total), clocked with 4MHz internal RC
+</I>&gt;<i> oscillator
+</I>&gt;<i> +# NXP LPC2378 ARM7TDMI-S with 512kB Flash (12kB occupied
+</I>&gt;<i> by bootloader) and
+</I>&gt;<i> +# 32kB Local On-Chip SRAM (58kB total)
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# do not use this file directly! the caller has to specify
+</I>&gt;<i> CRYSTAL_FREQ with:
+</I>&gt;<i> +# set CRYSTAL_FREQ &lt;frequency in Hz&gt;
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CHIPNAME] } {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _CHIPNAME $CHIPNAME
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _CHIPNAME lpc2378
+</I>&gt;<i> -}
+</I>&gt;<i> +set CHIPNAME lpc2378
+</I>&gt;<i> +set FLASH_SIZE 0x7d000
+</I>&gt;<i> +set RAM_SIZE 0x8000
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists ENDIAN] } {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _ENDIAN $ENDIAN
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _ENDIAN little
+</I>&gt;<i> -}
+</I>&gt;<i> +set VARIANT lpc2000_v2
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CPUTAPID ] } {
+</I>&gt;<i> -&#160;&#160;&#160; set _CPUTAPID $CPUTAPID
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160; set _CPUTAPID 0x4f1f0f0f
+</I>&gt;<i> -}
+</I>&gt;<i> +set CPUTAPID 0x4f1f0f0f
+</I>&gt;<i>  
+</I>&gt;<i> -#delays on reset lines
+</I>&gt;<i> -jtag_nsrst_delay 200
+</I>&gt;<i> -jtag_ntrst_delay 200
+</I>&gt;<i> +set JTAG_FREQ 500000
+</I>&gt;<i>  
+</I>&gt;<i> -# LPC2000 -&gt; SRST causes TRST
+</I>&gt;<i> -reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i> +set RESET_CONFIG trst_and_srst
+</I>&gt;<i>  
+</I>&gt;<i> -jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> -
+</I>&gt;<i> -set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> -target create $_TARGETNAME arm7tdmi -endian $_ENDIAN
+</I>&gt;<i> -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+</I>&gt;<i> -
+</I>&gt;<i> -# LPC2378 has 32kB of SRAM on its main system bus
+</I>&gt;<i> (so-called Local On-Chip SRAM)
+</I>&gt;<i> -$_TARGETNAME configure -work-area-virt 0 -work-area-phys
+</I>&gt;<i> 0x40000000 -work-area-size 0x8000 -work-area-backup 0
+</I>&gt;<i> -
+</I>&gt;<i> -$_TARGETNAME configure -event reset-init {
+</I>&gt;<i> -&#160;&#160;&#160; # Force target into ARM state
+</I>&gt;<i> -&#160;&#160;&#160; armv4_5 core_state arm
+</I>&gt;<i> -&#160;&#160;&#160; #do not remap 0x0000-0x0020 to anything
+</I>&gt;<i> but the flash
+</I>&gt;<i> -&#160;&#160;&#160; mwb 0xE01FC040 0x01
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i> -# LPC2378 has 512kB of FLASH, but upper 8kB are occupied
+</I>&gt;<i> by bootloader.
+</I>&gt;<i> -# After reset the chip uses its internal 4MHz RC
+</I>&gt;<i> oscillator
+</I>&gt;<i> -#flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0
+</I>&gt;<i> &lt;target#&gt; &lt;variant&gt;
+</I>&gt;<i> -flash bank lpc2000 0x0 0x0007D000 0 0 0 lpc2000_v2 4000
+</I>&gt;<i> calc_checksum
+</I>&gt;<i> -
+</I>&gt;<i> -# 4MHz / 6 = 666kHz, so use 500
+</I>&gt;<i> -jtag_khz 500
+</I>&gt;<i> +source [find target/lpc2xxx_internals.tcl]
+</I>&gt;<i> Index: tcl/target/lpc2478.cfg
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2478.cfg&#160;&#160;&#160; (revision
+</I>&gt;<i> 2744)
+</I>&gt;<i> +++ tcl/target/lpc2478.cfg&#160;&#160;&#160; (working
+</I>&gt;<i> copy)
+</I>&gt;<i> @@ -1,49 +1,20 @@
+</I>&gt;<i> -# NXP LPC2478 ARM7TDMI-S with 512kB Flash and 64kB Local
+</I>&gt;<i> On-Chip SRAM (98kB total), clocked with 4MHz internal RC
+</I>&gt;<i> oscillator
+</I>&gt;<i> +# NXP LPC2478 ARM7TDMI-S with 512kB Flash (12kB occupied
+</I>&gt;<i> by bootloader) and
+</I>&gt;<i> +# 64kB Local On-Chip SRAM (98kB total)
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# do not use this file directly! the caller has to specify
+</I>&gt;<i> CRYSTAL_FREQ with:
+</I>&gt;<i> +# set CRYSTAL_FREQ &lt;frequency in Hz&gt;
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CHIPNAME] } {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _CHIPNAME $CHIPNAME
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _CHIPNAME lpc2478
+</I>&gt;<i> -}
+</I>&gt;<i> +set CHIPNAME lpc2478
+</I>&gt;<i> +set FLASH_SIZE 0x7d000
+</I>&gt;<i> +set RAM_SIZE 0x10000
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists ENDIAN] } {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _ENDIAN $ENDIAN
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160; set&#160; _ENDIAN little
+</I>&gt;<i> -}
+</I>&gt;<i> +set VARIANT lpc2000_v2
+</I>&gt;<i>  
+</I>&gt;<i> -if { [info exists CPUTAPID ] } {
+</I>&gt;<i> -&#160;&#160;&#160; set _CPUTAPID $CPUTAPID
+</I>&gt;<i> -} else {
+</I>&gt;<i> -&#160;&#160;&#160; set _CPUTAPID 0x4f1f0f0f
+</I>&gt;<i> -}
+</I>&gt;<i> +set CPUTAPID 0x4f1f0f0f
+</I>&gt;<i>  
+</I>&gt;<i> -#delays on reset lines
+</I>&gt;<i> -jtag_nsrst_delay 100
+</I>&gt;<i> -jtag_ntrst_delay 100
+</I>&gt;<i> +set JTAG_FREQ 500000
+</I>&gt;<i>  
+</I>&gt;<i> -# LPC2000 -&gt; SRST causes TRST
+</I>&gt;<i> -reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i> +set RESET_CONFIG trst_and_srst
+</I>&gt;<i>  
+</I>&gt;<i> -jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> -
+</I>&gt;<i> -set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> -target create $_TARGETNAME arm7tdmi -endian $_ENDIAN
+</I>&gt;<i> -chain-position $_TARGETNAME -variant arm7tdmi-s_r4
+</I>&gt;<i> -
+</I>&gt;<i> -# LPC2478 has 64kB of SRAM on its main system bus
+</I>&gt;<i> (so-called Local On-Chip SRAM)
+</I>&gt;<i> -$_TARGETNAME configure -work-area-virt 0 -work-area-phys
+</I>&gt;<i> 0x40000000 -work-area-size 0x10000 -work-area-backup 0
+</I>&gt;<i> -
+</I>&gt;<i> -$_TARGETNAME configure -event reset-init {
+</I>&gt;<i> -&#160;&#160;&#160; # Force target into ARM state
+</I>&gt;<i> -&#160;&#160;&#160; armv4_5 core_state arm
+</I>&gt;<i> -&#160;&#160;&#160; # Do not remap 0x0000-0x0020 to
+</I>&gt;<i> anything but the Flash
+</I>&gt;<i> -&#160;&#160;&#160; mwb 0xE01FC040 0x01
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i> -# LPC2378 has 512kB of FLASH, but upper 8kB are occupied
+</I>&gt;<i> by bootloader.
+</I>&gt;<i> -# After reset the chip uses its internal 4MHz RC
+</I>&gt;<i> oscillator.
+</I>&gt;<i> -# flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0
+</I>&gt;<i> &lt;target#&gt; &lt;variant&gt; &lt;clock&gt; [calc
+</I>&gt;<i> checksum]
+</I>&gt;<i> -flash bank lpc2000 0x0 0x7D000 0 0 0 lpc2000_v2 12000
+</I>&gt;<i> calc_checksum
+</I>&gt;<i> -
+</I>&gt;<i> -# Try to use RCLK, if RCLK is not available use &quot;normal&quot;
+</I>&gt;<i> mode. 4MHz / 6 = 666kHz, so use 500.
+</I>&gt;<i> -jtag_rclk 500
+</I>&gt;<i> +source [find target/lpc2xxx_internals.tcl]
+</I>&gt;<i> Index: tcl/target/lpc2xxx_internals.tcl
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- tcl/target/lpc2xxx_internals.tcl&#160;&#160;&#160;
+</I>&gt;<i> (revision 0)
+</I>&gt;<i> +++ tcl/target/lpc2xxx_internals.tcl&#160;&#160;&#160;
+</I>&gt;<i> (revision 0)
+</I>&gt;<i> @@ -0,0 +1,111 @@
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +# LPC2xxx internals, do not use this file directly
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +
+</I>&gt;<i> +# check for CHIPNAME - it has to be defined
+</I>&gt;<i> +if { [info exists CHIPNAME ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _CHIPNAME $CHIPNAME
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; error &quot;Variable: CHIPNAME is not set,
+</I>&gt;<i> cannot continue&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# check for FLASH_SIZE - if not defined set the default:
+</I>&gt;<i> 8kB
+</I>&gt;<i> +if { [info exists FLASH_SIZE ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _FLASH_SIZE $FLASH_SIZE
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; set _FLASH_SIZE 0x2000
+</I>&gt;<i> +&#160;&#160;&#160; echo &quot;WARNING: FLASH_SIZE not set,
+</I>&gt;<i> assuming: $_FLASH_SIZE&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# check for RAM_SIZE - if not defined set the default:
+</I>&gt;<i> 2kB
+</I>&gt;<i> +if { [info exists RAM_SIZE ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _RAM_SIZE $RAM_SIZE
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; set _RAM_SIZE 0x800
+</I>&gt;<i> +&#160;&#160;&#160; echo &quot;WARNING: RAM_SIZE not set,
+</I>&gt;<i> assuming: $_RAM_SIZE&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# check for CRYSTAL_FREQ - it has to be defined
+</I>&gt;<i> +if { [info exists CRYSTAL_FREQ ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _CRYSTAL_FREQ $CRYSTAL_FREQ
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; error &quot;Variable: CRYSTAL_FREQ is not
+</I>&gt;<i> set, cannot continue&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# check for CPUTAPID - if not defined set the default:
+</I>&gt;<i> 0x4f1f0f0f
+</I>&gt;<i> +if { [info exists CPUTAPID ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _CPUTAPID $CPUTAPID
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; set _CPUTAPID 0x4f1f0f0f
+</I>&gt;<i> +&#160;&#160;&#160; echo &quot;WARNING: CPUTAPID not set,
+</I>&gt;<i> assuming: $_CPUTAPID&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# check for VARIANT - it has to be defined
+</I>&gt;<i> +if { [info exists VARIANT ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _VARIANT $VARIANT
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; error &quot;Variable: VARIANT is not set,
+</I>&gt;<i> cannot continue&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# check for JTAG_FREQ - if not defined set the default:
+</I>&gt;<i> CRYSTAL_FREQ / 8
+</I>&gt;<i> +if { [info exists JTAG_FREQ ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _JTAG_FREQ $JTAG_FREQ
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; set _JTAG_FREQ [expr $_CRYSTAL_FREQ /
+</I>&gt;<i> 8]
+</I>&gt;<i> +&#160;&#160;&#160; echo &quot;WARNING: JTAG_FREQ not set,
+</I>&gt;<i> assuming: $_JTAG_FREQ&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# check for RESET_CONFIG - if not defined set the default:
+</I>&gt;<i> trst_and_srst
+</I>&gt;<i> +if { [info exists RESET_CONFIG ] } {
+</I>&gt;<i> +&#160;&#160;&#160; set _RESET_CONFIG $RESET_CONFIG
+</I>&gt;<i> +} else {
+</I>&gt;<i> +&#160;&#160;&#160; set _RESET_CONFIG trst_and_srst
+</I>&gt;<i> +&#160;&#160;&#160; echo &quot;WARNING: RESET_CONFIG not set,
+</I>&gt;<i> assuming: $_RESET_CONFIG&quot;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# convert frequencies to kHz
+</I>&gt;<i> +set _CRYSTAL_FREQ_KHZ [expr $_CRYSTAL_FREQ / 1000]
+</I>&gt;<i> +set _JTAG_KHZ [expr $_JTAG_FREQ / 1000]
+</I>&gt;<i> +
+</I>&gt;<i> +#
+</I>&gt;<i> -----------------------------------------------------------------------------
+</I>&gt;<i> +
+</I>&gt;<i> +# LPC2000 -&gt; SRST causes TRST
+</I>&gt;<i> +reset_config $_RESET_CONFIG srst_pulls_trst
+</I>&gt;<i> +
+</I>&gt;<i> +# reset delays
+</I>&gt;<i> +jtag_nsrst_delay 100
+</I>&gt;<i> +jtag_ntrst_delay 100
+</I>&gt;<i> +
+</I>&gt;<i> +jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask
+</I>&gt;<i> 0xf -expected-id $_CPUTAPID
+</I>&gt;<i> +target create $_CHIPNAME.cpu arm7tdmi -chain-position
+</I>&gt;<i> $_CHIPNAME.cpu
+</I>&gt;<i> +
+</I>&gt;<i> +# internal SRAM
+</I>&gt;<i> +$_CHIPNAME.cpu configure -work-area-phys 0x40000000
+</I>&gt;<i> -work-area-size $_RAM_SIZE -work-area-backup 0
+</I>&gt;<i> +
+</I>&gt;<i> +# &quot;reset init&quot; script
+</I>&gt;<i> +$_CHIPNAME.cpu configure -event reset-init {
+</I>&gt;<i> +&#160;&#160;&#160; # force core into ARM state
+</I>&gt;<i> +&#160;&#160;&#160; armv4_5 core_state arm 
+</I>&gt;<i> +
+</I>&gt;<i> +&#160;&#160;&#160; # remap the vector table
+</I>&gt;<i> (0x0000-0x0020) to Flash
+</I>&gt;<i> +&#160;&#160;&#160; # MEMMAP = 1;
+</I>&gt;<i> +&#160;&#160;&#160; mwb 0xE01FC040 0x01
+</I>&gt;<i> +&#160;&#160;&#160; 
+</I>&gt;<i> +&#160;&#160;&#160; # disable MAM&#160;&#160;&#160; 
+</I>&gt;<i> +&#160;&#160;&#160; # MAMCR = 0;
+</I>&gt;<i> +&#160;&#160;&#160; mwb 0xE01FC000 0
+</I>&gt;<i> +&#160;&#160;&#160; 
+</I>&gt;<i> +&#160;&#160;&#160; # disconnect and disable PLL (with feed
+</I>&gt;<i> sequence)
+</I>&gt;<i> +&#160;&#160;&#160; # PLLCON = 0;
+</I>&gt;<i> +&#160;&#160;&#160; mwb 0xE01FC080 0
+</I>&gt;<i> +&#160;&#160;&#160; # PLLFEED = 0xAA;
+</I>&gt;<i> +&#160;&#160;&#160; mwb 0xE01FC08C 0xAA
+</I>&gt;<i> +&#160;&#160;&#160; # PLLFEED = 0x55;
+</I>&gt;<i> +&#160;&#160;&#160; mwb 0xE01FC08C 0x55
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +# internal Flash, core clock
+</I>&gt;<i> +# flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0
+</I>&gt;<i> &lt;target#&gt; &lt;variant&gt; &lt;clock&gt;
+</I>&gt;<i> [calc_checksum]
+</I>&gt;<i> +flash bank lpc2000 0x0 $_FLASH_SIZE 0 0 0 $_VARIANT
+</I>&gt;<i> $_CRYSTAL_FREQ_KHZ calc_checksum
+</I>&gt;<i> +
+</I>&gt;<i> +jtag_khz $_JTAG_KHZ
+</I>&gt;<i> 
+</I>&gt;<i> -----Integrierter Anhang folgt-----
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i> 
+</I>
+
+      
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010849.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+	<LI>Next message: <A HREF="010852.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10851">[ date ]</a>
+              <a href="thread.html#10851">[ thread ]</a>
+              <a href="subject.html#10851">[ subject ]</a>
+              <a href="author.html#10851">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

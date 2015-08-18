@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Struggling with debugging resume/halt problem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Struggling%20with%20debugging%20resume/halt%20problem&In-Reply-To=%3Cc09652430711300730k2fe8e5e3mac73e4acc1273401%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000405.html">
+   <LINK REL="Next"  HREF="000404.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Struggling with debugging resume/halt problem</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Struggling%20with%20debugging%20resume/halt%20problem&In-Reply-To=%3Cc09652430711300730k2fe8e5e3mac73e4acc1273401%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Struggling with debugging resume/halt problem">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Nov 30 16:30:35 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000405.html">[Openocd-development] Very confusing situation w/OpenOCD	software breakpoints
+</A></li>
+        <LI>Next message: <A HREF="000404.html">[Openocd-development] Struggling with debugging resume/halt	problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#403">[ date ]</a>
+              <a href="thread.html#403">[ thread ]</a>
+              <a href="subject.html#403">[ subject ]</a>
+              <a href="author.html#403">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I have the following intermittant problem when attaching to a target
+and I need a few pointers to get unconfused here...
+
+Open On-Chip Debugger
+&gt;<i> reset halt
+</I>&gt;<i> resume
+</I>target not halted
+&gt;<i> halt
+</I>requesting target halt...
+&gt;<i> resume
+</I>target not halted
+&gt;<i> halt
+</I>requesting target halt...
+&gt;<i> resume
+</I>target not halted
+&gt;<i>
+</I>
+
+
+By inspection in arm7_9_poll() I see that target-&gt;state == TARGET_RUNNING(seen
+in debugger).
+
+Executing &quot;halt&quot; has no effect, i.e. EICE_DBG_STATUS_DBGACK does not get set.
+
+Resuming doesn't work, because the target is already &quot;running&quot;.
+
+
+I'm trying to get my head around arm7_9_poll()...
+
+Three questions come to mind about the code below:
+
+1. Why doesn't the code determine target-&gt;state based on ICE registers alone?
+Why is the value of target-&gt;state taken into consideration? It would give
+me a warm fuzzy feeling if target-&gt;state was set based upon reading status
+from the CPU ignoring anything that OpenOCD might assume about the CPU's state.
+
+2. If EICE_DBG_STATUS_DBGACK==0, then the code below assumes that the CPU
+is either in TARGET_RUNNING or TARGET_DEBUG_RUNNING. Does that assumption hold?
+Should it not *always* be in TARGET_RUNNING in that case?
+
+3. What if OpenOCD attaches to the target while the CPU is in
+TARGET_DEBUG_RUNNING?
+The code below then sets target-&gt;state to TARGET_RUNNING, which would
+subsequently
+execute the wrong path.
+
+
+
+if (buf_get_u32(dbg_stat-&gt;value, EICE_DBG_STATUS_DBGACK, 1))
+{
+	DEBUG(&quot;DBGACK set, dbg_state-&gt;value: 0x%x&quot;,
+buf_get_u32(dbg_stat-&gt;value, 0, 32));
+	if ((target-&gt;state == TARGET_UNKNOWN))
+	{
+		WARNING(&quot;DBGACK set while target was in unknown state. Reset or
+initialize target before resuming&quot;);
+		target-&gt;state = TARGET_RUNNING;
+	}
+	if ((target-&gt;state == TARGET_RUNNING) || (target-&gt;state == TARGET_RESET))
+	{
+		target-&gt;state = TARGET_HALTED;
+		if ((retval = arm7_9_debug_entry(target)) != ERROR_OK)
+			return retval;
+	
+		target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+	}
+	if (target-&gt;state == TARGET_DEBUG_RUNNING)
+	{
+		target-&gt;state = TARGET_HALTED;
+		if ((retval = arm7_9_debug_entry(target)) != ERROR_OK)
+			return retval;
+		
+		target_call_event_callbacks(target, TARGET_EVENT_DEBUG_HALTED);
+	}
+}
+else
+{
+	if (target-&gt;state != TARGET_DEBUG_RUNNING)
+		target-&gt;state = TARGET_RUNNING;
+}
+	
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA  developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000405.html">[Openocd-development] Very confusing situation w/OpenOCD	software breakpoints
+</A></li>
+	<LI>Next message: <A HREF="000404.html">[Openocd-development] Struggling with debugging resume/halt	problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#403">[ date ]</a>
+              <a href="thread.html#403">[ thread ]</a>
+              <a href="subject.html#403">[ subject ]</a>
+              <a href="author.html#403">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

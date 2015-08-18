@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20insulate%20queue%20pointer%0A%09manipulation%20from%20general%20jtag.c%20code&In-Reply-To=%3C80e74c330905171417t2eb1df3atf40a8d39dcd42845%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006698.html">
+   <LINK REL="Next"  HREF="006699.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code</H1>
+    <B>Michael Bruck</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20insulate%20queue%20pointer%0A%09manipulation%20from%20general%20jtag.c%20code&In-Reply-To=%3C80e74c330905171417t2eb1df3atf40a8d39dcd42845%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code">mbruck at digenius.de
+       </A><BR>
+    <I>Sun May 17 23:17:47 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006698.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+        <LI>Next message: <A HREF="006699.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6697">[ date ]</a>
+              <a href="thread.html#6697">[ thread ]</a>
+              <a href="subject.html#6697">[ subject ]</a>
+              <a href="author.html#6697">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, May 17, 2009 at 10:54 PM, Rick Altherr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>&gt; wrote:
+&gt;<i>
+</I>&gt;<i> On May 17, 2009, at 1:43 PM, David Brownell wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> On Sunday 17 May 2009, Michael Bruck wrote:
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> - &#160; &#160; &#160; jtag_command_t **last_cmd;
+</I>&gt;&gt;&gt;<i> - &#160; &#160; &#160; last_cmd = jtag_get_last_command_p();
+</I>&gt;&gt;&gt;<i> -
+</I>&gt;&gt;&gt;<i> - &#160; &#160; &#160; *last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;&gt;&gt;<i> - &#160; &#160; &#160; (*last_cmd)-&gt;next = NULL;
+</I>&gt;&gt;&gt;<i> - &#160; &#160; &#160; last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;&gt;&gt;<i> - &#160; &#160; &#160; (*last_cmd)-&gt;type = JTAG_SCAN;
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> + &#160; &#160; &#160; jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;&gt;&gt;<i> +
+</I>&gt;&gt;&gt;<i> + &#160; &#160; &#160; jtag_queue_command(cmd);
+</I>&gt;&gt;&gt;<i> +
+</I>&gt;&gt;&gt;<i> + &#160; &#160; &#160; cmd-&gt;type = JTAG_SCAN;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Seems like a goodly fix ... but, couldn't all of those be wrapped
+</I>&gt;&gt;<i> up in a single function sort of like
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160;cmd = jtag_alloc_and_queue(JTAG_SCAN);
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Or STATEMOVE, PATHMOVE, etc. &#160;Agreed that queue_command() logic
+</I>&gt;&gt;<i> is exactly the error-prone stuff that really *needs* encapsulation;
+</I>&gt;&gt;<i> it should probably stay separate even with an alloc_and_queue().
+</I>
+I did not primarily want to compact code but separate layers. The
+function wraps the queue manipulation. The data structure
+initialization itself is much more code than just the type field so I
+don't like the idea of tearing it apart.
+
+&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Rather than combine them, I'd like to see jtag_queue_command() enforce
+</I>&gt;<i> validation of the command to be enqueued. &#160;Then the patterns would be:
+</I>&gt;<i>
+</I>&gt;<i> cmd = cmd_queue_alloc();
+</I>&gt;<i>
+</I>&gt;<i> cmd-&gt;type = JTAG_SCAN;
+</I>&gt;<i> ....
+</I>&gt;<i>
+</I>&gt;<i> jtag_queue_command(cmd);
+</I>&gt;<i>
+</I>&gt;<i> Otherwise, you place a command in the queue before it is filled out. &#160;This
+</I>&gt;<i> works fine today where the JTAG queue is manually flushed, but if we ever
+</I>&gt;<i> went to a opportunistic queue draining scheme (device driver pulls next item
+</I>&gt;<i> off queue automatically when a command finishes), you could get bogus
+</I>&gt;<i> commands being executed.
+</I>&gt;<i>
+</I>
+While I agree in principle I would like to get this patch through
+first and discuss this suggestion later. My patches are purely code
+restructuring that should *not* change the algorithms at all.
+
+
+Michael
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006698.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+	<LI>Next message: <A HREF="006699.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6697">[ date ]</a>
+              <a href="thread.html#6697">[ thread ]</a>
+              <a href="subject.html#6697">[ subject ]</a>
+              <a href="author.html#6697">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

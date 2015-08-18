@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Search for ../tcl/ when running in	source directory on Linux
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Search%20for%20../tcl/%20when%20running%20in%0A%09source%20directory%20on%20Linux&In-Reply-To=%3C1288923158-10856-1-git-send-email-peter%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016971.html">
+   <LINK REL="Next"  HREF="016973.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Search for ../tcl/ when running in	source directory on Linux</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Search%20for%20../tcl/%20when%20running%20in%0A%09source%20directory%20on%20Linux&In-Reply-To=%3C1288923158-10856-1-git-send-email-peter%40stuge.se%3E"
+       TITLE="[Openocd-development] [PATCH] Search for ../tcl/ when running in	source directory on Linux">peter at stuge.se
+       </A><BR>
+    <I>Fri Nov  5 03:12:38 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016971.html">[Openocd-development] [PATCH] Search for ../tcl/ when	running	in source directory on Linux
+</A></li>
+        <LI>Next message: <A HREF="016973.html">[Openocd-development] [PATCH] Search for ../tcl/ when running in source directory on Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16972">[ date ]</a>
+              <a href="thread.html#16972">[ thread ]</a>
+              <a href="subject.html#16972">[ subject ]</a>
+              <a href="author.html#16972">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>When openocd is built in a source directory but not installed using
+make install it is helpful to search for the tcl/ directory next to
+the src/ directory where the openocd binary is created.
+
+On Linux this path can be found using realpath(/proc/self/exe). uname()
+is used to learn if the system is Linux; ie. if /proc is available.
+realpath() and sys/utsname.h are both checked for by configure.
+
+Signed-off-by: Peter Stuge &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>&gt;
+---
+ configure.in         |    2 ++
+ src/helper/options.c |   23 +++++++++++++++++++++++
+ 2 files changed, 25 insertions(+), 0 deletions(-)
+
+diff --git a/configure.in b/configure.in
+index a15b80a..c94b3bc 100644
+--- a/configure.in
++++ b/configure.in
+@@ -121,6 +121,7 @@ AC_CHECK_HEADERS([net/if.h], [], [], [dnl
+ # include &lt;sys/socket.h&gt;
+ #endif
+ ])
++AC_CHECK_HEADERS(sys/utsname.h)
+ 
+ AC_HEADER_ASSERT
+ AC_HEADER_STDBOOL
+@@ -133,6 +134,7 @@ AC_CHECK_FUNCS(strnlen)
+ AC_CHECK_FUNCS(gettimeofday)
+ AC_CHECK_FUNCS(usleep)
+ AC_CHECK_FUNCS(vasprintf)
++AC_CHECK_FUNCS(realpath)
+ 
+ build_bitbang=no
+ build_bitq=no
+diff --git a/src/helper/options.c b/src/helper/options.c
+index f8db2cd..4f424dd 100644
+--- a/src/helper/options.c
++++ b/src/helper/options.c
+@@ -30,6 +30,10 @@
+ 
+ #include &lt;getopt.h&gt;
+ 
++#ifdef HAVE_SYS_UTSNAME_H
++#include &lt;sys/utsname.h&gt;
++#endif
++
+ static int help_flag, version_flag;
+ 
+ static const struct option long_options[] =
+@@ -104,6 +108,25 @@ static void add_default_dirs(void)
+ 
+ 	const char *home = getenv(&quot;HOME&quot;);
+ 
++#if defined(HAVE_SYS_UTSNAME_H) &amp;&amp; defined(HAVE_REALPATH)
++	char real[PATH_MAX];
++	size_t real_len, cmd_pos, cmd_len = strlen(&quot;/src/openocd&quot;);
++	struct utsname uts;
++
++	if (!uname(&amp;uts) &amp;&amp; !strcmp(uts.sysname, &quot;Linux&quot;) &amp;&amp;
++	    realpath(&quot;/proc/self/exe&quot;, real))
++	{
++		real_len = strlen(real);
++		cmd_pos = real_len - cmd_len;
++		if (real_len &gt;= cmd_len &amp;&amp;
++		    !strcmp(real + cmd_pos, &quot;/src/openocd&quot;))
++		{
++			snprintf(real + cmd_pos, sizeof(real) - cmd_pos, &quot;/tcl&quot;);
++			add_script_search_dir(real);
++		}
++	}
++#endif
++
+ 	if (home)
+ 	{
+ 		char *path;
+-- 
+1.7.2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016971.html">[Openocd-development] [PATCH] Search for ../tcl/ when	running	in source directory on Linux
+</A></li>
+	<LI>Next message: <A HREF="016973.html">[Openocd-development] [PATCH] Search for ../tcl/ when running in source directory on Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16972">[ date ]</a>
+              <a href="thread.html#16972">[ thread ]</a>
+              <a href="subject.html#16972">[ subject ]</a>
+              <a href="author.html#16972">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

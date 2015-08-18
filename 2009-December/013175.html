@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/7] add stack_assert for an improved	assert macro
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/7%5D%20add%20stack_assert%20for%20an%20improved%0A%09assert%20macro&In-Reply-To=%3C1259703005-25952-1-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013169.html">
+   <LINK REL="Next"  HREF="013176.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/7] add stack_assert for an improved	assert macro</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/7%5D%20add%20stack_assert%20for%20an%20improved%0A%09assert%20macro&In-Reply-To=%3C1259703005-25952-1-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/7] add stack_assert for an improved	assert macro">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Dec  1 22:30:05 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013169.html">[Openocd-development] [PATCH 5/7] jtag: factor init into 'jtag init'
+</A></li>
+        <LI>Next message: <A HREF="013176.html">[Openocd-development] FT4232H support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13175">[ date ]</a>
+              <a href="thread.html#13175">[ thread ]</a>
+              <a href="subject.html#13175">[ subject ]</a>
+              <a href="author.html#13175">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Adds backtraces to all assert messages, so developers receive the
+context of the problem.  After all, finding the problem often requires
+knowing how the code managed to reach the call that contains the
+assertion that has failed.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+NOTE: The complete series is available in my mirror on repo.or.cz
+in the 'stack' branch:
+
+	<A HREF="git://repo.or.cz/openocd/ztw.git">git://repo.or.cz/openocd/ztw.git</A>
+---
+ src/helper/stack.c  |   10 ++++++++++
+ src/helper/stack.h  |   16 ++++++++++++++++
+ src/helper/system.h |    3 +++
+ 3 files changed, 29 insertions(+), 0 deletions(-)
+
+diff --git a/src/helper/stack.c b/src/helper/stack.c
+index 599b983..fc1e038 100644
+--- a/src/helper/stack.c
++++ b/src/helper/stack.c
+@@ -181,3 +181,13 @@ int stack_walk(unsigned depth, stack_walker_t walker, intptr_t data)
+ 	};
+ 	return stack_dump(depth, &amp;stack_walk_dumper, (intptr_t)&amp;walk);
+ }
++
++void stack_assert(const char *file, unsigned line,
++		const char *function, const char *condition)
++{
++	LOG_ERROR(&quot;Assertion failed:\n\t%s\n\tFunc:\t%s\n&quot;
++			&quot;\tLine:\t%u:\n\tFile:\t%s&quot;,
++			condition, function, line, file);
++	stack_walk(100, &amp;stack_log_walker, 0);
++	exit(1);
++}
+diff --git a/src/helper/stack.h b/src/helper/stack.h
+index e18be14..6155f34 100644
+--- a/src/helper/stack.h
++++ b/src/helper/stack.h
+@@ -105,4 +105,20 @@ int stack_log_walker(struct stack_walk_state *state, intptr_t cmd_ctx);
+  */
+ int stack_walk(unsigned depth, stack_walker_t walker, intptr_t data);
+ 
++#ifndef NDEBUG
++
++void stack_assert(const char *file, unsigned line,
++		const char *function, const char *condition);
++
++// remove assert macro from namespace
++#undef assert
++// replace assert with call to inline and original version (C9x-portable)
++#define assert(__x) \
++	((__x) \
++	 ? (void)(0) \
++	 : stack_assert(__FILE__, __LINE__, __func__, stringify(__x)))
++
++#endif // NDEBUG
++
++
+ #endif // HELPER_STACK_H
+diff --git a/src/helper/system.h b/src/helper/system.h
+index 169df1c..e15dbef 100644
+--- a/src/helper/system.h
++++ b/src/helper/system.h
+@@ -30,6 +30,9 @@
+ #include &lt;ctype.h&gt;
+ #include &lt;errno.h&gt;
+ 
++// for stack_assert()
++#include &quot;stack.h&quot;
++
+ // +++ AC_HEADER_TIME +++
+ #ifdef TIME_WITH_SYS_TIME
+ # include &lt;sys/time.h&gt;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013169.html">[Openocd-development] [PATCH 5/7] jtag: factor init into 'jtag init'
+</A></li>
+	<LI>Next message: <A HREF="013176.html">[Openocd-development] FT4232H support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13175">[ date ]</a>
+              <a href="thread.html#13175">[ thread ]</a>
+              <a href="subject.html#13175">[ subject ]</a>
+              <a href="author.html#13175">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

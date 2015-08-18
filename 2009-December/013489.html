@@ -1,0 +1,262 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 3/3] ARM DPM: support updating HW	breakpoints
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/3%5D%20ARM%20DPM%3A%20support%20updating%20HW%0A%09breakpoints&In-Reply-To=%3C200912111512.17109.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013490.html">
+   <LINK REL="Next"  HREF="013491.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 3/3] ARM DPM: support updating HW	breakpoints</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/3%5D%20ARM%20DPM%3A%20support%20updating%20HW%0A%09breakpoints&In-Reply-To=%3C200912111512.17109.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 3/3] ARM DPM: support updating HW	breakpoints">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec 12 00:12:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013490.html">[Openocd-development] [patch 2/3] ARM11: minor cleanup,	mostly ITR comments
+</A></li>
+        <LI>Next message: <A HREF="013491.html">[Openocd-development] NAND: add erase_page callback
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13489">[ date ]</a>
+              <a href="thread.html#13489">[ thread ]</a>
+              <a href="subject.html#13489">[ subject ]</a>
+              <a href="author.html#13489">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Abstract the DPM breakpoint and watchpoint data structures to
+have a shared core for housekeeping.
+
+Abstract the code updating the watchpoint registers so that it
+can be used to update breakpoint registers.  Then  do so, when
+something has set up the breakpoint state used by this code.
+---
+Nothing currently sets up those breakpoint registers, so this
+is a NOP for the moment.
+
+ src/target/arm_dpm.c |  107 ++++++++++++++++++++++++++++++-------------------
+ src/target/arm_dpm.h |   20 ++++-----
+ 2 files changed, 75 insertions(+), 52 deletions(-)
+
+--- a/src/target/arm_dpm.c
++++ b/src/target/arm_dpm.c
+@@ -277,6 +277,51 @@ fail:
+ 	return retval;
+ }
+ 
++/* Avoid needless I/O ... leave breakpoints and watchpoints alone
++ * unless they're removed, or need updating because of single-stepping
++ * or running debugger code.
++ */
++static int dpm_maybe_update_bpwp(struct arm_dpm *dpm, bool bpwp,
++		struct dpm_bpwp *xp, int *set_p)
++{
++	int retval = ERROR_OK;
++	bool disable;
++
++	if (!set_p) {
++		if (!xp-&gt;dirty)
++			goto done;
++		xp-&gt;dirty = false;
++		/* removed or startup; we must disable it */
++		disable = true;
++	} else if (bpwp) {
++		if (!xp-&gt;dirty)
++			goto done;
++		/* disabled, but we must set it */
++		xp-&gt;dirty = disable = false;
++		*set_p = true;
++	} else {
++		if (!*set_p)
++			goto done;
++		/* set, but we must temporarily disable it */
++		xp-&gt;dirty = disable = true;
++		*set_p = false;
++	}
++
++	if (disable)
++		retval = dpm-&gt;bpwp_disable(dpm, xp-&gt;number);
++	else
++		retval = dpm-&gt;bpwp_enable(dpm, xp-&gt;number,
++				xp-&gt;address, xp-&gt;control);
++
++	if (retval != ERROR_OK)
++		LOG_ERROR(&quot;%s: can't %s HW bp/wp %d&quot;,
++				disable ? &quot;disable&quot; : &quot;enable&quot;,
++				target_name(dpm-&gt;arm-&gt;target),
++				xp-&gt;number);
++done:
++	return retval;
++}
++
+ /**
+  * Writes all modified core registers for all processor modes.  In normal
+  * operation this is called on exit from halting debug state.
+@@ -296,47 +341,22 @@ int arm_dpm_write_dirty_registers(struct
+ 	if (retval != ERROR_OK)
+ 		goto done;
+ 
++	/* enable/disable hardware breakpoints */
++	for (unsigned i = 0; i &lt; dpm-&gt;nbp; i++) {
++		struct dpm_bp *dbp = dpm-&gt;dbp + i;
++		struct breakpoint *bp = dbp-&gt;bp;
++
++		retval = dpm_maybe_update_bpwp(dpm, bpwp, &amp;dbp-&gt;bpwp,
++				bp ? &amp;bp-&gt;set : NULL);
++	}
++
+ 	/* enable/disable watchpoints */
+ 	for (unsigned i = 0; i &lt; dpm-&gt;nwp; i++) {
+ 		struct dpm_wp *dwp = dpm-&gt;dwp + i;
+ 		struct watchpoint *wp = dwp-&gt;wp;
+-		bool disable;
+ 
+-		/* Avoid needless I/O ... leave watchpoints alone
+-		 * unless they're removed, or need updating because
+-		 * of single-stepping or running debugger code.
+-		 */
+-		if (!wp) {
+-			if (!dwp-&gt;dirty)
+-				continue;
+-			dwp-&gt;dirty = false;
+-			/* removed or startup; we must disable it */
+-			disable = true;
+-		} else if (bpwp) {
+-			if (!dwp-&gt;dirty)
+-				continue;
+-			/* disabled, but we must set it */
+-			dwp-&gt;dirty = disable = false;
+-			wp-&gt;set = true;
+-		} else {
+-			if (!wp-&gt;set)
+-				continue;
+-			/* set, but we must temporarily disable it */
+-			dwp-&gt;dirty = disable = true;
+-			wp-&gt;set = false;
+-		}
+-
+-		if (disable)
+-			retval = dpm-&gt;bpwp_disable(dpm, 16 + i);
+-		else
+-			retval = dpm-&gt;bpwp_enable(dpm, 16 + i,
+-					wp-&gt;address &amp; ~3, dwp-&gt;control);
+-
+-		if (retval != ERROR_OK)
+-			LOG_ERROR(&quot;%s: can't %s HW watchpoint %d&quot;,
+-					target_name(arm-&gt;target),
+-					disable ? &quot;disable&quot; : &quot;enable&quot;,
+-					i);
++		retval = dpm_maybe_update_bpwp(dpm, bpwp, &amp;dwp-&gt;bpwp,
++				wp ? &amp;wp-&gt;set : NULL);
+ 	}
+ 
+ 	/* NOTE:  writes to breakpoint and watchpoint registers might
+@@ -696,8 +716,9 @@ static int dpm_watchpoint_setup(struct a
+ 	 */
+ 
+ 	dpm-&gt;dwp[index].wp = wp;
+-	dpm-&gt;dwp[index].control = control;
+-	dpm-&gt;dwp[index].dirty = true;
++	dpm-&gt;dwp[index].bpwp.address = addr &amp; ~3;
++	dpm-&gt;dwp[index].bpwp.control = control;
++	dpm-&gt;dwp[index].bpwp.dirty = true;
+ 
+ 	/* hardware is updated in write_dirty_registers() */
+ 	return ERROR_OK;
+@@ -731,7 +752,7 @@ static int dpm_remove_watchpoint(struct 
+ 	for (unsigned i = 0; i &lt; dpm-&gt;nwp; i++) {
+ 		if (dpm-&gt;dwp[i].wp == wp) {
+ 			dpm-&gt;dwp[i].wp = NULL;
+-			dpm-&gt;dwp[i].dirty = true;
++			dpm-&gt;dwp[i].bpwp.dirty = true;
+ 
+ 			/* hardware is updated in write_dirty_registers() */
+ 			retval = ERROR_OK;
+@@ -869,10 +890,14 @@ int arm_dpm_initialize(struct arm_dpm *d
+ 	if (dpm-&gt;bpwp_disable) {
+ 		unsigned i;
+ 
+-		for (i = 0; i &lt; dpm-&gt;nbp; i++)
++		for (i = 0; i &lt; dpm-&gt;nbp; i++) {
++			dpm-&gt;dbp[i].bpwp.number = i;
+ 			(void) dpm-&gt;bpwp_disable(dpm, i);
+-		for (i = 0; i &lt; dpm-&gt;nwp; i++)
++		}
++		for (i = 0; i &lt; dpm-&gt;nwp; i++) {
++			dpm-&gt;dwp[i].bpwp.number = 16 + i;
+ 			(void) dpm-&gt;bpwp_disable(dpm, 16 + i);
++		}
+ 	} else
+ 		LOG_WARNING(&quot;%s: can't disable breakpoints and watchpoints&quot;,
+ 			target_name(dpm-&gt;arm-&gt;target));
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -31,24 +31,22 @@
+  * registers are compatible.
+  */
+ 
+-struct dpm_bp {
+-	struct breakpoint *bp;
+-	/* bp-&gt;address == breakpoint value register
+-	 * control == breakpoint control register
+-	 */
++struct dpm_bpwp {
++	unsigned number;
++	uint32_t address;
+ 	uint32_t control;
+ 	/* true if hardware state needs flushing */
+ 	bool dirty;
+ };
+ 
++struct dpm_bp {
++	struct breakpoint *bp;
++	struct dpm_bpwp bpwp;
++};
++
+ struct dpm_wp {
+ 	struct watchpoint *wp;
+-	/* wp-&gt;address == watchpoint value register
+-	 * control == watchpoint control register
+-	 */
+-	uint32_t control;
+-	/* true if hardware state needs flushing */
+-	bool dirty;
++	struct dpm_bpwp bpwp;
+ };
+ 
+ /**
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013490.html">[Openocd-development] [patch 2/3] ARM11: minor cleanup,	mostly ITR comments
+</A></li>
+	<LI>Next message: <A HREF="013491.html">[Openocd-development] NAND: add erase_page callback
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13489">[ date ]</a>
+              <a href="thread.html#13489">[ thread ]</a>
+              <a href="subject.html#13489">[ subject ]</a>
+              <a href="author.html#13489">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] openocd scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd%20scripting&In-Reply-To=%3C20091024163451.GA22398%40spinnennetz.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011617.html">
+   <LINK REL="Next"  HREF="011544.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] openocd scripting</H1>
+    <B>Timo Boettcher</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd%20scripting&In-Reply-To=%3C20091024163451.GA22398%40spinnennetz.org%3E"
+       TITLE="[Openocd-development] openocd scripting">spida at spida.net
+       </A><BR>
+    <I>Sat Oct 24 18:34:51 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011617.html">[Openocd-development] first round of mcr mrc interface support	completed
+</A></li>
+        <LI>Next message: <A HREF="011544.html">[Openocd-development] openocd scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11541">[ date ]</a>
+              <a href="thread.html#11541">[ thread ]</a>
+              <a href="subject.html#11541">[ subject ]</a>
+              <a href="author.html#11541">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi!
+
+I am trying to configure openocd to run it fom my Makefile.
+Running it manually works:
+
+===== begin openocd session =====
+% nc localhost 4444
+&#65533;&#65533;&#65533;&#65533;&#65533;&#65533;&#65533;&#65533;Open On-Chip Debugger
+&gt;<i> halt
+</I>halt
+target state: halted
+target halted in ARM state due to debug-request, current mode:
+Supervisor
+cpsr: 0x20000053 pc: 0x00100544
+&gt;<i> mww 0xfffffd44 0x00008000 # disable watchdog
+</I>&gt;<i> mww 0xfffffd08 0xa5000001 # enable user reset
+</I>&gt;<i> mww 0xfffffc20 0x00000601 # CKGR_MOR : enable the main oscillator
+</I>&gt;<i> sleep 10
+</I>&gt;<i> mww 0xfffffc2c 0x00481c0e # CKGR_PLLR: 96.1097 MHz
+</I>&gt;<i> sleep 10
+</I>&gt;<i> mww 0xfffffc30 0x00000007 # PMC_MCKR : MCK = PLL / 2 ~= 48 MHz
+</I>&gt;<i> sleep 10
+</I>&gt;<i> mww 0xffffff60 0x003c0100 # MC_FMR: flash mode (FWS=1,FMCN=60)
+</I>&gt;<i> sleep 100
+</I>&gt;<i> halt
+</I>&gt;<i> sleep 10
+</I>&gt;<i> arm7_9 dcc_downloads enable
+</I>dcc downloads are enabled
+&gt;<i> sleep 10
+</I>&gt;<i> poll
+</I>background polling: on
+TAP: sam7se256.cpu (enabled)
+target state: halted
+target halted in ARM state due to debug-request, current mode:
+Supervisor
+cpsr: 0x20000053 pc: 0x00100544
+&gt;<i> flash probe 0
+</I>flash 'at91sam7' found at 0x00100000
+&gt;<i> flash write_bank 0 glow_flash.bin 0x0
+</I>flash write_bank 0 glow_flash.bin 0x0
+wrote  2636 byte from file glow_flash.bin to flash bank 0 at offset
+0x00000000 in 0.328994s (7.824516 kb/s)
+&gt;<i> reset run
+</I>reset run
+JTAG tap: sam7se256.cpu tap/device found: 0x3f0f0f0f (mfg: 0x787, part:
+0xf0f0, ver: 0x3)
+&gt;<i>
+</I>====== end openocd session ======
+
+I used the configs from:
+scripts/interface/olimex-arm-usb-ocd.cfg
+scripts/target/sam7se512.cfg (modified for se256)
+and a board-config that basically contains &quot;reset_config srst_only srst_pulls_trst&quot;
+
+Now I am trying to write a script to run from a Makefile.
+
+===== begin openocd script =====
+proc mt_flash_bin {IMGFILE} {
+	# disable watchdog
+	mww 0xfffffd44 0x00008000
+	# enable user reset
+	mww 0xfffffd08 0xa5000001
+	# CKGR_MOR : enable the main oscillator
+	mww 0xfffffc20 0x00000601
+	sleep 10
+	# CKGR_PLLR: 96.1097 MHz
+	mww 0xfffffc2c 0x00481c0e
+	sleep 10
+	# PMC_MCKR : MCK = PLL / 2 ~= 48 MHz
+	mww 0xfffffc30 0x00000007
+	sleep 10
+	# MC_FMR: flash mode (FWS=1,FMCN=60)
+	mww 0xffffff60 0x003c0100
+	sleep 100
+	arm7_9 dcc_downloads enable
+	sleep 10
+	flash write_image erase $IMGFILE
+	reset run
+	sleep 10
+}
+====== end openocd script ======
+
+
+Running this with
+openocd -f openocd/openocd.cfg -f openocd/olimex-arm-usb-ocd.cfg -f openocd/openocd-sam7s256.cfg -c &quot;mt_flash_bin glow_flash.bin&quot;
+I get:
+
+===== begin openocd output =====
+Warn : use 'sam7se256.cpu' as target identifier, not '0'
+Unknown command: mww 0xfffffd44 0x00008000
+====== end openocd output ======
+
+What am I missing there?
+
+Everything was tested with openocd-svn2790.
+
+Is there any documentation or any examples on this?
+<A HREF="http://openfacts.berlios.de/index-en.phtml?title=OpenOCD_scripts">http://openfacts.berlios.de/index-en.phtml?title=OpenOCD_scripts</A> seems
+to be for the old config-format, and
+<A HREF="http://openocd.berlios.de/doc/pdf/openocd.pdf">http://openocd.berlios.de/doc/pdf/openocd.pdf</A> seems to contain only a
+tcl language tutorial, but no usable examples (same for the source).
+
+Timo
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011617.html">[Openocd-development] first round of mcr mrc interface support	completed
+</A></li>
+	<LI>Next message: <A HREF="011544.html">[Openocd-development] openocd scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11541">[ date ]</a>
+              <a href="thread.html#11541">[ thread ]</a>
+              <a href="subject.html#11541">[ subject ]</a>
+              <a href="author.html#11541">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

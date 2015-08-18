@@ -1,0 +1,362 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH:fix SIGSEGV
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3Afix%20SIGSEGV&In-Reply-To=%3C20081202.183052.95501125.ito%40mlb.co.jp%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003853.html">
+   <LINK REL="Next"  HREF="003865.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH:fix SIGSEGV</H1>
+    <B>Hiroshi Ito</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3Afix%20SIGSEGV&In-Reply-To=%3C20081202.183052.95501125.ito%40mlb.co.jp%3E"
+       TITLE="[Openocd-development] PATCH:fix SIGSEGV">ito at mlb.co.jp
+       </A><BR>
+    <I>Tue Dec  2 10:30:52 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003853.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+        <LI>Next message: <A HREF="003865.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3864">[ date ]</a>
+              <a href="thread.html#3864">[ thread ]</a>
+              <a href="subject.html#3864">[ subject ]</a>
+              <a href="author.html#3864">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>How about this patch. this also works.
+
+Is it acceptable ?
+
+
+&gt;<i> On Dec 2, 2008, at 12:46 PM, Hiroshi Ito wrote:
+</I>&gt;<i> 
+</I>&gt;<i> &gt; I'm running openocd on EP9307(arm925t) CPU, as a HOST.
+</I>&gt;<i> &gt; and target is EP9307 and ARM926t with EP9307 GPIO.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; revision 1183 cause seg fault.
+</I>&gt;<i> &gt; The problem is, cmd_queue_alloc returns unaligned pointer.
+</I>&gt;<i> &gt; but it is used as a pointer to structure.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; This patch fix it. and it is working.
+</I>&gt;<i> &gt; Index: src/jtag/jtag.c
+</I>&gt;<i> &gt; ===================================================================
+</I>&gt;<i> &gt; --- src/jtag/jtag.c	(revision 1183)
+</I>&gt;<i> &gt; +++ src/jtag/jtag.c	(working copy)
+</I>&gt;<i> &gt; @@ -378,6 +378,8 @@
+</I>&gt;<i> &gt; 	int offset;
+</I>&gt;<i> &gt; 	u8 *t;
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; +	/* align to 4 byte boundary */
+</I>&gt;<i> &gt; +	size = ((size+3)/4)*4;
+</I>&gt;<i> &gt; 	if (*p_page)
+</I>&gt;<i> &gt; 	{
+</I>&gt;<i> &gt; 		while ((*p_page)-&gt;next)
+</I>&gt;<i> &gt; _______________________________________________
+</I>&gt;<i> &gt; Openocd-development mailing list
+</I>&gt;<i> &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> This doesn't change the pointer returned by cmd_queue_alloc() at all.   
+</I>&gt;<i> It just rounds the size of the allocation up to a 4-byte alignment.   
+</I>&gt;<i> If that is necessary, it should be fixed by the caller rather than  
+</I>&gt;<i> always padding in cmd_queue_alloc().  Otherwise, a 1-byte allocation  
+</I>&gt;<i> would take 4-bytes in all cases.  What function was calling  
+</I>&gt;<i> cmd_queue_alloc() that needs the pointer to be word aligned?
+</I>&gt;<i> 
+</I>&gt;<i> I'm also not entirely sure that a structure must always be aligned.   
+</I>&gt;<i> I'm aware that some architectures will trap if an unaligned access is  
+</I>&gt;<i> encountered, but the OS should catch the trap and handle the unaligned  
+</I>&gt;<i> access correctly.
+</I>&gt;<i> 
+</I>&gt;<i> --
+</I>&gt;<i> Rick Altherr
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+</I>&gt;<i> 
+</I>&gt;<i> &quot;He said he hadn't had a byte in three days. I had a short, so I split  
+</I>&gt;<i> it with him.&quot;
+</I>&gt;<i>   -- Unsigned
+</I>
+--------
+Hiroshi Ito
+Media Lab. Inc.,
+URL <A HREF="http://www.mlb.co.jp">http://www.mlb.co.jp</A> ( Sorry, Japanese only. )
+TEL +81-3-5294-7255  FAX +81-3-5294-7256
+
+-------------- next part --------------
+Index: jtag/jtag.c
+===================================================================
+--- jtag/jtag.c	(revision 1183)
++++ jtag/jtag.c	(working copy)
+@@ -372,17 +372,24 @@
+ 	return NULL;
+ }
+ 
+-void* cmd_queue_alloc(size_t size)
++
++/* align must be power of 2 and non-zero */
++void* cmd_queue_alloc_aligned(size_t size, size_t align)
+ {
+ 	cmd_queue_page_t **p_page = &amp;cmd_queue_pages;
+ 	int offset;
++	int padding = 0;
+ 	u8 *t;
+ 
+ 	if (*p_page)
+ 	{
+ 		while ((*p_page)-&gt;next)
+ 			p_page = &amp;((*p_page)-&gt;next);
+-		if (CMD_QUEUE_PAGE_SIZE - (*p_page)-&gt;used &lt; size)
++
++		padding = (*p_page)-&gt;used &amp; (align-1);
++		if ( padding ) padding = align - padding;
++
++		if (CMD_QUEUE_PAGE_SIZE - ((*p_page)-&gt;used + padding) &lt; size)
+ 			p_page = &amp;((*p_page)-&gt;next);
+ 	}
+ 
+@@ -392,8 +399,10 @@
+ 		(*p_page)-&gt;used = 0;
+ 		(*p_page)-&gt;address = malloc(CMD_QUEUE_PAGE_SIZE);
+ 		(*p_page)-&gt;next = NULL;
++		padding = 0;
+ 	}
+ 
++	(*p_page)-&gt;used += padding;
+ 	offset = (*p_page)-&gt;used;
+ 	(*p_page)-&gt;used += size;
+ 
+@@ -401,6 +410,19 @@
+ 	return t + offset;
+ }
+ 
++void* cmd_queue_alloc(size_t size)
++{
++    return cmd_queue_alloc_aligned(size, 1);
++}
++void* cmd_queue_alloc_pointer(size_t size)
++{
++    return cmd_queue_alloc_aligned(size, sizeof(void *));
++}
++void* cmd_queue_alloc_int(size_t size)
++{
++    return cmd_queue_alloc_aligned(size, sizeof(int));
++}
++
+ void cmd_queue_free(void)
+ {
+ 	cmd_queue_page_t *page = cmd_queue_pages;
+@@ -461,16 +483,16 @@
+ 	last_cmd = jtag_get_last_command_p();
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	(*last_cmd)-&gt;next = NULL;
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;type = JTAG_SCAN;
+ 
+ 	/* allocate memory for ir scan command */
+-	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
++	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc_pointer(sizeof(scan_command_t));
+ 	(*last_cmd)-&gt;cmd.scan-&gt;ir_scan = 1;
+ 	(*last_cmd)-&gt;cmd.scan-&gt;num_fields = jtag_num_devices;	/* one field per device */
+-	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(jtag_num_devices * sizeof(scan_field_t));
++	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc_pointer(jtag_num_devices * sizeof(scan_field_t) );
+ 	(*last_cmd)-&gt;cmd.scan-&gt;end_state = state;
+ 
+ 	for (i = 0; i &lt; jtag_num_devices; i++)
+@@ -550,16 +572,16 @@
+ 	last_cmd = jtag_get_last_command_p();
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	(*last_cmd)-&gt;next = NULL;
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;type = JTAG_SCAN;
+ 
+ 	/* allocate memory for ir scan command */
+-	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
++	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc_pointer(sizeof(scan_command_t));
+ 	(*last_cmd)-&gt;cmd.scan-&gt;ir_scan = 1;
+ 	(*last_cmd)-&gt;cmd.scan-&gt;num_fields = num_fields;
+-	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_fields * sizeof(scan_field_t));
++	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc_pointer(num_fields * sizeof(scan_field_t));
+ 	(*last_cmd)-&gt;cmd.scan-&gt;end_state = state;
+ 
+ 	for (i = 0; i &lt; num_fields; i++)
+@@ -614,16 +636,16 @@
+ 	}
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;next = NULL;
+ 	(*last_cmd)-&gt;type = JTAG_SCAN;
+ 
+ 	/* allocate memory for dr scan command */
+-	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
++	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc_pointer(sizeof(scan_command_t));
+ 	(*last_cmd)-&gt;cmd.scan-&gt;ir_scan = 0;
+ 	(*last_cmd)-&gt;cmd.scan-&gt;num_fields = num_fields + bypass_devices;
+-	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((num_fields + bypass_devices) * sizeof(scan_field_t));
++	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc_pointer((num_fields + bypass_devices) * sizeof(scan_field_t));
+ 	(*last_cmd)-&gt;cmd.scan-&gt;end_state = state;
+ 
+ 	for (i = 0; i &lt; jtag_num_devices; i++)
+@@ -704,16 +726,16 @@
+ 	}
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;next = NULL;
+ 	(*last_cmd)-&gt;type = JTAG_SCAN;
+ 
+ 	/* allocate memory for dr scan command */
+-	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
++	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc_pointer(sizeof(scan_command_t) );
+ 	(*last_cmd)-&gt;cmd.scan-&gt;ir_scan = 0;
+ 	(*last_cmd)-&gt;cmd.scan-&gt;num_fields = num_fields + bypass_devices;
+-	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((num_fields + bypass_devices) * sizeof(scan_field_t));
++	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc_pointer((num_fields + bypass_devices) * sizeof(scan_field_t) );
+ 	(*last_cmd)-&gt;cmd.scan-&gt;end_state = end_state;
+ 
+ 	for (i = 0; i &lt; jtag_num_devices; i++)
+@@ -785,16 +807,16 @@
+ 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;next = NULL;
+ 	(*last_cmd)-&gt;type = JTAG_SCAN;
+ 
+ 	/* allocate memory for scan command */
+-	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
++	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc_pointer(sizeof(scan_command_t));
+ 	(*last_cmd)-&gt;cmd.scan-&gt;ir_scan = 0;
+ 	(*last_cmd)-&gt;cmd.scan-&gt;num_fields = num_fields;
+-	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_fields * sizeof(scan_field_t));
++	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc_pointer(num_fields * sizeof(scan_field_t));
+ 	(*last_cmd)-&gt;cmd.scan-&gt;end_state = state;
+ 
+ 	for (i = 0; i &lt; num_fields; i++)
+@@ -831,12 +853,12 @@
+ 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;next = NULL;
+ 	(*last_cmd)-&gt;type = JTAG_STATEMOVE;
+ 
+-	(*last_cmd)-&gt;cmd.statemove = cmd_queue_alloc(sizeof(statemove_command_t));
++	(*last_cmd)-&gt;cmd.statemove = cmd_queue_alloc_aligned(sizeof(statemove_command_t), sizeof(enum tap_state) );
+ 	(*last_cmd)-&gt;cmd.statemove-&gt;end_state = state;
+ 
+ 
+@@ -887,14 +909,14 @@
+ 	int i;
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;next = NULL;
+ 	(*last_cmd)-&gt;type = JTAG_PATHMOVE;
+ 
+-	(*last_cmd)-&gt;cmd.pathmove = cmd_queue_alloc(sizeof(pathmove_command_t));
++	(*last_cmd)-&gt;cmd.pathmove = cmd_queue_alloc_pointer(sizeof(pathmove_command_t));
+ 	(*last_cmd)-&gt;cmd.pathmove-&gt;num_states = num_states;
+-	(*last_cmd)-&gt;cmd.pathmove-&gt;path = cmd_queue_alloc(sizeof(enum tap_state) * num_states);
++	(*last_cmd)-&gt;cmd.pathmove-&gt;path = cmd_queue_alloc_aligned(sizeof(enum tap_state) * num_states, sizeof(enum tap_state));
+ 
+ 	for (i = 0; i &lt; num_states; i++)
+ 		(*last_cmd)-&gt;cmd.pathmove-&gt;path[i] = path[i];
+@@ -907,12 +929,12 @@
+ 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	(*last_cmd)-&gt;next = NULL;
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;type = JTAG_RUNTEST;
+ 
+-	(*last_cmd)-&gt;cmd.runtest = cmd_queue_alloc(sizeof(runtest_command_t));
++	(*last_cmd)-&gt;cmd.runtest = cmd_queue_alloc_int(sizeof(runtest_command_t));
+ 	(*last_cmd)-&gt;cmd.runtest-&gt;num_cycles = num_cycles;
+ 	(*last_cmd)-&gt;cmd.runtest-&gt;end_state = state;
+ 
+@@ -1039,12 +1061,12 @@
+ 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	(*last_cmd)-&gt;next = NULL;
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;type = JTAG_RESET;
+ 
+-	(*last_cmd)-&gt;cmd.reset = cmd_queue_alloc(sizeof(reset_command_t));
++	(*last_cmd)-&gt;cmd.reset = cmd_queue_alloc_int(sizeof(reset_command_t));
+ 	(*last_cmd)-&gt;cmd.reset-&gt;trst = req_trst;
+ 	(*last_cmd)-&gt;cmd.reset-&gt;srst = req_srst;
+ 
+@@ -1065,12 +1087,12 @@
+ 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+ 
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	*last_cmd = cmd_queue_alloc_pointer(sizeof(jtag_command_t));
+ 	(*last_cmd)-&gt;next = NULL;
+ 	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+ 	(*last_cmd)-&gt;type = JTAG_SLEEP;
+ 
+-	(*last_cmd)-&gt;cmd.sleep = cmd_queue_alloc(sizeof(sleep_command_t));
++	(*last_cmd)-&gt;cmd.sleep = cmd_queue_alloc_int(sizeof(sleep_command_t));
+ 	(*last_cmd)-&gt;cmd.sleep-&gt;us = us;
+ 
+ 	return ERROR_OK;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003853.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+	<LI>Next message: <A HREF="003865.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3864">[ date ]</a>
+              <a href="thread.html#3864">[ thread ]</a>
+              <a href="subject.html#3864">[ subject ]</a>
+              <a href="author.html#3864">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,370 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] adding a &quot;tcl&quot; port to openocd
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20adding%20a%20%22tcl%22%20port%20to%20openocd&In-Reply-To=%3C200807042204.m64M40NE018396%40hades%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002371.html">
+   <LINK REL="Next"  HREF="002384.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] adding a &quot;tcl&quot; port to openocd</H1>
+    <B>Charles Hardin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20adding%20a%20%22tcl%22%20port%20to%20openocd&In-Reply-To=%3C200807042204.m64M40NE018396%40hades%3E"
+       TITLE="[Openocd-development] [PATCH] adding a &quot;tcl&quot; port to openocd">ckhardin at gmail.com
+       </A><BR>
+    <I>Sat Jul  5 00:04:00 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002371.html">[Openocd-development] Subject: [PATCH] building with jim on	linux
+</A></li>
+        <LI>Next message: <A HREF="002384.html">[Openocd-development] [PATCH] adding a &quot;tcl&quot; port to openocd
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2368">[ date ]</a>
+              <a href="thread.html#2368">[ thread ]</a>
+              <a href="subject.html#2368">[ subject ]</a>
+              <a href="author.html#2368">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There is a tcl testbench that controls alot of equipment and even though
+it can talk to openocd over telnet, it is nice to just have a raw tcl
+connection to talk to.
+
+This is also our approach to GUIs - just do a tk/tcl that talks to any of
+the client tcl ports and actually makes it alot easier to maintain in
+our opinion
+
+A simple tcl script for testing is
+$ ./tclsh client.tcl
+
+which client.tcl is
+puts &quot;Use empty line to exit&quot;
+set fo [socket 127.0.0.1 5555]
+puts -nonewline stdout &quot;&gt; &quot;
+flush stdout
+while {[gets stdin line] &gt;= 0} {
+    if {$line eq {}} break
+    puts $fo $line
+    flush $fo
+    gets $fo line
+    puts $line
+    puts -nonewline stdout &quot;&gt; &quot;
+    flush stdout
+}
+close $fo
+
+Index: src/server/Makefile.am
+===================================================================
+--- src/server/Makefile.am	(revision 753)
++++ src/server/Makefile.am	(working copy)
+@@ -3,3 +3,7 @@
+ noinst_LIBRARIES = libserver.a
+ noinst_HEADERS = server.h telnet_server.h gdb_server.h
+ libserver_a_SOURCES = server.c telnet_server.c gdb_server.c
++
++# tcl server addons
++noinst_HEADERS += tcl_server.h
++libserver_a_SOURCES += tcl_server.c
+Index: src/server/tcl_server.c
+===================================================================
+--- src/server/tcl_server.c	(revision 0)
++++ src/server/tcl_server.c	(revision 0)
+@@ -0,0 +1,200 @@
++/***************************************************************************
++ *   Copyright (C) 2008                                                    *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;tcl_server.h&quot;
++
++#include &quot;../jim.h&quot;
++#include &quot;log.h&quot;
++#include &quot;command.h&quot;
++
++#include &lt;stdlib.h&gt;
++#include &lt;unistd.h&gt;
++#include &lt;errno.h&gt;
++#include &lt;string.h&gt;
++#include &lt;ctype.h&gt;
++
++#define TCL_SERVER_VERSION	&quot;TCL Server 0.1&quot;
++#define TCL_MAX_LINE		(4096)
++
++typedef struct tcl_connection_s {
++	int tc_linedrop;
++	int tc_lineoffset;
++	char tc_line[TCL_MAX_LINE];
++
++	int tc_outerror; /* flag an output error */
++} tcl_connection_t;
++
++extern Jim_Interp *interp;
++static unsigned short tcl_port = 0;
++
++/* commands */
++static int handle_tcl_port_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++
++/* handlers */
++static int tcl_new_connection(connection_t *connection);
++static int tcl_input(connection_t *connection);
++static int tcl_output(connection_t *connection, const void *buf, ssize_t len);
++static int tcl_closed(connection_t *connection);
++
++/* write data out to a socket.
++ *
++ * this is a blocking write, so the return value must equal the length, if
++ * that is not the case then flag the connection with an output error.
++ */
++int tcl_output(connection_t *connection, const void *data, ssize_t len)
++{
++	ssize_t wlen;
++	tcl_connection_t *tclc;
++
++	tclc = connection-&gt;priv;
++	if (tclc-&gt;tc_outerror)
++		return ERROR_SERVER_REMOTE_CLOSED;
++
++	wlen = write_socket(connection-&gt;fd, data, len);
++	if (wlen == len)
++		return ERROR_OK;
++
++	LOG_ERROR(&quot;error during write: %d != %d&quot;, wlen, len);
++	tclc-&gt;tc_outerror = 1;
++	return ERROR_SERVER_REMOTE_CLOSED;
++}
++
++
++/* connections */
++static int tcl_new_connection(connection_t *connection)
++{
++	int i;
++	tcl_connection_t *tclc;
++
++	tclc = malloc(sizeof(tcl_connection_t));
++	if (tclc == NULL)
++		return ERROR_CONNECTION_REJECTED;
++
++	memset(tclc, 0, sizeof(tcl_connection_t));
++	connection-&gt;priv = tclc;
++	return ERROR_OK;
++}
++
++static int tcl_input(connection_t *connection)
++{
++	int retval;
++	int i;
++	ssize_t rlen;
++	const char *result;
++	int reslen;
++	tcl_connection_t *tclc;
++	char in[256];
++
++	rlen = read_socket(connection-&gt;fd, &amp;in, sizeof(in));
++	if (rlen &lt;= 0) {
++		if (rlen &lt; 0)
++			LOG_ERROR(&quot;error during read: %s&quot;, strerror(errno));
++		return ERROR_SERVER_REMOTE_CLOSED;
++	}
++
++	tclc = connection-&gt;priv;
++	if (tclc == NULL)
++		return ERROR_CONNECTION_REJECTED;
++
++	/* push as much data into the line as possible */
++	for (i = 0; i &lt; rlen; i++)
++	{
++		if (!isprint(in[i]) &amp;&amp; !isspace(in[i]))
++		{
++			/* drop this line */
++			tclc-&gt;tc_linedrop = 1;
++			continue;
++		}
++
++		/* buffer the data */
++		tclc-&gt;tc_line[tclc-&gt;tc_lineoffset] = in[i];
++		if (tclc-&gt;tc_lineoffset &lt; TCL_MAX_LINE)
++			tclc-&gt;tc_lineoffset++;
++		else
++			tclc-&gt;tc_linedrop = 1;
++		
++		if (in[i] != '\n')
++			continue;
++
++		/* process the line */
++		if (tclc-&gt;tc_linedrop) {
++#define ESTR &quot;line too long\n&quot;
++			retval = tcl_output(connection, ESTR, sizeof(ESTR));
++			if (retval != ERROR_OK)
++				return retval;
++#undef ESTR
++		} else {
++			tclc-&gt;tc_line[tclc-&gt;tc_lineoffset-1] = '\0';
++			retval = Jim_Eval(interp, tclc-&gt;tc_line);
++			result = Jim_GetString(Jim_GetResult(interp), &amp;reslen);
++			retval = tcl_output(connection, result, reslen);
++			if (retval != ERROR_OK)
++				return retval;
++			if (memchr(result, '\n', reslen) == NULL)
++				tcl_output(connection, &quot;\n&quot;, 1);
++		}
++		tclc-&gt;tc_lineoffset = 0;
++		tclc-&gt;tc_linedrop = 0;
++	}	
++
++	return ERROR_OK;
++}
++
++static int tcl_closed(connection_t *connection)
++{
++	/* cleanup connection context */
++	if (connection-&gt;priv) {
++		free(connection-&gt;priv);
++		connection-&gt;priv = NULL;
++	}
++	return ERROR_OK;
++}
++
++int tcl_init(void)
++{
++	int retval;
++
++	if (tcl_port == 0)
++	{
++		LOG_WARNING(&quot;no tcl port specified, using default port 5555&quot;);
++		tcl_port = 5555;
++	}
++
++	retval = add_service(&quot;tcl&quot;, CONNECTION_TCL, tcl_port, 1, tcl_new_connection, tcl_input, tcl_closed, NULL);
++	return retval;
++}
++
++
++int tcl_register_commands(command_context_t *cmd_ctx)
++{
++	register_command(cmd_ctx, NULL, &quot;tcl_port&quot;, handle_tcl_port_command, COMMAND_CONFIG, &quot;&quot;);
++	return ERROR_OK;
++}
++
++static int handle_tcl_port_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc == 1) {
++		tcl_port = strtoul(args[0], NULL, 0);
++	}
++	return ERROR_OK;
++}
+Index: src/server/server.h
+===================================================================
+--- src/server/server.h	(revision 753)
++++ src/server/server.h	(working copy)
+@@ -30,6 +30,7 @@
+ {
+ 	CONNECTION_GDB,
+ 	CONNECTION_TELNET,
++	CONNECTION_TCL,
+ };
+ 
+ typedef struct connection_s
+Index: src/server/tcl_server.h
+===================================================================
+--- src/server/tcl_server.h	(revision 0)
++++ src/server/tcl_server.h	(revision 0)
+@@ -0,0 +1,28 @@
++/***************************************************************************
++ *   Copyright (C) 2008                                                    *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef _TCL_SERVER_H_
++#define _TCL_SERVER_H_
++
++#include &quot;server.h&quot;
++
++extern int tcl_init(void);
++extern int tcl_register_commands(command_context_t *cmd_ctx);
++
++#endif /* _TCL_SERVER_H_ */
+Index: src/openocd.c
+===================================================================
+--- src/openocd.c	(revision 753)
++++ src/openocd.c	(working copy)
+@@ -143,6 +143,7 @@
+ 	/* initialize telnet subsystem */
+ 	telnet_init(&quot;Open On-Chip Debugger&quot;);
+ 	gdb_init();
++	tcl_init(); /* allows tcl to just connect without going thru telnet */
+ 
+ 	return ERROR_OK;
+ }
+@@ -354,6 +355,7 @@
+ 	server_register_commands(cmd_ctx);
+ 	telnet_register_commands(cmd_ctx);
+ 	gdb_register_commands(cmd_ctx);
++	tcl_register_commands(cmd_ctx); /* tcl server commands */
+ 	log_register_commands(cmd_ctx);
+ 	jtag_register_commands(cmd_ctx);
+ 	interpreter_register_commands(cmd_ctx);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002371.html">[Openocd-development] Subject: [PATCH] building with jim on	linux
+</A></li>
+	<LI>Next message: <A HREF="002384.html">[Openocd-development] [PATCH] adding a &quot;tcl&quot; port to openocd
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2368">[ date ]</a>
+              <a href="thread.html#2368">[ thread ]</a>
+              <a href="subject.html#2368">[ subject ]</a>
+              <a href="author.html#2368">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

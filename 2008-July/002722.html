@@ -1,0 +1,256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Reset Madness
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20Madness&In-Reply-To=%3C4883B8FB.2010806%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002727.html">
+   <LINK REL="Next"  HREF="002728.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Reset Madness</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20Madness&In-Reply-To=%3C4883B8FB.2010806%40duaneellis.com%3E"
+       TITLE="[Openocd-development] Reset Madness">openocd at duaneellis.com
+       </A><BR>
+    <I>Mon Jul 21 00:15:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002727.html">[Openocd-development] [PATCH] Support for non-CFI flash	MX29LV800B
+</A></li>
+        <LI>Next message: <A HREF="002728.html">[Openocd-development] Reset Madness
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2722">[ date ]</a>
+              <a href="thread.html#2722">[ thread ]</a>
+              <a href="subject.html#2722">[ subject ]</a>
+              <a href="author.html#2722">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Putting my &quot;user hat&quot; on - I think we sort of went down the wrong path 
+with reset.
+
+My reasoning and solution ideas follows.
+
+-Duane.
+
+============
+
+Background:
+
+Openocd is &quot;part of a debugger&quot; - it is not a board or program that runs 
+freely.
+
+When something is under the control of a debugger - in some ways, I 
+liken &quot;RESET&quot; as &quot;restart&quot; - or &quot;RESET&quot; the mouse trap so I can find the 
+bug.
+This implies to me - that (1) I can RESET the mouse trap - and (2) when 
+i am ready I tell the debugger to RUN or CONTINUE as the case may be.
+
+This sort of implies that the default action in all cases should be:  
+
+    To the best of your ability - RESET and halt at the reset vector.
+
+    Some targets - cannot do that - they do the best they can.
+    And can be made to act like that - simple proc.
+
+GDB - on the host side has the same idea - it is sort of like &quot;restart&quot;.
+
+On Linux - this means: Kill and re-initialize the process space back to 
+the start condition.
+
+Yes, on linux it also auto-executes the app - why? Because GDB _CAN_ 
+initialize the target address space with a linux app.
+Since it *CANNOT* always do this with an embedded target - it should 
+come damn close.
+
+The issue is the &quot;reset and run&quot;.
+
+===
+
+However, there are some complicating issues:
+
+(A) Some targets you can do exactly that - with no consequences, no 
+complications.
+    ie: Reset, halt, at the reset vector.
+    Or - just simply halt and set the PC at the reset address
+    ie: A micro controller fits that example.
+
+Others do not and get more complicated.
+
+(B) Example: When you have an SDRAM present and you are loading the 
+program in SDRAM.
+    Example: AT91RM9200 - is a nasty beast.
+    If I reset the chip I must also:
+       Reprogram the Main OSC, Reprogram the PLLs, and re-initalize the 
+SDRAM.
+       Along the way - one must/can also change the jtag frequency.
+
+In the past, I dealt with (B) by writing macros with the JTAG box I used.
+
+===
+
+Here is my observation and suggestion: I think we need to &quot;divorce&quot; two 
+things.
+
+    (a) wiggling the &quot;hard reset signals&quot;
+    (b) what the 'reset' command does.
+
+    I think &quot;RESET&quot; today - has become overloaded and complicated.
+
+Step (1)  
+
+    We create a new command - called:   &quot;hard_reset&quot;
+
+    It means *WIGGLE* the pins like pressing a HARD reset button.
+
+    It should have some options. For example:
+
+          hard_reset configure  -type &lt;TYPE&gt;
+                   Where TYPE is one of run,halt,init, ... whatever
+          hard_reset  cget  
+                    [displays current configuration]
+          hard_reset 
+                    [no options: does what ever is &quot;configured&quot; for all 
+targets]
+          hard_reset -target 3 -type foo 
+                    [performs type foo reset on target 3, does not 
+change configuration]
+
+    By default &quot;hard_reset&quot; does this and only this:
+           Wiggle JTAG pins and attempt to stop CPU @ reset vector.
+           Ready for the debugger to do what they want.
+
+    The HARD reset command performs *NO* actions
+    the HARD reset command has no &quot;scripts&quot; no nothing.
+
+STEP 2
+
+    Delete the existing &quot;reset&quot; command - and replace it with
+    a new &quot;reset&quot; command that does this:
+
+                &quot;hard_reset&quot; with no options.
+
+    To change the configuration of &quot;reset&quot; you do this:
+
+            reset configure -command   &quot;SOME STRING&quot;
+
+    To see the current configuration, use the standard &quot;tcl&quot; option &quot;cget&quot;.
+
+            reset cget -command
+
+    Where:   SOMESTRING defines what RESET does.
+          the default being:   &quot;hard_reset&quot;.
+     
+    You can easily reconfigure &quot;reset&quot; like this:
+
+   Option (A) - The default is really this:
+
+          reset configure -action hard_reset
+
+    Option (B) [read commands from a file]
+
+            reset   configure -command  &quot;source my_reset_file.txt&quot;
+
+    Option (C) Execute a TCL function.
+
+          proc  my_reset_function { }  {
+                ... pre-wiggle commands
+
+                 # Wiggle the pins
+                  hard_reset --target 0
+
+                ... post-wiggle commands
+           }
+
+          reset configure -action  my_reset_function
+    or   reset configure -action  &quot;my_reset_function  Param1 Parm2&quot;
+
+================
+
+   Options (B) and (C) address SPEN's issue:
+  
+        &gt;&gt; Rather I'm thinking that a reset
+        &gt;&gt; procedure needs to be written
+        &gt;&gt; in script form to handle the
+        &gt;&gt; more contrived cases.
+
+========================
+
+    This would also remove *ALL* of these &quot;pre/post&quot; reset things.
+    And all this &quot;target_N_stuf&quot;
+
+    I think this &quot;pre/post&quot; and event proc stuff is confusing the issue 
+to no end.
+    This is also some of what Tim Hudson is complaining about.
+
+========================
+ 
+    I think this would also help address Tim Hudson's concern:
+
+       &gt; What was there before was simple and easy to
+       &gt; follow - and now you have to define two event
+       &gt; procs to handle it - that does seem like a regression.
+
+    Why? Those event procs are gone.
+    And you can define &quot;reset&quot; to do what you want by
+    putting the commands you want _IN_ the script file
+    or in the TCL Proc - your choice.
+
+========================
+ 
+This answers Oyvinds concern:
+
+    &gt;&gt;- added hardcoded reset modes from gdb_server.c.
+    &gt;&gt; I don't know precisely what these defaults should be
+     &gt;&gt; or if it should be made configurable. Perhaps some
+    &gt;&gt; hardcoded defaults will do for now and it can be
+    &gt;&gt; made configurable later.
+
+MAYBE - we define a new new command, that by default is this:
+
+      proc gdb_reset  {  }    { reset }
+
+A RESET request from GDB (not &quot;mon reset&quot;) executes: &quot;gdb_reset&quot;
+
+By default - it ends up executing &quot;reset&quot; - however:
+
+Thus, if the user needs to &quot;monkey&quot; with RESET because of GDB... the 
+user can.
+For example - it could reset the board and reconfigure the SDRAM ...
+In the *SAME* simple 3 ways described above.
+
+========================
+  
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002727.html">[Openocd-development] [PATCH] Support for non-CFI flash	MX29LV800B
+</A></li>
+	<LI>Next message: <A HREF="002728.html">[Openocd-development] Reset Madness
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2722">[ date ]</a>
+              <a href="thread.html#2722">[ thread ]</a>
+              <a href="subject.html#2722">[ subject ]</a>
+              <a href="author.html#2722">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

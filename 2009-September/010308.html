@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] FASTDATA bulk write optimization for mips_m4k	file transfers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FASTDATA%20bulk%20write%20optimization%20for%20mips_m4k%0A%09file%20transfers&In-Reply-To=%3C4A9E7E0B.2070108%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010307.html">
+   <LINK REL="Next"  HREF="010309.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] FASTDATA bulk write optimization for mips_m4k	file transfers</H1>
+    <B>David Claffey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FASTDATA%20bulk%20write%20optimization%20for%20mips_m4k%0A%09file%20transfers&In-Reply-To=%3C4A9E7E0B.2070108%40gmail.com%3E"
+       TITLE="[Openocd-development] FASTDATA bulk write optimization for mips_m4k	file transfers">dnclaffey at gmail.com
+       </A><BR>
+    <I>Wed Sep  2 16:15:39 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010307.html">[Openocd-development] imx31
+</A></li>
+        <LI>Next message: <A HREF="010309.html">[Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10308">[ date ]</a>
+              <a href="thread.html#10308">[ thread ]</a>
+              <a href="subject.html#10308">[ subject ]</a>
+              <a href="author.html#10308">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Tornado,
+
+I have been using the fastdata patch for months now.  I use it to load a RAM
+bootloader image onto dead/empty boards.  Then I use the bootloader to program
+the flash. Without fastdata, RAM loading is too too slow to be useful.
+
+Fastdata requires a working area in RAM to load and execute the handler routine.
+ Since I am also loading a boot image file, I need the RAM configured anyway. I
+setup the DDR controller on my SoC and use an area in RAM as the working area.
+If a working area is not setup, the FASTDATA will fail to verify the downloaded
+code.
+
+In mips32_pracc_fastdata_xfer() the handler is written to the working area using
+word transfers, then the word at the handler entry is read to check if the
+writes succeeded.  Failure here usually means the RAM is not setup correctly.
+
+I setup RAM by issuing the same register writes and delays I see in the
+bootloader RAM setup code. Other subsystem may also need initialization.  In my
+case I have to also setup the PLL and disable the watchdog.
+
+You can test the working area before using fastdata transfer using the mww and
+mdw commands to confirm the RAM is working.
+
+I have seen some errors when I use the fastdata loading more than once.  Seems
+there is a reinitialize problem, but I haven't had the time to investigate.
+
+Lastly, make sure your working area is pointing to the configured RAM address,
+in my case it points into the uncached, unmapped area of RAM, and make sure the
+image file upload does not overwrite the fastdata handler of course.
+
+Let me know if this helps.
+
+- David
+
+
+Here are my configuration files
+
+openocd.cfg:
+
+# AR71xx MIPS 24Kc SoC.
+#
+# ARM-TINY-USB
+#daemon configuration
+telnet_port 4444
+gdb_port 3333
+tcl_port 6666
+
+source [find interface/olimex-jtag-tiny.cfg]
+
+jtag_nsrst_delay 100
+jtag_ntrst_delay 100
+
+reset_config trst_and_srst
+
+set CHIPNAME ar71xx
+# jtag scan chain
+# format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag newtap $CHIPNAME cpu -irlen 5 -ircapture 0x1 -irmask 0x1f -expected-id 1
+
+set TARGETNAME [format &quot;%s.cpu&quot; $CHIPNAME]
+target create $TARGETNAME mips_m4k -endian big -chain-position $TARGETNAME
+
+ar71xx.cpu configure -event reset-init &quot;script ar71xx.init&quot;
+
+# setup working area somewhere in RAM
+ar71xx.cpu configure -work-area-phys 0xa0010000 -work-area-size 0x20000
+
+init
+reset init
+
+
+and an example of RAM setup in ar71xx.init:
+
+#setup PLL
+...
+# set GPIO to default to disable watchdog
+...
+#initialize_pll
+...
+# Setup DDR config and flash mapping
+mww 0xb8000000 0xefbc8cd0       # DDR cfg cdl val (rst: 0x5bfc8d0)
+mww 0xb8000004 0x8e7156a2       # DDR cfg2 cdl val (rst: 0x80d106a8)
+
+mww 0xb8000010 8		# force precharge all banks
+mww 0xb8000010 1 		# force EMRS update cycle
+mww 0xb800000c 0                # clr ext. mode register
+mww 0xb8000010 2 		# force auto refresh all banks
+mww 0xb8000010 8		# force precharge all banks
+mww 0xb8000008 0x31             # set DDR mode value CAS=3
+mww 0xb8000010 1 		# force EMRS update cycle
+mww 0xb8000014 0x461b           # DDR refresh value
+mww 0xb8000018 0xffff           # DDR Read Data This Cycle value (16bit: 0xffff)
+mww 0xb800001c 0x7              # delay added to the DQS line (normal = 7)
+mww 0xb8000020 0
+mww 0xb8000024 0
+mww 0xb8000028 0
+
+
+tornado wrote:
+&gt;<i> David,
+</I>&gt;<i> 
+</I>&gt;<i> I read you email online and openocd developer list, and then joined it
+</I>&gt;<i> afterwards. I'm very interested in what your are trying to do here..I
+</I>&gt;<i> applied your patches against the current openocd SVN repo 17464.
+</I>&gt;<i> 
+</I>&gt;<i> I have several broadcom based routers with mips32 processors in them,
+</I>&gt;<i> and wanted to try your code, the speedup could be very useful.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> However I'm getting a fastdata verify error when running:
+</I>&gt;<i> 
+</I>&gt;<i> load_image CFEv4.BIN 0xa0500000
+</I>&gt;<i> 
+</I>&gt;<i> I don't have the console open as Im writing this email, so that error
+</I>&gt;<i> could be off just a little..
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Could you send me any additional info, perhaps the .cfg your using,
+</I>&gt;<i> target, etc... I would very much like to see this work.
+</I>&gt;<i> 
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010307.html">[Openocd-development] imx31
+</A></li>
+	<LI>Next message: <A HREF="010309.html">[Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10308">[ date ]</a>
+              <a href="thread.html#10308">[ thread ]</a>
+              <a href="subject.html#10308">[ subject ]</a>
+              <a href="author.html#10308">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

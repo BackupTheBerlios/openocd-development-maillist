@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] fast enable/disable command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fast%20enable/disable%20command&In-Reply-To=%3CB8B26F211A66434887C806A8DEE3577BFE92%40kpsrv1.kpatents.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002002.html">
+   <LINK REL="Next"  HREF="002005.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] fast enable/disable command</H1>
+    <B>Ville Voipio</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fast%20enable/disable%20command&In-Reply-To=%3CB8B26F211A66434887C806A8DEE3577BFE92%40kpsrv1.kpatents.local%3E"
+       TITLE="[Openocd-development] fast enable/disable command">Ville.Voipio at kpatents.com
+       </A><BR>
+    <I>Thu Apr 24 08:36:26 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002002.html">[Openocd-development] fast enable/disable command
+</A></li>
+        <LI>Next message: <A HREF="002005.html">[Openocd-development] fast enable/disable command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2004">[ date ]</a>
+              <a href="thread.html#2004">[ thread ]</a>
+              <a href="subject.html#2004">[ subject ]</a>
+              <a href="author.html#2004">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Pavel,
+
+Regarding the checksum (or hash) of the data... I think simple 
+parity is too flimsy... There are several practical situations 
+where it will miss out an error. For example, you can reorder 
+the data as much as you want, or miss out two similar words.
+(Practically speaking, 0xffffffff 0xffffffff gives the same
+result os 0x00000000 0x00000000.)
+
+There are two strategies. The best one is to calculate the
+hash (checksum, CRC) on the fly. That requires there to be
+a sufficient amount of processing cycles available. If there
+isn't time, then the only solution is to calculate the
+hash afterwards.
+
+AFAIK, the download speed should remain at or below 50 kW/s.
+This means that a 5 MHz core will have 100 cycles time to
+do whatever it is going to do. That suffices even for the
+real CRC32. (However, the tabular approach requires memory.)
+
+I am not a specialist in cryptography, so any of the stuff below
+may be horrendously wrong. And I am not a specialist in ARM
+assembler, either, so I leave the optimization part to other 
+people.
+
+
+A quick-and-dirty approach:
+
+hash = 0;
+for each word w in input:
+  *ptr++ = w;
+  w ^= ptr;
+  hash += w;
+  hash = hash rol 1;
+
+- checksum is always rotated by one (to shuffle the bit positions)
+- data is XORed with the pointer to give different input for similar
+  data in different positions
+- avoids the pitfalls of long zero runs
+- is weak as a hash, but very fast to calculate (two extra
+  instruction to the DCC poll code; XOR and add-rotate)
+
+
+
+There are some real hash functions which are rather fast to calculate
+in a limited space. CRC32 is a bad one, as the shift-register
+implementations are nice and fast done bitwise in hardware but slow
+or memory-consuming when done in software. One of the fastest non-CRC
+hashes is Adler-32 (used in, e.g., zlib):
+
+
+uint8_t *ptr;
+
+a = 1
+b = 0
+
+for each word w in input:
+  *(uint32_t *)ptr = w;
+  a += *ptr++;
+  b += a;
+  a += *ptr++;
+  b += a;
+  a += *ptr++;
+  b += a;
+  a += *ptr++;
+  b += a;
+  if (a &gt;= 65521)
+    a -= 65521;
+  if (b &gt;= 4 * 65521)
+    b -= 4 * 65521;
+
+while (b &gt;= 65521)
+  b -= 65521;
+
+hash = (a &lt;&lt; 16) + (b &amp; 0xffff);
+
+
+- basic operation for each octet:
+   a += new data; (in modulo 65521)
+   b += a; (in modulo 65521)
+
+- the pointer operations may be better done by rotating data in a 
+  register, any method to get the data octet-by-octet is fine
+  (e.g., and-rotate).
+
+
+As practically all ARMs seem to have a multiplication unit, then 
+we might think of using something that multiplies. 32-bit FNV-1a
+might fit the bill:
+
+
+uint8_t *ptr;
+
+hash = 2166136261;
+for each word w in input
+  *(uint32_t *)ptr = w;
+  hash *= 0x01000193;
+  hash ^= *ptr++;
+  hash *= 0x01000193;
+  hash ^= *ptr++;
+  hash *= 0x01000193;
+  hash ^= *ptr++;
+  hash *= 0x01000193;
+  hash ^= *ptr++;
+
+- should be a good hash (high dispersion, etc.)
+- same thing as with Adler; octet-by-octet
+- extremely small if done afterwards to the data
+
+
+IMHO, FNV is way cooler than Adler, but their real figure of 
+merit is the number of cycles. I think they should be written 
+in assembly and then the number of cycles should be compared. 
+My guess is that with Cortex FNV is faster, with ARM7TDMI Adler 
+may be slightly faster.
+
+---
+
+I know this discussion sounds a bit academic, but as I need to use the
+systems on the factory-floor, I really do not want to have a
+single bit wrong. (Currently, I use CRC16 calculated after the transfer.)
+
+If the hash calculation is done after the transfer, then both Adler
+and FNV are smaller and faster than CRC32.
+
+- Ville
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080424/a5311c5e/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080424/a5311c5e/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002002.html">[Openocd-development] fast enable/disable command
+</A></li>
+	<LI>Next message: <A HREF="002005.html">[Openocd-development] fast enable/disable command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2004">[ date ]</a>
+              <a href="thread.html#2004">[ thread ]</a>
+              <a href="subject.html#2004">[ subject ]</a>
+              <a href="author.html#2004">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

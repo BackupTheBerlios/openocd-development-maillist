@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 04/22] arm920t: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2004/22%5D%20arm920t%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100321-14469-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012848.html">
+   <LINK REL="Next"  HREF="012826.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 04/22] arm920t: use register_commands()</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2004/22%5D%20arm920t%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100321-14469-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 04/22] arm920t: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:03 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012848.html">[Openocd-development] [PATCH 09/11] jtag: use register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012826.html">[Openocd-development] [PATCH 10/20] mflash: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12850">[ date ]</a>
+              <a href="thread.html#12850">[ thread ]</a>
+              <a href="subject.html#12850">[ subject ]</a>
+              <a href="author.html#12850">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/arm920t.c |   74 +++++++++++++++++++++++++++++++------------------
+ 1 files changed, 47 insertions(+), 27 deletions(-)
+
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index e927844..1e6019c 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -1361,36 +1361,56 @@ static int arm920t_mcr(struct target *target, int cpnum, uint32_t op1, uint32_t
+ 	return arm920t_write_cp15_interpreted(target, mrc_opcode(cpnum, op1, op2, CRn, CRm), 0, value);
+ }
+ 
++static const struct command_registration arm920t_exec_command_handlers[] = {
++	{
++		.name = &quot;cp15&quot;,
++		.handler = &amp;arm920t_handle_cp15_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display/modify cp15 register&quot;,
++		.usage = &quot;&lt;num&gt; [value]&quot;,
++	},
++	{
++		.name = &quot;cp15i&quot;,
++		.handler = &amp;arm920t_handle_cp15i_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display/modify cp15 (interpreted access)&quot;,
++		.usage = &quot;&lt;opcode&gt; [value] [address]&quot;,
++	},
++	{
++		.name = &quot;cache_info&quot;,
++		.handler = &amp;arm920t_handle_cache_info_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display information about target caches&quot;,
++	},
++	{
++		.name = &quot;read_cache&quot;,
++		.handler = &amp;arm920t_handle_read_cache_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display I/D cache content&quot;,
++	},
++	{
++		.name = &quot;read_mmu&quot;,
++		.handler = &amp;arm920t_handle_read_mmu_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display I/D mmu content&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration arm920t_command_handlers[] = {
++	{
++		.name = &quot;arm920t&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;arm920t command group&quot;,
++		.chain = arm920t_exec_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ /** Registers commands to access coprocessor, cache, and MMU resources. */
+ int arm920t_register_commands(struct command_context *cmd_ctx)
+ {
+-	int retval;
+-	struct command *arm920t_cmd;
+-
+-	retval = arm9tdmi_register_commands(cmd_ctx);
+-
+-	arm920t_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm920t&quot;,
+-			NULL, COMMAND_ANY,
+-			&quot;arm920t specific commands&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;cp15&quot;,
+-			arm920t_handle_cp15_command, COMMAND_EXEC,
+-			&quot;display/modify cp15 register &lt;num&gt; [value]&quot;);
+-	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;cp15i&quot;,
+-			arm920t_handle_cp15i_command, COMMAND_EXEC,
+-			&quot;display/modify cp15 (interpreted access) &quot;
+-				&quot;&lt;opcode&gt; [value] [address]&quot;);
+-	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;cache_info&quot;,
+-			arm920t_handle_cache_info_command, COMMAND_EXEC,
+-			&quot;display information about target caches&quot;);
+-	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;read_cache&quot;,
+-			arm920t_handle_read_cache_command, COMMAND_EXEC,
+-			&quot;display I/D cache content&quot;);
+-	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;read_mmu&quot;,
+-			arm920t_handle_read_mmu_command, COMMAND_EXEC,
+-			&quot;display I/D mmu content&quot;);
+-
+-	return retval;
++	arm9tdmi_register_commands(cmd_ctx);
++	return register_commands(cmd_ctx, NULL, arm920t_command_handlers);
+ }
+ 
+ /** Holds methods for ARM920 targets. */
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012848.html">[Openocd-development] [PATCH 09/11] jtag: use register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012826.html">[Openocd-development] [PATCH 10/20] mflash: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12850">[ date ]</a>
+              <a href="thread.html#12850">[ thread ]</a>
+              <a href="subject.html#12850">[ subject ]</a>
+              <a href="author.html#12850">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

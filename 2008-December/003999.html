@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] fix typo in smdk6431
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20fix%20typo%20in%20smdk6431&In-Reply-To=%3C1334D1B1-4588-4FAB-B2D8-D2274B0D4CB2%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003996.html">
+   <LINK REL="Next"  HREF="004004.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] fix typo in smdk6431</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20fix%20typo%20in%20smdk6431&In-Reply-To=%3C1334D1B1-4588-4FAB-B2D8-D2274B0D4CB2%40kc8apf.net%3E"
+       TITLE="[Openocd-development] [patch] fix typo in smdk6431">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Thu Dec 11 17:46:31 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003996.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+        <LI>Next message: <A HREF="004004.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3999">[ date ]</a>
+              <a href="thread.html#3999">[ thread ]</a>
+              <a href="subject.html#3999">[ subject ]</a>
+              <a href="author.html#3999">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Dec 11, 2008, at 3:55 AM, Duane Ellis wrote:
+
+&gt;<i> duane&gt; ==================================
+</I>&gt;<i> duane&gt; Here is the *SIMPLE* thing that needs to happen.
+</I>&gt;<i> duane&gt; (1) There needs to be a new target event.
+</I>&gt;<i> duane&gt;  This event should happen when all taps have
+</I>&gt;<i> duane&gt; been &quot;re-id&quot; aka: when the chain is validated.
+</I>&gt;<i>
+</I>&gt;<i> rick&gt;  I don't think the target is the right place for this.
+</I>&gt;<i> It is the right place, this gives the *TARGET* something that the  
+</I>&gt;<i> *TARGET* can do after the jtag tap chains have been validated.
+</I>&gt;<i> If they choose to do *NOTHING* so be it.
+</I>&gt;<i> If they do something - ie: Like make sure   &quot;TARGET.foo&quot; is   
+</I>&gt;<i> *REALLY* the chip you think it is... then even better.
+</I>&gt;<i>
+</I>
+Fair enough.  For something like the at91rm9200, at the tap level,  
+both the debug and boundary scan mode IDs are valid, but at a target  
+level, only debug is useful.
+
+&gt;<i> Adding *ANOTHER* *ADDITIONAL*  mechanism - for *TAP* events - yes,  
+</I>&gt;<i> that is possible.
+</I>&gt;<i> But - that gets messy.
+</I>&gt;<i>
+</I>
+As my other patch shows, such a mechanism simplifies interacting with  
+a JTAG route controller, so the mechanism would already be in place.
+
+&gt;<i> Please recall our earlier discussion about &quot;taps as objects&quot; we came  
+</I>&gt;<i> to the conclusion that &quot;taps as objects&quot; was not a good idea,m the  
+</I>&gt;<i> problem was namespace issues.
+</I>&gt;<i>
+</I>
+I still believe namespaces a big problem.  That said, having separate  
+namespaces doesn't preclude &quot;taps as objects&quot;.  From a programmatic  
+view, target objects could be contained under a &quot;targets&quot; global and  
+tap objects could be contained under a &quot;taps&quot; global.  That handles  
+the namespace problem but allows both to be treated as objects.
+
+Doing this should also make adding other protocols like SWJ, I2C, and  
+SPI easier.  The tap objects can be a generic struct that contains a  
+type identifier.  This type would indicate which protocol it uses and  
+also indicates the other members of the struct.  Then, each protocol  
+would have a top-level command similar to the &quot;jtag&quot; command.  That  
+command would have a &quot;newtap&quot; subcommand that takes the appropriate  
+operands for that protocol.  Then when creating a target, the tap is  
+specified.  The target could inspect the tap to determine if it can  
+use a tap of that type.  That would provide sufficient decoupling  
+between the protocols and the targets to allow new protocols to be  
+introduced with relative ease.
+
+&gt;<i> ==============
+</I>&gt;<i>
+</I>&gt;<i> Rick&gt; The id is tied to a tap which may or may not be a target.  If  
+</I>&gt;<i> we tie it to a target event, how would you do an id check for a PLD?
+</I>&gt;<i> Via the list of  &quot;-expected-id&quot; patch that you just posted to the  
+</I>&gt;<i> list.
+</I>&gt;<i>
+</I>
+That would only prove that one of the expected IDs was matched during  
+chain examination.  Ostensibly, a PLD could have 2 JTAG modes that  
+change the ID it reports similar to the at91rm9200.  Thus, the target  
+tap-validate event would need to be replicated for PLDs, NAND, etc to  
+allow those types to report additional information such as &quot;Pin 5 is  
+grounded which places the PLD is run-only mode.  To program the PLD,  
+connect pin 5 to Vcc.&quot;
+
+&gt;<i> --Duane.
+</I>&gt;<i>
+</I>
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081211/a7f59a15/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20081211/a7f59a15/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003996.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+	<LI>Next message: <A HREF="004004.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3999">[ date ]</a>
+              <a href="thread.html#3999">[ thread ]</a>
+              <a href="subject.html#3999">[ subject ]</a>
+              <a href="author.html#3999">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

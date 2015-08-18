@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] new target_types.h
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20target_types.h&In-Reply-To=%3C4A232F7E.9080003%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007556.html">
+   <LINK REL="Next"  HREF="007567.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] new target_types.h</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20target_types.h&In-Reply-To=%3C4A232F7E.9080003%40duaneellis.com%3E"
+       TITLE="[Openocd-development] new target_types.h">openocd at duaneellis.com
+       </A><BR>
+    <I>Mon Jun  1 03:31:42 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007556.html">[Openocd-development] new target_types.h
+</A></li>
+        <LI>Next message: <A HREF="007567.html">[Openocd-development] new target_types.h
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7563">[ date ]</a>
+              <a href="thread.html#7563">[ thread ]</a>
+              <a href="subject.html#7563">[ subject ]</a>
+              <a href="author.html#7563">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>duane&gt; [about target_types.h]    and &quot;openocd/types.h&quot;
+
+I do like what you have done with &quot;target_types.h&quot; - Yes, absolutely - 
+good idea, I think I said it wrong, I'm sure I'll make that mistake again.
+
+zach&gt; You want to expose every struct name to every module? No thanks.
+
+We do that now - in a messy way, note: i say &quot;struct name&quot; not &quot;struct 
+content&quot;
+
+zach&gt; we would not need such forward declarations if if we used the 
+'struct foo_s *'  form instead of the typedefs.
+
+Absolutely agree with you.  I *specifically* do not mean the *contents* 
+of a structure, absolutely not. I'm trying to stop a rash of warnings 
+like this:
+
+a.c:2: warning: &quot;struct abcXXX&quot; declared inside parameter list
+a.c:2: warning: its scope is only this definition or declaration, which 
+is probably not what you want
+
+The simple workaround for the above is, a simple forward struct 
+declaration, nothing more, as in (1) below.
+
+(1) struct abcXXX;
+(2) int foobar( struct abcXXX *p );
+
+Either (A) - is done via a cascade of #include files - effectively what 
+we have today, #include &lt;STAR.dot.STAR&gt;, and is shown below via &quot;arm11.c&quot;
+
+or (B) every H file has it's own little 'struct foo; /* forward 
+declaration */ - This devolves over time into voodoo and countless 
+useless 'struct foo' things added all over the place, randomly - some 
+files have them, some don't, there is no rhyme nor reason why, suddenly 
+a file one needs it, and the next one does not. They look out of place, 
+&quot;people clean up&quot; - (like we are doing today) Given some time, these 
+devolve into a mess
+
+or (C) you have a simple project specific &quot;types.h&quot; file - that contains 
+all the simplistic basic types used in the project, and that may include 
+a few major &quot;struct foo;&quot; names in name only (NOT with content of that 
+struct), the moral equal to &quot;sys/types.h&quot;, it is a simple solution.  
+Yea, a little messy, but a reasonable mess to contain. Simple rule:  (a) 
+always put a forward declaration of any structure in &quot;openocd_types.h&quot;, 
+and (b) put the structure where it belongs, thus any function can &quot;get a 
+pointer to the object&quot; - but that is all.
+
+(C) simplifies and streamlines the process, a simple &quot;openocd_types.h&quot; 
+file - is always included, like it is today.
+
+----
+For instance, I picked arm11.c - at random, then number in column 1 is 
+the nesting level.
+
+    arm11.c
+1          #include &quot;arm11.h&quot;
+2                #include &quot;target.h&quot;
+3                    Extra 'struct reg_s'
+3                     Extra 'struct trace_s'
+3                     Extra 'command_context_s'
+3                     Extra &quot;struct target_type_s'
+3                     Extra 'struct target_s'
+
+3                      #include &quot;breakpoints.h&quot;
+4                            Extra &quot;struct target_s&quot;
+4                            #include &quot;type.h&quot;
+
+3                      #include &quot;algorithm.h&quot;
+4                             #include &quot;type.h&quot;
+
+3                    #include &quot;command.h&quot;
+4                               #include &quot;types.h&quot;
+4                              #include &quot;jim.h&quot;
+
+2                #include &quot;register.h&quot;
+3                      Extra 'stuct target_s'
+                   
+3                        #include &quot;types.h&quot;
+
+2               #include &quot;jtag.h&quot;
+3                    #include &quot;binarybuffer.h&quot;
+4                              #include &quot;types.h&quot;
+3                    #include &quot;log.h&quot;
+4                         #include &quot;command.h&quot;
+  
+-----
+
+That mess goes away with a simple &quot;openocd_types.h&quot;, the moral equal to 
+&quot;sys/types.h&quot;  - but in this case, a bunch of &quot;forward struct&quot; 
+definitions. I am not suggesting that the contents of structs be put in 
+this file.
+
+-----
+
+-Duane.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007556.html">[Openocd-development] new target_types.h
+</A></li>
+	<LI>Next message: <A HREF="007567.html">[Openocd-development] new target_types.h
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7563">[ date ]</a>
+              <a href="thread.html#7563">[ thread ]</a>
+              <a href="subject.html#7563">[ subject ]</a>
+              <a href="author.html#7563">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

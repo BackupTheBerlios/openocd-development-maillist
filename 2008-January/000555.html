@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Synthesizing in_check_value/mask and error handler using in_handler
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Synthesizing%20in_check_value/mask%20and%0A%20error%20handler%20using%20in_handler&In-Reply-To=%3C477D0275.9010106%40asix.cz%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000552.html">
+   <LINK REL="Next"  HREF="000556.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Synthesizing in_check_value/mask and error handler using in_handler</H1>
+    <B>Pavel Chromy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Synthesizing%20in_check_value/mask%20and%0A%20error%20handler%20using%20in_handler&In-Reply-To=%3C477D0275.9010106%40asix.cz%3E"
+       TITLE="[Openocd-development] Synthesizing in_check_value/mask and error handler using in_handler">chromy at asix.cz
+       </A><BR>
+    <I>Thu Jan  3 16:42:45 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000552.html">[Openocd-development] JTAG error IR,	after the updating with the last versions, possible?
+</A></li>
+        <LI>Next message: <A HREF="000556.html">[Openocd-development] Synthesizing in_check_value/mask and	error handler using in_handler
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#555">[ date ]</a>
+              <a href="thread.html#555">[ thread ]</a>
+              <a href="subject.html#555">[ subject ]</a>
+              <a href="author.html#555">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Hi All,
+
+although I have not tested the patch yet, I generally support the idea as such.
+
+Some general notes about the JTAG drivers:
+
+When I was about to implement support for PRESTO, I found out that there was
+no well defined API for low level JTAG interface driver, except of the fully
+synchronous bitbang.c. (by &quot;low level driver&quot; I mean driver handling JTAG interface at bit level,
+without processing of higher commands).
+
+I believe that it is not very good idea to do common JTAG stuff in the low level driver,
+because this, among other cons, results in repeating and maintaining similar code on several places,
+and unnecessarily increases complexity of the driver.
+
+That is why I created bitq.c as an attempt separate higher stuff from the hw specific IO routines and to define minimal,
+but yet generic enough API for low level JTAG interface driver with queued processing.
+
+I have to admit that I did not like the value checking part of code in bitq.c at all,
+but it was put there to minimize changes to OpenOCD - I just folowed the already implemented concept of JTAG drivers.
+
+In my opinion, it is a good idea to further simplify this, but to cleanly define the driver API at levels:
+type 1: driver fully implementing jtag_interface_t, typically making use of some hardware acceleration
+type 2: low level driver, without special processing of higher JTAG commands
+   a) synchronous implementing jtag_interface_t using bitbang.c and implementing instance of bitbang_interface_t
+   b) queued one implementing jtag_interface_t using bitq.c and implementing instance of bitq_interface_t
+
+Most of the JTAG interfaces used on PC fit into the type 2,
+however there are currently several drivers which fit but do not take this approach.
+Typical example is ft2232.c, have a look look at ft2232_execute_queue().
+I believe that reimplementing this huge switch statement in the driver over and over
+without real reason (e.g. hw assisted processing of high level commands) is something very wrong -
+low level driver (type 2, or call it &quot;minidriver&quot;?) shall not contain any higher JTAG logic.
+FT2232 driver may be cleanly implemented using bitq, and similar comment is applicable to several other drivers.
+
+I think that the low level driver API has to be well defined to prevent unnecessary reimplementation
+of higher JTAG processing inside drivers. What do you think, is this the way we shall go?
+
+Back to the original topic: I am going to test the patch with PRESTO,
+which is probably the only low level driver in the repository which makes use of bitq
+and I will report the results soon.
+
+Best regards,
+
+Pavel
+
+
+&#216;yvind Harboe wrote:
+&gt;<i> This is my first writeup at removing the special code for
+</I>&gt;<i> in_check_value/mask and error_handler.
+</I>&gt;<i> Needs to be tested, but the change has turned out rather more
+</I>&gt;<i> straightforward than I initially
+</I>&gt;<i> expected.
+</I>&gt;<i> 
+</I>&gt;<i> Comments?
+</I>&gt;<i> 
+</I>&gt;<i> Whenever you need in_check_mask/value or error handler, use this
+</I>&gt;<i> function to set up the scan_field_t:
+</I>&gt;<i> 
+</I>&gt;<i> ----
+</I>&gt;<i> /*
+</I>&gt;<i>   set up checking of this field using the in_handler. The values
+</I>&gt;<i> passed in must be valid until
+</I>&gt;<i>   after jtag_execute() has completed.
+</I>&gt;<i>  */
+</I>&gt;<i> void jtag_set_check_value(scan_field_t *field, u8 *value, u8 *mask,
+</I>&gt;<i> error_handler_t *in_error_handler);
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000552.html">[Openocd-development] JTAG error IR,	after the updating with the last versions, possible?
+</A></li>
+	<LI>Next message: <A HREF="000556.html">[Openocd-development] Synthesizing in_check_value/mask and	error handler using in_handler
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#555">[ date ]</a>
+              <a href="thread.html#555">[ thread ]</a>
+              <a href="subject.html#555">[ subject ]</a>
+              <a href="author.html#555">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

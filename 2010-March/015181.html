@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [Fwd: [patch/rfc] NOR: invalidate cached	state on target resume]
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BFwd%3A%20%5Bpatch/rfc%5D%20NOR%3A%20invalidate%20cached%0A%09state%20on%20target%20resume%5D&In-Reply-To=%3C201003090828.19850.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015179.html">
+   <LINK REL="Next"  HREF="015220.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [Fwd: [patch/rfc] NOR: invalidate cached	state on target resume]</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BFwd%3A%20%5Bpatch/rfc%5D%20NOR%3A%20invalidate%20cached%0A%09state%20on%20target%20resume%5D&In-Reply-To=%3C201003090828.19850.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [Fwd: [patch/rfc] NOR: invalidate cached	state on target resume]">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Mar  9 17:28:19 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015179.html">[Openocd-development] [Fwd: [patch/rfc] NOR: invalidate cached	state on target resume]
+</A></li>
+        <LI>Next message: <A HREF="015220.html">[Openocd-development] [Fwd: [patch/rfc] NOR: invalidate cached	state on target resume]
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15181">[ date ]</a>
+              <a href="thread.html#15181">[ thread ]</a>
+              <a href="subject.html#15181">[ subject ]</a>
+              <a href="author.html#15181">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 08 March 2010, Antonio Borneo wrote:
+&gt;<i> Hi Dave,
+</I>&gt;<i> 
+</I>&gt;<i> your patch below (commit 5fdf9535cef7e43f6e99081b6d1f6bd682184803)
+</I>&gt;<i> breaks the command &quot;flash erase_check ...&quot;
+</I>&gt;<i> Such command executes on the target a tiny helper-code on each flash sector.
+</I>&gt;<i> At each execution the erase status already computed on previous
+</I>&gt;<i> sectors are deleted by your patch.
+</I>
+Odd ... not in my testing.
+
+Is that  behavior specific to some flash driver? Or target?
+
+
+&gt;<i> Similar issue would be present in any other case when OpenOCD executes
+</I>&gt;<i> some helper-code.
+</I>
+THis could be related to the ambiguous semantics of one of the
+target_resume() parameters, which have caused other problems in
+the past.  Basically, not all targets treat the parameters in the
+same way.  (See its doxygen...)
+
+ 
+&gt;<i> I think the solution should be to discriminate between resume driven
+</I>&gt;<i> by user and execution forced internally by OpenOCD.
+</I>&gt;<i> nor_resume() should be called only in former case.
+</I>
+That is, you'd like to see the &quot;debug_execution&quot; parameter mean something
+along the lines of &quot;This is 'Trusted' OpenOCD-internal code&quot;, and then
+not invalidate the cache if that flag is set.  Which would add extra and
+hard-to-enforce semantics to that parameter... or else would render that
+cache as useless as it was before, since nothing could rely on it.
+
+I'm all for resolving the ambiguity in what that parameter means, but
+doing that would require auditing all callers and implementations, and
+making a lot of changes...
+
+- Dave
+
+
+&gt;<i> 
+</I>&gt;<i> Best Regards,
+</I>&gt;<i> Antonio Borneo
+</I>&gt;<i> 
+</I>&gt;<i> On Wed, 3 Mar 2010 13:23:12 -0800 David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+</I>&gt;<i> &gt; The NOR infrastructure caches some per-sector state, but
+</I>&gt;<i> &gt; it's not used much ... because the cache is not trustworthy.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; This patch addresses one part of that problem, by ensuring
+</I>&gt;<i> &gt; that state cached by NOR drivers gets invalidated once we
+</I>&gt;<i> &gt; resume the target -- since targets may then modify sectors.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Now if we see sector protection or erase status marked as
+</I>&gt;<i> &gt; anything other than &quot;unknown&quot;, we should be able to rely
+</I>&gt;<i> &gt; on that as being accurate.  (That is ... if we assume the
+</I>&gt;<i> &gt; drivers initialize and update this state correctly.)
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Another part of that problem is that the cached state isn't
+</I>&gt;<i> &gt; much used (being unreliable, it would have been unsafe).
+</I>&gt;<i> &gt; Those issues can be addressed in later patches.
+</I>&gt;<i> &gt; ---
+</I>&gt;<i> &gt; Haven't merged this yet.  The effect should be slightly
+</I>&gt;<i> &gt; visible via &quot;flash protect_check&quot; and &quot;flash info&quot; commands;
+</I>&gt;<i> &gt; basically, once you resume, you'll need to protect_check
+</I>&gt;<i> &gt; again.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I'm tempted to rename the new routine to &quot;nor_resume()&quot;
+</I>&gt;<i> &gt; to help nove a way from the bad &quot;all is NOR&quot; assumption...
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I'd like to merge this in a few days, to enable various bits of
+</I>&gt;<i> &gt; cleanup which would use the now-more-valid cached state to avoid
+</I>&gt;<i> &gt; needless and/or inappropriate flash ops, and finish fixing
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;        <A HREF="http://sourceforge.net/apps/trac/openocd/ticket/11">http://sourceforge.net/apps/trac/openocd/ticket/11</A>
+</I>&gt;<i> &gt;
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015179.html">[Openocd-development] [Fwd: [patch/rfc] NOR: invalidate cached	state on target resume]
+</A></li>
+	<LI>Next message: <A HREF="015220.html">[Openocd-development] [Fwd: [patch/rfc] NOR: invalidate cached	state on target resume]
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15181">[ date ]</a>
+              <a href="thread.html#15181">[ thread ]</a>
+              <a href="subject.html#15181">[ subject ]</a>
+              <a href="author.html#15181">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

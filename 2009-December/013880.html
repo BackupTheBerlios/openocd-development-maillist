@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Adding support for SST 39VF6401B external	flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Adding%20support%20for%20SST%2039VF6401B%20external%0A%09flash&In-Reply-To=%3C8BF07F857AC7C34EB08B6CA07931151204DE2DC6%40EXCHSRV4.deif.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013877.html">
+   <LINK REL="Next"  HREF="013887.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Adding support for SST 39VF6401B external	flash</H1>
+    <B>Flemming Futtrup</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Adding%20support%20for%20SST%2039VF6401B%20external%0A%09flash&In-Reply-To=%3C8BF07F857AC7C34EB08B6CA07931151204DE2DC6%40EXCHSRV4.deif.com%3E"
+       TITLE="[Openocd-development] Adding support for SST 39VF6401B external	flash">ffu at deif.com
+       </A><BR>
+    <I>Wed Dec 30 00:13:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013877.html">[Openocd-development] 0.4.0-rc1 Error: address range ... is not sector-aligned
+</A></li>
+        <LI>Next message: <A HREF="013887.html">[Openocd-development] Adding support for SST 39VF6401B external	flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13880">[ date ]</a>
+              <a href="thread.html#13880">[ thread ]</a>
+              <a href="subject.html#13880">[ subject ]</a>
+              <a href="author.html#13880">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi All, 
+
+I have run into trouble with a new board holding the SST 39VF6401B external flash. 
+
+ 
+
+I am working with WinXP and the 0.3.1 installer from Mr. Chopin:
+
+ 
+
+Trying to flash with the OPenOCD I get this error:
+
+target state: halted
+
+target halted in ARM state due to debug-request, current mode: Supervisor
+
+cpsr: 0x200000d3 pc: 0xa000064c
+
+200 kHz
+
+core state: ARM
+
+RCLK not supported - fallback to 2000 kHz
+
+background polling: on
+
+TAP: lpc2468.cpu (enabled)
+
+target state: halted
+
+target halted in ARM state due to debug-request, current mode: Supervisor
+
+cpsr: 0x200000d3 pc: 0xa000064c
+
+Info : Flash Manufacturer/Device: 0x00bf 0x236d
+
+Error: Could not probe bank: no QRY
+
+Try workaround w/0x555 instead of 0x55 to get QRY.
+
+Error: Could not probe bank: no QRY
+
+Error: auto_probe failed -900
+
+
+
+At this point I assumed that the concerned Flash device is a NON_CFI device.
+
+ 
+
+Then I did some reading in the source code and found the need to rebuild OpenOCD 0.3.1 to accept this device:
+
+ 
+
+First of all there was no support for this flash in the non_cfi.c so I added this: 
+
+ 
+
+{ 
+  .mfr = CFI_MFR_SST, 
+  .id = 0x236d, 
+  /* SST39VF6401B */ 
+  .pri_id = 0x02, 
+  .dev_size = 8*MB, 
+  .interface_desc = 0x2, /* x8 or x16 device with  BYTE */ 
+  .max_buf_write_size = 0x0, 
+  .status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7, 
+  .num_erase_regions = 1, 
+  .erase_region_info = 
+  { 
+    ERASE_REGION(2048, 4*KB) 
+  } 
+},
+
+ 
+
+This seems to make me capable of recognizing the flash. So far so good. 
+
+Then I added this line to the cfi.c cfi_0002_fixups array: 
+
+ 
+
+{CFI_MFR_SST, 0x236d, cfi_fixup_0002_unlock_addresses, &amp;cfi_unlock_addresses[CFI_UNLOCK_555_2AA]},
+
+
+This I did because it seemed like the proper thing to do based on what I found in flash spec. 
+
+All this does not help me very much as I cannot flash anything to this flash, here are my observations: 
+1. I can get a flash info and then all blocks are in a &quot;protection state unknown&quot; condition. This can be solved by applying a &quot;flash protect_check 1&quot;. Then a &quot;flash info 1&quot; says that every block is protected. 
+2. I can disable the &quot;working area&quot; and then it seems to flash but very slowly and pretty useless with an 8M flash. This leads me into thinking that chipselect and all these things are OK.?
+3. The flash I am using is identified to have &quot;CFI Query string&quot; where &quot; Primary OEM command set = 0002H @ address 13H&quot; Whereas my Embedde Aritist board flash that works nicely has a &quot;command set = 01H&quot;. 
+
+My OpenOCD 0.3.1 is simply throwing this kind of message after me :
+
+ 
+
+non-cfi flash: 
+
+mfr: 0x00bf, id:0x236d 
+
+Error: timed out while waiting for target halted 
+Error: error writing to flash at address 0x80000000 at offset 0x00000000 (-902)
+
+
+
+
+
+Here are some more observations, which might be relevant:
+
+The SST39VF6401B and SST39VF6401 are not the same e.g. Primary OEM command set are 01H vs 02H
+
+The SST39VFXX01 and SSTVFXX02 differs in working with Top vs Bottom boot blocks, whatever that means...
+
+ 
+
+So now I am running out of ideas and was hoping for some help from any of you.
+
+Q1: Does any of the things I did make sence (someone suggested that the device really is a CFI Flash and my effort is a waste of time - how can I know)? 
+Q2: Am I missing some important bit to fully adapt a new flash? 
+Q3: Does this &quot;command set&quot; difference mean that I am in the same kind of trouble as some of the other people I read about are having? 
+Q4: I also read about some patches. Would there be one &quot;hacky unsupported take it or leave it patch&quot; that could safe me on this particular flash? Any reference. 
+
+
+
+If you can answer any of these questions you are my hero:-) 
+
+
+
+If you need any additional information please ask me.
+
+
+
+
+Thanks Flemming
+
+ 
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013877.html">[Openocd-development] 0.4.0-rc1 Error: address range ... is not sector-aligned
+</A></li>
+	<LI>Next message: <A HREF="013887.html">[Openocd-development] Adding support for SST 39VF6401B external	flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13880">[ date ]</a>
+              <a href="thread.html#13880">[ thread ]</a>
+              <a href="subject.html#13880">[ subject ]</a>
+              <a href="author.html#13880">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

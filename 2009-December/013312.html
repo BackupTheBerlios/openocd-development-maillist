@@ -1,0 +1,540 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/4] add flash/nor/{tcl.c,	imp.h} from flash/flash.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/4%5D%20add%20flash/nor/%7Btcl.c%2C%0A%09imp.h%7D%20from%20flash/flash.c&In-Reply-To=%3C1259892254-5829-4-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013311.html">
+   <LINK REL="Next"  HREF="013335.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/4] add flash/nor/{tcl.c,	imp.h} from flash/flash.c</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/4%5D%20add%20flash/nor/%7Btcl.c%2C%0A%09imp.h%7D%20from%20flash/flash.c&In-Reply-To=%3C1259892254-5829-4-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/4] add flash/nor/{tcl.c,	imp.h} from flash/flash.c">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Dec  4 03:04:13 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013311.html">[Openocd-development] [PATCH 0/4] split nor flash core/tcl
+</A></li>
+        <LI>Next message: <A HREF="013335.html">[Openocd-development] [PUSHED 4/4] split nor flash core/tcl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13312">[ date ]</a>
+              <a href="thread.html#13312">[ thread ]</a>
+              <a href="subject.html#13312">[ subject ]</a>
+              <a href="author.html#13312">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Moves the top-level 'flash' command handlers into flash/nor/tcl.c,
+with flash/nor/imp.h providing an internal implementation header
+to share non-public API components.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/flash.c         |  175 --------------------------------------
+ src/flash/nor/Makefile.am |    5 +
+ src/flash/nor/imp.h       |   27 ++++++
+ src/flash/nor/tcl.c       |  203 +++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 235 insertions(+), 175 deletions(-)
+ create mode 100644 src/flash/nor/imp.h
+ create mode 100644 src/flash/nor/tcl.c
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index d16949d..b21838c 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -120,39 +120,6 @@ int flash_driver_protect(struct flash_bank *bank, int set, int first, int last)
+ 	return retval;
+ }
+ 
+-static int jim_flash_banks(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+-{
+-	struct flash_bank *p;
+-
+-	if (argc != 1) {
+-		Jim_WrongNumArgs(interp, 1, argv, &quot;no arguments to flash_banks command&quot;);
+-		return JIM_ERR;
+-	}
+-
+-	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
+-	for (p = flash_banks; p; p = p-&gt;next)
+-	{
+-		Jim_Obj *elem = Jim_NewListObj(interp, NULL, 0);
+-
+-		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;name&quot;, -1));
+-		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, p-&gt;driver-&gt;name, -1));
+-		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;base&quot;, -1));
+-		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;base));
+-		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;size&quot;, -1));
+-		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;size));
+-		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;bus_width&quot;, -1));
+-		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;bus_width));
+-		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;chip_width&quot;, -1));
+-		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;chip_width));
+-
+-		Jim_ListAppendElement(interp, list, elem);
+-	}
+-
+-	Jim_SetResult(interp, list);
+-
+-	return JIM_OK;
+-}
+-
+ struct flash_bank *get_flash_bank_by_num_noprobe(int num)
+ {
+ 	struct flash_bank *p;
+@@ -238,92 +205,6 @@ COMMAND_HELPER(flash_command_get_bank, unsigned name_index,
+ }
+ 
+ 
+-COMMAND_HANDLER(handle_flash_bank_command)
+-{
+-	if (CMD_ARGC &lt; 7)
+-	{
+-		LOG_ERROR(&quot;usage: flash bank &lt;name&gt; &lt;driver&gt; &quot;
+-				&quot;&lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt;&quot;);
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-	// save bank name and advance arguments for compatibility
+-	const char *bank_name = *CMD_ARGV++;
+-	CMD_ARGC--;
+-
+-	struct target *target;
+-	if ((target = get_target(CMD_ARGV[5])) == NULL)
+-	{
+-		LOG_ERROR(&quot;target '%s' not defined&quot;, CMD_ARGV[5]);
+-		return ERROR_FAIL;
+-	}
+-
+-	const char *driver_name = CMD_ARGV[0];
+-	for (unsigned i = 0; flash_drivers[i]; i++)
+-	{
+-		if (strcmp(driver_name, flash_drivers[i]-&gt;name) != 0)
+-			continue;
+-
+-		/* register flash specific commands */
+-		if (NULL != flash_drivers[i]-&gt;commands)
+-		{
+-			int retval = register_commands(CMD_CTX, NULL,
+-					flash_drivers[i]-&gt;commands);
+-			if (ERROR_OK != retval)
+-			{
+-				LOG_ERROR(&quot;couldn't register '%s' commands&quot;,
+-						driver_name);
+-				return ERROR_FAIL;
+-			}
+-		}
+-
+-		struct flash_bank *p, *c;
+-		c = malloc(sizeof(struct flash_bank));
+-		c-&gt;name = strdup(bank_name);
+-		c-&gt;target = target;
+-		c-&gt;driver = flash_drivers[i];
+-		c-&gt;driver_priv = NULL;
+-		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], c-&gt;base);
+-		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], c-&gt;size);
+-		COMMAND_PARSE_NUMBER(int, CMD_ARGV[3], c-&gt;chip_width);
+-		COMMAND_PARSE_NUMBER(int, CMD_ARGV[4], c-&gt;bus_width);
+-		c-&gt;num_sectors = 0;
+-		c-&gt;sectors = NULL;
+-		c-&gt;next = NULL;
+-
+-		int retval;
+-		retval = CALL_COMMAND_HANDLER(flash_drivers[i]-&gt;flash_bank_command, c);
+-		if (ERROR_OK != retval)
+-		{
+-			LOG_ERROR(&quot;'%s' driver rejected flash bank at 0x%8.8&quot; PRIx32,
+-					driver_name, c-&gt;base);
+-			free(c);
+-			return retval;
+-		}
+-
+-		/* put flash bank in linked list */
+-		if (flash_banks)
+-		{
+-			int	bank_num = 0;
+-			/* find last flash bank */
+-			for (p = flash_banks; p &amp;&amp; p-&gt;next; p = p-&gt;next) bank_num++;
+-			if (p)
+-				p-&gt;next = c;
+-			c-&gt;bank_number = bank_num + 1;
+-		}
+-		else
+-		{
+-			flash_banks = c;
+-			c-&gt;bank_number = 0;
+-		}
+-
+-		return ERROR_OK;
+-	}
+-
+-	/* no matching flash driver found */
+-	LOG_ERROR(&quot;flash driver '%s' not found&quot;, driver_name);
+-	return ERROR_FAIL;
+-}
+-
+ COMMAND_HANDLER(handle_flash_info_command)
+ {
+ 	struct flash_bank *p;
+@@ -1375,59 +1256,3 @@ int flash_init_drivers(struct command_context *cmd_ctx)
+ 	return register_commands(cmd_ctx, parent, flash_exec_command_handlers);
+ }
+ 
+-COMMAND_HANDLER(handle_flash_init_command)
+-{
+-	if (CMD_ARGC != 0)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	static bool flash_initialized = false;
+-	if (flash_initialized)
+-	{
+-		LOG_INFO(&quot;'flash init' has already been called&quot;);
+-		return ERROR_OK;
+-	}
+-	flash_initialized = true;
+-
+-	LOG_DEBUG(&quot;Initializing flash devices...&quot;);
+-	return flash_init_drivers(CMD_CTX);
+-}
+-
+-static const struct command_registration flash_config_command_handlers[] = {
+-	{
+-		.name = &quot;bank&quot;,
+-		.handler = &amp;handle_flash_bank_command,
+-		.mode = COMMAND_CONFIG,
+-		.usage = &quot;&lt;name&gt; &lt;driver&gt; &lt;base&gt; &lt;size&gt; &quot;
+-			&quot;&lt;chip_width&gt; &lt;bus_width&gt; &lt;target&gt; &quot;
+-			&quot;[driver_options ...]&quot;,
+-		.help = &quot;Define a new bank with the given name, &quot;
+-			&quot;using the specified NOR flash driver.&quot;,
+-	},
+-	{
+-		.name = &quot;init&quot;,
+-		.mode = COMMAND_CONFIG,
+-		.handler = &amp;handle_flash_init_command,
+-		.help = &quot;initialize flash devices&quot;,
+-	},
+-	{
+-		.name = &quot;banks&quot;,
+-		.mode = COMMAND_ANY,
+-		.jim_handler = &amp;jim_flash_banks,
+-		.help = &quot;return information about the flash banks&quot;,
+-	},
+-	COMMAND_REGISTRATION_DONE
+-};
+-static const struct command_registration flash_command_handlers[] = {
+-	{
+-		.name = &quot;flash&quot;,
+-		.mode = COMMAND_ANY,
+-		.help = &quot;NOR flash command group&quot;,
+-		.chain = flash_config_command_handlers,
+-	},
+-	COMMAND_REGISTRATION_DONE
+-};
+-
+-int flash_register_commands(struct command_context *cmd_ctx)
+-{
+-	return register_commands(cmd_ctx, NULL, flash_command_handlers);
+-}
+diff --git a/src/flash/nor/Makefile.am b/src/flash/nor/Makefile.am
+index 211366b..ed9ebb3 100644
+--- a/src/flash/nor/Makefile.am
++++ b/src/flash/nor/Makefile.am
+@@ -2,6 +2,10 @@ AM_CPPFLAGS = -I$(top_srcdir)/src
+ 
+ noinst_LTLIBRARIES = libocdflashnor.la
+ libocdflashnor_la_SOURCES = \
++	tcl.c \
++	$(NOR_DRIVERS)
++
++NOR_DRIVERS = \
+ 	aduc702x.c \
+ 	at91sam3.c \
+ 	at91sam7.c \
+@@ -27,6 +31,7 @@ noinst_HEADERS = \
+ 	at91sam3.h \
+ 	avrf.h \
+ 	cfi.h \
++	imp.h \
+ 	lpc2000.h \
+ 	lpc288x.h \
+ 	non_cfi.h \
+diff --git a/src/flash/nor/imp.h b/src/flash/nor/imp.h
+new file mode 100644
+index 0000000..29d7f7e
+--- /dev/null
++++ b/src/flash/nor/imp.h
+@@ -0,0 +1,27 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef FLASH_NOR_IMP_H
++#define FLASH_NOR_IMP_H
++
++#include &lt;flash/flash.h&gt;
++
++extern struct flash_driver *flash_drivers[];
++extern struct flash_bank *flash_banks;
++
++#endif // FLASH_NOR_IMP_H
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+new file mode 100644
+index 0000000..8c13241
+--- /dev/null
++++ b/src/flash/nor/tcl.c
+@@ -0,0 +1,203 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>&gt;              *
++ *   Copyright (C) 2007,2008 &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;       *
++ *   Copyright (C) 2008 by Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>&gt;           *
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++#include &quot;imp.h&quot;
++
++COMMAND_HANDLER(handle_flash_bank_command)
++{
++	if (CMD_ARGC &lt; 7)
++	{
++		LOG_ERROR(&quot;usage: flash bank &lt;name&gt; &lt;driver&gt; &quot;
++				&quot;&lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt;&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++	// save bank name and advance arguments for compatibility
++	const char *bank_name = *CMD_ARGV++;
++	CMD_ARGC--;
++
++	struct target *target;
++	if ((target = get_target(CMD_ARGV[5])) == NULL)
++	{
++		LOG_ERROR(&quot;target '%s' not defined&quot;, CMD_ARGV[5]);
++		return ERROR_FAIL;
++	}
++
++	const char *driver_name = CMD_ARGV[0];
++	for (unsigned i = 0; flash_drivers[i]; i++)
++	{
++		if (strcmp(driver_name, flash_drivers[i]-&gt;name) != 0)
++			continue;
++
++		/* register flash specific commands */
++		if (NULL != flash_drivers[i]-&gt;commands)
++		{
++			int retval = register_commands(CMD_CTX, NULL,
++					flash_drivers[i]-&gt;commands);
++			if (ERROR_OK != retval)
++			{
++				LOG_ERROR(&quot;couldn't register '%s' commands&quot;,
++						driver_name);
++				return ERROR_FAIL;
++			}
++		}
++
++		struct flash_bank *p, *c;
++		c = malloc(sizeof(struct flash_bank));
++		c-&gt;name = strdup(bank_name);
++		c-&gt;target = target;
++		c-&gt;driver = flash_drivers[i];
++		c-&gt;driver_priv = NULL;
++		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], c-&gt;base);
++		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], c-&gt;size);
++		COMMAND_PARSE_NUMBER(int, CMD_ARGV[3], c-&gt;chip_width);
++		COMMAND_PARSE_NUMBER(int, CMD_ARGV[4], c-&gt;bus_width);
++		c-&gt;num_sectors = 0;
++		c-&gt;sectors = NULL;
++		c-&gt;next = NULL;
++
++		int retval;
++		retval = CALL_COMMAND_HANDLER(flash_drivers[i]-&gt;flash_bank_command, c);
++		if (ERROR_OK != retval)
++		{
++			LOG_ERROR(&quot;'%s' driver rejected flash bank at 0x%8.8&quot; PRIx32,
++					driver_name, c-&gt;base);
++			free(c);
++			return retval;
++		}
++
++		/* put flash bank in linked list */
++		if (flash_banks)
++		{
++			int	bank_num = 0;
++			/* find last flash bank */
++			for (p = flash_banks; p &amp;&amp; p-&gt;next; p = p-&gt;next) bank_num++;
++			if (p)
++				p-&gt;next = c;
++			c-&gt;bank_number = bank_num + 1;
++		}
++		else
++		{
++			flash_banks = c;
++			c-&gt;bank_number = 0;
++		}
++
++		return ERROR_OK;
++	}
++
++	/* no matching flash driver found */
++	LOG_ERROR(&quot;flash driver '%s' not found&quot;, driver_name);
++	return ERROR_FAIL;
++}
++
++
++static int jim_flash_banks(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct flash_bank *p;
++
++	if (argc != 1) {
++		Jim_WrongNumArgs(interp, 1, argv, &quot;no arguments to flash_banks command&quot;);
++		return JIM_ERR;
++	}
++
++	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
++	for (p = flash_banks; p; p = p-&gt;next)
++	{
++		Jim_Obj *elem = Jim_NewListObj(interp, NULL, 0);
++
++		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;name&quot;, -1));
++		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, p-&gt;driver-&gt;name, -1));
++		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;base&quot;, -1));
++		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;base));
++		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;size&quot;, -1));
++		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;size));
++		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;bus_width&quot;, -1));
++		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;bus_width));
++		Jim_ListAppendElement(interp, elem, Jim_NewStringObj(interp, &quot;chip_width&quot;, -1));
++		Jim_ListAppendElement(interp, elem, Jim_NewIntObj(interp, p-&gt;chip_width));
++
++		Jim_ListAppendElement(interp, list, elem);
++	}
++
++	Jim_SetResult(interp, list);
++
++	return JIM_OK;
++}
++
++
++COMMAND_HANDLER(handle_flash_init_command)
++{
++	if (CMD_ARGC != 0)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	static bool flash_initialized = false;
++	if (flash_initialized)
++	{
++		LOG_INFO(&quot;'flash init' has already been called&quot;);
++		return ERROR_OK;
++	}
++	flash_initialized = true;
++
++	LOG_DEBUG(&quot;Initializing flash devices...&quot;);
++	return flash_init_drivers(CMD_CTX);
++}
++
++static const struct command_registration flash_config_command_handlers[] = {
++	{
++		.name = &quot;bank&quot;,
++		.handler = &amp;handle_flash_bank_command,
++		.mode = COMMAND_CONFIG,
++		.usage = &quot;&lt;name&gt; &lt;driver&gt; &lt;base&gt; &lt;size&gt; &quot;
++			&quot;&lt;chip_width&gt; &lt;bus_width&gt; &lt;target&gt; &quot;
++			&quot;[driver_options ...]&quot;,
++		.help = &quot;Define a new bank with the given name, &quot;
++			&quot;using the specified NOR flash driver.&quot;,
++	},
++	{
++		.name = &quot;init&quot;,
++		.mode = COMMAND_CONFIG,
++		.handler = &amp;handle_flash_init_command,
++		.help = &quot;initialize flash devices&quot;,
++	},
++	{
++		.name = &quot;banks&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_flash_banks,
++		.help = &quot;return information about the flash banks&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration flash_command_handlers[] = {
++	{
++		.name = &quot;flash&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;NOR flash command group&quot;,
++		.chain = flash_config_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++int flash_register_commands(struct command_context *cmd_ctx)
++{
++	return register_commands(cmd_ctx, NULL, flash_command_handlers);
++}
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013311.html">[Openocd-development] [PATCH 0/4] split nor flash core/tcl
+</A></li>
+	<LI>Next message: <A HREF="013335.html">[Openocd-development] [PUSHED 4/4] split nor flash core/tcl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13312">[ date ]</a>
+              <a href="thread.html#13312">[ thread ]</a>
+              <a href="subject.html#13312">[ subject ]</a>
+              <a href="author.html#13312">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

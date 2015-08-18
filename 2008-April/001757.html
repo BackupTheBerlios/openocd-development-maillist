@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%09srst_pulls_trst%22%20case&In-Reply-To=%3Cc09652430804080338kf44a03dw824a249841dad42a%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001753.html">
+   <LINK REL="Next"  HREF="001724.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%09srst_pulls_trst%22%20case&In-Reply-To=%3Cc09652430804080338kf44a03dw824a249841dad42a%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Apr  8 12:38:17 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001753.html">[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+</A></li>
+        <LI>Next message: <A HREF="001724.html">[Openocd-development] testing and test cases
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1757">[ date ]</a>
+              <a href="thread.html#1757">[ thread ]</a>
+              <a href="subject.html#1757">[ subject ]</a>
+              <a href="author.html#1757">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tue, Apr 8, 2008 at 11:24 AM, Pavel Chromy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chromy at asix.cz</A>&gt; wrote:
+&gt;<i> Hello &#216;yvind,
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>  &#216;yvind Harboe wrote:
+</I>&gt;<i>
+</I>&gt;<i> &gt; I read over the code again: for srst_pulls_trst a tms is executed
+</I>&gt;<i> &gt; after srst, but trst is not asserted at a hardware level.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Is this wrong?
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i>  Actually, TLR probably shall not be done using TMS in this case
+</I>&gt;<i>  (because SRST already does pull TRST, see below).
+</I>
+Correct.
+
+If we fix this, then the driver must update it's internal state variable
+to tlr upon an srst assert(lest we implement a new mechanism).
+
+&gt;<i> &gt; That depends on what srst_pulls_trst means. Does it mean
+</I>&gt;<i> &gt; that the entire JTAG chain will see a trst or only the target?
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>  I am not really sure about that, but my understanding is that
+</I>&gt;<i> srst_pulls_trst informs OpenOCD
+</I>&gt;<i>  about hardware configuration, it is not a request for software behavior
+</I>&gt;<i> simulating pulling TRST upon SRST assertion.
+</I>&gt;<i>
+</I>&gt;<i>  That is, it tells OpenOCD that SRST assertion also does reset of the TAP
+</I>&gt;<i> controller, because it is wired so.
+</I>&gt;<i>  It does not instruct OpenOCD to pull TRST when SRST is asserted (but I may
+</I>&gt;<i> be mistaken).
+</I>
+This is my interpretation as well.
+
+&gt;<i>  We shall probably precisely define what it actually means before we go on
+</I>&gt;<i> for some changes in this area.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>  Some more notes about recent changes and related stuff:
+</I>&gt;<i>  the prototype of jtag_add_reset as you changed it - void jtag_add_reset(int
+</I>&gt;<i> req_tms_or_trst, int srst)
+</I>&gt;<i>  seems pretty confusing to me. Probably more confusing than it was before.
+</I>&gt;<i>  Unless I knew, I really would not understand what req_tms_or_trst means as
+</I>&gt;<i> TMS stands for &quot;test mode select&quot;.
+</I>&gt;<i>  The paremeter shall rather be named after the TAP state it really requests,
+</I>&gt;<i> which is TLR,
+</I>&gt;<i>  standing for &quot;test logic reset&quot;. Because TRST assertion is the preferred
+</I>&gt;<i> way to reset
+</I>&gt;<i>  the TAP controller (and it should be, if possible), I would put this in the
+</I>&gt;<i> identifier as first,
+</I>&gt;<i>  resulting in req_trst_or_tlr.
+</I>
+Agreed. I think I chose TMS reset because the state machine is
+being driven to TLR by clocking out TMS=1 &gt;5 times and I got
+confused by the TLA's(Three Letter Abreviations). :-)
+
+
+&gt;<i>
+</I>&gt;<i>  Hence the prototype shall read void jtag_add_reset(int req_trst_or_tlr, int
+</I>&gt;<i> srst)
+</I>&gt;<i>  what do you think?
+</I>
+Patch gladly accepted.
+
+Also jtag_add_tms() =&gt; jtag_add_tlr().
+
+&gt;<i>  w.r.t. to previous discussion, I am not sure whether is is necessary to
+</I>&gt;<i> forbid simultaneous assertion
+</I>&gt;<i>  of SRST and TRST (requiring JTAG layer to track the state of the reset
+</I>&gt;<i> lines - every state information
+</I>&gt;<i>  is source of possible problems).
+</I>
+I agree with you on that one :-)
+
+The problem is that we really should discourage driving these lines
+together when it is not necessary as we don't want driver differences
+to manifest themselves.
+
+&gt;<i>  I would leave this up to the caller to do one by one assertion voluntary,
+</I>&gt;<i> if needed.
+</I>&gt;<i>  What definitely should be defined is the behavior in configurations without
+</I>&gt;<i> TRST line.
+</I>&gt;<i>  As we discussed, the transition to TLR by TMS is performed _after_ SRST is
+</I>&gt;<i> already asserted in such case,
+</I>&gt;<i>  which I assume to be wrong (problems with -S cores, practical experiences,
+</I>&gt;<i> anyone?),
+</I>&gt;<i>  reversing the order of these two steps might help (but it shall be defined
+</I>&gt;<i> it is done so).
+</I>&gt;<i>
+</I>&gt;<i>  Also as we discussed it is probably not good to require driver to deduce
+</I>&gt;<i> transition to TLR state from reset_config
+</I>&gt;<i>  (when srst_pulls_trst). I suggest modifying prototype of
+</I>&gt;<i> interface_jtag_add_reset to
+</I>&gt;<i>  interface_jtag_add_reset(int trst, int srst, int tlr).
+</I>&gt;<i>  The driver would update cur_state to TLR if trst OR tlr is true, without
+</I>&gt;<i> checking for srst
+</I>&gt;<i>  (which is responsibility of jtag_add_reset).
+</I>
+I'm going to have to let this simmer for a while until I've got a
+crystal clear understanding of how this must fit together.
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>  Please feel free to implement the suggestions which you like, I do not have
+</I>&gt;<i> much time for coping with this right now
+</I>&gt;<i>  to provide a patch.
+</I>
+I'm spending my efforts on reset, so this is further down the line.
+
+&gt;<i>
+</I>&gt;<i>  Regards,
+</I>&gt;<i>   Pavel
+</I>&gt;<i>
+</I>
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001753.html">[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+</A></li>
+	<LI>Next message: <A HREF="001724.html">[Openocd-development] testing and test cases
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1757">[ date ]</a>
+              <a href="thread.html#1757">[ thread ]</a>
+              <a href="subject.html#1757">[ subject ]</a>
+              <a href="author.html#1757">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

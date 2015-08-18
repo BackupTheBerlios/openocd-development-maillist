@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Board definition for mini6410/tiny6410 (ARM1176)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%3D%3Futf-8%3Fq%3F%3D5BPATCH%3D5D_Board_definition_for_%3F%3D%0A%09%3D%3Futf-8%3Fq%3Fmini6410/tiny6410_%3D28ARM1176%3D29%3F%3D&In-Reply-To=%3C1306705262-9283-1-git-send-email-damjan.marion%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019223.html">
+   <LINK REL="Next"  HREF="019227.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Board definition for mini6410/tiny6410 (ARM1176)</H1>
+    <B>Damjan Marion</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%3D%3Futf-8%3Fq%3F%3D5BPATCH%3D5D_Board_definition_for_%3F%3D%0A%09%3D%3Futf-8%3Fq%3Fmini6410/tiny6410_%3D28ARM1176%3D29%3F%3D&In-Reply-To=%3C1306705262-9283-1-git-send-email-damjan.marion%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] Board definition for mini6410/tiny6410 (ARM1176)">damjan.marion at gmail.com
+       </A><BR>
+    <I>Sun May 29 23:41:02 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019223.html">[Openocd-development] [PATCH] SMDK6410 is not target, move file to board
+</A></li>
+        <LI>Next message: <A HREF="019227.html">[Openocd-development] [PATCH] Board definition for mini6410/tiny6410 (ARM1176)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19226">[ date ]</a>
+              <a href="thread.html#19226">[ thread ]</a>
+              <a href="subject.html#19226">[ subject ]</a>
+              <a href="author.html#19226">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The following mini6410/tiny6410 functions are available:
+init_6410 - initialize clock, timer, DRAM
+init_6410_flash - initializes NAND flash support
+install_6410_uboot - copies u-boot image into RAM and runs it
+---
+ tcl/board/mini6410.cfg |  112 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 112 insertions(+), 0 deletions(-)
+ create mode 100644 tcl/board/mini6410.cfg
+
+diff --git a/tcl/board/mini6410.cfg b/tcl/board/mini6410.cfg
+new file mode 100644
+index 0000000..d00ce1f
+--- /dev/null
++++ b/tcl/board/mini6410.cfg
+@@ -0,0 +1,112 @@
++# Target configuration for the Samsung s3c6410 system on chip
++# Tested on a tiny6410
++# Processor       : ARM1176
++# Info : JTAG tap: s3c6410.etb tap/device found: 0x2b900f0f (mfg: 0x787, part: 0xb900, ver: 0x2)
++# Info : JTAG tap: s3c6410.cpu tap/device found: 0x07b76f0f (mfg: 0x787, part: 0x7b76, ver: 0x0)
++
++source [find target/samsung_s3c6410.cfg]
++
++proc init_6410 {} {
++	halt
++	reg cpsr 0x1D3
++	arm mcr 15 0 15 2 4 0x70000013
++
++	#-----------------------------------------------
++	# Clock and Timer Setting
++	#-----------------------------------------------
++	mww 0x7e004000 0		;# WATCHDOG 	- Disable
++	mww 0x7E00F120 0x0003		;# MEM_SYS_CFG	- CS0:8 bit, Mem1:32bit, CS2=NAND
++	#mww 0x7E00F120 0x1000		;# MEM_SYS_CFG	- CS0:16bit, Mem1:32bit, CS2=SROMC
++	#mww 0x7E00F120 0x1002		;# MEM_SYS_CFG	- CS0:16bit, Mem1:32bit, CS2=OND
++	mww 0x7E00F900 0x805e		;# OTHERS	- Change SYNCMUX[6] to &#8220;1&#8221;
++	sleep 1000
++	mww 0x7E00F900 0x80de		;# OTHERS	- Assert SYNCREQ&amp;VICSYNCEN to &#8220;1&#8221;(rb1004modify)
++	sleep 1000			;#		- Others[11:8] to 0xF
++	mww 0x7E00F000 0xffff		;# APLL_LOCK	- APLL LockTime
++	mww 0x7E00F004 0xffff		;# MPLL_LOCK	- MPLL LockTime
++	mww 0x7E00F020 0x1047310	;# CLK_DIV0 	- ARMCLK:HCLK:PCLK = 1:4:16
++	mww 0x7E00F00c 0x81900302	;# APLL_CON 	- A:400, P:3, S:2 =&gt; 400MHz
++	mww 0x7E00F010 0x81900303	;# MPLL_CON 	- M:400, P:3, S:3 =&gt; 200MHz
++	mww 0x7E00F01c 0x3		;# CLK_SRC 	- APLL,MPLL Clock Select
++
++	#-----------------------------------------------
++	# DRAM initialization
++	#-----------------------------------------------
++	mww 0x7e001004 0x4		;# P1MEMCCMD	- Enter the config state
++	mww 0x7e001010 0x30C		;# P1REFRESH	- Refresh Period register (7800ns), 100MHz
++#	mww 0x7e001010 0x40e		;# P1REFRESH	- Refresh Period register (7800ns), 133MHz
++	mww 0x7e001014 0x6		;# P1CASLAT	- CAS Latency = 3
++	mww 0x7e001018 0x1		;# P1T_DQSS
++	mww 0x7e00101c 0x2		;# P1T_MRD
++	mww 0x7e001020 0x7		;# P1T_RAS	- 45 ns
++	mww 0x7e001024 0xA		;# P1T_RC	- 67.5 ns
++	mww 0x7e001028 0xC		;# P1T_RCD	- 22.5 ns
++	mww 0x7e00102C 0x10B		;# P1T_RFC	- 80 ns
++	mww 0x7e001030 0xC		;# P1T_RP	- 22.5 ns
++	mww 0x7e001034 0x3		;# P1T_RRD	- 15 ns
++	mww 0x7e001038 0x3		;# P1T_WR	- 15 ns
++	mww 0x7e00103C 0x2		;# P1T_WTR
++	mww 0x7e001040 0x2		;# P1T_XP
++	mww 0x7e001044 0x11		;# P1T_XSR	- 120 ns
++	mww 0x7e001048 0x11		;# P1T_ESR
++
++	#-----------------------------------------------
++	# Memory Configuration Registers
++	#-----------------------------------------------
++	mww 0x7e00100C 0x00010012 	;# P1MEMCFG	- 1 CKE, 1Chip, 4burst, Alw, AP[10],ROW/Column bit
++	mww 0x7e00104C 0x0B41 		;# P1MEMCFG2	- Read delay 1 Cycle, mDDR, 32bit, Sync.
++	mww 0x7e001200 0x150F0 		;# CHIP_N_CFG	- 0x150F0 for 256M, 0x150F8 for 128M
++
++	#-----------------------------------------------
++	# Memory Direct Commands
++	#-----------------------------------------------
++	mww 0x7e001008 0xc0000		;# Chip0 Direct Command :NOP5
++	mww 0x7e001008 0x0		;# Chip0 Direct Command :PreCharge al
++	mww 0x7e001008 0x40000		;# Chip0 Direct Command :AutoRefresh
++	mww 0x7e001008 0x40000		;# Chip0 Direct Command :AutoRefresh
++	mww 0x7e001008 0xA0000		;# EMRS, DS:Full, PASR:Full
++	mww 0x7e001008 0x80032		;# MRS, CAS3, BL4
++	mww 0x7e001004 0x0		;# Enable DMC1
++}
++
++proc install_6410_uboot {} {
++	# write U-boot magic number
++	mww 0x50000000 0x24564236
++	mww 0x50000004 0x20764316
++	load_image u-boot_nand-ram256.bin 0x50008000 bin
++	load_image u-boot_nand-ram256.bin 0x57E00000 bin
++
++	#Kick in
++	reg pc 0x57E00000
++	resume
++}
++
++proc init_6410_flash {} {
++	halt
++	nand probe 0
++	nand list
++}
++
++
++adapter_khz 1000
++adapter_nsrst_delay 100
++jtag_ntrst_delay 100
++reset_config trst_and_srst
++
++gdb_breakpoint_override hard
++
++targets
++nand device $_CHIPNAME.flash s3c6400 $_CHIPNAME.cpu
++
++init
++echo &quot; &quot;
++echo &quot; &quot;
++echo &quot;-------------------------------------------------------------------&quot;
++echo &quot;---- The following mini6410/tiny6410 functions are available:  ----&quot;
++echo &quot;----   init_6410 - initialize clock, timer, DRAM               ----&quot;
++echo &quot;----   init_6410_flash - initializes NAND flash support        ----&quot;
++echo &quot;----   install_6410_uboot - copies u-boot image into RAM and   ----&quot;
++echo &quot;----                        runs it                            ----&quot;
++echo &quot;-------------------------------------------------------------------&quot;
++echo &quot; &quot;
++echo &quot; &quot;
+-- 
+1.7.3.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019223.html">[Openocd-development] [PATCH] SMDK6410 is not target, move file to board
+</A></li>
+	<LI>Next message: <A HREF="019227.html">[Openocd-development] [PATCH] Board definition for mini6410/tiny6410 (ARM1176)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19226">[ date ]</a>
+              <a href="thread.html#19226">[ thread ]</a>
+              <a href="subject.html#19226">[ subject ]</a>
+              <a href="author.html#19226">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Verify patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Verify%20patch&In-Reply-To=%3CE1Ifdno-000LkB-A8%40smtp2.global.net.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000372.html">
+   <LINK REL="Next"  HREF="000374.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Verify patch</H1>
+    <B>Spen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Verify%20patch&In-Reply-To=%3CE1Ifdno-000LkB-A8%40smtp2.global.net.uk%3E"
+       TITLE="[Openocd-development] Verify patch">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Wed Oct 10 17:50:23 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000372.html">[Openocd-development] Verify patch
+</A></li>
+        <LI>Next message: <A HREF="000374.html">[Openocd-development] Verify patch update
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#373">[ date ]</a>
+              <a href="thread.html#373">[ thread ]</a>
+              <a href="subject.html#373">[ subject ]</a>
+              <a href="author.html#373">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Vincent, 
+
+&gt;<i> at first sight, I had doubts when I saw &quot;bx lr&quot; in arm7_9_common.c.
+</I>&gt;<i> After deeper &quot;review&quot; , BX LR is available in all ARMv4t and 
+</I>&gt;<i> v5 cores, so the only ARM7 without this instruction are the 
+</I>&gt;<i> first ones ( ARM700,ARM7x00 ) with ARMv3 ISA  and those cores 
+</I>&gt;<i> are not supported by openocd (and rather deprecated), so it 
+</I>&gt;<i> is probably acceptable as is.
+</I>&gt;<i> 
+</I>
+These were my thoughts.
+
+&gt;<i>  &gt; +	u8 arm7_9_crc_code_buf[23 * 4];
+</I>&gt;<i>  &gt; +	
+</I>&gt;<i>  &gt; +	if (target_alloc_working_area(target, 23 * 4, 
+</I>&gt;<i> &amp;crc_algorithm) != &gt; 
+</I>&gt;<i>   ERROR_OK)
+</I>&gt;<i> 
+</I>&gt;<i> May be we should avoid the magic integer 23 here (else it is 
+</I>&gt;<i> bug prone when the next developper will modify arm code and 
+</I>&gt;<i> forget to replace one of the constant) Why not replacing 
+</I>&gt;<i> &quot;2&quot;*4&quot; by &quot;sizeof(arm7_9_crc_code)&quot; ?
+</I>&gt;<i> 
+</I>
+It does need cleaning up.
+
+&gt;<i> 
+</I>&gt;<i>  &gt; +	if ((retval = target-&gt;type-&gt;run_algorithm(target, 0, NULL, 2, 
+</I>&gt;<i> reg_params,
+</I>&gt;<i>  &gt; +		crc_algorithm-&gt;address, crc_algorithm-&gt;address 
+</I>&gt;<i> + (10 * 4), 20000, 
+</I>&gt;<i> &amp;armv4_5_info)) != ERROR_OK)
+</I>&gt;<i> 
+</I>&gt;<i> I don't know the rationale about timeout_ms constant, but it 
+</I>&gt;<i> is probably board / memory dependant (wait cycle and so on 
+</I>&gt;<i> ...), we should probably find a better way to express it 
+</I>&gt;<i> (sthg such as &quot;count * MAGIC_CYCLE_TIMING&quot;)
+</I>&gt;<i> 
+</I>&gt;<i> 10*4 is a bit ugly  ...
+</I>&gt;<i> 
+</I>
+10*4 is the breakpoint address of the loader, not easy to calculate unless
+we implement a loader header.
+
+&gt;<i>  &gt; +	
+</I>&gt;<i>  &gt; +	*checksum = buf_get_u32(reg_params[0].value, 0, 32);
+</I>&gt;<i>  &gt; +
+</I>&gt;<i> 
+</I>&gt;<i> In case of endianess difference between host and target, is 
+</I>&gt;<i> this really safe ?
+</I>&gt;<i> (isn't the checksum verification going to fail ?)
+</I>&gt;<i> 
+</I>&gt;<i>  &gt; +++ src/target/image.c	(working copy)
+</I>&gt;<i> [...]
+</I>&gt;<i>  &gt; +u32 crc32(u32 crc, u8 c)
+</I>&gt;<i>  &gt; +{
+</I>&gt;<i>  &gt; +	int i;
+</I>&gt;<i>  &gt; +	
+</I>&gt;<i>  &gt; +	crc ^= c;
+</I>&gt;<i>  &gt; +	for( i = 0;i &lt; 8;i++ )
+</I>&gt;<i>  &gt; +	{
+</I>&gt;<i>  &gt; +		if( crc &amp; 1 )
+</I>&gt;<i>  &gt; +			crc = ( crc &gt;&gt; 1 ) ^ 0xEDB88320L;
+</I>&gt;<i>  &gt; +		else
+</I>&gt;<i>  &gt; +			crc &gt;&gt;= 1;
+</I>&gt;<i>  &gt; +	}
+</I>&gt;<i>  &gt; +	return crc;
+</I>&gt;<i>  &gt; +}
+</I>&gt;<i> 
+</I>&gt;<i> May be for host side, we could use a faster table-based CRC32 
+</I>&gt;<i> computation.
+</I>&gt;<i> (I have several OSS friendly implementation if you want)
+</I>&gt;<i> 
+</I>
+Forgot about big endian, all my targets are little endian - I have no way of
+testing big endian targets.
+ 
+&gt;<i> AFAIK, contrary to executable arguments, in openocd argc is 
+</I>&gt;<i> the actual number of parameters (not plus one).
+</I>&gt;<i> it should probably be (argc == 3 ) instead of (argc == 4)
+</I>&gt;<i> 
+</I>
+Quite correct my mistake.
+
+&gt;<i> In the case that we are forced to copy the whole section data 
+</I>&gt;<i> to host, it might be better to do a full data comparison 
+</I>&gt;<i> instead of comparing the
+</I>&gt;<i> CRC32 : it would be a little bit faster (even with fast CRC32
+</I>&gt;<i> computation) and would allow to detect a few really tricky 
+</I>&gt;<i> cases (bit inversions ...). We could even let the choice to 
+</I>&gt;<i> the user to do full compare at the expense of speed (of 
+</I>&gt;<i> course he can simply disable the working_area if he knows the 
+</I>&gt;<i> current implementation)
+</I>&gt;<i> 
+</I>
+A possible idea, anybody else have an opinion of which method we should use
+?
+
+&gt;<i>  &gt;  #include &quot;target.h&quot;
+</I>&gt;<i>  &gt; +#include &quot;command.h&quot;
+</I>&gt;<i>  &gt; +#include &quot;types.h&quot;
+</I>&gt;<i>  &gt;
+</I>&gt;<i>  &gt;  typedef struct trace_point_s
+</I>&gt;<i>  &gt;  {
+</I>&gt;<i>  &gt; @@ -49,6 +51,7 @@
+</I>&gt;<i>  &gt;  } trace_status_t;
+</I>&gt;<i>  &gt;
+</I>&gt;<i>  &gt;  extern int trace_point(struct target_s *target, int 
+</I>&gt;<i> number);  &gt;+extern int trace_register_commands(struct 
+</I>&gt;<i> command_context_s *cmd_ctx);
+</I>&gt;<i> 
+</I>&gt;<i> What is the rationale of this change ?
+</I>&gt;<i> (probably some other patch mixed in)
+</I>&gt;<i> 
+</I>
+Just remove gcc warnings nothing else.
+
+Spen
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000372.html">[Openocd-development] Verify patch
+</A></li>
+	<LI>Next message: <A HREF="000374.html">[Openocd-development] Verify patch update
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#373">[ date ]</a>
+              <a href="thread.html#373">[ thread ]</a>
+              <a href="subject.html#373">[ subject ]</a>
+              <a href="author.html#373">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

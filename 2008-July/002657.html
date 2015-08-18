@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] jtag_speed and auto_probe
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_speed%20and%20auto_probe&In-Reply-To=%3C14FFB10D8C44FC42BCE4B9425148537B0E51D487%40pscptsrvexc02.psitek.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002656.html">
+   <LINK REL="Next"  HREF="002671.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] jtag_speed and auto_probe</H1>
+    <B>Pieter Conradie</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_speed%20and%20auto_probe&In-Reply-To=%3C14FFB10D8C44FC42BCE4B9425148537B0E51D487%40pscptsrvexc02.psitek.local%3E"
+       TITLE="[Openocd-development] jtag_speed and auto_probe">Pieter.Conradie at psitek.com
+       </A><BR>
+    <I>Fri Jul 18 16:08:51 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002656.html">[Openocd-development] openocd cleanup
+</A></li>
+        <LI>Next message: <A HREF="002671.html">[Openocd-development] jtag_speed and auto_probe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2657">[ date ]</a>
+              <a href="thread.html#2657">[ thread ]</a>
+              <a href="subject.html#2657">[ subject ]</a>
+              <a href="author.html#2657">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The attachments made the e-mail over 100k. Original e-mail below.
+
+Pieter
+
+-----Original Message-----
+From: Pieter Conradie
+Sent: 18 July 2008 03:05 PM
+To: '&#216;yvind Harboe'
+Cc: '<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>'
+Subject: jtag_speed and auto_probe
+
+Hi &#216;yvind and List,
+
+I am opposed to the current jtag_speed and auto_probe functionality. I want to recommend that OCD is reverted to the old functionality where only a single JTAG speed is specified (no &quot;pre&quot; and &quot;post&quot; reset speed). I also want to recommend that auto_probe is removed. Here is why.
+
+Take the AT91SAM9260 as example. Attached are my configuration scripts and batch files to launch OCD and Insight. There is also an error log that shows that auto_probe fails.
+
+The AT91SAM9260's JTAG speed must always be 6 times lower than its clock speed. Let's say one was busy with a debugging session where the AT91SAM9260's clock speed was 100 MHz and the JTAG Speed set to 6 MHz. If one wants to start a new debugging session, you have to follow the following steps:
+
+1. Set OCD JTAG Speed to 5 kHz in anticipation of reset, where the clock speed of the AT91SAM9260 will drop to 32kHz and enable the User Reset on the AT91SAM9260 (achieved in &quot;at91sam9260_pre_reset.script&quot;).
+
+2. Perform a &quot;reset init&quot; which resets and halts the AT91SAM9260 and then executes &quot;at91sam9260_post_reset.script&quot;. OCD JTAG Speed should still be 5kHz.
+
+3. After reset and in &quot;at91sam9260_post_reset.script&quot; one wants to speed up JTAG speed asap. Therefore the crystal and PLL is enabled first.
+
+4. Now one can set the JTAG Speed to 6 MHz.
+
+5. Thereafter one wants to enable the external memories, e.g. FLASH and SDRAM.
+
+I just wanted to illustrate that the notion of pre and post reset JTAG Speed is vague (exactly when does the change occur?) and I would leave it to the scripter to decide when the JTAG speed should be changed. The old way is still supported, but I would remove the new stuff, because of the ambiguities.
+
+On to auto_probe...
+
+If you look at &quot;log.txt&quot;. You will see that auto_probe fails. I did not dig into the source code to find out why, but I suspect that auto_probe is asynchronous and does not happen at the appropriate moment.
+
+I have indicated the appropriate moment in &quot;at91sam9260_post_reset.script&quot; with the line &quot;flash probe 0&quot;, i.e. after the AT91SAM9260 is at the proper clock speed and the External FLASH interface is properly set up.
+
+It should also be synchronous.
+
+That's my two cents worth.
+
+Kind regards,
+Pieter Conradie
+
+
+
+-----Original Message-----
+From: &#216;yvind Harboe [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>]
+Sent: 18 July 2008 12:20 PM
+To: Openocd-Dev
+Subject: [Openocd-development] Fix GDB timeout error messages
+
+Committed
+
+1. GDB will print cryptic error messages if it is not fed keep-alive packets
+within the last 2000ms.
+
+To fix this, add keep_alive() if you are spending &gt;1000ms in an algorithm
+thus holding up the server loop.
+
+target_call_timer_callbacks() invokes keep_alive().
+
+2. post_reset script is now executed at normal JTAG speed and not
+reset speed.
+
+3. Resume is now synchronous again. Hopefully it will work this time.
+
+
+Example of GDB error message:
+
+Ignoring packet error, continuing...
+Reply contains invalid hex digit 116
+
+and the warning now printed:
+
+keep_alive() was not invoked in the 1000ms timelimit. GDB alive packet not sent!
+ (1020)
+
+
+
+--
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+Notice
+This email is intended for the addressee only and may contain legally privileged and/or confidential information.  If you have received this email in error and are not the intended recipient, you are hereby informed that you are not entitled to read, broadcast, distribute or in any manner whatsoever use the contents of this email or any attachments thereto.  You are requested to please notify Psitek that you have received the email and then delete it.  Unless clearly stated otherwise, the content and sentiments expressed in this email or any attachments thereto are those of the sender and not of Psitek (Proprietary) Limited.  Psitek does not accept liability for any damages, loss or expense of any nature whatsoever arising (a) out of or in connection with the email or any attachments thereto and/or (b) from any act or omission by the recipient relying upon the content of the email or attachments.  Psitek further disclaims liability for any damages caused by computer and/or software viruses.  Should this email contain the terms of a contract, no binding agreement will result until such time as a written (hardcopy) document is signed on behalf of Psitek.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: AT91SAM9260_OCD.zip
+Type: application/x-zip-compressed
+Size: 20517 bytes
+Desc: AT91SAM9260_OCD.zip
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080718/aa30e744/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20080718/aa30e744/attachment.bin</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: log.zip
+Type: application/x-zip-compressed
+Size: 16385 bytes
+Desc: log.zip
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080718/aa30e744/attachment-0001.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20080718/aa30e744/attachment-0001.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002656.html">[Openocd-development] openocd cleanup
+</A></li>
+	<LI>Next message: <A HREF="002671.html">[Openocd-development] jtag_speed and auto_probe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2657">[ date ]</a>
+              <a href="thread.html#2657">[ thread ]</a>
+              <a href="subject.html#2657">[ subject ]</a>
+              <a href="author.html#2657">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

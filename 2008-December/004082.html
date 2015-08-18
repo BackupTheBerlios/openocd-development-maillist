@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Patch submission for new interface support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Patch%20submission%20for%20new%20interface%20support&In-Reply-To=%3C1a74bf85122e78276b6205007c991b45%40203.96.73.230%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004079.html">
+   <LINK REL="Next"  HREF="004088.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Patch submission for new interface support</H1>
+    <B>Rob</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Patch%20submission%20for%20new%20interface%20support&In-Reply-To=%3C1a74bf85122e78276b6205007c991b45%40203.96.73.230%3E"
+       TITLE="[Openocd-development] Patch submission for new interface support">rob at cobbleware.com
+       </A><BR>
+    <I>Tue Dec 16 23:18:50 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004079.html">[Openocd-development] Getting XSVF XRUNTEST from SVF RUNTEST
+</A></li>
+        <LI>Next message: <A HREF="004088.html">[Openocd-development] Patch submission for new interface support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4082">[ date ]</a>
+              <a href="thread.html#4082">[ thread ]</a>
+              <a href="subject.html#4082">[ subject ]</a>
+              <a href="author.html#4082">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> &gt;
+</I>&gt;<i> &gt; Attached, is a patch against the svn trunk that adds support
+</I>&gt;<i> &gt; for the Raisonance RLink JTAG adapter.  That adapter is
+</I>&gt;<i> &gt; mostly used with their RIDE software, but there is a version
+</I>&gt;<i> &gt; of it embedded in the STM32 Primer (a development board),
+</I>&gt;<i> &gt; where it is wired in in lieu of a JTAG connector.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Some reverse engineering was needed.  USB traffic sniffing,
+</I>&gt;<i> &gt; analyzing publicly downloadable sample projects, and the
+</I>&gt;<i> &gt; like.  Hopefully, that falls into the category of &quot;not a
+</I>&gt;<i> &gt; problem&quot;.  Neither I, nor the other person I've been working
+</I>&gt;<i> &gt; with, have entered into any sort of NDA which relates to
+</I>&gt;<i> &gt; this.  I'm bringing this up now in case there is an issue.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; The basic architecture of the R-Link adapter is an ST7
+</I>&gt;<i> &gt; microcontroller with a USB device interface and a Data
+</I>&gt;<i> &gt; Transfer Coprocessor in it.
+</I>&gt;<i> &gt; This driver communicates with the firmware on that
+</I>&gt;<i> &gt; microcontroller and uses it to load an image into the DTC and
+</I>&gt;<i> &gt; runs that to bit-bang each of several speeds.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; If it needs tweaking to make it suitable for inclusion, we'll do it.
+</I>&gt;<i> &gt; It seems to work fine in basic testing on our Linux systems.
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i> It would be good to include the rlink (i have a few lying around) but am
+</I>&gt;<i> unsure we could without
+</I>&gt;<i> permission from Raisonance. It is a closed interface so am unsure of the
+</I>&gt;<i> legal implications - is there any?
+</I>&gt;<i>
+</I>&gt;<i> Segger released the api for the jlink - however it is not available on
+</I>&gt;<i> their website anymore.
+</I>&gt;<i>
+</I>&gt;<i> Cheers
+</I>&gt;<i> Spen
+</I>
+Sorry for breaking threading on this reply, I'm not going to be at my
+subscribed address for a while.
+
+I'm the &quot;other person&quot; mentioned in Lou's e-mail; I'd like to provide a
+bit of background on this driver, so that people with knowledge about
+these sorts of issues can maybe decide whether our code is OK for
+inclusion in OpenOCD. If this discussion isn't appropriate for this list,
+please accept my apologies.
+
+My impression, and IANAL, is that this work comes squarely under the
+description of &quot;reverse engineering for interoperability&quot; and there are
+no legal issues. I don't see that we've done anything much different
+to what the Samba project has, for example.
+
+What we've done is:
+
+1) Log USB traffic between the RIDE software and the STM32-Primer board,
+   which is described as an &quot;embedded R-Link&quot; on the stm32circle.com
+   website.
+
+2) Noted patterns in the USB traffic, particularly packets which were
+   clearly &quot;write-to-memory&quot; and &quot;read-from-memory&quot; commands. Using this
+   ability, I read out the R-Link firmware which is basically the USB
+   library from ST plus a few command handlers. This provided details on
+   some of the other commands that USB packets can contain.
+
+3) Combed the data sheet for the ST72651 CPU in the R-Link. This has scant
+   details of a peripheral called &quot;Data Transfer Coprocessor&quot; (DTC), which
+   is used for handling data transfer between USB and various devices
+   (memory cards etc). For some unfathomable reason, ST have decided not
+   to document the DTC, but prefer to provide customers with firmware
+   blobs.
+
+4) By looking at (freely downloadable) resources on ST's site, such as
+   sample code for ST7 development boards, we were able to piece together
+   the DTC instruction set, and through a lot of experimentation we've
+   gained a pretty good understanding of how the DTC actually works.
+
+As far as Spencer Oliver's comment about a &quot;closed interface&quot; goes, I
+don't think we're using anything that is (or could be) &quot;closed&quot;. It's just
+undocumented :)
+
+5) Wrote an OpenOCD driver using the information gathered in the previous
+   steps. The driver is possibly not optimal, due to our incomplete
+   knowledge about the components that we're dealing with.
+
+Some things that I think might be important:
+- No encryption, or any technology designed to control access, was
+  bypassed in this work. There is no such technology in the R-Link.
+- There is no intention to bypass license control technology. The R-Link
+  comes in &quot;Basic&quot; and &quot;Pro&quot; flavours, with the Basic model code-space
+  limited when debugging with the RIDE software. We have no idea how that
+  licensing works, we have no interest, and we aren't (knowingly)
+  distributing any information that would enable anyone else to bypass
+  that licensing.
+- The work we've done doesn't distribute any copyrighted work. Especially,
+  the R-Link firmware and Raisonance DTC blobs are not included, in whole
+  or in part, in the OpenOCD code we're offering.
+
+The way RIDE handles debugging seems quite different to OpenOCD, looking
+at USB logs. Once again, we don't know nor particularly care about how
+RIDE operates.
+
+As an aside, I'm planning to publish the information we've gathered about
+the DTC on my website in a few days, if you're interested get in touch.
+
+Cheers,
+Rob.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004079.html">[Openocd-development] Getting XSVF XRUNTEST from SVF RUNTEST
+</A></li>
+	<LI>Next message: <A HREF="004088.html">[Openocd-development] Patch submission for new interface support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4082">[ date ]</a>
+              <a href="thread.html#4082">[ thread ]</a>
+              <a href="subject.html#4082">[ subject ]</a>
+              <a href="author.html#4082">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

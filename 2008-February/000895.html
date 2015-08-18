@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] GDB remote protocol,	memory read/write accesses and the horrid truth
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20GDB%20remote%20protocol%2C%0A%09memory%20read/write%20accesses%20and%20the%20horrid%20truth&In-Reply-To=%3Cc09652430802170712k3a698eb9he6485f190033ca92%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000976.html">
+   <LINK REL="Next"  HREF="000897.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] GDB remote protocol,	memory read/write accesses and the horrid truth</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20GDB%20remote%20protocol%2C%0A%09memory%20read/write%20accesses%20and%20the%20horrid%20truth&In-Reply-To=%3Cc09652430802170712k3a698eb9he6485f190033ca92%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] GDB remote protocol,	memory read/write accesses and the horrid truth">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sun Feb 17 16:12:22 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000976.html">[Openocd-development] Writing to flash using gdb
+</A></li>
+        <LI>Next message: <A HREF="000897.html">[Openocd-development] GDB remote protocol,	memory read/write accesses and the horrid truth
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#895">[ date ]</a>
+              <a href="thread.html#895">[ thread ]</a>
+              <a href="subject.html#895">[ subject ]</a>
+              <a href="author.html#895">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>A summary of the situation and a suggestion for various remedies.
+
+I've made some modifications to GDB in my latest patch without
+perhaps explaining enough about *why* I ended up making
+these changes. I understand the negative consequences that
+have been raised in the mailing list and I sympathize, but
+taking the full picture into account, I landed on making some
+changes to GDB server.
+
+1. GDB has a bug where it will fail in various ways if the GDB
+remote server responds with an error condition for reading
+memory. This is a known problem in GDB. The quixotic attitude is
+that OpenOCD should report an error and the problem
+should be fixed in GDB. My view on this is that the
+average user stands no hope in hell of understanding
+the lockups that result in e.g. mouseover evaluation of
+local variables that point to outer space when
+debugging -O3 compiled applications, or e.g. the failure
+to evaluate stack traces. The problem has been duely
+reported and recognized by the GDB guys. Once
+GDB is fixed in CVS HEAD, OpenOCD should
+have it's kludge removed. Feel free to follow up on this one,
+with the GDB guys. I failed to come up with a pactch,
+it's quite involved and I wouldn't hold my breath waiting
+for this to be fixed &quot;properly&quot;.
+
+<A HREF="http://sourceware.org/cgi-bin/gnatsweb.pl?cmd=view%20audit-trail&amp;database=gdb&amp;pr=2395">http://sourceware.org/cgi-bin/gnatsweb.pl?cmd=view%20audit-trail&amp;database=gdb&amp;pr=2395</A>
+
+2. GDB has a default 2 second timeout for packets. When reading
+large amounts of memory from the target GDB will split these
+reads into smaller memory reads to avoid running into a
+timeout. The default is 8191 bytes(which is *strange*). Before
+I modified OpenOCD, this would result in 8191 *byte* reads
+from the target(and a timeout), instead of a 8198 32 bit bulk read +
+some byte reads. It is *crucial* to understand
+that users of Eclipse+GDB+OpenOCD have *very* little
+control(or even understanding) over what sort of queries
+that go to the target. A mouseover can evaluate e.g. a
+global array which can easily be &gt;8191 bytes. It is
+therefore important to service 8191 byte request faster
+than 2 seconds(achieved via bulk reads), or the user is
+in for some nasty debugging of OpenOCD, following
+subtle hints from Eclipse and digging up obscure
+GDB options. Oh and this fix makes Eclipse+GDB
+*much* snappier.
+
+3. The GDB remote protocol does not guarantee what access type
+is to be used. This can be achieved using &quot;monitor mwX&quot;
+commands. To be guaranteed a certain access type &quot;monitor mwX&quot;
+*must* be used. Currently target_read/write_buffer()
+will not use 16 and 32 bit access for aligned single word accesses
+and there is no particular reason not to do so. I therefore
+suggest that GDB server should use target_read/write_buffer()
+and that target_read/write_buffer() should be changed to guarantee
+use of 16 and 32 bit accesses for single word accesses. NB!
+for &gt;1 word access, target_read/write_buffer() should use
+the fastest possible read/write, ditto for unaligned accesses,
+this to maximize throughput.
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA  developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000976.html">[Openocd-development] Writing to flash using gdb
+</A></li>
+	<LI>Next message: <A HREF="000897.html">[Openocd-development] GDB remote protocol,	memory read/write accesses and the horrid truth
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#895">[ date ]</a>
+              <a href="thread.html#895">[ thread ]</a>
+              <a href="subject.html#895">[ subject ]</a>
+              <a href="author.html#895">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

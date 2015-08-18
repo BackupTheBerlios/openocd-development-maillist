@@ -1,0 +1,250 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 5/8] add command usage,	separate from help
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/8%5D%20add%20command%20usage%2C%0A%09separate%20from%20help&In-Reply-To=%3C1258762487-3396-6-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012631.html">
+   <LINK REL="Next"  HREF="012637.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 5/8] add command usage,	separate from help</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/8%5D%20add%20command%20usage%2C%0A%09separate%20from%20help&In-Reply-To=%3C1258762487-3396-6-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 5/8] add command usage,	separate from help">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Nov 21 01:14:44 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012631.html">[Openocd-development] [PATCH 4/8] add register_commands for batch	registration
+</A></li>
+        <LI>Next message: <A HREF="012637.html">[Openocd-development] [PATCH 6/8] command: use register_commands	for handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12634">[ date ]</a>
+              <a href="thread.html#12634">[ thread ]</a>
+              <a href="subject.html#12634">[ subject ]</a>
+              <a href="author.html#12634">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Adds the usage command, to display usage information for commands.
+The output for this command will remain erronenously empty until
+commands are updated to use these new coventions.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   63 ++++++++++++++++++++++++++++++++++++++-----------
+ src/helper/command.h |    3 ++
+ 2 files changed, 52 insertions(+), 14 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 29e645b..aa97806 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -226,7 +226,7 @@ static struct command **command_list_for_parent(
+ static struct command *command_new(struct command_context *cmd_ctx,
+ 		struct command *parent, const char *name,
+ 		command_handler_t handler, enum command_mode mode,
+-		const char *help)
++		const char *help, const char *usage)
+ {
+ 	assert(name);
+ 
+@@ -236,6 +236,8 @@ static struct command *command_new(struct command_context *cmd_ctx,
+ 	c-&gt;name = strdup(name);
+ 	if (help)
+ 		c-&gt;help = strdup(help);
++	if (usage)
++		c-&gt;usage = strdup(usage);
+ 	c-&gt;parent = parent;
+ 	c-&gt;handler = handler;
+ 	c-&gt;mode = mode;
+@@ -259,6 +261,8 @@ static void command_free(struct command *c)
+ 		free(c-&gt;name);
+ 	if (c-&gt;help)
+ 		free((void*)c-&gt;help);
++	if (c-&gt;usage)
++		free((void*)c-&gt;usage);
+ 	free(c);
+ }
+ 
+@@ -278,7 +282,7 @@ struct command* register_command(struct command_context *context,
+ 		return c;
+ 	}
+ 
+-	c = command_new(context, parent, name, cr-&gt;handler, cr-&gt;mode, cr-&gt;help);
++	c = command_new(context, parent, name, cr-&gt;handler, cr-&gt;mode, cr-&gt;help, cr-&gt;usage);
+ 	/* if allocation failed or it is a placeholder (no handler), we're done */
+ 	if (NULL == c || NULL == c-&gt;handler)
+ 		return c;
+@@ -740,41 +744,67 @@ static COMMAND_HELPER(command_help_find, struct command *head,
+ 	return CALL_COMMAND_HANDLER(command_help_find, (*out)-&gt;children, out);
+ }
+ 
+-static COMMAND_HELPER(command_help_show, struct command *c, unsigned n);
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
++		bool show_help);
+ 
+-static COMMAND_HELPER(command_help_show_list, struct command *head, unsigned n)
++static COMMAND_HELPER(command_help_show_list, struct command *head, unsigned n,
++		bool show_help)
+ {
+ 	for (struct command *c = head; NULL != c; c = c-&gt;next)
+-		CALL_COMMAND_HANDLER(command_help_show, c, n);
++		CALL_COMMAND_HANDLER(command_help_show, c, n, show_help);
+ 	return ERROR_OK;
+ }
+-static COMMAND_HELPER(command_help_show, struct command *c, unsigned n)
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
++		bool show_help)
+ {
+-	command_run_linef(CMD_CTX, &quot;cmd_help {%s} {%s} %d&quot;, command_name(c, ' '),
+-			c-&gt;help ? : &quot;no help available&quot;, n);
++	const char *usage = c-&gt;usage ? : &quot;&quot;;
++	const char *help = &quot;&quot;;
++	const char *sep = &quot;&quot;;
++	if (show_help &amp;&amp; c-&gt;help)
++	{
++		help = c-&gt;help ? : &quot;&quot;;
++		sep = c-&gt;usage ? &quot; | &quot; : &quot;&quot;;
++	}
++	command_run_linef(CMD_CTX, &quot;cmd_help {%s} {%s%s%s} %d&quot;,
++			command_name(c, ' '), usage, sep, help, n);
+ 
+ 	if (++n &gt;= 2)
+ 		return ERROR_OK;
+ 
+-	return CALL_COMMAND_HANDLER(command_help_show_list, c-&gt;children, n);
++	return CALL_COMMAND_HANDLER(command_help_show_list,
++			c-&gt;children, n, show_help);
+ }
+ COMMAND_HANDLER(handle_help_command)
+ {
+ 	struct command *c = CMD_CTX-&gt;commands;
+ 
+ 	if (0 == CMD_ARGC)
+-		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0);
++		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0, true);
++
++	int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
++	if (ERROR_OK != retval)
++		return retval;
++
++	return CALL_COMMAND_HANDLER(command_help_show, c, 0, true);
++}
++
++COMMAND_HANDLER(handle_usage_command)
++{
++	struct command *c = CMD_CTX-&gt;commands;
++
++	if (0 == CMD_ARGC)
++		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0, false);
+ 
+ 	int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+-	return CALL_COMMAND_HANDLER(command_help_show, c, 0);
++	return CALL_COMMAND_HANDLER(command_help_show, c, 0, false);
+ }
+ 
+ 
+ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+-		const char *cmd_name, const char *help_text)
++		const char *cmd_name, const char *help_text, const char *usage)
+ {
+ 	struct command **head = command_list_for_parent(cmd_ctx, parent);
+ 	struct command *nc = command_find(*head, cmd_name);
+@@ -785,6 +815,7 @@ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+ 				.name = cmd_name,
+ 				.mode = COMMAND_ANY,
+ 				.help = help_text,
++				.usage = usage,
+ 			};
+ 		nc = register_command(cmd_ctx, parent, &amp;cr);
+ 		if (NULL == nc)
+@@ -833,7 +864,7 @@ COMMAND_HANDLER(handle_help_add_command)
+ 		if (ERROR_OK != retval)
+ 			return retval;
+ 	}
+-	return help_add_command(CMD_CTX, c, cmd_name, help_text);
++	return help_add_command(CMD_CTX, c, cmd_name, help_text, NULL);
+ }
+ 
+ /* sleep command sleeps for &lt;n&gt; miliseconds
+@@ -956,6 +987,10 @@ struct command_context* command_init(const char *startup_tcl)
+ 	COMMAND_REGISTER(context, NULL, &quot;help&quot;,
+ 			&amp;handle_help_command, COMMAND_ANY,
+ 			&quot;[&lt;command_name&gt; ...] - show built-in command help&quot;);
++	COMMAND_REGISTER(context, NULL, &quot;usage&quot;,
++			&amp;handle_usage_command, COMMAND_ANY,
++			&quot;[&lt;command_name&gt; ...] | &quot;
++			&quot;show command usage&quot;);
+ 
+ 	return context;
+ }
+@@ -992,7 +1027,7 @@ void register_jim(struct command_context *cmd_ctx, const char *name,
+ 	Jim_ListAppendElement(interp, cmd_list,
+ 			Jim_NewStringObj(interp, name, -1));
+ 
+-	help_add_command(cmd_ctx, NULL, name, help);
++	help_add_command(cmd_ctx, NULL, name, help, NULL);
+ }
+ 
+ #define DEFINE_PARSE_NUM_TYPE(name, type, func, min, max) \
+diff --git a/src/helper/command.h b/src/helper/command.h
+index b16361e..2ead045 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -160,6 +160,7 @@ struct command
+ {
+ 	char *name;
+ 	const char *help;
++	const char *usage;
+ 	struct command *parent;
+ 	struct command *children;
+ 	command_handler_t handler;
+@@ -200,6 +201,8 @@ struct command_registration {
+ 	command_handler_t handler;
+ 	enum command_mode mode;
+ 	const char *help;
++	/// a string listing the options and arguments, required or optional
++	const char *usage;
+ };
+ 
+ /**
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012631.html">[Openocd-development] [PATCH 4/8] add register_commands for batch	registration
+</A></li>
+	<LI>Next message: <A HREF="012637.html">[Openocd-development] [PATCH 6/8] command: use register_commands	for handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12634">[ date ]</a>
+              <a href="thread.html#12634">[ thread ]</a>
+              <a href="subject.html#12634">[ subject ]</a>
+              <a href="author.html#12634">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

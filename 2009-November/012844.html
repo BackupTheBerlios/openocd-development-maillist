@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 8/9] pld: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%208/9%5D%20pld%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100300-14279-9-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012819.html">
+   <LINK REL="Next"  HREF="012883.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 8/9] pld: use register_commands()</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%208/9%5D%20pld%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100300-14279-9-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 8/9] pld: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:04:59 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012819.html">[Openocd-development] [PATCH 05/20] ecos: use register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012883.html">[Openocd-development] [SERIES 5/6:0/22] target: update command	registration
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12844">[ date ]</a>
+              <a href="thread.html#12844">[ thread ]</a>
+              <a href="subject.html#12844">[ subject ]</a>
+              <a href="author.html#12844">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Updates core PLD and virtex2 commands to use register_commands().
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/pld/pld.c     |   53 +++++++++++++++++++++++++++++++++++++++--------------
+ src/pld/virtex2.c |   29 +++++++++++++++++++++--------
+ 2 files changed, 60 insertions(+), 22 deletions(-)
+
+diff --git a/src/pld/pld.c b/src/pld/pld.c
+index 021a8e6..421fc61 100644
+--- a/src/pld/pld.c
++++ b/src/pld/pld.c
+@@ -37,7 +37,6 @@ static struct pld_driver *pld_drivers[] =
+ };
+ 
+ static struct pld_device *pld_devices;
+-static struct command *pld_cmd;
+ 
+ struct pld_device *get_pld_device_by_num(int num)
+ {
+@@ -184,26 +183,52 @@ COMMAND_HANDLER(handle_pld_load_command)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration pld_exec_command_handlers[] = {
++	{
++		.name = &quot;devices&quot;,
++		.handler = &amp;handle_pld_devices_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;list configured pld devices&quot;,
++	},
++	{
++		.name = &quot;load&quot;,
++		.handler = &amp;handle_pld_load_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;load configuration file into PLD&quot;,
++		.usage = &quot;&lt;device#&gt; &lt;file&gt;&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
+ int pld_init(struct command_context *cmd_ctx)
+ {
+ 	if (!pld_devices)
+ 		return ERROR_OK;
+ 
+-	COMMAND_REGISTER(cmd_ctx, pld_cmd, &quot;devices&quot;,
+-			handle_pld_devices_command, COMMAND_EXEC,
+-			&quot;list configured pld devices&quot;);
+-	COMMAND_REGISTER(cmd_ctx, pld_cmd, &quot;load&quot;,
+-			handle_pld_load_command, COMMAND_EXEC,
+-			&quot;load configuration &lt;file&gt; into programmable logic device&quot;);
+-
+-	return ERROR_OK;
++	struct command *parent = command_find_in_context(cmd_ctx, &quot;pld&quot;);
++	return register_commands(cmd_ctx, parent, pld_exec_command_handlers);
+ }
+ 
++static const struct command_registration pld_config_command_handlers[] = {
++	{
++		.name = &quot;device&quot;,
++		.mode = COMMAND_CONFIG,
++		.handler = &amp;handle_pld_device_command,
++		.help = &quot;configure a PLD device&quot;,
++		.usage = &quot;&lt;driver&gt; ...&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration pld_command_handler[] = {
++	{
++		.name = &quot;pld&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;programmable logic device commands&quot;,
++
++		.chain = pld_config_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
+ int pld_register_commands(struct command_context *cmd_ctx)
+ {
+-	pld_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;pld&quot;, NULL, COMMAND_ANY, &quot;programmable logic device commands&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, pld_cmd, &quot;device&quot;, handle_pld_device_command, COMMAND_CONFIG, NULL);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, pld_command_handler);
+ }
+diff --git a/src/pld/virtex2.c b/src/pld/virtex2.c
+index 527434a..1025e61 100644
+--- a/src/pld/virtex2.c
++++ b/src/pld/virtex2.c
+@@ -233,16 +233,29 @@ PLD_DEVICE_COMMAND_HANDLER(virtex2_pld_device_command)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration virtex2_exec_command_handlers[] = {
++	{
++		.name = &quot;read_stat&quot;,
++		.mode = COMMAND_EXEC,
++		.handler = &amp;virtex2_handle_read_stat_command,
++		.help = &quot;read status register&quot;,
++		.usage = &quot;&lt;device_id&gt;&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration virtex2_command_handler[] = {
++	{
++		.name = &quot;virtex2&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;Virtex-II specific commands&quot;,
++		.chain = virtex2_exec_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ static int virtex2_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *virtex2_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;virtex2&quot;,
+-			NULL, COMMAND_ANY, &quot;virtex2 specific commands&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, virtex2_cmd, &quot;read_stat&quot;,
+-			&amp;virtex2_handle_read_stat_command, COMMAND_EXEC,
+-			&quot;read Virtex-II status register&quot;);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, virtex2_command_handler);
+ }
+ 
+ struct pld_driver virtex2_pld = {
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012819.html">[Openocd-development] [PATCH 05/20] ecos: use register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012883.html">[Openocd-development] [SERIES 5/6:0/22] target: update command	registration
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12844">[ date ]</a>
+              <a href="thread.html#12844">[ thread ]</a>
+              <a href="subject.html#12844">[ subject ]</a>
+              <a href="author.html#12844">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/3] move startup.c to libopenocd
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20move%20startup.c%20to%20libopenocd&In-Reply-To=%3C1258479583-1058-2-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012482.html">
+   <LINK REL="Next"  HREF="012484.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/3] move startup.c to libopenocd</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20move%20startup.c%20to%20libopenocd&In-Reply-To=%3C1258479583-1058-2-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 1/3] move startup.c to libopenocd">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 17 18:39:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012482.html">[Openocd-development] [PATCH 0/3] modularize startup.tcl
+</A></li>
+        <LI>Next message: <A HREF="012484.html">[Openocd-development] [PATCH 2/3] split startup.tcl file across	modules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12483">[ date ]</a>
+              <a href="thread.html#12483">[ thread ]</a>
+              <a href="subject.html#12483">[ subject ]</a>
+              <a href="author.html#12483">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Moves the creation of startup_tcl.c from src/helper/ to src/.
+Prepares to split the startup.tcl file into its per-module parts.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ .gitignore             |    1 +
+ src/Makefile.am        |   23 ++++++++++++++++++++++-
+ src/helper/Makefile.am |   11 ++---------
+ 3 files changed, 25 insertions(+), 10 deletions(-)
+
+diff --git a/.gitignore b/.gitignore
+index f8a5381..114fc05 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -13,6 +13,7 @@
+ # editor files
+ *.swp
+ 
++src/startup.tcl
+ startup_tcl.c
+ xscale_debug.h
+ 
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 77ae5ae..2f17ba4 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -14,7 +14,8 @@ openocd_LDADD = libopenocd.la
+ 
+ libopenocd_la_SOURCES = \
+ 	hello.c \
+-	openocd.c
++	openocd.c \
++	startup_tcl.c
+ 
+ noinst_HEADERS = \
+ 	openocd.h
+@@ -97,6 +98,26 @@ if HTTPD
+ libopenocd_la_LIBADD += -lmicrohttpd
+ endif
+ 
++STARTUP_TCL_SRCS = \
++	$(srcdir)/helper/startup.tcl
++
++EXTRA_DIST = $(STARTUP_TCL_SRCS)
++
++BUILT_SOURCES = startup.tcl
++
++startup.tcl: $(STARTUP_TCL_SRCS)
++	cat $^ &gt; $@
++
++BIN2C = $(builddir)/helper/bin2char$(EXEEXT_FOR_BUILD)
++
++# Convert .tcl to cfile
++startup_tcl.c: startup.tcl $(BIN2C)
++	$(BIN2C) startup_tcl &lt; $&lt; &gt; $@ || rm -f $@
++
++# add startup_tcl.c to make clean list
++CLEANFILES = startup.tcl startup_tcl.c
++
++
+ MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
+ 
+ # The &quot;quick&quot; target builds executables &amp; reinstalls the executables
+diff --git a/src/helper/Makefile.am b/src/helper/Makefile.am
+index 67250a1..9557f5b 100644
+--- a/src/helper/Makefile.am
++++ b/src/helper/Makefile.am
+@@ -23,8 +23,7 @@ libhelper_la_SOURCES = \
+ 	time_support.c \
+ 	replacements.c \
+ 	fileio.c \
+-	membuf.c \
+-	startup_tcl.c
++	membuf.c
+ 
+ if IOUTIL
+ libhelper_la_SOURCES += ioutil.c
+@@ -49,7 +48,6 @@ noinst_HEADERS = \
+ 	jim.h \
+ 	jim-eventloop.h \
+ 	system.h \
+-	startup.tcl \
+ 	bin2char.c
+ 
+ BIN2C = bin2char$(EXEEXT_FOR_BUILD)
+@@ -59,11 +57,6 @@ BUILT_SOURCES = $(BIN2C)
+ $(BIN2C): bin2char.c
+ 	${CC_FOR_BUILD} ${CFLAGS_FOR_BUILD} $(srcdir)/bin2char.c -o $@
+ 
+-# Convert .tcl to cfile
+-startup_tcl.c: startup.tcl $(BIN2C)
+-	./$(BIN2C) startup_tcl &lt; $(srcdir)/startup.tcl &gt; $@
+-
+-# add startup_tcl.c to make clean list
+-CLEANFILES = startup_tcl.c bin2char$(EXEEXT_FOR_BUILD)
++CLEANFILES = bin2char$(EXEEXT_FOR_BUILD)
+ 
+ MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012482.html">[Openocd-development] [PATCH 0/3] modularize startup.tcl
+</A></li>
+	<LI>Next message: <A HREF="012484.html">[Openocd-development] [PATCH 2/3] split startup.tcl file across	modules
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12483">[ date ]</a>
+              <a href="thread.html#12483">[ thread ]</a>
+              <a href="subject.html#12483">[ subject ]</a>
+              <a href="author.html#12483">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

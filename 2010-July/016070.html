@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/6] cortex a8: add missing error	handling from cortex_a8_exec_opcode()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/6%5D%20cortex%20a8%3A%20add%20missing%20error%0A%09handling%20from%20cortex_a8_exec_opcode%28%29&In-Reply-To=%3C1279488836-26931-3-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016069.html">
+   <LINK REL="Next"  HREF="016071.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/6] cortex a8: add missing error	handling from cortex_a8_exec_opcode()</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/6%5D%20cortex%20a8%3A%20add%20missing%20error%0A%09handling%20from%20cortex_a8_exec_opcode%28%29&In-Reply-To=%3C1279488836-26931-3-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 3/6] cortex a8: add missing error	handling from cortex_a8_exec_opcode()">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sun Jul 18 23:33:53 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016069.html">[Openocd-development] [PATCH 1/6] cortex a8: add missing error	handling for mem_ap_read_atomic_u32()
+</A></li>
+        <LI>Next message: <A HREF="016071.html">[Openocd-development] [PATCH 4/6] cortex a8: add missing error	handling for cortex_a8_dap_write/read_coreregister_u32()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16070">[ date ]</a>
+              <a href="thread.html#16070">[ thread ]</a>
+              <a href="subject.html#16070">[ subject ]</a>
+              <a href="author.html#16070">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/cortex_a8.c |   65 ++++++++++++++++++++++++++++++++++++++---------
+ 1 files changed, 52 insertions(+), 13 deletions(-)
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 441c93b..d092223 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -182,7 +182,10 @@ static int cortex_a8_read_regs_through_mem(struct target *target, uint32_t addre
+ 
+ 	cortex_a8_dap_read_coreregister_u32(target, regfile, 0);
+ 	cortex_a8_dap_write_coreregister_u32(target, address, 0);
+-	cortex_a8_exec_opcode(target, ARMV4_5_STMIA(0, 0xFFFE, 0, 0), NULL);
++	retval = cortex_a8_exec_opcode(target, ARMV4_5_STMIA(0, 0xFFFE, 0, 0), NULL);
++	if (retval != ERROR_OK)
++		return retval;
++
+ 	dap_ap_select(swjdp, swjdp_memoryap);
+ 	mem_ap_read_buf_u32(swjdp, (uint8_t *)(&amp;regfile[1]), 4*15, address);
+ 	dap_ap_select(swjdp, swjdp_debugap);
+@@ -205,27 +208,37 @@ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+ 	if (reg &lt; 15)
+ 	{
+ 		/* Rn to DCCTX, &quot;MCR p14, 0, Rn, c0, c5, 0&quot;  0xEE00nE15 */
+-		cortex_a8_exec_opcode(target,
++		retval = cortex_a8_exec_opcode(target,
+ 				ARMV4_5_MCR(14, 0, reg, 0, 5, 0),
+ 				&amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 	else if (reg == 15)
+ 	{
+ 		/* &quot;MOV r0, r15&quot;; then move r0 to DCCTX */
+-		cortex_a8_exec_opcode(target, 0xE1A0000F, &amp;dscr);
+-		cortex_a8_exec_opcode(target,
++		retval = cortex_a8_exec_opcode(target, 0xE1A0000F, &amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cortex_a8_exec_opcode(target,
+ 				ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
+ 				&amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 	else
+ 	{
+ 		/* &quot;MRS r0, CPSR&quot; or &quot;MRS r0, SPSR&quot;
+ 		 * then move r0 to DCCTX
+ 		 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, reg &amp; 1), &amp;dscr);
+-		cortex_a8_exec_opcode(target,
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, reg &amp; 1), &amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cortex_a8_exec_opcode(target,
+ 				ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
+ 				&amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 
+ 	/* Wait for DTRRXfull then read DTRRTX */
+@@ -264,8 +277,10 @@ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ 	{
+ 		LOG_ERROR(&quot;DSCR_DTR_RX_FULL, dscr 0x%08&quot; PRIx32, dscr);
+ 		/* Clear DCCRX with MCR(p14, 0, Rd, c0, c5, 0), opcode  0xEE000E15 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
+ 				&amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 
+ 	if (Rd &gt; 17)
+@@ -281,33 +296,47 @@ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ 	if (Rd &lt; 15)
+ 	{
+ 		/* DCCRX to Rn, &quot;MCR p14, 0, Rn, c0, c5, 0&quot;, 0xEE00nE15 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, Rd, 0, 5, 0),
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, Rd, 0, 5, 0),
+ 				&amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 	else if (Rd == 15)
+ 	{
+ 		/* DCCRX to R0, &quot;MCR p14, 0, R0, c0, c5, 0&quot;, 0xEE000E15
+ 		 * then &quot;mov r15, r0&quot;
+ 		 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
+ 				&amp;dscr);
+-		cortex_a8_exec_opcode(target, 0xE1A0F000, &amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cortex_a8_exec_opcode(target, 0xE1A0F000, &amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 	else
+ 	{
+ 		/* DCCRX to R0, &quot;MCR p14, 0, R0, c0, c5, 0&quot;, 0xEE000E15
+ 		 * then &quot;MSR CPSR_cxsf, r0&quot; or &quot;MSR SPSR_cxsf, r0&quot; (all fields)
+ 		 */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
+ 				&amp;dscr);
+-		cortex_a8_exec_opcode(target, ARMV4_5_MSR_GP(0, 0xF, Rd &amp; 1),
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_MSR_GP(0, 0xF, Rd &amp; 1),
+ 				&amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		/* &quot;Prefetch flush&quot; after modifying execution status in CPSR */
+ 		if (Rd == 16)
+-			cortex_a8_exec_opcode(target,
++		{
++			retval = cortex_a8_exec_opcode(target,
+ 					ARMV4_5_MCR(15, 0, 0, 7, 5, 4),
+ 					&amp;dscr);
++			if (retval != ERROR_OK)
++				return retval;
++		}
+ 	}
+ 
+ 	return retval;
+@@ -412,6 +441,8 @@ static int cortex_a8_dpm_prepare(struct arm_dpm *dpm)
+ 				a8-&gt;armv7a_common.armv4_5_common.target,
+ 				ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
+ 				&amp;dscr);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 
+ 	return retval;
+@@ -452,6 +483,8 @@ static int cortex_a8_instr_write_data_r0(struct arm_dpm *dpm,
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+ 			ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
+ 			&amp;dscr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* then the opcode, taking data from R0 */
+ 	retval = cortex_a8_exec_opcode(
+@@ -485,6 +518,8 @@ static int cortex_a8_instr_read_data_dcc(struct arm_dpm *dpm,
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+ 			opcode,
+ 			&amp;dscr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	return cortex_a8_read_dcc(a8, data, &amp;dscr);
+ }
+@@ -502,12 +537,16 @@ static int cortex_a8_instr_read_data_r0(struct arm_dpm *dpm,
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+ 			opcode,
+ 			&amp;dscr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* write R0 to DCC */
+ 	retval = cortex_a8_exec_opcode(
+ 			a8-&gt;armv7a_common.armv4_5_common.target,
+ 			ARMV4_5_MCR(14, 0, 0, 0, 5, 0),
+ 			&amp;dscr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	return cortex_a8_read_dcc(a8, data, &amp;dscr);
+ }
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016069.html">[Openocd-development] [PATCH 1/6] cortex a8: add missing error	handling for mem_ap_read_atomic_u32()
+</A></li>
+	<LI>Next message: <A HREF="016071.html">[Openocd-development] [PATCH 4/6] cortex a8: add missing error	handling for cortex_a8_dap_write/read_coreregister_u32()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16070">[ date ]</a>
+              <a href="thread.html#16070">[ thread ]</a>
+              <a href="subject.html#16070">[ subject ]</a>
+              <a href="author.html#16070">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

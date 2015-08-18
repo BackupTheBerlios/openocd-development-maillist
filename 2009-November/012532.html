@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 5/6] remove fast command and	jim_global_long
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/6%5D%20remove%20fast%20command%20and%0A%09jim_global_long&In-Reply-To=%3C1258561643-14413-6-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012533.html">
+   <LINK REL="Next"  HREF="012534.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 5/6] remove fast command and	jim_global_long</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/6%5D%20remove%20fast%20command%20and%0A%09jim_global_long&In-Reply-To=%3C1258561643-14413-6-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 5/6] remove fast command and	jim_global_long">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 18 17:27:22 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012533.html">[Openocd-development] [PATCH 4/6] add handle_command_parse_bool	command helper
+</A></li>
+        <LI>Next message: <A HREF="012534.html">[Openocd-development] [PATCH 6/6] fix zy1000 command handler
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12532">[ date ]</a>
+              <a href="thread.html#12532">[ thread ]</a>
+              <a href="subject.html#12532">[ subject ]</a>
+              <a href="author.html#12532">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Removing the fast command eliminates the fast_and_dangerous global,
+which was used only by arm7_9_common as an initializer.  The command
+is not called in the tree; instead, more explicit commands are used.
+
+The jim_global_long function was not used anywhere in the tree.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c       |   29 -----------------------------
+ src/helper/command.h       |    4 ----
+ src/target/arm7_9_common.c |    4 ++--
+ 3 files changed, 2 insertions(+), 35 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 1c3179d..cd4ecc6 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -44,7 +44,6 @@
+ #include &quot;jim-eventloop.h&quot;
+ 
+ 
+-int fast_and_dangerous = 0;
+ Jim_Interp *interp = NULL;
+ 
+ static int run_command(struct command_context *context,
+@@ -141,7 +140,6 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	log_add_callback(tcl_output, tclOutput);
+ 
+-	// turn words[0] into CMD_ARGV[-1] with this cast
+ 	retval = run_command(context, c, (const char **)words, nwords);
+ 
+ 	log_remove_callback(tcl_output, tclOutput);
+@@ -755,17 +753,6 @@ COMMAND_HANDLER(handle_sleep_command)
+ 	return ERROR_OK;
+ }
+ 
+-COMMAND_HANDLER(handle_fast_command)
+-{
+-	if (CMD_ARGC != 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	fast_and_dangerous = strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0;
+-
+-	return ERROR_OK;
+-}
+-
+-
+ struct command_context* command_init(const char *startup_tcl)
+ {
+ 	struct command_context* context = malloc(sizeof(struct command_context));
+@@ -839,10 +826,6 @@ struct command_context* command_init(const char *startup_tcl)
+ 			handle_sleep_command, COMMAND_ANY,
+ 			&quot;&lt;n&gt; [busy] - sleep for n milliseconds. &quot;
+ 			&quot;\&quot;busy\&quot; means busy wait&quot;);
+-	register_command(context, NULL, &quot;fast&quot;,
+-			handle_fast_command, COMMAND_ANY,
+-			&quot;fast &lt;enable/disable&gt; - place at beginning of &quot;
+-			&quot;config files. Sets defaults to fast and dangerous.&quot;);
+ 
+ 	return context;
+ }
+@@ -882,18 +865,6 @@ void register_jim(struct command_context *cmd_ctx, const char *name,
+ 	command_helptext_add(cmd_list, help);
+ }
+ 
+-/* return global variable long value or 0 upon failure */
+-long jim_global_long(const char *variable)
+-{
+-	Jim_Obj *objPtr = Jim_GetGlobalVariableStr(interp, variable, JIM_ERRMSG);
+-	long t;
+-	if (Jim_GetLong(interp, objPtr, &amp;t) == JIM_OK)
+-	{
+-		return t;
+-	}
+-	return 0;
+-}
+-
+ #define DEFINE_PARSE_NUM_TYPE(name, type, func, min, max) \
+ 	int parse##name(const char *str, type *ul) \
+ 	{ \
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 06403ef..8cac138 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -214,15 +214,11 @@ void process_jim_events(void);
+ #define		ERROR_COMMAND_ARGUMENT_OVERFLOW		(-604)
+ #define		ERROR_COMMAND_ARGUMENT_UNDERFLOW	(-605)
+ 
+-extern int fast_and_dangerous;
+-
+ extern Jim_Interp *interp;
+ 
+ void register_jim(struct command_context *context, const char *name,
+ 		Jim_CmdProc cmd, const char *help);
+ 
+-long jim_global_long(const char *variable);
+-
+ int parse_ulong(const char *str, unsigned long *ul);
+ int parse_ullong(const char *str, unsigned long long *ul);
+ 
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 16c8a92..eb4b038 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2929,8 +2929,8 @@ int arm7_9_init_arch_info(struct target *target, struct arm7_9_common *arm7_9)
+ 
+ 	arm7_9-&gt;wp_available_max = 2;
+ 
+-	arm7_9-&gt;fast_memory_access = fast_and_dangerous;
+-	arm7_9-&gt;dcc_downloads = fast_and_dangerous;
++	arm7_9-&gt;fast_memory_access = false;
++	arm7_9-&gt;dcc_downloads = false;
+ 
+ 	armv4_5-&gt;arch_info = arm7_9;
+ 	armv4_5-&gt;read_core_reg = arm7_9_read_core_reg;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012533.html">[Openocd-development] [PATCH 4/6] add handle_command_parse_bool	command helper
+</A></li>
+	<LI>Next message: <A HREF="012534.html">[Openocd-development] [PATCH 6/6] fix zy1000 command handler
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12532">[ date ]</a>
+              <a href="thread.html#12532">[ thread ]</a>
+              <a href="subject.html#12532">[ subject ]</a>
+              <a href="author.html#12532">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

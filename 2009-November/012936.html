@@ -1,0 +1,280 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/2] target: create and use	target_name()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20target%3A%20create%20and%20use%0A%09target_name%28%29&In-Reply-To=%3C200911251632.41925.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012937.html">
+   <LINK REL="Next"  HREF="012938.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/2] target: create and use	target_name()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20target%3A%20create%20and%20use%0A%09target_name%28%29&In-Reply-To=%3C200911251632.41925.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/2] target: create and use	target_name()">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov 26 01:32:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012937.html">[Openocd-development] [patch 1/2] target: target_get_name() --&gt;	target_type_name()
+</A></li>
+        <LI>Next message: <A HREF="012938.html">[Openocd-development] [patch/rfc] target: uplevel add_{break,	watch}point() error checks
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12936">[ date ]</a>
+              <a href="thread.html#12936">[ thread ]</a>
+              <a href="subject.html#12936">[ subject ]</a>
+              <a href="author.html#12936">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Several of the sites now using target_type_name() really
+ought to be using an instance-specific name.  Create a
+function called target_name(), accessing the instance's
+own (command) name.
+
+Use it in several places that really should be displaying
+instance-specific names.  Also in several places which
+were already doing so, but which had no wrapper to call.
+---
+I'm merging these two minor cosmetic cleanups ...
+
+ src/server/gdb_server.c  |   10 +++++-----
+ src/target/breakpoints.c |    4 ++--
+ src/target/etm.c         |    3 ++-
+ src/target/target.c      |   35 +++++++++++++++++++----------------
+ src/target/target.h      |    6 ++++++
+ 5 files changed, 34 insertions(+), 24 deletions(-)
+
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -774,7 +774,7 @@ int gdb_new_connection(struct connection
+ 	gdb_actual_connections++;
+ 	LOG_DEBUG(&quot;New GDB Connection: %d, Target %s, state: %s&quot;,
+ 		  gdb_actual_connections,
+-		  gdb_service-&gt;target-&gt;cmd_name,
++		  target_name(gdb_service-&gt;target),
+ 		  target_state_name(gdb_service-&gt;target));
+ 
+ 	return ERROR_OK;
+@@ -792,7 +792,7 @@ int gdb_connection_closed(struct connect
+ 
+ 	gdb_actual_connections--;
+ 	LOG_DEBUG(&quot;GDB Close, Target: %s, state: %s, gdb_actual_connections=%d&quot;,
+-		  gdb_service-&gt;target-&gt;cmd_name,
++		  target_name(gdb_service-&gt;target),
+ 		  target_state_name(gdb_service-&gt;target),
+ 		  gdb_actual_connections);
+ 
+@@ -2138,7 +2138,7 @@ int gdb_input_inner(struct connection *c
+ 					watchpoint_clear_target(gdb_service-&gt;target);
+ 					command_run_linef(connection-&gt;cmd_ctx,
+ 							&quot;ocd_gdb_restart %s&quot;,
+-							target-&gt;cmd_name);
++							target_name(target));
+ 					break;
+ 				default:
+ 					/* ignore unkown packets */
+@@ -2216,7 +2216,7 @@ int gdb_init(void)
+ 		add_service(&quot;gdb&quot;, CONNECTION_PIPE, 0, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
+ 
+ 		LOG_DEBUG(&quot;gdb service for target %s using pipes&quot;,
+-				target_type_name(target));
++				target_name(target));
+ 	}
+ 	else
+ 	{
+@@ -2233,7 +2233,7 @@ int gdb_init(void)
+ 					gdb_connection_closed, gdb_service);
+ 
+ 			LOG_DEBUG(&quot;gdb service for target %s at TCP port %i&quot;,
+-					target_type_name(target),
++					target_name(target),
+ 					port);
+ 			target = target-&gt;next;
+ 			port++;
+--- a/src/target/breakpoints.c
++++ b/src/target/breakpoints.c
+@@ -157,7 +157,7 @@ void breakpoint_clear_target(struct targ
+ 	struct breakpoint *breakpoint;
+ 
+ 	LOG_DEBUG(&quot;Delete all breakpoints for target: %s&quot;,
+-			target_type_name(target));
++			target_name(target));
+ 	while ((breakpoint = target-&gt;breakpoints) != NULL)
+ 	{
+ 		breakpoint_free(target, breakpoint);
+@@ -294,7 +294,7 @@ void watchpoint_clear_target(struct targ
+ 	struct watchpoint *watchpoint;
+ 
+ 	LOG_DEBUG(&quot;Delete all watchpoints for target: %s&quot;,
+-			target_type_name(target));
++			target_name(target));
+ 	while ((watchpoint = target-&gt;watchpoints) != NULL)
+ 	{
+ 		watchpoint_free(target, watchpoint);
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1374,7 +1374,8 @@ COMMAND_HANDLER(handle_etm_config_comman
+ 	arm = target_to_arm(target);
+ 	if (!is_arm(arm)) {
+ 		command_print(CMD_CTX, &quot;target '%s' is '%s'; not an ARM&quot;,
+-				target-&gt;cmd_name, target_type_name(target));
++				target_name(target),
++				target_type_name(target));
+ 		return ERROR_FAIL;
+ 	}
+ 
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -556,7 +556,7 @@ static int target_soft_reset_halt_imp(st
+ 	}
+ 	if (!target-&gt;type-&gt;soft_reset_halt_imp) {
+ 		LOG_ERROR(&quot;Target %s does not support soft_reset_halt&quot;,
+-				target-&gt;cmd_name);
++				target_name(target));
+ 		return ERROR_FAIL;
+ 	}
+ 	return target-&gt;type-&gt;soft_reset_halt_imp(target);
+@@ -766,7 +766,7 @@ int target_init(struct command_context *
+ 
+ 		if ((retval = target-&gt;type-&gt;init_target(cmd_ctx, target)) != ERROR_OK)
+ 		{
+-			LOG_ERROR(&quot;target '%s' init failed&quot;, target_type_name(target));
++			LOG_ERROR(&quot;target '%s' init failed&quot;, target_name(target));
+ 			return retval;
+ 		}
+ 
+@@ -1697,7 +1697,7 @@ DumpTargets:
+ 		command_print(CMD_CTX, &quot;%2d%c %-18s %-10s %-6s %-18s %s&quot;,
+ 					  target-&gt;target_number,
+ 					  marker,
+-					  target-&gt;cmd_name,
++					  target_name(target),
+ 					  target_type_name(target),
+ 					  Jim_Nvp_value2name_simple(nvp_target_endian,
+ 								target-&gt;endianness)-&gt;name,
+@@ -3510,7 +3510,7 @@ void target_handle_event(struct target *
+ 		if (teap-&gt;event == e) {
+ 			LOG_DEBUG(&quot;target: (%d) %s (%s) event: %d (%s) action: %s&quot;,
+ 					   target-&gt;target_number,
+-					   target-&gt;cmd_name,
++					   target_name(target),
+ 					   target_type_name(target),
+ 					   e,
+ 					   Jim_Nvp_value2name_simple(nvp_target_event, e)-&gt;name,
+@@ -4139,7 +4139,7 @@ static int tcl_target_func(Jim_Interp *i
+ 				|| !target-&gt;type-&gt;deassert_reset) {
+ 			Jim_SetResult_sprintf(interp,
+ 					&quot;No target-specific reset for %s&quot;,
+-					target-&gt;cmd_name);
++					target_name(target));
+ 			return JIM_ERR;
+ 		}
+ 		/* determine if we should halt or not. */
+@@ -4183,10 +4183,9 @@ static int tcl_target_func(Jim_Interp *i
+ 		e = target_wait_state(target, n-&gt;value, a);
+ 		if (e != ERROR_OK) {
+ 			Jim_SetResult_sprintf(goi.interp,
+-								   &quot;target: %s wait %s fails (%d) %s&quot;,
+-								   target-&gt;cmd_name,
+-								   n-&gt;name,
+-								   e, target_strerror_safe(e));
++					&quot;target: %s wait %s fails (%d) %s&quot;,
++					target_name(target), n-&gt;name,
++					e, target_strerror_safe(e));
+ 			return JIM_ERR;
+ 		} else {
+ 			return JIM_OK;
+@@ -4198,9 +4197,10 @@ static int tcl_target_func(Jim_Interp *i
+ 		{
+ 			struct target_event_action *teap;
+ 			teap = target-&gt;event_action;
+-			command_print(cmd_ctx, &quot;Event actions for target (%d) %s\n&quot;,
+-						   target-&gt;target_number,
+-						   target-&gt;cmd_name);
++			command_print(cmd_ctx,
++					&quot;Event actions for target (%d) %s\n&quot;,
++					target-&gt;target_number,
++					target_name(target));
+ 			command_print(cmd_ctx, &quot;%-25s | Body&quot;, &quot;Event&quot;);
+ 			command_print(cmd_ctx, &quot;------------------------- | ----------------------------------------&quot;);
+ 			while (teap) {
+@@ -4450,7 +4450,9 @@ static int jim_target(Jim_Interp *interp
+ 			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+ 			return JIM_ERR;
+ 		}
+-		Jim_SetResultString(goi.interp, get_current_target(cmd_ctx)-&gt;cmd_name, -1);
++		Jim_SetResultString(goi.interp,
++				target_name(get_current_target(cmd_ctx)),
++				-1);
+ 		return JIM_OK;
+ 	case TG_CMD_TYPES:
+ 		if (goi.argc != 0) {
+@@ -4473,8 +4475,9 @@ static int jim_target(Jim_Interp *interp
+ 		target = all_targets;
+ 		while (target) {
+ 			Jim_ListAppendElement(goi.interp,
+-								   Jim_GetResult(goi.interp),
+-								   Jim_NewStringObj(goi.interp, target-&gt;cmd_name, -1));
++					Jim_GetResult(goi.interp),
++					Jim_NewStringObj(goi.interp,
++						target_name(target), -1));
+ 			target = target-&gt;next;
+ 		}
+ 		return JIM_OK;
+@@ -4505,7 +4508,7 @@ static int jim_target(Jim_Interp *interp
+ 					&quot;Target: number %d does not exist&quot;, (int)(w));
+ 			return JIM_ERR;
+ 		}
+-		Jim_SetResultString(goi.interp, target-&gt;cmd_name, -1);
++		Jim_SetResultString(goi.interp, target_name(target), -1);
+ 		return JIM_OK;
+ 	case TG_CMD_COUNT:
+ 		if (goi.argc != 0) {
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -159,6 +159,12 @@ struct target
+ 	long long halt_issued_time;			/* Note time when halt was issued */
+ };
+ 
++/** Returns the instance-specific name of the specified target. */
++static inline const char *target_name(struct target *target)
++{
++	return target-&gt;cmd_name;
++}
++
+ enum target_event
+ {
+ 	/* LD historical names
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012937.html">[Openocd-development] [patch 1/2] target: target_get_name() --&gt;	target_type_name()
+</A></li>
+	<LI>Next message: <A HREF="012938.html">[Openocd-development] [patch/rfc] target: uplevel add_{break,	watch}point() error checks
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12936">[ date ]</a>
+              <a href="thread.html#12936">[ thread ]</a>
+              <a href="subject.html#12936">[ subject ]</a>
+              <a href="author.html#12936">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

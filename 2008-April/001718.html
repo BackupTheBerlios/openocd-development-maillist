@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] More reset fixes for arm7/9
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20More%20reset%20fixes%20for%20arm7/9&In-Reply-To=%3Cc09652430804070358h3f88b93y23ae7cc3404e5b07%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001707.html">
+   <LINK REL="Next"  HREF="001720.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] More reset fixes for arm7/9</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20More%20reset%20fixes%20for%20arm7/9&In-Reply-To=%3Cc09652430804070358h3f88b93y23ae7cc3404e5b07%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] More reset fixes for arm7/9">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Apr  7 12:58:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001707.html">[Openocd-development] New command &quot;init&quot; and retiring	daemon_startup
+</A></li>
+        <LI>Next message: <A HREF="001720.html">[Openocd-development] Does asserting trst and srst at the same time	have unpredictable results?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1718">[ date ]</a>
+              <a href="thread.html#1718">[ thread ]</a>
+              <a href="subject.html#1718">[ subject ]</a>
+              <a href="author.html#1718">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>More reset fixes committed, not quite done yet I think.
+
+arm926ejs below refers to the case where srst locks up JTAG clk.
+
+- Will &quot;reset halt&quot; work with arm926ejs if &quot;reset_config srst_only&quot; is used?
+In this case trst is not asserted and, hopefully, that will stop the reset
+vector catch from being cleared. This assumes that TRST clears
+the reset vector catch  and that TMS does not.
+
+- has &quot;resume&quot; + &quot;reset halt&quot; ever worked with arm926ejs? In this
+case trst was asserted, which I would expect to clear the reset vector
+catch.
+
+
+This is the list of outstanding reset problems as far as I know:
+
+
+- if srst locks up the JTAG clock, then the halt issued while arm7/9 has
+reset asserted will be ignored =&gt; reset halt/init won't work. If trst
+is in use, then trst will reset embedded ICE and that would
+clear the reset vector catch. For now the only solution I see is to
+use srst_only for the case where srst locks up then jtag clk.
+- arm7/9 code can not know *why* communication failed while reset
+was asserted, but it may be able to detect that communication failed.
+I don't know whether or not this can be detected in a robust fashion.
+There is no target configuration option to tell arm7/9 code
+that the jtag clock is locked up while srst is asserted. Should there be
+such an option? The only thing that could be done would be not to
+assert trst so that the reset vector catch won't get cleared, which can
+be achieved via srst_only.
+- since reset can be issued while the target and openocd are out of
+sync, e.g. reset after power cycle, the reset code will be broken
+if it acts upon the assumption that the target is in a particular state
+or other(as it did previously).
+- if srst locks up the jtag clk, it appears as if the the embedded ICE
+registers aren't cleared upon asserting trst. Dominic showed a trace
+where &quot;reset halt&quot; + &quot;reset run&quot; resulted in reset run catching the
+reset vector(or halt at address 0 anyway). OpenOCD tried to
+assert trst &amp; srst upon &quot;reset run&quot;. I would have expected the
+reset vector catch to be cleared. Perhaps the reset vector catch
+isn't cleared when trst is asserted? Perhaps srst does not lock up
+the jtag clk, but rather disconnects all JTAG circuitry so TRST
+asserted isn't &quot;heard&quot; by the target?
+
+
+Fixes:
+
+- only if &quot;reset halt&quot; or &quot;reset init&quot; are issued will the reset
+vector be set up
+- If communication fails during assert between assert/deassert and during
+assert, warnings are printed. The warning suggests using srst_only if the
+clock locks up as that would allow the reset vector to be set up before
+asserting reset.
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: resetfixes.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080407/0b36488c/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20080407/0b36488c/attachment.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001707.html">[Openocd-development] New command &quot;init&quot; and retiring	daemon_startup
+</A></li>
+	<LI>Next message: <A HREF="001720.html">[Openocd-development] Does asserting trst and srst at the same time	have unpredictable results?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1718">[ date ]</a>
+              <a href="thread.html#1718">[ thread ]</a>
+              <a href="subject.html#1718">[ subject ]</a>
+              <a href="author.html#1718">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

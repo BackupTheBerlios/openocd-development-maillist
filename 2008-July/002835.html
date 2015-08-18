@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Breakpoint handling in run_agorithm
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Breakpoint%20handling%20in%20run_agorithm&In-Reply-To=%3C4892337B.7090300%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002830.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Breakpoint handling in run_agorithm</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Breakpoint%20handling%20in%20run_agorithm&In-Reply-To=%3C4892337B.7090300%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] Breakpoint handling in run_agorithm">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Thu Jul 31 23:49:47 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002830.html">[Openocd-development] Move all tcl api calls into a single file?
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2835">[ date ]</a>
+              <a href="thread.html#2835">[ thread ]</a>
+              <a href="subject.html#2835">[ subject ]</a>
+              <a href="author.html#2835">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>So we have to dig into the deep end of breakpoint and watchpoint handling :)
+Here are some thoughts about the situation.
+(Everything about breakpoints applies equally to watchpoints.)
+
+As I can see it we have two different levels in breakpoint handling:
+- adding and removing breakpoints  - this is not target specific and can 
+be handled in breakpoint.c
+- enabling(activating) and disabling breakpoints on the target, this is 
+called &quot;set&quot; and &quot;unset&quot; in the arm7_9 code, those functions
+are not available to the higher level code in breakpoint.c
+
+Note: void arm7_9_disable_bkpts_and_wpts(struct target_s *target) is 
+never called
+
+The logic we need in the run_algoritm code is
+a) Disable (unset) all breakpoints            
+                                           arm7_9_disable_bkpts_and_wpts
+b) Add the temporary breakpoint used by the algorithm              
+breakpoint_add(target, exit_point, exit_breakpoint_size, BKPT_HARD))  
+in  armv4_5_run_algorithm
+c) Enable (set) the temporary 
+breakpoint                                         
+arm7_9_enable_breakpoints(target)  called by  arm7_9_resume when running 
+the algorithm
+d) Run the algorithm
+e) Unset and Remove the temporary  breakpoint                          
+breakpoint_remove(target, exit_point) called from  armv4_5_run_algorithm
+f) Enable all 
+breakpoints                                                                     
+arm7_9_enable_breakpoints(target)  called by  arm7_9_resume
+
+The problems are that
+- The breakpoint cannot be added in (b) since    arm7_9-&gt;wp_available &lt; 
+1 even though all  hardware watchpoint units are free  after 
+arm7_9_disable_bkpts_and_wpts in (a)
+- In c) ALL breakpoints in the breakponts linked list will be enabled by 
+the resume code
+
+One solution is to first unset all breakpoints, then save the watchpoint 
+and breakpoint list pointers  and the arm7_9-&gt;wp_available to temporary 
+variables in the algoritm code (and be careful hove to restore stuff on 
+errors)
+Now we have a clean breakpoint list and can add the temporary 
+breakpoint, run the algoritm and remove the temporary breakpoint and 
+restore the saved state. This is all done in the run_algorithm function.
+The application stuff will be enabled(set) when calling resume next time.
+This does not touch any code outside the run_algorithm,  but perhaps we 
+should first have new look at the general breakpoint handling code.
+
+
+The variable name set in breakpoint_t and watchpoint_t are a bit cyptic, 
+perhaps they should be renamed  to set_to_hwunit ?? (  and set = 1 means 
+mapped to hardware unit 0, open to confusion, but changes can introduce 
+short term errors)
+
+Comments ?
+
+
+Regards
+Magnus
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002830.html">[Openocd-development] Move all tcl api calls into a single file?
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2835">[ date ]</a>
+              <a href="thread.html#2835">[ thread ]</a>
+              <a href="subject.html#2835">[ subject ]</a>
+              <a href="author.html#2835">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

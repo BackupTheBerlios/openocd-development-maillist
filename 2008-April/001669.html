@@ -1,0 +1,351 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] fix for erase state in flash info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fix%20for%20erase%20state%20in%20flash%20info&In-Reply-To=%3Cc09652430804020741w6cc990ob2bf4e9645dc6354%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001668.html">
+   <LINK REL="Next"  HREF="001670.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] fix for erase state in flash info</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fix%20for%20erase%20state%20in%20flash%20info&In-Reply-To=%3Cc09652430804020741w6cc990ob2bf4e9645dc6354%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] fix for erase state in flash info">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Apr  2 16:41:31 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001668.html">[Openocd-development] BreakpointManager.java is broken
+</A></li>
+        <LI>Next message: <A HREF="001670.html">[Openocd-development] Sharpened str912 target script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1669">[ date ]</a>
+              <a href="thread.html#1669">[ thread ]</a>
+              <a href="subject.html#1669">[ subject ]</a>
+              <a href="author.html#1669">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>committed.
+
+erased state is now reported correctly. probe + erase
+check is always run.
+
+
+Index: C:/workspace/openocd_trunk/src/flash/ecos.c
+===================================================================
+--- C:/workspace/openocd_trunk/src/flash/ecos.c	(revision 533)
++++ C:/workspace/openocd_trunk/src/flash/ecos.c	(working copy)
+@@ -45,7 +45,6 @@
+ int ecosflash_protect(struct flash_bank_s *bank, int set, int first, int last);
+ int ecosflash_write(struct flash_bank_s *bank, u8 *buffer, u32
+offset, u32 count);
+ int ecosflash_probe(struct flash_bank_s *bank);
+-int ecosflash_erase_check(struct flash_bank_s *bank);
+ int ecosflash_protect_check(struct flash_bank_s *bank);
+ int ecosflash_info(struct flash_bank_s *bank, char *buf, int buf_size);
+
+@@ -64,7 +63,7 @@
+ 	.write = ecosflash_write,
+ 	.probe = ecosflash_probe,
+ 	.auto_probe = ecosflash_probe,
+-	.erase_check = ecosflash_erase_check,
++	.erase_check = default_flash_blank_check,
+ 	.protect_check = ecosflash_protect_check,
+ 	.info = ecosflash_info
+ };
+@@ -444,11 +443,6 @@
+ }
+
+
+-int ecosflash_erase_check(struct flash_bank_s *bank)
+-{
+-	return ERROR_OK;
+-}
+-
+ int ecosflash_protect_check(struct flash_bank_s *bank)
+ {
+ 	return ERROR_OK;
+Index: C:/workspace/openocd_trunk/src/flash/flash.c
+===================================================================
+--- C:/workspace/openocd_trunk/src/flash/flash.c	(revision 533)
++++ C:/workspace/openocd_trunk/src/flash/flash.c	(working copy)
+@@ -334,7 +334,11 @@
+ 			char buf[1024];
+
+ 			/* attempt auto probe */
+-			p-&gt;driver-&gt;auto_probe(p);
++			if ((retval = p-&gt;driver-&gt;auto_probe(p)) != ERROR_OK)
++				return retval;
++			
++			if ((retval = p-&gt;driver-&gt;erase_check(p)) != ERROR_OK)
++				return retval;
+
+ 			command_print(cmd_ctx, &quot;#%i: %s at 0x%8.8x, size 0x%8.8x, buswidth
+%i, chipwidth %i&quot;,
+ 						i, p-&gt;driver-&gt;name, p-&gt;base, p-&gt;size, p-&gt;bus_width, p-&gt;chip_width);
+@@ -1049,3 +1053,51 @@
+
+ 	return ERROR_OK;
+ }
++
++
++int default_flash_blank_check(struct flash_bank_s *bank)
++{
++	target_t *target = bank-&gt;target;
++	u8 buffer[1024];
++	int buffer_size=sizeof(buffer);
++	int i;
++	int nBytes;
++	
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	
++	
++	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
++	{
++		int j;
++		bank-&gt;sectors[i].is_erased = 1;
++		
++		for (j=0; j&lt;bank-&gt;sectors[i].size; j+=buffer_size)
++		{
++			int chunk;
++			int retval;
++			chunk=buffer_size;
++			if (chunk&gt;(j-bank-&gt;sectors[i].size))
++			{
++				chunk=(j-bank-&gt;sectors[i].size);
++			}
++			
++			retval=target-&gt;type-&gt;read_memory(target, bank-&gt;base +
+bank-&gt;sectors[i].offset, 4, chunk/4, buffer);
++			if (retval!=ERROR_OK)
++				return retval;
++		
++			for (nBytes = 0; nBytes &lt; chunk; nBytes++)
++			{
++				if (buffer[nBytes] != 0xFF)
++				{
++					bank-&gt;sectors[i].is_erased = 0;
++					break;
++				}
++			}
++		}
++	}
++	
++	return ERROR_OK;
++}
+Index: C:/workspace/openocd_trunk/src/flash/flash.h
+===================================================================
+--- C:/workspace/openocd_trunk/src/flash/flash.h	(revision 533)
++++ C:/workspace/openocd_trunk/src/flash/flash.h	(working copy)
+@@ -78,6 +78,7 @@
+ extern int flash_write(target_t *target, image_t *image, u32
+*written, int erase);
+ extern void flash_set_dirty(void);
+ extern int flash_get_bank_count();
++int default_flash_blank_check(struct flash_bank_s *bank);
+
+ extern flash_bank_t *get_flash_bank_by_num(int num);
+ extern flash_bank_t *get_flash_bank_by_num_noprobe(int num);
+Index: C:/workspace/openocd_trunk/src/flash/str7x.c
+===================================================================
+--- C:/workspace/openocd_trunk/src/flash/str7x.c	(revision 533)
++++ C:/workspace/openocd_trunk/src/flash/str7x.c	(working copy)
+@@ -56,7 +56,6 @@
+ int str7x_probe(struct flash_bank_s *bank);
+ int str7x_handle_part_id_command(struct command_context_s *cmd_ctx,
+char *cmd, char **args, int argc);
+ int str7x_protect_check(struct flash_bank_s *bank);
+-int str7x_erase_check(struct flash_bank_s *bank);
+ int str7x_info(struct flash_bank_s *bank, char *buf, int buf_size);
+
+ int str7x_handle_disable_jtag_command(struct command_context_s
+*cmd_ctx, char *cmd, char **args, int argc);
+@@ -71,7 +70,7 @@
+ 	.write = str7x_write,
+ 	.probe = str7x_probe,
+ 	.auto_probe = str7x_probe,
+-	.erase_check = str7x_erase_check,
++	.erase_check = default_flash_blank_check,
+ 	.protect_check = str7x_protect_check,
+ 	.info = str7x_info
+ };
+@@ -240,43 +239,6 @@
+ 	return retval;
+ }
+
+-int str7x_blank_check(struct flash_bank_s *bank, int first, int last)
+-{
+-	target_t *target = bank-&gt;target;
+-	u8 *buffer;
+-	int i;
+-	int nBytes;
+-	
+-	if ((first &lt; 0) || (last &gt; bank-&gt;num_sectors))
+-		return ERROR_FLASH_SECTOR_INVALID;
+-
+-	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+-	{
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-	
+-	buffer = malloc(256);
+-	
+-	for (i = first; i &lt;= last; i++)
+-	{
+-		bank-&gt;sectors[i].is_erased = 1;
+-
+-		target-&gt;type-&gt;read_memory(target, bank-&gt;base +
+bank-&gt;sectors[i].offset, 4, 256/4, buffer);
+-		
+-		for (nBytes = 0; nBytes &lt; 256; nBytes++)
+-		{
+-			if (buffer[nBytes] != 0xFF)
+-			{
+-				bank-&gt;sectors[i].is_erased = 0;
+-				break;
+-			}
+-		}	
+-	}
+-	
+-	free(buffer);
+-
+-	return ERROR_OK;
+-}
+
+ int str7x_protect_check(struct flash_bank_s *bank)
+ {
+@@ -729,11 +691,6 @@
+ 	return ERROR_OK;
+ }
+
+-int str7x_erase_check(struct flash_bank_s *bank)
+-{
+-	return str7x_blank_check(bank, 0, bank-&gt;num_sectors - 1);
+-}
+-
+ int str7x_info(struct flash_bank_s *bank, char *buf, int buf_size)
+ {
+ 	snprintf(buf, buf_size, &quot;str7x flash driver info&quot; );
+Index: C:/workspace/openocd_trunk/src/flash/str9x.c
+===================================================================
+--- C:/workspace/openocd_trunk/src/flash/str9x.c	(revision 533)
++++ C:/workspace/openocd_trunk/src/flash/str9x.c	(working copy)
+@@ -64,7 +64,6 @@
+ int str9x_probe(struct flash_bank_s *bank);
+ int str9x_handle_part_id_command(struct command_context_s *cmd_ctx,
+char *cmd, char **args, int argc);
+ int str9x_protect_check(struct flash_bank_s *bank);
+-int str9x_erase_check(struct flash_bank_s *bank);
+ int str9x_info(struct flash_bank_s *bank, char *buf, int buf_size);
+
+ int str9x_handle_flash_config_command(struct command_context_s
+*cmd_ctx, char *cmd, char **args, int argc);
+@@ -79,7 +78,7 @@
+ 	.write = str9x_write,
+ 	.probe = str9x_probe,
+ 	.auto_probe = str9x_probe,
+-	.erase_check = str9x_erase_check,
++	.erase_check = default_flash_blank_check,
+ 	.protect_check = str9x_protect_check,
+ 	.info = str9x_info
+ };
+@@ -170,44 +169,6 @@
+ 	return ERROR_OK;
+ }
+
+-int str9x_blank_check(struct flash_bank_s *bank, int first, int last)
+-{
+-	target_t *target = bank-&gt;target;
+-	u8 *buffer;
+-	int i;
+-	int nBytes;
+-	
+-	if ((first &lt; 0) || (last &gt; bank-&gt;num_sectors))
+-		return ERROR_FLASH_SECTOR_INVALID;
+-
+-	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+-	{
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-	
+-	buffer = malloc(256);
+-	
+-	for (i = first; i &lt;= last; i++)
+-	{
+-		bank-&gt;sectors[i].is_erased = 1;
+-
+-		target-&gt;type-&gt;read_memory(target, bank-&gt;base +
+bank-&gt;sectors[i].offset, 4, 256/4, buffer);
+-		
+-		for (nBytes = 0; nBytes &lt; 256; nBytes++)
+-		{
+-			if (buffer[nBytes] != 0xFF)
+-			{
+-				bank-&gt;sectors[i].is_erased = 0;
+-				break;
+-			}
+-		}	
+-	}
+-	
+-	free(buffer);
+-
+-	return ERROR_OK;
+-}
+-
+ int str9x_protect_check(struct flash_bank_s *bank)
+ {
+ 	str9x_flash_bank_t *str9x_info = bank-&gt;driver_priv;
+@@ -581,11 +542,6 @@
+ 	return ERROR_OK;
+ }
+
+-int str9x_erase_check(struct flash_bank_s *bank)
+-{
+-	return str9x_blank_check(bank, 0, bank-&gt;num_sectors - 1);
+-}
+-
+ int str9x_info(struct flash_bank_s *bank, char *buf, int buf_size)
+ {
+ 	snprintf(buf, buf_size, &quot;str9x flash driver info&quot; );
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001668.html">[Openocd-development] BreakpointManager.java is broken
+</A></li>
+	<LI>Next message: <A HREF="001670.html">[Openocd-development] Sharpened str912 target script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1669">[ date ]</a>
+              <a href="thread.html#1669">[ thread ]</a>
+              <a href="subject.html#1669">[ subject ]</a>
+              <a href="author.html#1669">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

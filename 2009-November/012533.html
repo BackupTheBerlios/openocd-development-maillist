@@ -1,0 +1,234 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/6] add handle_command_parse_bool	command helper
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/6%5D%20add%20handle_command_parse_bool%0A%09command%20helper&In-Reply-To=%3C1258561643-14413-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012530.html">
+   <LINK REL="Next"  HREF="012532.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/6] add handle_command_parse_bool	command helper</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/6%5D%20add%20handle_command_parse_bool%0A%09command%20helper&In-Reply-To=%3C1258561643-14413-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/6] add handle_command_parse_bool	command helper">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 18 17:27:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012530.html">[Openocd-development] [PATCH 3/6] use COMMAND_PARSE_ENABLE macro	where appropriate
+</A></li>
+        <LI>Next message: <A HREF="012532.html">[Openocd-development] [PATCH 5/6] remove fast command and	jim_global_long
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12533">[ date ]</a>
+              <a href="thread.html#12533">[ thread ]</a>
+              <a href="subject.html#12533">[ subject ]</a>
+              <a href="author.html#12533">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Rewrite arm11_handle_bool to provide a generic on/off command helper.
+
+Refactors COMMAND_PARSE_BOOL to use new command_parse_bool helper,
+which gets reused by the new command_parse_bool_any helper.
+This later helper is called by the new command helper function to
+accepts any on/off, enable/disable, true/false, or 0/1 parameter.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   48 +++++++++++++++++++++++++++++++++++++++++++
+ src/helper/command.h |   15 ++++++++-----
+ src/target/arm11.c   |   55 +++++++++----------------------------------------
+ 3 files changed, 67 insertions(+), 51 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 708a802..1c3179d 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -954,3 +954,51 @@ DEFINE_PARSE_LONG(_int, int, n &lt; INT_MIN, INT_MAX)
+ DEFINE_PARSE_LONG(_s32, int32_t, n &lt; INT32_MIN, INT32_MAX)
+ DEFINE_PARSE_LONG(_s16, int16_t, n &lt; INT16_MIN, INT16_MAX)
+ DEFINE_PARSE_LONG(_s8, int8_t, n &lt; INT8_MIN, INT8_MAX)
++
++int command_parse_bool(const char *in, bool *out,
++		const char *on, const char *off)
++{
++	if (strcasecmp(in, on) == 0)
++		*out = true;
++	else if (strcasecmp(in, off) == 0)
++		*out = false;
++	else
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	return  ERROR_OK;
++}
++
++int command_parse_bool_any(const char *in, bool *out)
++{
++	if (command_parse_bool(in, out, &quot;on&quot;, &quot;off&quot;) == ERROR_OK)
++		return ERROR_OK;
++	if (command_parse_bool(in, out, &quot;enable&quot;, &quot;disable&quot;) == ERROR_OK)
++		return ERROR_OK;
++	if (command_parse_bool(in, out, &quot;true&quot;, &quot;false&quot;) == ERROR_OK)
++		return ERROR_OK;
++	if (command_parse_bool(in, out, &quot;1&quot;, &quot;0&quot;) == ERROR_OK)
++		return ERROR_OK;
++	return ERROR_INVALID_ARGUMENTS;
++}
++
++COMMAND_HELPER(handle_command_parse_bool, bool *out, const char *label)
++{
++	switch (CMD_ARGC) {
++	case 1: {
++		const char *in = CMD_ARGV[0];
++		if (command_parse_bool_any(in, out) != ERROR_OK)
++		{
++			LOG_ERROR(&quot;%s: argument '%s' is not valid&quot;, CMD_NAME, in);
++			return ERROR_INVALID_ARGUMENTS;
++		}
++		// fall through
++	}
++	case 0:
++		LOG_INFO(&quot;%s is %s&quot;, label, *out ? &quot;enabled&quot; : &quot;disabled&quot;);
++		break;
++	default:
++		return ERROR_INVALID_ARGUMENTS;
++	}
++	return ERROR_OK;
++}
++
++
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 9f2d971..06403ef 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -271,19 +271,22 @@ DECLARE_PARSE_WRAPPER(_s8, int8_t);
+  */
+ #define COMMAND_PARSE_BOOL(in, out, on, off) \
+ 	do { \
+-		if (strcmp(in, on) == 0) \
+-			out = true; \
+-		else if (strcmp(in, off) == 0) \
+-			out = false; \
+-		else { \
++		bool value; \
++		int retval = command_parse_bool(in, &amp;value, on, off); \
++		if (ERROR_OK != retval) { \
+ 			command_print(CMD_CTX, stringify(out) \
+ 				&quot; option value ('%s') is not valid&quot;, in); \
+ 			command_print(CMD_CTX, &quot;  choices are '%s' or '%s'&quot;, \
+ 				on, off); \
+-			return ERROR_COMMAND_SYNTAX_ERROR; \
++			return retval; \
+ 		} \
++		out = value; \
+ 	} while (0)
+ 
++int command_parse_bool(const char *in, bool *out,
++		const char *on, const char *off);
++COMMAND_HELPER(handle_command_parse_bool, bool *out, const char *label);
++
+ /// parses an on/off command argument
+ #define COMMAND_PARSE_ON_OFF(in, out) \
+ 		COMMAND_PARSE_BOOL(in, out, &quot;on&quot;, &quot;off&quot;)
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 3a23585..a874b97 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1968,52 +1968,17 @@ static int arm11_build_reg_cache(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
+-static COMMAND_HELPER(arm11_handle_bool, bool *var, char *name)
+-{
+-	if (CMD_ARGC == 0)
+-	{
+-		LOG_INFO(&quot;%s is %s.&quot;, name, *var ? &quot;enabled&quot; : &quot;disabled&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	if (CMD_ARGC != 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	switch (CMD_ARGV[0][0])
+-	{
+-	case '0':	/* 0 */
+-	case 'f':	/* false */
+-	case 'F':
+-	case 'd':	/* disable */
+-	case 'D':
+-		*var = false;
+-		break;
+-
+-	case '1':	/* 1 */
+-	case 't':	/* true */
+-	case 'T':
+-	case 'e':	/* enable */
+-	case 'E':
+-		*var = true;
+-		break;
+-	}
+-
+-	LOG_INFO(&quot;%s %s.&quot;, *var ? &quot;Enabled&quot; : &quot;Disabled&quot;, name);
+-
+-	return ERROR_OK;
+-}
+-
+-#define BOOL_WRAPPER(name, print_name)	\
+-COMMAND_HANDLER(arm11_handle_bool_##name) \
+-{ \
+-	return CALL_COMMAND_HANDLER(arm11_handle_bool, \
+-			&amp;arm11_config_##name, print_name); \
+-}
++#define ARM11_BOOL_WRAPPER(name, print_name)	\
++		COMMAND_HANDLER(arm11_handle_bool_##name) \
++		{ \
++			return CALL_COMMAND_HANDLER(handle_command_parse_bool, \
++					&amp;arm11_config_##name, print_name); \
++		}
+ 
+-BOOL_WRAPPER(memwrite_burst,			&quot;memory write burst mode&quot;)
+-BOOL_WRAPPER(memwrite_error_fatal,		&quot;fatal error mode for memory writes&quot;)
+-BOOL_WRAPPER(step_irq_enable,			&quot;IRQs while stepping&quot;)
+-BOOL_WRAPPER(hardware_step,			&quot;hardware single step&quot;)
++ARM11_BOOL_WRAPPER(memwrite_burst, &quot;memory write burst mode&quot;)
++ARM11_BOOL_WRAPPER(memwrite_error_fatal, &quot;fatal error mode for memory writes&quot;)
++ARM11_BOOL_WRAPPER(step_irq_enable, &quot;IRQs while stepping&quot;)
++ARM11_BOOL_WRAPPER(hardware_step, &quot;hardware single step&quot;)
+ 
+ COMMAND_HANDLER(arm11_handle_vcr)
+ {
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012530.html">[Openocd-development] [PATCH 3/6] use COMMAND_PARSE_ENABLE macro	where appropriate
+</A></li>
+	<LI>Next message: <A HREF="012532.html">[Openocd-development] [PATCH 5/6] remove fast command and	jim_global_long
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12533">[ date ]</a>
+              <a href="thread.html#12533">[ thread ]</a>
+              <a href="subject.html#12533">[ subject ]</a>
+              <a href="author.html#12533">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

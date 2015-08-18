@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 09/12] add command registration	chaining
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2009/12%5D%20add%20command%20registration%0A%09chaining&In-Reply-To=%3C1259100296-14219-10-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012842.html">
+   <LINK REL="Next"  HREF="012807.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 09/12] add command registration	chaining</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2009/12%5D%20add%20command%20registration%0A%09chaining&In-Reply-To=%3C1259100296-14219-10-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 09/12] add command registration	chaining">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:04:53 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012842.html">[Openocd-development] [PATCH 08/12] more command registration	refactoring
+</A></li>
+        <LI>Next message: <A HREF="012807.html">[Openocd-development] [PATCH 2/9] demonstrate chaining with foo	commands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12800">[ date ]</a>
+              <a href="thread.html#12800">[ thread ]</a>
+              <a href="subject.html#12800">[ subject ]</a>
+              <a href="author.html#12800">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Adds the ability to chain registration structures.  Modules can define a
+command with the 'chain' and 'num_chain' fields defined in their
+registration table, and the register_commands() function will initialize
+these commands.  If the registration record creates a new command, then
+the chained commands are created under it; otherwise, they are created
+in the same context as the other commands (i.e. the parent argument).
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   30 ++++++++++++++++++++++++------
+ src/helper/command.h |   15 +++++++++++++--
+ 2 files changed, 37 insertions(+), 8 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 9cc996c..b81d2d1 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -331,18 +331,36 @@ struct command* register_command(struct command_context *context,
+ int register_commands(struct command_context *cmd_ctx, struct command *parent,
+ 		const struct command_registration *cmds)
+ {
++	int retval = ERROR_OK;
+ 	unsigned i;
+-	for (i = 0; cmds[i].name; i++)
++	for (i = 0; cmds[i].name || cmds[i].chain; i++)
+ 	{
+-		struct command *c = register_command(cmd_ctx, parent, cmds + i);
+-		if (NULL != c)
+-			continue;
++		const struct command_registration *cr = cmds + i;
+ 
++		struct command *c = NULL;
++		if (NULL != cr-&gt;name)
++		{
++			c = register_command(cmd_ctx, parent, cr);
++			if (NULL == c)
++			{
++				retval = ERROR_FAIL;
++				break;
++			}
++		}
++		if (NULL != cr-&gt;chain)
++		{
++			struct command *p = c ? : parent;
++			retval = register_commands(cmd_ctx, p, cr-&gt;chain);
++			if (ERROR_OK != retval)
++				break;
++		}
++	}
++	if (ERROR_OK != retval)
++	{
+ 		for (unsigned j = 0; j &lt; i; j++)
+ 			unregister_command(cmd_ctx, parent, cmds[j].name);
+-		return ERROR_FAIL;
+ 	}
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ int unregister_all_commands(struct command_context *context,
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 7baa92d..6e3e93a 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -202,10 +202,18 @@ struct command_registration {
+ 	const char *help;
+ 	/// a string listing the options and arguments, required or optional
+ 	const char *usage;
++
++	/**
++	 * If non-NULL, the commands in @c chain will be registered in
++	 * the same context and scope of this registration record.
++	 * This allows modules to inherit lists commands from other
++	 * modules.
++	 */
++	const struct command_registration *chain;
+ };
+ 
+ /// Use this as the last entry in an array of command_registration records.
+-#define COMMAND_REGISTRATION_DONE { .name = NULL }
++#define COMMAND_REGISTRATION_DONE { .name = NULL, .chain = NULL }
+ 
+ /**
+  * Register a command @c handler that can be called from scripts during
+@@ -238,7 +246,10 @@ struct command* register_command(struct command_context *cmd_ctx,
+ 
+ /**
+  * Register one or more commands in the specified context, as children
+- * of @c parent (or top-level commends, if NULL).
++ * of @c parent (or top-level commends, if NULL).  In a registration's
++ * record contains a non-NULL @c chain member and name is NULL, the
++ * commands on the chain will be registered in the same context.
++ * Otherwise, the chained commands are added as children of the command.
+  *
+  * @param cmd_ctx The command_context in which to register the command.
+  * @param parent Register this command as a child of this, or NULL to
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012842.html">[Openocd-development] [PATCH 08/12] more command registration	refactoring
+</A></li>
+	<LI>Next message: <A HREF="012807.html">[Openocd-development] [PATCH 2/9] demonstrate chaining with foo	commands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12800">[ date ]</a>
+              <a href="thread.html#12800">[ thread ]</a>
+              <a href="subject.html#12800">[ subject ]</a>
+              <a href="author.html#12800">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

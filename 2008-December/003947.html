@@ -1,0 +1,427 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH: ep93xx.c speed up.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%20ep93xx.c%20speed%20up.&In-Reply-To=%3C20081209.161605.18314089.ito%40mlb.co.jp%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003928.html">
+   <LINK REL="Next"  HREF="003857.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH: ep93xx.c speed up.</H1>
+    <B>Hiroshi Ito</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%20ep93xx.c%20speed%20up.&In-Reply-To=%3C20081209.161605.18314089.ito%40mlb.co.jp%3E"
+       TITLE="[Openocd-development] PATCH: ep93xx.c speed up.">ito at mlb.co.jp
+       </A><BR>
+    <I>Tue Dec  9 08:16:05 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003928.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+        <LI>Next message: <A HREF="003857.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3947">[ date ]</a>
+              <a href="thread.html#3947">[ thread ]</a>
+              <a href="subject.html#3947">[ subject ]</a>
+              <a href="author.html#3947">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> &gt; From: Rick Altherr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>&gt;
+</I>&gt;<i> &gt;&gt;&gt; +static void output_data(void)
+</I>&gt;<i> &gt;&gt;&gt; +{
+</I>&gt;<i> &gt;&gt;&gt; +	int i;
+</I>&gt;<i> &gt;&gt;&gt; +	*gpio_data_register = output_value ^ INVERT_BITS;
+</I>&gt;<i> &gt;&gt;&gt; +	for ( i = 0; i &lt; 10; i++ )
+</I>&gt;<i> &gt;&gt;&gt; +	    ;
+</I>&gt;<i> &gt;&gt;&gt; }
+</I>&gt;<i> &gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; A for loop like that can't reliably be used as a delay loop.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Thank you for your advice.
+</I>&gt;<i> &gt; I fix it.
+</I>&gt;<i> &gt;
+</I>&gt;<i> 
+</I>&gt;<i> I'm not sure how this fixed it.  The output function still just pushes  
+</I>&gt;<i> a value into the data register.  You've simply looped over that so  
+</I>&gt;<i> that the value is written to the data register multiple times.  That  
+</I>&gt;<i> is really just a non-deterministic delay loop that will vary with the  
+</I>&gt;<i> host CPU speed.
+</I>
+ Yes, it is. like parport.c do.
+when I use a nanosleep() version, It shows next msg.
+BUG: keep_alive() was not invoked in the 1000ms timelimit. GDB alive packet not sent! (1613)
+
+&gt;<i>                  The wait for RTCK method is appropriate and is  
+</I>&gt;<i> deterministic.  Is there really no way to know how long to wait after  
+</I>&gt;<i> the data value has been placed on the pins before changing it without  
+</I>&gt;<i> using RTCK?
+</I>
+ RTCK method is optional.
+ I do not use it.(but tested, it works fine)
+
+I checked TCK with osilloscope.
+I put result of it as a comment.
+this might be helpfull for another user.
+
+--------
+Hiroshi Ito
+Media Lab. Inc.,
+URL <A HREF="http://www.mlb.co.jp">http://www.mlb.co.jp</A> ( Sorry, Japanese only. )
+TEL +81-3-5294-7255  FAX +81-3-5294-7256
+-------------- next part --------------
+Index: src/jtag/ep93xx.c
+===================================================================
+--- src/jtag/ep93xx.c	(revision 1214)
++++ src/jtag/ep93xx.c	(working copy)
+@@ -2,6 +2,9 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
++ *   Copyright (C) 2008 by Hiroshi Ito                                     *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ito at mlb.co.jp</A>                                                         *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -25,6 +28,64 @@
+ #include &quot;jtag.h&quot;
+ #include &quot;bitbang.h&quot;
+ 
++/*
++ * Cable definition is *only* selectable at compile time
++ * this driver only tested with ito's cable.
++ * that is why, default is ito's one.
++ *
++ * interface ep93xx
++ * jtag_speed 0
++ *    this uses a RTCK
++ *    760kHz @ HostCPU184MHz, target CPU 250MHz
++ *
++ * jtag_speed N
++ *    N &gt; 0 RTCK is not used. and make wait N-1 time.
++ *    HostCPU is 184MHz
++ *    N:1  1MHz, this is a max speed. and faster than 0.
++ *    N:2  600-780kHz
++ *    N:3  500-630kHz
++ *    N:4  400-528kHz
++ *  3 is a good choice to start.
++ *
++ * --ito's cable.---
++ * TB0319_GPIO(<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">EP9307 at 184MHz</A> PortC and PortD)
++ *     (PortD0)  1  2  (PortD1)
++ *     (PortD2)  3  4  (PortD3)
++ *     (PortD4)  5  6  (PortD5)
++ *     (PortD6)  7  8  (PortD7)
++ *          GND  9  10 GND
++ * TMS(PortC0)  11  12 SRST(PortC1) 
++ * TDI(PortC2)  13  14 TDO(PortC3)
++ * TRST(PortC4) 15  16 RTCK(PortC5) 
++ * VTREF(PortC6)17  18 TCK(PortC7)  
++ *          GND 19  20 GND
++ *
++ * TB0319_JTAG connector
++ * VTREF 1   2  GND
++ * TRST  3   4  GND
++ * TDI   5   6  GND
++ * TMS   7   8  GND
++ * TCK   9   10 GND
++ * TDO  11   12 CPU_RES#
++ * V3R3 13   14 GND
++ *
++ * MP201EK CN2 JTAG connector(<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">arm926t at 250Mhz</A>)
++ * VTREF  1  2  VP3R1
++ * TRST   3  4  GND
++ * TDI    5  6  GND
++ * TMS    7  8  GND
++ * TCK    9  10 GND
++ * RTCK  11  12 GND
++ * TDO   13  14 GND
++ * SRST  15  16 GND
++ * N.C   17  18 GND
++ * N.C   19  20 GND
++ *
++ */
++#if 0
++/* Rath's cable */
++#define INITIALIZE_G_ON_K	1
++
+ #define TDO_BIT		1
+ #define TDI_BIT		2
+ #define TCK_BIT		4
+@@ -32,12 +93,30 @@
+ #define TRST_BIT	16
+ #define SRST_BIT	32
+ #define VCC_BIT		64
++#define RTCK_BIT  	0
++#define VTREF_BIT  	0
+ 
++#define INVERT_BITS  	0
++#else
++/* ito's cable */
++#define INITIALIZE_PORTD_AS_FLOAT	1
++
++#define VCC_BIT		0
++#define TMS_BIT		1
++#define SRST_BIT	2
++#define TDI_BIT		4
++#define TDO_BIT		8
++#define TRST_BIT	16
++#define RTCK_BIT  	32
++#define VTREF_BIT  	64
++#define TCK_BIT		128
++#define INVERT_BITS  	0/*(SRST_BIT|TRST_BIT)*/
++#endif
++
+ /* system includes */
+ #include &lt;string.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;stdio.h&gt;
+-#include &lt;time.h&gt;
+ #include &lt;sys/mman.h&gt;
+ #include &lt;unistd.h&gt;
+ #include &lt;fcntl.h&gt;
+@@ -50,17 +129,18 @@
+ 
+ /* low level command set
+  */
+-int ep93xx_read(void);
+-void ep93xx_write(int tck, int tms, int tdi);
+-void ep93xx_reset(int trst, int srst);
++static int ep93xx_read(void);
++static void ep93xx_write(int tck, int tms, int tdi);
++static void ep93xx_reset(int trst, int srst);
++#if VTREF_BIT &gt; 0
++static int ep93xx_power_dropout(int *dropout);
++#endif
+ 
+-int ep93xx_speed(int speed);
+-int ep93xx_register_commands(struct command_context_s *cmd_ctx);
+-int ep93xx_init(void);
+-int ep93xx_quit(void);
++static int ep93xx_speed(int speed);
++static int ep93xx_register_commands(struct command_context_s *cmd_ctx);
++static int ep93xx_init(void);
++static int ep93xx_quit(void);
+ 
+-struct timespec ep93xx_zzzz;
+-
+ jtag_interface_t ep93xx_interface = 
+ {
+ 	.name = &quot;ep93xx&quot;,
+@@ -71,9 +151,12 @@
+ 	.register_commands = ep93xx_register_commands,
+ 	.init = ep93xx_init,
+ 	.quit = ep93xx_quit,
++#if VTREF_BIT &gt; 0
++	.power_dropout = ep93xx_power_dropout,
++#endif
+ };
+ 
+-bitbang_interface_t ep93xx_bitbang =
++static bitbang_interface_t ep93xx_bitbang =
+ {
+ 	.read = ep93xx_read,
+ 	.write = ep93xx_write,
+@@ -81,13 +164,50 @@
+ 	.blink = 0,
+ };
+ 
+-int ep93xx_read(void)
++static int ep93xx_read(void)
+ {
+-	return !!(*gpio_data_register &amp; TDO_BIT);
++	return !!((*gpio_data_register ^ INVERT_BITS ) &amp; TDO_BIT);
+ }
+ 
+-void ep93xx_write(int tck, int tms, int tdi)
++#if VTREF_BIT &gt; 0
++static int ep93xx_power_dropout(int *dropout)
+ {
++	*dropout = !((*gpio_data_register ^ INVERT_BITS ) &amp; VTREF_BIT);
++	return ERROR_OK;
++}
++#endif
++
++static void output_data(void)
++{
++	*gpio_data_register = output_value ^ INVERT_BITS;
++}
++
++#if RTCK_BIT &gt; 0
++static void ep93xx_wait_rtck(int tck)
++{
++	int timeout = 4096;
++
++	if ( tck ) tck = RTCK_BIT;
++#if VTREF_BIT &gt; 0
++	if (((*gpio_data_register ^ INVERT_BITS ) &amp; VTREF_BIT) ) {
++	    /* target power is not up */
++	    return;
++	}
++#endif
++	while (((*gpio_data_register ^ INVERT_BITS) &amp; RTCK_BIT) != tck ) {
++	    if ( --timeout &lt;= 0 ) {
++		LOG_ERROR(&quot;ep93xx_wait_rtck timed out while waiting for end of scan(0x%04X).&quot;,
++			  *gpio_data_register );
++		break;
++	    }
++	}
++}
++#endif
++
++static void ep93xx_write(int tck, int tms, int tdi)
++{
++	int i = jtag_speed;
++
+ 	if (tck)
+ 		output_value |= TCK_BIT;
+ 	else
+@@ -103,8 +223,15 @@
+ 	else
+ 		output_value &amp;= ~TDI_BIT;
+ 
+-	*gpio_data_register = output_value;
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
++	do {
++	    output_data();
++	} while (--i &gt; 0)
++	      ;
++
++#if RTCK_BIT &gt; 0
++	if ( jtag_speed == 0 )
++	    ep93xx_wait_rtck(tck);
++#endif
+ }
+ 
+ /* (1) assert or (0) deassert reset lines */
+@@ -120,8 +247,7 @@
+ 	else if (srst == 1)
+ 		output_value &amp;= ~SRST_BIT;
+ 	
+-	*gpio_data_register = output_value;
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
++	output_data();
+ }
+ 
+ int ep93xx_speed(int speed)
+@@ -136,6 +262,8 @@
+ 	return ERROR_OK;
+ }
+ 
++#ifdef INITIALIZE_G_ON_K
++/* set a keypad interface as a GPIO PORT C and PORT D. */
+ static int set_gonk_mode(void)
+ {
+ 	void *syscon;
+@@ -156,16 +284,16 @@
+ 
+ 	return ERROR_OK;
+ }
++#endif
+ 
+-int ep93xx_init(void)
++static int ep93xx_init(void)
+ {
++#ifdef INITIALIZE_G_ON_K
+ 	int ret;
++#endif
+ 
+ 	bitbang_interface = &amp;ep93xx_bitbang;	
+ 
+-	ep93xx_zzzz.tv_sec = 0;
+-	ep93xx_zzzz.tv_nsec = 10000000;
+-
+ 	dev_mem_fd = open(&quot;/dev/mem&quot;, O_RDWR | O_SYNC);
+ 	if (dev_mem_fd &lt; 0) {
+ 		perror(&quot;open&quot;);
+@@ -180,12 +308,14 @@
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
++#ifdef INITIALIZE_G_ON_K
+ 	ret = set_gonk_mode();
+ 	if (ret != ERROR_OK) {
+ 		munmap(gpio_controller, 4096);
+ 		close(dev_mem_fd);
+ 		return ret;
+ 	}
++#endif
+ 
+ #if 0
+ 	/* Use GPIO port A.  */
+@@ -206,20 +336,23 @@
+ 	gpio_data_direction_register = gpio_controller + 0x1c;
+ #endif
+ 
++#ifdef INITIALIZE_PORTD_AS_FLOAT
++	/* unused pins are set to input(port D).  */
++	gpio_data_direction_register = gpio_controller + 0x1c;
++	*gpio_data_direction_register = 0;
++#endif
++
+ 	/* Use GPIO port C.  */
+ 	gpio_data_register = gpio_controller + 0x08;
+ 	gpio_data_direction_register = gpio_controller + 0x18;
+ 
+-	LOG_INFO(&quot;gpio_data_register      = %p\n&quot;, gpio_data_register);
+-	LOG_INFO(&quot;gpio_data_direction_reg = %p\n&quot;, gpio_data_direction_register); 
+ 	/*
+ 	 * Configure bit 0 (TDO) as an input, and bits 1-5 (TDI, TCK
+ 	 * TMS, TRST, SRST) as outputs.  Drive TDI and TCK low, and
+ 	 * TMS/TRST/SRST high.
+ 	 */
+ 	output_value = TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+-	*gpio_data_register = output_value;
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
++	output_data();
+ 
+ 	/*
+ 	 * Configure the direction register.  1 = output, 0 = input.
+@@ -227,12 +360,12 @@
+ 	*gpio_data_direction_register =
+ 		TDI_BIT | TCK_BIT | TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+ 
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
+ 	return ERROR_OK;
+ }
+ 
+-int ep93xx_quit(void)
++static int ep93xx_quit(void)
+ {
++	*gpio_data_direction_register = 0;
+ 
+ 	return ERROR_OK;
+ }
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003928.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+	<LI>Next message: <A HREF="003857.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3947">[ date ]</a>
+              <a href="thread.html#3947">[ thread ]</a>
+              <a href="subject.html#3947">[ subject ]</a>
+              <a href="author.html#3947">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

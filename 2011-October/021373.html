@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] New patch to review for openocd: 7c966dc	FLASH/CFI: fix clang warnings
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%207c966dc%0A%09FLASH/CFI%3A%20fix%20clang%20warnings&In-Reply-To=%3C20111023135944.D67D4C4%40openocd.zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021372.html">
+   <LINK REL="Next"  HREF="021375.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] New patch to review for openocd: 7c966dc	FLASH/CFI: fix clang warnings</H1>
+    <B>Gerrit</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%207c966dc%0A%09FLASH/CFI%3A%20fix%20clang%20warnings&In-Reply-To=%3C20111023135944.D67D4C4%40openocd.zylin.com%3E"
+       TITLE="[Openocd-development] New patch to review for openocd: 7c966dc	FLASH/CFI: fix clang warnings">gerrit at openocd.zylin.com
+       </A><BR>
+    <I>Sun Oct 23 15:59:44 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021372.html">[Openocd-development] New patch to review for openocd: 614bd20	NOR/CORE: fix clang warning
+</A></li>
+        <LI>Next message: <A HREF="021375.html">[Openocd-development] New patch to review for openocd: e6e3105	NAND/CORE: fix clang warning
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21373">[ date ]</a>
+              <a href="thread.html#21373">[ thread ]</a>
+              <a href="subject.html#21373">[ subject ]</a>
+              <a href="author.html#21373">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from Gerrit.
+
+Antonio Borneo (<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">borneo.antonio at gmail.com</A>) just uploaded a new patch set to Gerrit, which you can find at <A HREF="http://openocd.zylin.com/84">http://openocd.zylin.com/84</A>
+
+-- gerrit
+
+commit 7c966dc57e22dddcf6df16f6761d90958e4dc6f2
+Author: Antonio Borneo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">borneo.antonio at gmail.com</A>&gt;
+Date:   Sun Oct 23 11:21:44 2011 +0800
+
+    FLASH/CFI: fix clang warnings
+    
+    Total of 5 warnings:
+    3x &quot;Dead store&quot;: removed dead assignment to variable;
+    1x &quot;Dereference of null pointer&quot;: this is not an error, but a
+       limited visibility of clang, since pointer erase_region_info
+       is initialized inside cfi_fixup_non_cfi();
+    1x &quot;Branch condition evaluates to a garbage value&quot;:
+       this is a real coding bug that could issue SIGSEGV, since
+       &quot;goto cleanup&quot; can be executed before initialization
+       of &quot;source&quot;.
+    
+    Change-Id: Id3c323c82bb15cbd3bb8fc04b23541f11145f109
+    Signed-off-by: Antonio Borneo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">borneo.antonio at gmail.com</A>&gt;
+
+diff --git a/src/flash/nor/cfi.c b/src/flash/nor/cfi.c
+index 5d35801..f75efac 100644
+--- a/src/flash/nor/cfi.c
++++ b/src/flash/nor/cfi.c
+@@ -768,7 +768,7 @@ static int cfi_spansion_info(struct flash_bank *bank, char *buf, int buf_size)
+ 	buf += printed;
+ 	buf_size -= printed;
+ 
+-	printed = snprintf(buf, buf_size, &quot;VppMin: %u.%x, VppMax: %u.%x\n&quot;,
++	snprintf(buf, buf_size, &quot;VppMin: %u.%x, VppMax: %u.%x\n&quot;,
+ 			(pri_ext-&gt;VppMin &amp; 0xf0) &gt;&gt; 4, pri_ext-&gt;VppMin &amp; 0x0f,
+ 			(pri_ext-&gt;VppMax &amp; 0xf0) &gt;&gt; 4, pri_ext-&gt;VppMax &amp; 0x0f);
+ 
+@@ -802,7 +802,7 @@ static int cfi_intel_info(struct flash_bank *bank, char *buf, int buf_size)
+ 	buf += printed;
+ 	buf_size -= printed;
+ 
+-	printed = snprintf(buf, buf_size, &quot;protection_fields: %i, prot_reg_addr: 0x%x, &quot;
++	snprintf(buf, buf_size, &quot;protection_fields: %i, prot_reg_addr: 0x%x, &quot;
+ 			&quot;factory pre-programmed: %i, user programmable: %i\n&quot;,
+ 			pri_ext-&gt;num_protection_fields, pri_ext-&gt;prot_reg_addr,
+ 			1 &lt;&lt; pri_ext-&gt;fact_prot_reg_size, 1 &lt;&lt; pri_ext-&gt;user_prot_reg_size);
+@@ -1222,7 +1222,7 @@ static int cfi_intel_write_block(struct flash_bank *bank, uint8_t *buffer,
+ 	struct target *target = bank-&gt;target;
+ 	struct reg_param reg_params[7];
+ 	struct arm_algorithm armv4_5_info;
+-	struct working_area *source;
++	struct working_area *source = NULL;
+ 	uint32_t buffer_size = 32768;
+ 	uint32_t write_command_val, busy_pattern_val, error_pattern_val;
+ 
+@@ -2704,6 +2704,7 @@ static int cfi_probe(struct flash_bank *bank)
+ 	}
+ 
+ 	cfi_info-&gt;probed = 0;
++	cfi_info-&gt;num_erase_regions = 0;
+ 	if (bank-&gt;sectors)
+ 	{
+ 		free(bank-&gt;sectors);
+@@ -3151,7 +3152,7 @@ static int get_cfi_info(struct flash_bank *bank, char *buf, int buf_size)
+ 
+ 	if (cfi_info-&gt;qry[0] == 0xff)
+ 	{
+-		printed = snprintf(buf, buf_size, &quot;\ncfi flash bank not probed yet\n&quot;);
++		snprintf(buf, buf_size, &quot;\ncfi flash bank not probed yet\n&quot;);
+ 		return ERROR_OK;
+ 	}
+ 
+
+-- 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021372.html">[Openocd-development] New patch to review for openocd: 614bd20	NOR/CORE: fix clang warning
+</A></li>
+	<LI>Next message: <A HREF="021375.html">[Openocd-development] New patch to review for openocd: e6e3105	NAND/CORE: fix clang warning
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21373">[ date ]</a>
+              <a href="thread.html#21373">[ thread ]</a>
+              <a href="subject.html#21373">[ subject ]</a>
+              <a href="author.html#21373">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

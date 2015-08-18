@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/6] Add '-coreid' target option to	support multiple cores per TAP.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/6%5D%20Add%20%27-coreid%27%20target%20option%20to%0A%09support%20multiple%20cores%20per%20TAP.&In-Reply-To=%3C955158fb71f91ad71bf5bbc34da982642ca1ab3e.1295850937.git.aaronc%40cse.unsw.edu.au%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017974.html">
+   <LINK REL="Next"  HREF="017975.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/6] Add '-coreid' target option to	support multiple cores per TAP.</H1>
+    <B>Aaron Carroll</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/6%5D%20Add%20%27-coreid%27%20target%20option%20to%0A%09support%20multiple%20cores%20per%20TAP.&In-Reply-To=%3C955158fb71f91ad71bf5bbc34da982642ca1ab3e.1295850937.git.aaronc%40cse.unsw.edu.au%3E"
+       TITLE="[Openocd-development] [PATCH 2/6] Add '-coreid' target option to	support multiple cores per TAP.">aaronc at cse.unsw.edu.au
+       </A><BR>
+    <I>Mon Jan 24 08:06:44 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017974.html">[Openocd-development] [PATCH 1/6] Add cscope to .gitignore
+</A></li>
+        <LI>Next message: <A HREF="017975.html">[Openocd-development] [PATCH 2/6] Add '-coreid' target	option	to support multiple cores per TAP.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17969">[ date ]</a>
+              <a href="thread.html#17969">[ thread ]</a>
+              <a href="subject.html#17969">[ subject ]</a>
+              <a href="author.html#17969">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>ARM Cortex-A9 multi-core chips expose a single TAP/DAP which connects
+to both cores.  The '-coreid' option selects which core the target
+should connect to.
+
+Note that at present, OpenOCD can connect to either core, but not both
+simulatenously, until ADI contexts can be shared.
+
+Signed-off-by: Aaron Carroll &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">aaronc at cse.unsw.edu.au</A>&gt;
+---
+ src/target/target.c |   22 ++++++++++++++++++++++
+ src/target/target.h |    1 +
+ 2 files changed, 23 insertions(+), 0 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 820e747..31ade6a 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3660,6 +3660,7 @@ enum target_cfg_param {
+ 	TCFG_WORK_AREA_BACKUP,
+ 	TCFG_ENDIAN,
+ 	TCFG_VARIANT,
++	TCFG_COREID,
+ 	TCFG_CHAIN_POSITION,
+ };
+ 
+@@ -3672,6 +3673,7 @@ static Jim_Nvp nvp_config_opts[] = {
+ 	{ .name = &quot;-work-area-backup&quot;, .value = TCFG_WORK_AREA_BACKUP },
+ 	{ .name = &quot;-endian&quot; ,          .value = TCFG_ENDIAN },
+ 	{ .name = &quot;-variant&quot;,          .value = TCFG_VARIANT },
++	{ .name = &quot;-coreid&quot;,           .value = TCFG_COREID },
+ 	{ .name = &quot;-chain-position&quot;,   .value = TCFG_CHAIN_POSITION },
+ 
+ 	{ .name = NULL, .value = -1 }
+@@ -3924,6 +3926,23 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 			Jim_SetResultString(goi-&gt;interp, target-&gt;variant,-1);
+ 			/* loop for more */
+ 			break;
++
++		case TCFG_COREID:
++			if (goi-&gt;isconfigure) {
++				e = Jim_GetOpt_Wide(goi, &amp;w);
++				if (e != JIM_OK) {
++					return e;
++				}
++				target-&gt;coreid = (int)w;
++			} else {
++				if (goi-&gt;argc != 0) {
++					goto no_params;
++				}
++			}
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_size));
++			/* loop for more */
++			break;
++
+ 		case TCFG_CHAIN_POSITION:
+ 			if (goi-&gt;isconfigure) {
+ 				Jim_Obj *o_t;
+@@ -4634,6 +4653,9 @@ static int target_create(Jim_GetOptInfo *goi)
+ 	/* will be set by &quot;-endian&quot; */
+ 	target-&gt;endianness = TARGET_ENDIAN_UNKNOWN;
+ 
++	/* default to first core, override with -coreid */
++	target-&gt;coreid = 0;
++
+ 	target-&gt;working_area        = 0x0;
+ 	target-&gt;working_area_size   = 0x0;
+ 	target-&gt;working_areas       = NULL;
+diff --git a/src/target/target.h b/src/target/target.h
+index 4d03018..2c6f4cd 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -107,6 +107,7 @@ struct target
+ 	const char *cmd_name;				/* tcl Name of target */
+ 	int target_number;					/* DO NOT USE!  field to be removed in 2010 */
+ 	struct jtag_tap *tap;					/* where on the jtag chain is this */
++	int coreid;							/* which device on the TAP? */
+ 	const char *variant;				/* what variant of this chip is it? */
+ 
+ 	/**
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017974.html">[Openocd-development] [PATCH 1/6] Add cscope to .gitignore
+</A></li>
+	<LI>Next message: <A HREF="017975.html">[Openocd-development] [PATCH 2/6] Add '-coreid' target	option	to support multiple cores per TAP.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17969">[ date ]</a>
+              <a href="thread.html#17969">[ thread ]</a>
+              <a href="subject.html#17969">[ subject ]</a>
+              <a href="author.html#17969">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

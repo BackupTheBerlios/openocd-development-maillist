@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] str71x internal flash banks
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20str71x%20internal%20flash%20banks&In-Reply-To=%3C47FFA076.2020902%40interseven.es%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001821.html">
+   <LINK REL="Next"  HREF="001818.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] str71x internal flash banks</H1>
+    <B>Joan Bertran</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20str71x%20internal%20flash%20banks&In-Reply-To=%3C47FFA076.2020902%40interseven.es%3E"
+       TITLE="[Openocd-development] str71x internal flash banks">jbertran at interseven.es
+       </A><BR>
+    <I>Fri Apr 11 19:31:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001821.html">[Openocd-development] str71x internal flash banks
+</A></li>
+        <LI>Next message: <A HREF="001818.html">[Openocd-development] Wip - split target setup and target	examination
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1823">[ date ]</a>
+              <a href="thread.html#1823">[ thread ]</a>
+              <a href="subject.html#1823">[ subject ]</a>
+              <a href="author.html#1823">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Many thanks,
+
+I will try write_bank though it seems is only for binary files,
+anyway I revised the commands syntax and I was mistaken
+&quot; openocd.info
+* flash write_image &lt;FILE&gt; [OFFSET] [TYPE] Write the image &lt;FILE&gt; to
+the current target's flash bank(s). A relocation [OFFSET] can be
+specified and the file [TYPE] can be specified explicitly as `bin'
+(binary), `ihex' (Intel hex), `elf' (ELF file) or `s19' (Motorola
+s19). &quot;
+
+so with a single write_image &lt;filename&gt; 0 elf
+it would be possible to write on many banks
+except for the issue about flash registers.
+
+with bank-&gt;size += 0x4000;
+it won't work without playing with linker or converting to binary
+as elf file places contents at offset 0xC4000
+and c-&gt;base + c-&gt;size in get_flash_bank_by_addr
+will not return the bank
+/* check whether address belongs to this flash bank */
+if ((addr &gt;= c-&gt;base) &amp;&amp; (addr &lt; c-&gt;base + c-&gt;size) &amp;&amp; target == c-&gt;target)
+return c;
+maybe with linker script could be placed at offset 0x4000 but linked at
+0xC4000
+and documented on the info, will try later...
+
+Spen wrote:
+&gt;<i> Joan,
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> I've done a small modification to be able to write to the top 
+</I>&gt;&gt;<i> 16Kb (sectors 8 and 9) of str71x internal flash, not sure if 
+</I>&gt;&gt;<i> it was needed. But sure that my one line patch is not the solution.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I added one line to src/flash/str7x.c
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> line #119 in function str7x_build_block_list
+</I>&gt;&gt;<i>     if( str7x_info-&gt;bank1 == 1 )
+</I>&gt;&gt;<i>     {
+</I>&gt;&gt;<i>         b1_sectors += 2;
+</I>&gt;&gt;<i>         bank-&gt;size = 0x000C4000;   //&lt;-- patch
+</I>&gt;&gt;<i>     }
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Thanks for the pointer, a better patch would be:
+</I>&gt;<i>
+</I>&gt;<i> 	if( str7x_info-&gt;bank1 == 1 )
+</I>&gt;<i> 	{
+</I>&gt;<i> 		b1_sectors += 2;
+</I>&gt;<i> 		bank-&gt;size += 0x4000;
+</I>&gt;<i> 	}
+</I>&gt;<i>   
+</I>
+&gt;&gt;<i> explanation
+</I>&gt;&gt;<i> the funcion str7x_build_block_list does not allow flash size 
+</I>&gt;&gt;<i> bigger than 256Kb but the real size is 256Kb plus 16Kb and 
+</I>&gt;&gt;<i> the second &quot;sub-bank&quot; is placed at offset 0x000C0000
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> This is true, the real solution would be to split the flash banks and treat
+</I>&gt;<i> them as bank0/bank1.
+</I>&gt;<i> The problem is this adds another issue, due to the flash programming
+</I>&gt;<i> registers.
+</I>&gt;<i> Been meaning to look at this for a while, just never found the time.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> also,
+</I>&gt;&gt;<i> in file src/flash/flash.c function get_flash_bank_by_addr 
+</I>&gt;&gt;<i> there is a check for addresses that belong to a flash bank, 
+</I>&gt;&gt;<i> as str71x internal flash is not contiguous i had to say size 
+</I>&gt;&gt;<i> = last address of extra 16Kb sub-bank perhaps a better 
+</I>&gt;&gt;<i> solution would be to create another flash bank for those 
+</I>&gt;&gt;<i> extra 16Kb as actually this is the hw config. But then, it 
+</I>&gt;&gt;<i> will be necessary two commands to write a file flash 
+</I>&gt;&gt;<i> write_image &lt;filename&gt; 0 elf flash write_image &lt;filename&gt; 1 
+</I>&gt;&gt;<i> elf as the writes won't select automatically the bank to 
+</I>&gt;&gt;<i> write on from the file contents
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> This is also known, the workaround is to program using flash write_bank.
+</I>&gt;<i> Updating as per comments above would also solve this issue.
+</I>&gt;<i>
+</I>&gt;<i> Cheers
+</I>&gt;<i> Spen
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>Best regards,
+
+Joan.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001821.html">[Openocd-development] str71x internal flash banks
+</A></li>
+	<LI>Next message: <A HREF="001818.html">[Openocd-development] Wip - split target setup and target	examination
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1823">[ date ]</a>
+              <a href="thread.html#1823">[ thread ]</a>
+              <a href="subject.html#1823">[ subject ]</a>
+              <a href="author.html#1823">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] What's the meaning of argument	handle_breakpoints in function target_resume() ?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20What%27s%20the%20meaning%20of%20argument%0A%09handle_breakpoints%20in%20function%20target_resume%28%29%20%3F&In-Reply-To=%3C201001140134.09678.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014159.html">
+   <LINK REL="Next"  HREF="014194.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] What's the meaning of argument	handle_breakpoints in function target_resume() ?</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20What%27s%20the%20meaning%20of%20argument%0A%09handle_breakpoints%20in%20function%20target_resume%28%29%20%3F&In-Reply-To=%3C201001140134.09678.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] What's the meaning of argument	handle_breakpoints in function target_resume() ?">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Jan 14 10:34:09 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014159.html">[Openocd-development] What's the meaning of argument handle_breakpoints in function target_resume() ?
+</A></li>
+        <LI>Next message: <A HREF="014194.html">[Openocd-development] What's the meaning of argument handle_breakpoints in function target_resume() ?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14165">[ date ]</a>
+              <a href="thread.html#14165">[ thread ]</a>
+              <a href="subject.html#14165">[ subject ]</a>
+              <a href="author.html#14165">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I think breakpoint handling has been kind of a mess for a long time.
+No documentation on internal interfaces ... and in some cases there
+seemed to be internal conflicts.
+
+
+On Wednesday 13 January 2010, yintang gu wrote:
+&gt;<i> 
+</I>&gt;<i> In function
+</I>&gt;<i>
+</I>&gt;<i>	arm7_9_resume(struct target *target, int current, uint32_t address,
+</I>&gt;<i>		int handle_breakpoints, int debug_execution) (arm7_9_common.c),
+</I>
+... called by target_resume(), and which is called with handle_breakpoints=true
+from handle_resume_command() and armv4_5_run_algorithm_inner() ... and with
+that flag set &quot;false&quot; from other places.
+
+
+&gt;<i> the argument handle_breakpoints is only used to deal with the condition in
+</I>&gt;<i> which a breakpoint is set at current PC.
+</I>
+If that flag is set and there's a breakpoint at the current PC,
+it does some fairly awkward stuff to execute that instruction
+then continue.
+
+
+&gt;<i> But in function arm11_resume() (arm11.c) it is used to decide weather setting
+</I>&gt;<i> the breakpoints and watch points to the target hardware.
+</I>
+We're slowly making the ARM11 code behave &quot;just like other ARMs&quot;,
+but that's slow going ... it started being VERY different.  In
+the current code (0.4-rc) it's changed to be a lot more similar;
+large chunks of standard ARM infrastructure now work with it.
+
+Note that ec64acf536942168b4e038c6720c83687d3a0d08 is where one
+bug was fixed, making it do the same &quot;if there's a breakpoint
+at current PC&quot; stuff for ARM11 ... previously ARM11 wouldn't
+work with the standard run_algorithm() code.
+
+The approach to breakpoint handling in the ARM11 code is not
+quite the same as for ARM9.  Some of it is hardware-related,
+and thus necessarily different.  One difference just avoids
+doing some foolish and slow stuff:  ARM11 and Cortex-A8 avoid
+modifying breakpoint or and watchpoint state unless it really
+needs to change it.  See dpm_maybe_update_bpwp().  So where
+ARM9 wastes time clearing and restoring breakpoints, those
+newer cores may just leave them always active.
+
+
+&gt;<i> The GDB cannot operate correctly for arm11, for gdb server call target_resume
+</I>&gt;<i> with handle_breakpoints=0 which leads to the breakpoints cannot be set to the
+</I>&gt;<i> target correctly.
+</I>
+Hmm ... is this a bug you've observed, or is this something
+you've wondered after poking through the code?
+
+I recall setting breakpoints through the Tcl interface and
+having them behave correctly.  Haven't tried to do that any
+time recently, though.  And I could believe there's a bit
+of a semantic conflict between debug via GDB and via Tcl;
+not one we want, of course!!
+
+
+&gt;<i> Any one can explain what's argument handle_breakpoints 
+</I>&gt;<i> meaning? thanks.
+</I>
+I've had that question many times myself.  You'll notice
+there's about zero documentation on that topic, and its
+semantics are evidently both overloaded and vague.
+
+- Dave
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014159.html">[Openocd-development] What's the meaning of argument handle_breakpoints in function target_resume() ?
+</A></li>
+	<LI>Next message: <A HREF="014194.html">[Openocd-development] What's the meaning of argument handle_breakpoints in function target_resume() ?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14165">[ date ]</a>
+              <a href="thread.html#14165">[ thread ]</a>
+              <a href="subject.html#14165">[ subject ]</a>
+              <a href="author.html#14165">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

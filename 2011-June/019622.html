@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] openocd-swd merging
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd-swd%20merging&In-Reply-To=%3C4DF9AFE3.50208%40amontec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019620.html">
+   <LINK REL="Next"  HREF="019624.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] openocd-swd merging</H1>
+    <B>Laurent Gauch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd-swd%20merging&In-Reply-To=%3C4DF9AFE3.50208%40amontec.com%3E"
+       TITLE="[Openocd-development] openocd-swd merging">laurent.gauch at amontec.com
+       </A><BR>
+    <I>Thu Jun 16 09:25:23 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019620.html">[Openocd-development] openocd-swd merging
+</A></li>
+        <LI>Next message: <A HREF="019624.html">[Openocd-development] openocd-swd merging
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19622">[ date ]</a>
+              <a href="thread.html#19622">[ thread ]</a>
+              <a href="subject.html#19622">[ subject ]</a>
+              <a href="author.html#19622">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>
+</I>&gt;<i> On Wed, Jun 15, 2011 at 11:06 PM, Rodrigo Rosa &lt;rodrigorosa.lg at gmail.com &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>&gt;&gt; wrote:
+</I>&gt;<i> &gt;/ i'm not sure i'm getting this right, i think i know very little about
+</I>&gt;<i> /&gt;/ how this stuff works...
+</I>&gt;<i> /&gt;/
+</I>&gt;<i> /&gt;/ i had modified ft2232.c
+</I>&gt;<i> /&gt;/ in ft2232_execute_queue, instead of doing layout-&gt;blink was using some
+</I>&gt;<i> /&gt;/ mpsse commands to set/clear read/write gpio pins available on the
+</I>&gt;<i> /&gt;/ ft2232, which are not used by jtag.
+</I>&gt;<i> /
+</I>&gt;<i> SWD and other transports will use bitbang() and transfer() new
+</I>&gt;<i> interface methods to work on the bus. queue_flush() / execute_queue()
+</I>&gt;<i> is jtag only function and should not be used for transports other than
+</I>&gt;<i> jtag, as it is too jtag-only as it works on commands queued on
+</I>&gt;<i> CMD_CTX, but these are jtag only.
+</I>&gt;<i>   
+</I>BAD ! and WHY it is too JTAG-ONLY?
+
+For me the queue_flush and execute_queue should be the mechanism to be 
+used for ALL transport, JTAG and new one as SWD.
+As you can see, the queue management is done in the DRIVERs, since it is 
+dongle specific.
+
+I remember when I helped Dominic Rath, the author of openocd, about to 
+enqueue command for having a better download speed.
+OpenOCD start with JTAG transport, but the mechanism of queue should be 
+present for any king of transport.
+If not, we will degrade the transport speed.
+We ALL know the pure bitbang is really bad when we talk about 
+&quot;USB-x-transport&quot; due to the latency of the USB.
+
+There are ways to have both SWD and JTAG passed in a queue of command, 
+and the same queue. By definition, a queue of commands is not related to 
+any transport.
+The command queue just pack the command bytes to have a better speed, 
+larger byte packets.
+
+&gt;<i> the idea is to become transport independent, so the context and queue
+</I>&gt;<i> will be now part of given transport. 
+</I>SWD is specific data transport protocol as the JTAG, as the I2C, as the 
+1-WIRE..
+If libswd is transport independent, why do you call it libswd.
+
+Or do you want to provide libjtag libswd libi2c lib1wire. In this case 
+openocd has jtag.c why not a swd.c ?
+
+&gt;<i> libswd for instance has swd_ctx
+</I>&gt;<i> holding all settings and queue, each libswd function works on this
+</I>&gt;<i> context, so there may be many different contexts in use with no
+</I>&gt;<i> collisions. this swd_ctx will be hold by void pointer in transport
+</I>&gt;<i> structure (void so any other context can be used as well).
+</I>&gt;<i> &gt;/ i need is some way to type &quot;my_function_in_ft2232.c some_arg&quot; in the
+</I>&gt;<i> /&gt;/ telnet interface so that the function my_function in ft2232.c gets
+</I>&gt;<i> /&gt;/ called...
+</I>&gt;<i> /&gt;/ i managed to make the chip do what i needed without using swd.
+</I>&gt;<i> /&gt;/ maybe i can get around with some patch on ft2232.c and jtag interface...
+</I>&gt;<i> /&gt;/
+</I>&gt;<i> /&gt;/ how are you testing stuff without the &quot;jtag&quot; command in the cfg files?
+</I>&gt;<i> /
+</I>&gt;<i> target operations are not yet ready. jtag functions are jtag only.
+</I>&gt;<i> agree there is a mess because i am using some functions or structures
+</I>&gt;<i> having &quot;jtag&quot; in their name only because some time ago noone
+</I>&gt;<i> considered other transports than jtag, so instead oocd_interface there
+</I>&gt;<i> is jtag_interface etc. 
+</I>Why did you not copy/paste and rename the the JTAG_ by SWD_ and call the 
+SWD_ from you libswd, instead to call JTAG functions from you libswd.
+OK, this will duplicate the code in the driver, but that's will help to 
+introduce the SWD API.
+&gt;<i> this must be fixed after transport is
+</I>&gt;<i> functional, 
+</I>This should be a priority.
+&gt;<i> i wanted to rename this stuff before but it took too much
+</I>&gt;<i> time, so i decided to first make transport working and later
+</I>&gt;<i> reorganize openocd interals as time is limited...
+</I>&gt;<i>   
+</I>OK, time is limited.
+But, the bad thing is that the SWD API is not yet specified. With 
+Dominic Rath, we have specified the JTAG API before implementing the 
+specific driver ...
+
+
+
+ft2232 specifc comment:
+------------------------
+
+The ft2232.c must have specific SWD functions, but we cannot write it 
+before we specify the SWD API.
+
+We cannot imagine to have a libswd making itself a kind of specifc 
+bitbang calls, just because a specific ft2232 layout (K T Link) needs to 
+tristate the SWD TMSIO signal, by bitbangging the ft2232.
+The how we tristate the TMSIO is not the job of the libswd, but is the 
+job of the specific driver. Or your libswd should be called 
+libswdmpssebitbangkt.
+As first step, the openocd should have a swd.c (maybe something like 
+your libswd) as we have jtag.c, with a well defined API. Then each 
+specific driver, as the ft2232, should integrate the SWD API calls. For 
+the ft2232.c, the SWD will certainly be coupled with the specifc layout. 
+Example, the Amontec JTAGkey-3 will come with an other layout than k T 
+Link, so there will be specific SWD transfer for each layout. More, the 
+Amontec JTAGkey-3 will not need to bitbang the FT2232 to tristate the 
+SWD TMSIO, but will use pure mpsse shift only :-) .)
+
+Maybe my comments could be again a little bit negative to you, sorry. 
+But I try to be objective and to help the discussion.
+
+Regards,
+Laurent Gauch
+ <A HREF="http://www.amontec.com/jtagkey.shtml">http://www.amontec.com/jtagkey.shtml</A>
+ Amontec JTAGkey-2 HIGH-SPEED USB JTAG INTERFACE ADAPTERS CABLES
+
+&gt;<i> Best regards! :-)
+</I>&gt;<i> Tomek
+</I>&gt;<i>
+</I>&gt;<i> btw. maybe automatically executing autoreconf for libswd submodule
+</I>&gt;<i> will fix the problem you mentioned.. i have created configure script
+</I>&gt;<i> to avoid this, but there seems to be someissues with that.. will have
+</I>&gt;<i> to take closer look :-)
+</I>&gt;<i>
+</I>&gt;<i> -- 
+</I>&gt;<i> CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+</I>&gt;<i>   
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019620.html">[Openocd-development] openocd-swd merging
+</A></li>
+	<LI>Next message: <A HREF="019624.html">[Openocd-development] openocd-swd merging
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19622">[ date ]</a>
+              <a href="thread.html#19622">[ thread ]</a>
+              <a href="subject.html#19622">[ subject ]</a>
+              <a href="author.html#19622">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] About where to call dap_to_jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20About%20where%20to%20call%20dap_to_jtag&In-Reply-To=%3CAANLkTi%3DduuKkcKFz2Q%2BJLzVsh%2BtN%2BXzozVyx-YD97Hoi%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017960.html">
+   <LINK REL="Next"  HREF="017966.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] About where to call dap_to_jtag</H1>
+    <B>simon qian</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20About%20where%20to%20call%20dap_to_jtag&In-Reply-To=%3CAANLkTi%3DduuKkcKFz2Q%2BJLzVsh%2BtN%2BXzozVyx-YD97Hoi%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] About where to call dap_to_jtag">simonqian.openocd at gmail.com
+       </A><BR>
+    <I>Sun Jan 23 14:02:26 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017960.html">[Openocd-development] About where to call dap_to_jtag
+</A></li>
+        <LI>Next message: <A HREF="017966.html">[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17962">[ date ]</a>
+              <a href="thread.html#17962">[ thread ]</a>
+              <a href="subject.html#17962">[ subject ]</a>
+              <a href="author.html#17962">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>According to my test in vsprog, it's OK to switch between SWD and JTAG
+without power cycle.
+Actually, it's not vital, because if people want to use JTAG after using
+SWD, simply give a power cycle, and the control is under JTAG.
+
+I have provided 2 patches for SWD of Versaloon in OpenOCD, one is based on
+transport the other is not.
+I'll come back to work after Chinese New Year, hope it will be stable before
+that.
+
+I have attached the patch for OpenOCD (For your reference only), without SWD
+driver for Versaloon.
+Changes are listed below:
+1.  in jtag/core.c
+Do not call jtag_add_tlr and jtag_init_inner in SWD mode.
+2. in jtag/tcl.c
+Do not call jtag_init_inner in SWD mode.
+3. in target/arm_adi_v5.h
+Add queue_dp_scan to struct dap_ops.
+Implement dap_queue_dp_scan
+4. in target/arm_adi_v5.c
+Do not call adi_jtag_dp_scan, call dap_queue_dp_scan instead.
+
+Luckly, most code is compatible in both JTAG and SWD mode.
+
+2011/1/22 Tomek CEDRO &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">tomek.cedro at gmail.com</A>&gt;
+
+&gt;<i> On Sat, Jan 22, 2011 at 2:03 PM, simon qian &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">simonqian.openocd at gmail.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i> &gt; According to the feedback of my patch for SWD. I was busy fixing these
+</I>&gt;<i> &gt; feedback these days.
+</I>&gt;<i> &gt; I found that dap_to_jtag is not called. So it will be problem to operate
+</I>&gt;<i> &gt; JTAG after operating SWD.
+</I>&gt;<i> &gt; In my opinion, dap_to_jtag should be not be called in jtag_init,
+</I>&gt;<i> &gt; because dap_to_jtag is defined ONLY in adiv5 specification.
+</I>&gt;<i> &gt; But if I call dap_to_jtag in arm_adi_v5.c or adi_v5_jtag.c, it will fail
+</I>&gt;<i> &gt; because jtag_id is read before calling dap_to_jtag.
+</I>&gt;<i> &gt; So I think the initialization sequence should be from upper layer to
+</I>&gt;<i> lower
+</I>&gt;<i> &gt; layer, which means initialize adiv5 and then initialize jtag.
+</I>&gt;<i>
+</I>&gt;<i> Hello Simon! As stated on the ARM Infocenter [1]:
+</I>&gt;<i> -one mode of operation should be selected after target power up, and
+</I>&gt;<i> this mode should not be changed
+</I>&gt;<i> -jtag is the default working mode after power-up
+</I>&gt;<i> -swd-to-jtag and jtag-to-swd should not impact device after power up,
+</I>&gt;<i> because sequences are designed not to interfere with dap-specific
+</I>&gt;<i> operations
+</I>&gt;<i>
+</I>&gt;<i> Therefore I think we should test how select-jtag works on targets
+</I>&gt;<i> other than ARM. According to the documentation it should be
+</I>&gt;<i> transparent and ensure target is in JTAG mode. If there are no
+</I>&gt;<i> problems with non-ARM targets having this sequence applied at
+</I>&gt;<i> initialization, we should put this into jtag_init procedure..?  On the
+</I>&gt;<i> other hand even ARM states that target should not be switched between
+</I>&gt;<i> SWD and JTAG modes multiple times with no powerdown/powerup... but if
+</I>&gt;<i> we have more than one target on the line, one is JTAG and one is SWD,
+</I>&gt;<i> then we could ensure working state for them.
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Tomek
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> [1]
+</I>&gt;<i> <A HREF="http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0316d/Chdhfbhc.html">http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0316d/Chdhfbhc.html</A>
+</I>&gt;<i> --
+</I>&gt;<i> CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+</I>&gt;<i>
+</I>
+
+
+-- 
+Best Regards, SimonQian
+<A HREF="http://www.SimonQian.com">http://www.SimonQian.com</A>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110123/e5f4ea9a/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110123/e5f4ea9a/attachment.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: openocd_swd.patch
+Type: application/octet-stream
+Size: 6863 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110123/e5f4ea9a/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20110123/e5f4ea9a/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017960.html">[Openocd-development] About where to call dap_to_jtag
+</A></li>
+	<LI>Next message: <A HREF="017966.html">[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17962">[ date ]</a>
+              <a href="thread.html#17962">[ thread ]</a>
+              <a href="subject.html#17962">[ subject ]</a>
+              <a href="author.html#17962">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

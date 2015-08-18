@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Making XScale work without pathmove
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Making%20XScale%20work%20without%20pathmove&In-Reply-To=%3C200801170843.40230.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000642.html">
+   <LINK REL="Next"  HREF="000649.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Making XScale work without pathmove</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Making%20XScale%20work%20without%20pathmove&In-Reply-To=%3C200801170843.40230.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] Making XScale work without pathmove">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Thu Jan 17 08:43:39 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000642.html">[Openocd-development] Making XScale work without pathmove
+</A></li>
+        <LI>Next message: <A HREF="000649.html">[Openocd-development] Making XScale work without pathmove
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#647">[ date ]</a>
+              <a href="thread.html#647">[ thread ]</a>
+              <a href="subject.html#647">[ subject ]</a>
+              <a href="author.html#647">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday 16 January 2008 17:11:03 &#216;yvind Harboe wrote:
+&gt;<i> I think the primary problem is that OpenOCD needs to set right example
+</I>&gt;<i> here.
+</I>&gt;<i>
+</I>&gt;<i> Correct according to the JTAG standard is not sufficient, additinoally the
+</I>&gt;<i> number of state moves that OpenOCD shows in such tables/driver helper
+</I>&gt;<i> functions need to use the minimum number of state transitions.
+</I>&gt;<i>
+</I>Not sure what you mean here.
+
+&gt;<i> Minimally I think OpenOCD should define helper functions/tables that
+</I>&gt;<i> drivers then
+</I>&gt;<i> can choose to copy &amp; or use.
+</I>&gt;<i>
+</I>&gt;<i> All the kings men can't make that 7-bit TMS scan device support XScale...
+</I>
+No, but it works with all the ARM7/9 targets, and persumably Cortex as well. 
+It's a rather popular design that I'm still considering to include, and other 
+JTAG interfaces, especially parallel-port based designs, could place similar 
+restrictions, because this design allows TMS scans with a single access, 
+instead of two or more accesses specifying the number of bits and the data.
+
+Regarding the issue of fully populated state transition tables etc.:
+
+I think statemove really should do just what it already does - move from one 
+stable state to another stable state, using the shortest path that 
+doesn't &quot;violate&quot; any aspect of the standard (like multiple cycles in R-T/I, 
+passing through more than Capture-XX or Update-XX state, ...). The idea 
+behind this is to allow JTAG interfaces with free-running clocks, that the 
+JTAG standard allows. Not sure if we'll ever see one, but I guess having that 
+possibility doesn't hurt either.
+
+In this case it really doesn't matter how the TMS transitions are 
+implemented - the 7-bit table is there for historical reasons, but a driver 
+is free to implement it differently. Before that &quot;7-bit device&quot; I had a 6x6xN 
+table with N TMS values of 1 and 0, and -1 to indicate the end of a 
+particular TMS sequence.
+
+If a user of the JTAG layer, like XScale or (X)SVF places additional 
+restrictions on the states that may be passed through, pathmove is the right 
+choice. In the XScale case we need both ways through the state machine - 
+going from Capture-DR through to Shift-DR, as well as taking the route via 
+Exit1-DR, Pause-DR, Exit2-DR to Shift-DR. This means there's a bug in the 
+current XScale code that needs fixing - in xscale_read_tx if we don't want to 
+consume the register content we shouldn't use a statemove with its implied 
+behaviour, but rather a statemove.
+
+The point is that statemove always is implied behaviour, and only should be 
+used when we don't care. All statemove has to do is follow the JTAG standard.
+Pathmove is for the special cases, where we don't want any implied behaviour.
+
+If the pathmove layer or is broken we should fix it. If the fallback code is 
+broken we should fix it, too, and on top of that a user of the pathmove 
+support should fail and complain if support_pathmove is 0.
+
+Regards,
+
+Dominic
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000642.html">[Openocd-development] Making XScale work without pathmove
+</A></li>
+	<LI>Next message: <A HREF="000649.html">[Openocd-development] Making XScale work without pathmove
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#647">[ date ]</a>
+              <a href="thread.html#647">[ thread ]</a>
+              <a href="subject.html#647">[ subject ]</a>
+              <a href="author.html#647">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

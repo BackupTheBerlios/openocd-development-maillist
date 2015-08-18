@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] svn head should now be OK again
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20svn%20head%20should%20now%20be%20OK%20again&In-Reply-To=%3CPine.LNX.4.64.0905192053110.7694%40marshadder.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006777.html">
+   <LINK REL="Next"  HREF="006773.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] svn head should now be OK again</H1>
+    <B>Peter Denison</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20svn%20head%20should%20now%20be%20OK%20again&In-Reply-To=%3CPine.LNX.4.64.0905192053110.7694%40marshadder.org%3E"
+       TITLE="[Openocd-development] svn head should now be OK again">openwrt at marshadder.org
+       </A><BR>
+    <I>Tue May 19 22:05:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006777.html">[Openocd-development] svn head should now be OK again
+</A></li>
+        <LI>Next message: <A HREF="006773.html">[Openocd-development] svn head should now be OK again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6865">[ date ]</a>
+              <a href="thread.html#6865">[ thread ]</a>
+              <a href="subject.html#6865">[ subject ]</a>
+              <a href="author.html#6865">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, 18 May 2009, Peter Denison wrote:
+
+&gt;<i> On Mon, 18 May 2009, Peter Denison wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> Now, on to the actual crash. I will do more investigation, but for now,
+</I>&gt;&gt;<i> here's the backtrace:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Starting program: &lt;path&gt;/src/.libs/lt-openocd -f
+</I>&gt;&gt;<i> ../../../openocd-usr8200-jlink.cfg
+</I>&gt;&gt;<i> Open On-Chip Debugger 0.2.0-in-development (2009-05-18-18:52) svn:1827M
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> BUGS? Read <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> $URL: <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c">http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c</A> $
+</I>&gt;&gt;<i> jtag_speed: 16
+</I>&gt;&gt;<i> Error: J-Link command EMU_CMD_VERSION failed (-110)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Error: J-Link command EMU_CMD_VERSION failed (-110)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Program received signal SIGSEGV, Segmentation fault.
+</I>&gt;&gt;<i> jlink_usb_write (jlink_jtag=0x7003e, out_length=1) at jlink.c:940
+</I>&gt;&gt;<i> 940		result = usb_bulk_write_ex(jlink_jtag-&gt;usb_handle,
+</I>&gt;&gt;<i> JLINK_WRITE_ENDPOINT,
+</I>&gt;&gt;<i> (gdb) bt
+</I>&gt;&gt;<i> #0  jlink_usb_write (jlink_jtag=0x7003e, out_length=1) at jlink.c:940
+</I>&gt;&gt;<i> #1  0xb7feaaf8 in jlink_simple_command (command=1 '\001') at jlink.c:509
+</I>&gt;&gt;<i> #2  0xb7febbb0 in jlink_get_version_info () at jlink.c:549
+</I>&gt;&gt;<i> #3  0xb7febf2d in jlink_init () at jlink.c:324
+</I>&gt;&gt;<i> #4  0xb7fe2bbf in jtag_interface_init (cmd_ctx=0x804a008) at jtag.c:2333
+</I>&gt;<i>
+</I>&gt;<i> Preliminary look at this seems to be that jlink_jtag_handle is overwritten
+</I>&gt;<i> with junk. This sits in memory directly after usb_emu_result_buffer, which
+</I>&gt;<i> is 64 bytes long. Are any of the new in_handler replacement callbacks
+</I>&gt;<i> overwriting the end of this buffer?
+</I>
+Sorry - that was a wild guess, and was totally wrong.
+
+It seems that the interface (I have the yellow J-Link V6) can get into an 
+odd state where it responds incorrectly to an EMU_CMD_VERSION command 
+(0x01). In this state, it replies with the string &quot;J-Link ARM V6 compiled 
+Mar  3 2008 18:04:42&quot; immediately, without sending the 0x0070 length field 
+first.
+
+I have confirmed this with the kernel-level USB trace provided by usbmon.
+
+The result is that the first two characters get interpreted as a length, 
+&quot;J-&quot; = 0x4a 0x2d =&gt; 0x2d4a = 11594, much larger than the 2048 bytes 
+allocated for the USB input buffer.
+
+With the changes introduced in r1475, where the expected length is passed 
+to the bulk read function, this will now time out and/or overwrite 
+usb_read_buffer. In jlink_usb_read() we should definitely check that the 
+expected size is not larger than the buffer. That will catch the segfault.
+
+What the correct course of action after that is, I don't know. Put in an 
+explicit check for length == 0x2d4a, and emit a message suggesting an 
+adapter power-cycle? I'm open to suggestions.
+
+I'll see if I can produce a workable patch...
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006777.html">[Openocd-development] svn head should now be OK again
+</A></li>
+	<LI>Next message: <A HREF="006773.html">[Openocd-development] svn head should now be OK again
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6865">[ date ]</a>
+              <a href="thread.html#6865">[ thread ]</a>
+              <a href="subject.html#6865">[ subject ]</a>
+              <a href="author.html#6865">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3C4D9ABE2F.2020800%40amontec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018648.html">
+   <LINK REL="Next"  HREF="018656.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)</H1>
+    <B>Laurent Gauch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3C4D9ABE2F.2020800%40amontec.com%3E"
+       TITLE="[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)">laurent.gauch at amontec.com
+       </A><BR>
+    <I>Tue Apr  5 09:01:03 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018648.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA,	error propagation, optimizations...)
+</A></li>
+        <LI>Next message: <A HREF="018656.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18655">[ date ]</a>
+              <a href="thread.html#18655">[ thread ]</a>
+              <a href="subject.html#18655">[ subject ]</a>
+              <a href="author.html#18655">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>
+</I>&gt;<i> On Mon, Apr 4, 2011 at 7:51 PM, &#216;yvind Harboe &lt;oyvind.harboe at zylin.com &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>&gt;&gt; wrote:
+</I>&gt;<i> &gt;/ Any objections to merging 1,2 and 4?
+</I>&gt;<i> /&gt;/
+</I>&gt;<i> /&gt;/ I think #3 needs more discussion or cool-off. My objection is
+</I>&gt;<i> /&gt;/ that we don't know why this makes things better and it certainly
+</I>&gt;<i> /&gt;/ seems to hit performance hard.
+</I>&gt;<i> /
+</I>&gt;<i> OK, I will open the discussion by question : when do we use
+</I>&gt;<i> jtag_execute_queue() ?
+</I>&gt;<i> Based on the answer from &#216;yvind I had before, I could conclude that it
+</I>&gt;<i> serves to clock the data back in, while jtag_add_dr_scan() just puts
+</I>&gt;<i> them in the queue to be shifted out at some point.
+</I>&gt;<i>   
+</I>jtag_add_xxxxxxx function will add new commands in the command queue.
+Note, the command queue could be auto-executed, depending on the 
+mechanism/ressource of the JTAG adapter.
+The jtag_execute_queue function force the execution of the command 
+queue, and process the response data coming back from the JTAG adapter.
+
+Before comparing a TDO vector, you MUST do a jtag_execute_queue.
+&gt;<i> So, if this is correct, then we can avoid using jtag_execute_queue()
+</I>&gt;<i> when we have no data to shift in. But what happens when the TAP will
+</I>&gt;<i> send us bit as a response to FASTDATA, and we are completely ingnoting
+</I>&gt;<i> it ? Will it lead to some collision on the data bus and make ftdi
+</I>&gt;<i> freak out ?
+</I>&gt;<i>   
+</I>The JTAG layer only scan in and scan out the shift registers, and 
+control the TAP FSM.
+The TAP will only return data if you do a scan .
+&gt;<i> Here is EJTAG spec on FASTDATA :
+</I>&gt;<i> Both upload and download accesses are attempted by shifting in a zero
+</I>&gt;<i> SPrAcc value (to request access completion) and shifting out SPrAcc to
+</I>&gt;<i> see if the
+</I>&gt;<i> attempt will be successful (i.e., there was an access pending and a
+</I>&gt;<i> legal Fastdata area address was used).
+</I>&gt;<i>   
+</I>Actually, two solutions :
+a) checking the SPrAcc
+  1.send command to shift in zero to SPrAcc (jtag_add_scan)
+  2.send command to shift out  SPrAcc (jtag_add_scan)
+  3.execute (jtag_execute)
+  4.compare SPrAcc returned value
+  5. if SprAcc not 0 goto 2.
+  6. send command to shift in your DATA
+-&gt; goto to 1.
+
+b) unchecking the SPrAcc, but adding specific delay
+  1.send command to shift in zero to SPrAcc (jtag_add_scan)
+  2.wait for x delay allowing your specific hardware to accept SPrAcc
+  3.send command to shift in your DATA
+-&gt; goto to 1.
+
+Note: b)2. the wait could be done  by soft, or adding delay in the 
+command queue or ...
+
+A) will be the most secure
+B) could be very fast, but should be avoid for generic implementation 
+(not safe)
+
+Laurent
+<A HREF="http://www.amontec.com">http://www.amontec.com</A>
+ Amontec JTAGkey-2 from 1.5V to 5V auto-sense USB JTAG interface
+
+&gt;<i> Where do we shift out SPrAcc after the R/W operation (error check) ? I
+</I>&gt;<i> would say nowhere.
+</I>&gt;<i>
+</I>&gt;<i> Can this lead to errors, and can this be an explanation why
+</I>&gt;<i> jtag_execute_queue() is necessary ?
+</I>&gt;<i>
+</I>&gt;<i> BR,
+</I>&gt;<i> Drasko
+</I>&gt;<i>   
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018648.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA,	error propagation, optimizations...)
+</A></li>
+	<LI>Next message: <A HREF="018656.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18655">[ date ]</a>
+              <a href="thread.html#18655">[ thread ]</a>
+              <a href="subject.html#18655">[ subject ]</a>
+              <a href="author.html#18655">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

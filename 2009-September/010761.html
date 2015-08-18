@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] JTAG controllers disabled while SRST is	asserted
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20controllers%20disabled%20while%20SRST%20is%0A%09asserted&In-Reply-To=%3C200909230009.06979.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010755.html">
+   <LINK REL="Next"  HREF="010773.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] JTAG controllers disabled while SRST is	asserted</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20controllers%20disabled%20while%20SRST%20is%0A%09asserted&In-Reply-To=%3C200909230009.06979.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] JTAG controllers disabled while SRST is	asserted">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Sep 23 09:09:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010755.html">[Openocd-development] JTAG controllers disabled while SRST is asserted
+</A></li>
+        <LI>Next message: <A HREF="010773.html">[Openocd-development] JTAG controllers disabled while SRST is	asserted
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10761">[ date ]</a>
+              <a href="thread.html#10761">[ thread ]</a>
+              <a href="subject.html#10761">[ subject ]</a>
+              <a href="author.html#10761">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tuesday 22 September 2009, michal smulski wrote:
+&gt;<i> On Tue, 2009-09-22 at 17:59 -0700, David Brownell wrote:
+</I>&gt;<i> &gt; On Tuesday 22 September 2009, michal smulski wrote:
+</I>&gt;<i> &gt; &gt; The offending code is called from this function:
+</I>&gt;<i> &gt; &gt; static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int*
+</I>&gt;<i> &gt; &gt; try_more)
+</I>&gt;<i> &gt; &gt; 
+</I>&gt;<i> &gt; &gt; And the actual function call is here:
+</I>&gt;<i> &gt; &gt; status = FT_OpenEx(openex_string, openex_flags, &amp;ftdih);
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; I'm not quite following here.  First, what's wrong?  In what
+</I>&gt;<i> &gt; way does that &quot;offend&quot;, what's the failure mechanism?
+</I>&gt;<i> 
+</I>&gt;<i> The problem is that this functions asserts SRST (and TRST but not quitr
+</I>&gt;<i> right). This resets the CPU. openocd does immediate scan and it fails
+</I>&gt;<i> because the CPU is not ready.
+</I>
+Hmm ... I had been hoping that JTAG adapters would initialize
+themselves to both SRST and TRST *inactive* but it seems we
+can't rely on that in this case because the FT2232 chip itself
+isn't cooperating.
+
+Maybe we need something like a call to
+
+	jtag_add_reset(0, 0);
+
+very early in interface setup?  Plus something to flush it,
+I guess.  If the JTAG adapter itself is going to glitch
+those signals, we can't help that; but we can at least make
+sure that we have a clean init state on our end, even if
+the adapter sent the board out to lala-land for a while.
+
+
+&gt;<i> &gt; Second, does this happen with &quot;libftdi&quot; too, or does that
+</I>&gt;<i> &gt; behave properly?
+</I>&gt;<i> 
+</I>&gt;<i> I tried libftdi but it has different problems. I gave up on it because I
+</I>&gt;<i> had to power-cycle CPU after running openocd in order to get to talk to
+</I>&gt;<i> CPU. So I actually don't know what it does.
+</I>
+Annoying.
+ 
+ 
+&gt;<i> &gt; &gt; ftd2xx is a closed source library. However, openocd should not rely on
+</I>&gt;<i> &gt; &gt; any libraries to properly reset a chip since these libraries do not know
+</I>&gt;<i> &gt; &gt; what is a 'proper reset.' Openocd knows how it should reset the chip
+</I>&gt;<i> &gt; &gt; from *.tcl scripts. So I propose to add a reset after ft2232_init (or
+</I>&gt;<i> &gt; &gt; any other generic libs such as libftdi*) and before the first JTAG scan
+</I>&gt;<i> &gt; &gt; to properly reset devices on the scan chain.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Again, I don't follow.  What are you saying the init sequence
+</I>&gt;<i> &gt; should be?  Which chip(s) should get reset when, and why?  Are
+</I>&gt;<i> &gt; you referring to one of the chips on the target board?  Or maybe
+</I>&gt;<i> &gt; the FT2232 chip?
+</I>&gt;<i>
+</I>&gt;<i> See my previous email to &#216;yvind.
+</I>
+Where -- to summarize ruthlessly -- you said that not only is
+the FT2232 annoyingly imposing an SRST on you, but you also
+need an extra delay to recover from that.  Right?
+
+
+&gt;<i> I am talking about SRST/TRST reset as defined by reset_config command.
+</I>&gt;<i> This is only defined for reset init/halt/run but not for initial scan of
+</I>&gt;<i> the JTAG chain.
+</I>
+Actually that jtag_init() code will call the same jtag_init_reset()
+that starts the &quot;reset halt&quot; sequence, *IF* the init_inner() fails.
+
+Now, there are some problems in that init_inner() doesn't much like
+to fail.  Maybe it should be less accepting... at least on the
+initial invocation.
+
+Correct me if I'm wrong (and please consult the jtag/core.c init
+code to clarify):  (a) your init_inner() call sees chaos but
+(b) doesn't fail, so (c) you're not getting that cautious call
+to have jtag_init_inner() do SRST at OpenOCD startup through
+that jtag_init() call, and thus (d) you're doing it yourself ...
+
+... but if (b') it *DID* fail so (c') that got called as the
+code wants to be done, then (d') it looks like it'd work OK
+without needing the manual workaround?
+
+
+&gt;<i> &gt; What OpenOCD tries to do today is first validate the scan chain
+</I>&gt;<i> &gt; defined to it using only TRST to ensure the TAPs are in a known
+</I>&gt;<i> &gt; state, one which exposes their IDCODE registers (if any) ... and
+</I>&gt;<i> &gt; if that works, it starts up without any SRST assertion, which is
+</I>&gt;<i> &gt; IMO the correct default behavior.
+</I>&gt;<i> 
+</I>&gt;<i> &gt; If that fails, then jtag_init() will retry after a hard SRST
+</I>&gt;<i> &gt; assertion.  Kind of unavoidable; maybe worth logging, that's
+</I>&gt;<i> &gt; kind of harsh.  I don't to see a running board needlessly get
+</I>&gt;<i> &gt; reset just because OpenOCD got started.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; - Dave
+</I>&gt;<i> 
+</I>&gt;<i> I do not see this behavior on a scope. The only thing I see is SRST/TRST
+</I>&gt;<i> asserted by ftd2xx library. openocd does not seem to touch those signals
+</I>&gt;<i> until you issue reset halt or similar.
+</I>&gt;<i> 
+</I>&gt;<i> In fact, openocd hangs right after initial scan (if SRST is connected to
+</I>&gt;<i> CPU reset) because the CPU returns garbage.
+</I>
+Where I've most recently seen that failure is if the JTAG clock
+rate is set very wrong.  ;)
+
+And come to think of it, I think it can't have been going down
+the SRST path then either, despite what the code says to do when
+init_inner() loses.
+
+- Dave
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010755.html">[Openocd-development] JTAG controllers disabled while SRST is asserted
+</A></li>
+	<LI>Next message: <A HREF="010773.html">[Openocd-development] JTAG controllers disabled while SRST is	asserted
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10761">[ date ]</a>
+              <a href="thread.html#10761">[ thread ]</a>
+              <a href="subject.html#10761">[ subject ]</a>
+              <a href="author.html#10761">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

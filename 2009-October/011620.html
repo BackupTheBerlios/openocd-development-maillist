@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] target_read/write_phys_memory default	implementation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20target_read/write_phys_memory%20default%0A%09implementation&In-Reply-To=%3C200910252000.19715.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011576.html">
+   <LINK REL="Next"  HREF="011628.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] target_read/write_phys_memory default	implementation</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20target_read/write_phys_memory%20default%0A%09implementation&In-Reply-To=%3C200910252000.19715.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] target_read/write_phys_memory default	implementation">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Oct 26 04:00:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011576.html">[Openocd-development] target_read/write_phys_memory default	implementation
+</A></li>
+        <LI>Next message: <A HREF="011628.html">[Openocd-development] target_read/write_phys_memory default	implementation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11620">[ date ]</a>
+              <a href="thread.html#11620">[ thread ]</a>
+              <a href="subject.html#11620">[ subject ]</a>
+              <a href="author.html#11620">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sunday 25 October 2009, &#216;yvind Harboe wrote:
+&gt;<i> The default implementation of target_read/write_phys_memory
+</I>&gt;<i> is to call target_read/write_memory, but I'm thinking the default
+</I>&gt;<i> implementation should return an error and
+</I>&gt;<i> LOG_ERROR(&quot;Not implemented&quot;).
+</I>
+I count three cases:
+
+ - No MMU ... current approach is more-or-less correct
+ - MMU, disabled ... ditto
+ - MMU, enabled ... default is wrong
+
+So rather than breaking the two-out-of-three cases that are
+OK ... shouldn't there just be a target &quot;mmu_enabled&quot; flag
+which controls this behavior?
+
+
+I suspect things get torqued around because the underlying
+hardware requires write_phys() to work something like
+
+	if (mmu_enabled)
+		flush caches and disable mmu
+	target-&gt;write()
+	if (phys)
+		reenable mmu
+
+Is that sort of correct?  It looks painful right now to
+need to enable/disable the MMU on each write ... suggesting
+to me that the thing still needs to be refactored.  The
+current generic
+
+	for (i = 0; i &lt; count; i++)
+		phys_or_virt_write(target, item[i])
+
+should be more like
+
+	if (mmu_enabled)
+		flush and invalidate caches and disable mmu
+	for (i = 0; i &lt; count; i++)
+		target-&gt;write(item[i])
+	if (phys)
+		reenable mmu
+
+With nuances like needing to flush and invalidate caches even
+in non-MMU cases when the write isn't going through the CPU.
+
+
+&gt;<i> The optional [phys] argument to mww/mdw variants is still there for
+</I>&gt;<i> *all* targets though, even if they can't support it in principle
+</I>&gt;<i> (there aren't any Cortex M0/M3's w/MMU are there?).
+</I>
+See above.  Without an active MMU, there should never be a
+distinction between the two modes since *ALL* accesses are
+using physical addresses.
+
+(And no -- Cortex-M parts have no MMU.  Same with ARM7TDMI,
+and ARM9TDMI.  And various other cores, of course.)
+
+
+&gt;<i> Which brings me to another thing...
+</I>&gt;<i> 
+</I>&gt;<i> Should commands that *could* be supported by targets be added
+</I>&gt;<i> even if the OpenOCD target code does not support it them?
+</I>&gt;<i> 
+</I>&gt;<i> If users are searching for the right way to do mrc/mcr operations
+</I>&gt;<i> for, say, XScale, would it not be better if the command was there
+</I>&gt;<i> but returned &quot;not implemented&quot;?
+</I>
+IMO, no.  Because then projects become mazes of &quot;not implemented&quot;
+messages.  Better to have people ask &quot;where is &lt;command X&gt;&quot;?
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011576.html">[Openocd-development] target_read/write_phys_memory default	implementation
+</A></li>
+	<LI>Next message: <A HREF="011628.html">[Openocd-development] target_read/write_phys_memory default	implementation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11620">[ date ]</a>
+              <a href="thread.html#11620">[ thread ]</a>
+              <a href="subject.html#11620">[ subject ]</a>
+              <a href="author.html#11620">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

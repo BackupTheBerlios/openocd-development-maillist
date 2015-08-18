@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] str9x.c: take2: Removed the optimization when erasing the whole bank
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20str9x.c%3A%20take2%3A%20Removed%20the%0A%20optimization%20when%20erasing%20the%20whole%20bank&In-Reply-To=%3COF07AFB2CF.81292C9C-ONC12576BE.0038EF88-C12576BE.003BA808%40securitasdirect.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014544.html">
+   <LINK REL="Next"  HREF="014561.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] str9x.c: take2: Removed the optimization when erasing the whole bank</H1>
+    <B>Fredrik Hederstierna</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20str9x.c%3A%20take2%3A%20Removed%20the%0A%20optimization%20when%20erasing%20the%20whole%20bank&In-Reply-To=%3COF07AFB2CF.81292C9C-ONC12576BE.0038EF88-C12576BE.003BA808%40securitasdirect.se%3E"
+       TITLE="[Openocd-development] [PATCH] str9x.c: take2: Removed the optimization when erasing the whole bank">fredrik.hederstierna at securitas-direct.com
+       </A><BR>
+    <I>Tue Feb  2 11:54:09 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014544.html">[Openocd-development] bug with semihosting SYS_READ fixed
+</A></li>
+        <LI>Next message: <A HREF="014561.html">[Openocd-development] [PATCH] str9x.c: take2: Removed the	optimization when erasing the whole bank
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14550">[ date ]</a>
+              <a href="thread.html#14550">[ thread ]</a>
+              <a href="subject.html#14550">[ subject ]</a>
+              <a href="author.html#14550">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi
+
+I did this optimization some time ago, and I'm sorry it contains a bug as 
+you discovered.
+The problem is the timeout.
+
+Thanks alot to Henrik Persson at Securitas Direct who spotted the bug in 
+the first place and patched it.
+
+The timeout is currently set to 1000 eventhough the bank-erase takes alot 
+more time than the sector-erase.
+Its needed to multiply the timeout with the number of sectors erased, then 
+its still fast and the optimization works fine.
+Sorry for this.
+
+This is the patch that fix the timeout issue:
+
+-------------START------------
+
+diff --git a/src/flash/nor/str9x.c b/src/flash/nor/str9x.c
+index 0875851..ca4bd27 100644
+--- a/src/flash/nor/str9x.c
++++ b/src/flash/nor/str9x.c
+@@ -223,6 +223,7 @@ static int str9x_erase(struct flash_bank *bank, int 
+first, int last)
+        uint32_t adr;
+        uint8_t status;
+        uint8_t erase_cmd;
++        int total_timeout;
+ 
+        if (bank-&gt;target-&gt;state != TARGET_HALTED)
+        {
+@@ -230,16 +231,26 @@ static int str9x_erase(struct flash_bank *bank, int 
+first, int last)
+                return ERROR_TARGET_NOT_HALTED;
+        }
+ 
+-       /*A slower but stable way of erasing*/
+-       /* Erase sector command */
+-       erase_cmd = 0x20;
++       /* Check if we can erase whole bank */
++       if ((first == 0) &amp;&amp; (last == (bank-&gt;num_sectors - 1)))
++       {
++               /* Optimize to run erase bank command instead of sector */
++               erase_cmd = 0x80;
++               total_timeout = 1000 * bank-&gt;num_sectors;
++       }
++       else
++       {
++               /* Erase sector command */
++               erase_cmd = 0x20;
++               total_timeout = 1000;
++       }
+ 
+        for (i = first; i &lt;= last; i++)
+        {
+                int retval;
+                adr = bank-&gt;base + bank-&gt;sectors[i].offset;
+ 
+-               /* erase sectors */
++               /* erase sectors or block */
+                if ((retval = target_write_u16(target, adr, erase_cmd)) != 
+ERROR_OK)
+                {
+                        return retval;
+@@ -256,7 +267,7 @@ static int str9x_erase(struct flash_bank *bank, int 
+first, int last)
+                }
+ 
+                int timeout;
+-               for (timeout = 0; timeout &lt; 1000; timeout++) {
++               for (timeout = 0; timeout &lt; total_timeout; timeout++) {
+                        if ((retval = target_read_u8(target, adr, 
+&amp;status)) != ERROR_OK)
+                        {
+                                return retval;
+@@ -265,7 +276,7 @@ static int str9x_erase(struct flash_bank *bank, int 
+first, int last)
+                                break;
+                        alive_sleep(1);
+                }
+-               if (timeout == 1000)
++               if (timeout == total_timeout)
+                {
+                        LOG_ERROR(&quot;erase timed out&quot;);
+                        return ERROR_FAIL;
+@@ -288,6 +299,11 @@ static int str9x_erase(struct flash_bank *bank, int 
+first, int last)
+                        LOG_ERROR(&quot;error erasing flash bank, status: 
+0x%x&quot;, status);
+                        return ERROR_FLASH_OPERATION_FAILED;
+                }
++
++
++               /* If we ran erase bank command, we are finished */
++               if (erase_cmd == 0x80)
++                       break;
+        }
+ 
+        for (i = first; i &lt;= last; i++)
+
+-------------END-------------
+
+
+
+Thanks/Fredrik
+
+
+&gt;<i> The docs say a maximum timeout of 11.5secs for the largest bank (512k).
+</I>
+My problem with these sort of optimizations is that they *must* be 
+balanced
+with an equal amount of testing. IMHO, since we discovered this on
+a simple smoketest, there just isn't enough testing done to justify
+having that extra codepath.
+
+
+-- 
+&#216;yvind Harboe
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20100202/998ca588/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20100202/998ca588/attachment.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: str9x_erase.patch
+Type: application/octet-stream
+Size: 2067 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20100202/998ca588/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20100202/998ca588/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014544.html">[Openocd-development] bug with semihosting SYS_READ fixed
+</A></li>
+	<LI>Next message: <A HREF="014561.html">[Openocd-development] [PATCH] str9x.c: take2: Removed the	optimization when erasing the whole bank
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14550">[ date ]</a>
+              <a href="thread.html#14550">[ thread ]</a>
+              <a href="subject.html#14550">[ subject ]</a>
+              <a href="author.html#14550">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

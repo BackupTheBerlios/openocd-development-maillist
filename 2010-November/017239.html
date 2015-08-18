@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 core debug reset problem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20core%20debug%20reset%20problem&In-Reply-To=%3C4CEC0642.6010205%40martin-jones.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016967.html">
+   <LINK REL="Next"  HREF="017241.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 core debug reset problem</H1>
+    <B>Chris Jones</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20core%20debug%20reset%20problem&In-Reply-To=%3C4CEC0642.6010205%40martin-jones.com%3E"
+       TITLE="[Openocd-development] STM32 core debug reset problem">chris at martin-jones.com
+       </A><BR>
+    <I>Tue Nov 23 19:21:54 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016967.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+        <LI>Next message: <A HREF="017241.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17239">[ date ]</a>
+              <a href="thread.html#17239">[ thread ]</a>
+              <a href="subject.html#17239">[ subject ]</a>
+              <a href="author.html#17239">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 04/11/2010 21:35, Andreas Fritiofson wrote:
+&gt;<i> On Wed, Nov 3, 2010 at 10:01 AM, Chris Jones&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chris at martin-jones.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> I tried the IAR software but don't have a JTAG dongle directly
+</I>&gt;&gt;<i> compatible with it. I tried to get it to talk to OpenOCD via GDB
+</I>&gt;&gt;<i> but attempting to download the code to the STM32 that way just
+</I>&gt;&gt;<i> resulted in streams of errors. I didn't spend any more time on this
+</I>&gt;&gt;<i> because I don't think it would help to isolate the issue into or
+</I>&gt;&gt;<i> out of OpenOCD.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> There seem to be some circumstances in which attempting to start
+</I>&gt;&gt;<i> OpenOCD connected to an STM32 in stop mode, or switching rapidly
+</I>&gt;&gt;<i> into and out of stop mode, breaks the STM32's debug unit. It's
+</I>&gt;&gt;<i> consistently repeatable. For now we can work around it by being
+</I>&gt;&gt;<i> extremely careful when we try to connect OpenOCD, but I'd like to
+</I>&gt;&gt;<i> try and help prevent the problem.
+</I>&gt;<i>
+</I>&gt;<i> I agree with Michel that the first step towards that is probably to
+</I>&gt;<i> determine whether the problem has a reasonable chance of being
+</I>&gt;<i> fixable in OpenOCD. Otherwise it's a waste of time trying to. We
+</I>&gt;<i> could try completely different tools to see if they have the same
+</I>&gt;<i> problem. We can also ask ST (having tried different tools would help
+</I>&gt;<i> here, too). Maybe someone on the list has the tools and the time
+</I>&gt;<i> required. Unfortunately, I have neither right now.
+</I>
+I've now spent some more time looking at this problem and have been
+digging around in arm_adi_v5.c to see what's going on.
+
+In the fault condition, even the first few operations in 
+ahbap_debugport_init() don't seem to work. For example, reading the 
+DP_CTRL_STAT register always returns 0. There's a loop which waits for 
+the CDBGPWRUPACK bit in that register to be set. It never gets set in 
+the fault condition, but the loop exits anyway and execution continues. 
+I think this is a bug, but it doesn't affect the fault other than not 
+reporting it.
+
+There is an ABORT instruction in a special DR register (*not* one of the 
+DPACC registers) which looks useful in potentially returning the debug 
+unit to a sane state, or at least cancelling any outstanding debug 
+transactions, but until I've got my head around how to make the 
+necessary JTAG operation I can't get it to do anything.
+
+I wanted to add some more basic tests of DR register reads other than 
+the DPACC registers to check what was going on, and thought the IDCODE 
+DR register would be a good start. I added:
+
+adi_jtag_dp_scan_u32(swjdp, JTAG_DP_IDCODE, DP_IDCODE, DPAP_READ, 0, 
+&amp;dummy, &amp;ack);
+LOG_DEBUG(&quot;ahbap_debugport_init(): idcode=0x%&quot; PRIx32, dummy);
+
+but this seems to return 0x16 in dummy, which is nothing like the IDCODE 
+in the ARM/ST documentation (0x3BA00477). This happens on 'working' 
+STM32s and in the fault condition. Am I doing something daft?
+
+Can some kind soul help me navigate the various functions, please? I'm 
+happy to spend the time investigating what's going on when armed with 
+the necessary knowledge.
+
+Chris
+-- 
+Chris Jones - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chris at martin-jones.com</A>
+Martin-Jones Technology Ltd
+148 Catharine Street, Cambridge, CB1 3AR, UK
+Phone +44 (0) 1223 655611 Fax +44 (0) 870 112 3908
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016967.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+	<LI>Next message: <A HREF="017241.html">[Openocd-development] STM32 core debug reset problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17239">[ date ]</a>
+              <a href="thread.html#17239">[ thread ]</a>
+              <a href="subject.html#17239">[ subject ]</a>
+              <a href="author.html#17239">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

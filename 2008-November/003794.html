@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [COMMIT}luminary flash driver tail bytes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BCOMMIT%7Dluminary%20flash%20driver%20tail%20bytes&In-Reply-To=%3C20081127171935.0FADA160139%40mail.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003802.html">
+   <LINK REL="Next"  HREF="003797.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [COMMIT}luminary flash driver tail bytes</H1>
+    <B>Spen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BCOMMIT%7Dluminary%20flash%20driver%20tail%20bytes&In-Reply-To=%3C20081127171935.0FADA160139%40mail.berlios.de%3E"
+       TITLE="[Openocd-development] [COMMIT}luminary flash driver tail bytes">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Thu Nov 27 18:19:38 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003802.html">[Openocd-development] Patch to remove deprecated commands
+</A></li>
+        <LI>Next message: <A HREF="003797.html">[Openocd-development] Patch to remove deprecated commands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3794">[ date ]</a>
+              <a href="thread.html#3794">[ thread ]</a>
+              <a href="subject.html#3794">[ subject ]</a>
+              <a href="author.html#3794">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>committed the attached patch:
+- fix issue with luminary flash driver and tail bytes
+
+This is already done in other flash drivers
+
+Index: src/flash/stellaris.c
+===================================================================
+--- src/flash/stellaris.c	(revision 1190)
++++ src/flash/stellaris.c	(working copy)
+@@ -815,7 +815,10 @@
+ 	stellaris_flash_bank_t *stellaris_info = bank-&gt;driver_priv;
+ 	target_t *target = bank-&gt;target;
+ 	u32 address = offset;
+-	u32 flash_cris,flash_fmc;
++	u32 flash_cris, flash_fmc;
++	u32 words_remaining = (count / 4);
++	u32 bytes_remaining = (count &amp; 0x00000003);
++	u32 bytes_written = 0;
+ 	u32 retval;
+ 	
+ 	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+@@ -838,7 +841,7 @@
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+ 	
+-	if((offset &amp; 3) || (count &amp; 3))
++	if (offset &amp; 0x3)
+ 	{
+ 		LOG_WARNING(&quot;offset size must be word aligned&quot;);
+ 		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+@@ -856,10 +859,10 @@
+ 	target_write_u32(target, FLASH_MISC, PMISC|AMISC);
+ 
+ 	/* multiple words to be programmed? */
+-	if (count &gt; 0) 
++	if (words_remaining &gt; 0) 
+ 	{
+ 		/* try using a block write */
+-		if ((retval = stellaris_write_block(bank, buffer, offset,
+count/4)) != ERROR_OK)
++		if ((retval = stellaris_write_block(bank, buffer, offset,
+words_remaining)) != ERROR_OK)
+ 		{
+ 			if (retval == ERROR_TARGET_RESOURCE_NOT_AVAILABLE)
+ 			{
+@@ -878,13 +881,13 @@
+ 		}
+ 		else
+ 		{
+-			buffer += count * 4;
+-			address += count * 4;
+-			count = 0;
++			buffer += words_remaining * 4;
++			address += words_remaining * 4;
++			words_remaining = 0;
+ 		}
+ 	}
+ 	
+-	while (count &gt; 0)
++	while (words_remaining &gt; 0)
+ 	{
+ 		if (!(address &amp; 0xff))
+ 			LOG_DEBUG(&quot;0x%x&quot;, address);
+@@ -898,13 +901,41 @@
+ 		do
+ 		{
+ 			target_read_u32(target, FLASH_FMC, &amp;flash_fmc);
+-		}
+-		while (flash_fmc &amp; FMC_WRITE);
++		} while (flash_fmc &amp; FMC_WRITE);
++		
+ 		buffer += 4;
+ 		address += 4;
+-		count -= 4;
++		words_remaining--;
+ 	}
+-	/* Check acess violations */
++	
++	if (bytes_remaining)
++	{
++		u8 last_word[4] = {0xff, 0xff, 0xff, 0xff};
++		int i = 0;
++				
++		while(bytes_remaining &gt; 0)
++		{
++			last_word[i++] = *(buffer + bytes_written); 
++			bytes_remaining--;
++			bytes_written++;
++		}
++		
++		if (!(address &amp; 0xff))
++			LOG_DEBUG(&quot;0x%x&quot;, address);
++		
++		/* Program one word */
++		target_write_u32(target, FLASH_FMA, address);
++		target_write_buffer(target, FLASH_FMD, 4, last_word);
++		target_write_u32(target, FLASH_FMC, FMC_WRKEY | FMC_WRITE);
++		/* LOG_DEBUG(&quot;0x%x 0x%x 0x%x&quot;,address,buf_get_u32(buffer, 0,
+32),FMC_WRKEY | FMC_WRITE); */
++		/* Wait until write complete */
++		do
++		{
++			target_read_u32(target, FLASH_FMC, &amp;flash_fmc);
++		} while (flash_fmc &amp; FMC_WRITE);
++	}
++	
++	/* Check access violations */
+ 	target_read_u32(target, FLASH_CRIS, &amp;flash_cris);
+ 	if (flash_cris &amp; (AMASK))
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003802.html">[Openocd-development] Patch to remove deprecated commands
+</A></li>
+	<LI>Next message: <A HREF="003797.html">[Openocd-development] Patch to remove deprecated commands
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3794">[ date ]</a>
+              <a href="thread.html#3794">[ thread ]</a>
+              <a href="subject.html#3794">[ subject ]</a>
+              <a href="author.html#3794">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Error recovery
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Error%20recovery&In-Reply-To=%3C734ed86c0906170451u30a49fft403dd6268ecce0be%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008108.html">
+   <LINK REL="Next"  HREF="008130.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Error recovery</H1>
+    <B>Audrius Urmanavi&#269;ius</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Error%20recovery&In-Reply-To=%3C734ed86c0906170451u30a49fft403dd6268ecce0be%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Error recovery">didele.deze at gmail.com
+       </A><BR>
+    <I>Wed Jun 17 13:51:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008108.html">[Openocd-development] Error recovery
+</A></li>
+        <LI>Next message: <A HREF="008130.html">[Openocd-development] Error recovery
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8121">[ date ]</a>
+              <a href="thread.html#8121">[ thread ]</a>
+              <a href="subject.html#8121">[ subject ]</a>
+              <a href="author.html#8121">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tue, Jun 16, 2009 at 11:04 PM, Rick Altherr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>&gt; wrote:
+
+&gt;<i>
+</I>&gt;<i> On Jun 16, 2009, at 11:06 AM, Gene Smith wrote:
+</I>&gt;<i>
+</I>&gt;<i> At this time openocd is working quite well for me with 3 different jtag
+</I>&gt;&gt;<i> adapters: rlink, jlink and olimex/ftdi. However, I have noticed a couple
+</I>&gt;&gt;<i> of error recovery situations where it could get confusing for a user
+</I>&gt;&gt;<i> (probably me). Possibly this has been discussed before but a quick look
+</I>&gt;&gt;<i> at the maillist subjects didn't reveal anything.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> 1. If the user is not connected to the adapter via usb when openocd is
+</I>&gt;&gt;<i> started you see:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Error: unable to open ftdi device: device not found
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> and openocd terminates.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I guess you could put ./openocd in a script to retry with some delay.
+</I>&gt;&gt;<i> But maybe openocd could delay and retry on its own if &quot;device not found&quot;
+</I>&gt;&gt;<i> at start up?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i> This is potentially poorly worded, but correct, behavior.  You asked
+</I>&gt;<i> OpenOCD to start using a device that isn't attached to the machine.  While
+</I>&gt;<i> USB does support hot-plugging, not all of our supported interfaces do.
+</I>&gt;<i>
+</I>
+
+ That's strange if there are actual USB JTAG interfaces that does not
+support hot-plug (i.e. connecting of USB cable while PC is up and running).
+Do they have to be connected to USB right away when computer is powered on?
+
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> 2. With openocd correctly running and connected, if the jtag is
+</I>&gt;&gt;<i> disconnected I see a continuous stream of &quot;usb bulk write failed&quot;
+</I>&gt;&gt;<i> messages. Reconnecting the cable does not fix the situation and the
+</I>&gt;&gt;<i> errors keep coming. The only way to recover is to kill openocd and
+</I>&gt;&gt;<i> restart it.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i> This is a known problem.  We don't support disconnect/reconnect on USB.  We
+</I>&gt;<i> could.  In fact, Dick had patches for FTDI-based devices to do so.  The
+</I>&gt;<i> danger here is failure cases where an instance of OpenOCD was running with a
+</I>&gt;<i> dongle attached.  That dongle was disconnected, attached to a different
+</I>&gt;<i> target board, and reconnected.  To OpenOCD, we'd assume it was a reconnect
+</I>&gt;<i> to the same target.  We'd need some way to force a reexamination of the JTAG
+</I>&gt;<i> chain on reconnect to determine if it's the same target or not.  This all
+</I>&gt;<i> gets very messy.  So, for now, we should probably terminate if the interface
+</I>&gt;<i> is disconnected.
+</I>&gt;<i>
+</I>
+
+The possible target change is not sufficient reason to not implement hot
+(re-)plug; the users of OpenOCD are usually dealing with one piece of HW at
+a time and/or are smart enough not to swap boards whild openocd is running.
+In fact, i is possible to swap the target while USB is still attached (hot
+JTAG re-plug - while not very elegant but doable, and, if taken precautions,
+does not damage the adapter/board), this case is not handled by openocd
+anyway.
+
+A termination upon interface disconnection would indeed be much more useful
+instead of dumping error messages to console/log. A simple shell script
+could then attempt to restart openocd.
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> These aren't big problems for me now, but I would prefer to have openocd
+</I>&gt;&gt;<i> running as a background daemon/service, out of sight/out of mind, that
+</I>&gt;&gt;<i> just recovers on its own when I do the wrong thing.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Have these scenarios been considered? Maybe I am missing something
+</I>&gt;&gt;<i> obvious?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Thanks,
+</I>&gt;&gt;<i> -gene
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> --
+</I>&gt;<i> Rick Altherr
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+</I>&gt;<i>
+</I>&gt;<i> &quot;He said he hadn't had a byte in three days. I had a short, so I split it
+</I>&gt;<i> with him.&quot;
+</I>&gt;<i>  -- Unsigned
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090617/30e8d6db/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20090617/30e8d6db/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008108.html">[Openocd-development] Error recovery
+</A></li>
+	<LI>Next message: <A HREF="008130.html">[Openocd-development] Error recovery
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8121">[ date ]</a>
+              <a href="thread.html#8121">[ thread ]</a>
+              <a href="subject.html#8121">[ subject ]</a>
+              <a href="author.html#8121">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

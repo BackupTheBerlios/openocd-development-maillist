@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] bitbang driver - use more direct path from	shifts to end state
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20bitbang%20driver%20-%20use%20more%20direct%20path%20from%0A%09shifts%20to%20end%20state&In-Reply-To=%3Cc09652430905060213p78b51c71id6051ab2da4810cc%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006125.html">
+   <LINK REL="Next"  HREF="006133.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] bitbang driver - use more direct path from	shifts to end state</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20bitbang%20driver%20-%20use%20more%20direct%20path%20from%0A%09shifts%20to%20end%20state&In-Reply-To=%3Cc09652430905060213p78b51c71id6051ab2da4810cc%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] bitbang driver - use more direct path from	shifts to end state">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed May  6 11:13:39 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006125.html">[Openocd-development] [PATCH] use libtool to build libopenocd
+</A></li>
+        <LI>Next message: <A HREF="006133.html">[Openocd-development] problems with Amontec JTAGKey on linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6127">[ date ]</a>
+              <a href="thread.html#6127">[ thread ]</a>
+              <a href="subject.html#6127">[ subject ]</a>
+              <a href="author.html#6127">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'm trying to figure out why bitbang fails and ft2232 reportedly
+works with arm11.
+
+The attached patch makes a direct transition from shift
+to the end state rather than going via pause, which should
+line the bitbang driver up more closely with ft2232.
+
+To me this seems like a sensible change and is in line
+with the upcoming shortening of transitions.
+
+Comments?
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://consulting.zylin.com">http://consulting.zylin.com</A>
+-------------- next part --------------
+Index: src/jtag/bitbang.c
+===================================================================
+--- src/jtag/bitbang.c	(revision 1606)
++++ src/jtag/bitbang.c	(working copy)
+@@ -84,12 +84,12 @@
+ 	}
+ }
+ 
+-static void bitbang_state_move(void)
++static void bitbang_state_move(int skip)
+ {
+ 	int i=0, tms=0;
+ 	u8 tms_scan = tap_get_tms_path(tap_get_state(), tap_get_end_state());
+ 
+-	for (i = 0; i &lt; 7; i++)
++	for (i = skip; i &lt; 7; i++)
+ 	{
+ 		tms = (tms_scan &gt;&gt; i) &amp; 1;
+ 		bitbang_interface-&gt;write(0, tms, 0);
+@@ -146,7 +146,7 @@
+ 	if (tap_get_state() != TAP_IDLE)
+ 	{
+ 		bitbang_end_state(TAP_IDLE);
+-		bitbang_state_move();
++		bitbang_state_move(0);
+ 	}
+ 
+ 	/* execute num_cycles */
+@@ -160,7 +160,7 @@
+ 	/* finish in end_state */
+ 	bitbang_end_state(saved_end_state);
+ 	if (tap_get_state() != tap_get_end_state())
+-		bitbang_state_move();
++		bitbang_state_move(0);
+ }
+ 
+ 
+@@ -191,7 +191,7 @@
+ 		else
+ 			bitbang_end_state(TAP_DRSHIFT);
+ 
+-		bitbang_state_move();
++		bitbang_state_move(0);
+ 		bitbang_end_state(saved_end_state);
+ 	}
+ 
+@@ -227,22 +227,8 @@
+ 		}
+ 	}
+ 
+-	/* TAP_DRSHIFT &amp; TAP_IRSHIFT are illegal end states, so we always transition to the pause
+-	 * state which is a legal stable state from which statemove will work.
+-	 *
+-	 * Exit1 -&gt; Pause
+-	 */
+-	bitbang_interface-&gt;write(0, 0, 0);
+-	bitbang_interface-&gt;write(1, 0, 0);
+-	bitbang_interface-&gt;write(CLOCK_IDLE(), 0, 0);
+-
+-	if (ir_scan)
+-		tap_set_state(TAP_IRPAUSE);
+-	else
+-		tap_set_state(TAP_DRPAUSE);
+-
+ 	if (tap_get_state() != tap_get_end_state())
+-		bitbang_state_move();
++		bitbang_state_move(1);
+ }
+ 
+ int bitbang_execute_queue(void)
+@@ -310,7 +296,7 @@
+ #endif
+ 				if (cmd-&gt;cmd.statemove-&gt;end_state != TAP_INVALID)
+ 					bitbang_end_state(cmd-&gt;cmd.statemove-&gt;end_state);
+-				bitbang_state_move();
++				bitbang_state_move(0);
+ 				break;
+ 			case JTAG_PATHMOVE:
+ #ifdef _DEBUG_JTAG_IO_
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006125.html">[Openocd-development] [PATCH] use libtool to build libopenocd
+</A></li>
+	<LI>Next message: <A HREF="006133.html">[Openocd-development] problems with Amontec JTAGKey on linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6127">[ date ]</a>
+              <a href="thread.html#6127">[ thread ]</a>
+              <a href="subject.html#6127">[ subject ]</a>
+              <a href="author.html#6127">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

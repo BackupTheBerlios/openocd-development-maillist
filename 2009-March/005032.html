@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Cortex M3 halting almost immediately
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Cortex%20M3%20halting%20almost%20immediately&In-Reply-To=%3Cae16bd8c0903141142u2e0011a4s5d2d71f95cd4434%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005028.html">
+   <LINK REL="Next"  HREF="005040.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Cortex M3 halting almost immediately</H1>
+    <B>Perry Hung</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Cortex%20M3%20halting%20almost%20immediately&In-Reply-To=%3Cae16bd8c0903141142u2e0011a4s5d2d71f95cd4434%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Cortex M3 halting almost immediately">iperry at gmail.com
+       </A><BR>
+    <I>Sat Mar 14 19:42:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005028.html">[Openocd-development] Cortex M3 halting almost immediately
+</A></li>
+        <LI>Next message: <A HREF="005040.html">[Openocd-development] Cortex M3 halting almost immediately
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5032">[ date ]</a>
+              <a href="thread.html#5032">[ thread ]</a>
+              <a href="subject.html#5032">[ subject ]</a>
+              <a href="author.html#5032">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I've narrowed it down (I think) to a multiple bugs in cortex_m3.c. Can
+somebody who knows the codebase a little better take a look and verify
+if it's an actual bug? Here's what I think is going on.
+
+bug 1) cortex_m3_assert_reset() called cortex_m3_clear_halt(), which
+contrary to its name, doesn't clear the halt flag, but instead sets
+C_HALT.
+
+bug 2) cortex_m3_poll() does an atomic read on DCB_DHCSR, checks if
+the target is resetting, and then calls cortex_m3_endreset_event(),
+which should reset the DHCSR to its reset state. Unfortunately, the
+atomic read which checks that state is called before endreset_event(),
+so when it checks (dcb_dhcsr &amp; S_HALT), it's using the old value of
+DHCSR, then halts the target, leaving you right back where you started
+(halted).
+
+Making assert_reset() actually clear C_HALT and adding another read in
+poll() fixed the problem for me.
+
+
+Index: cortex_m3.c
+===================================================================
+--- cortex_m3.c	(revision 1411)
++++ cortex_m3.c	(working copy)
+@@ -444,6 +444,7 @@
+ 		prev_target_state = TARGET_RUNNING;
+ 	}
+ 	
++    ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 	if (cortex_m3-&gt;dcb_dhcsr &amp; S_HALT)
+ 	{
+ 		target-&gt;state = TARGET_HALTED;
+@@ -725,8 +726,9 @@
+ 		if (cortex_m3-&gt;dcb_dhcsr &amp; C_MASKINTS)
+ 			ahbap_write_system_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN
+|<i> C_HALT);
+</I> 	
+-		cortex_m3_clear_halt(target);
+-							
++        /* Clear C_HALT  */
++        ahbap_write_system_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN);
++
+ 		/* Enter debug state on reset, cf. end_reset_event() */	
+ 		ahbap_write_system_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
+ 	}
+
+
+On Sat, Mar 14, 2009 at 7:30 AM, Perry Hung &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">iperry at gmail.com</A>&gt; wrote:
+&gt;<i> Hi there,
+</I>&gt;<i>
+</I>&gt;<i> openocd 0.10 (release) on a 2.6.27 ubuntu kernel.
+</I>&gt;<i>
+</I>&gt;<i> I'm having a problem with my target halting just after a reset.
+</I>&gt;<i>
+</I>&gt;<i> The target is a STM32F103 on an Olimex H103 board, programming it through
+</I>&gt;<i> a Olimex ARM-USB-OCD programmer.
+</I>&gt;<i>
+</I>&gt;<i> Once the target is flashed and reset, it almost immediately halts,
+</I>&gt;<i> similar to the problem reported here:
+</I>&gt;<i> <A HREF="http://forum.sparkfun.com/viewforum.php?f=18">http://forum.sparkfun.com/viewforum.php?f=18</A>
+</I>&gt;<i>
+</I>&gt;<i> Here's my output:
+</I>&gt;<i>
+</I>&gt;&gt;<i>reset run
+</I>&gt;<i> JTAG tap: stm32.cpu tap/device found: 0x3ba00477 (Manufacturer: 0x23b,
+</I>&gt;<i> Part: 0xba00, Version: 0x3)
+</I>&gt;<i> JTAG Tap/device matched
+</I>&gt;<i> JTAG tap: stm32.bs tap/device found: 0x16410041 (Manufacturer: 0x020,
+</I>&gt;<i> Part: 0x6410, Version: 0x1)
+</I>&gt;<i> JTAG Tap/device matched
+</I>&gt;<i> target state: halted
+</I>&gt;<i> target halted due to target-not-halted, current mode: Thread
+</I>&gt;<i> xPSR: 0x21000000 pc: 0x00002ef4
+</I>&gt;<i>
+</I>&gt;<i> The pc at which it halts is somewhat variable, but always within a
+</I>&gt;<i> couple of instructions from 0x2ef4. The reason given for the halt is
+</I>&gt;<i> also variable, I've seen &quot;target-not-halted,&quot; &quot;breakpoint,&quot;
+</I>&gt;<i> &quot;debug-request,&quot; and &quot;undefined.&quot; Doing a &quot;reset&quot; or a &quot;reset run&quot; doesn't
+</I>&gt;<i> seem to make any difference.
+</I>&gt;<i>
+</I>&gt;<i> A resume from the halt resumes normal execution.
+</I>&gt;<i>
+</I>&gt;<i> Any ideas?
+</I>&gt;<i>
+</I>&gt;<i> -perry
+</I>&gt;<i>
+</I>
+
+
+-- 
+Perry Hung
+<A HREF="http://separaterealities.com">http://separaterealities.com</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005028.html">[Openocd-development] Cortex M3 halting almost immediately
+</A></li>
+	<LI>Next message: <A HREF="005040.html">[Openocd-development] Cortex M3 halting almost immediately
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5032">[ date ]</a>
+              <a href="thread.html#5032">[ thread ]</a>
+              <a href="subject.html#5032">[ subject ]</a>
+              <a href="author.html#5032">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

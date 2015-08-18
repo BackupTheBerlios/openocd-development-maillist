@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Advanced Reset Process
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Advanced%20Reset%20Process&In-Reply-To=%3C200906271318.24755.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008865.html">
+   <LINK REL="Next"  HREF="008887.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Advanced Reset Process</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Advanced%20Reset%20Process&In-Reply-To=%3C200906271318.24755.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Advanced Reset Process">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Jun 27 22:18:24 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008865.html">[Openocd-development] Advanced Reset Process
+</A></li>
+        <LI>Next message: <A HREF="008887.html">[Openocd-development] Advanced Reset Process
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8866">[ date ]</a>
+              <a href="thread.html#8866">[ thread ]</a>
+              <a href="subject.html#8866">[ subject ]</a>
+              <a href="author.html#8866">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Saturday 27 June 2009, Duane Ellis wrote:
+&gt;<i> Today - the C code *controls* and *drives* the reset sequence.
+</I>&gt;<i> 
+</I>&gt;<i> I'm suggesting we turn that inside out - and make the TCL code - drive 
+</I>&gt;<i> the reset sequence - via commands above.
+</I>
+That's a good direction, I think.  Details TBD, but
+certainly getting the current hard-coded SRST/TRST
+reset policies from C into Tcl seems essential.
+
+Tcl code would need to be able to query some of the
+quirk flags -- srst pulling trst etc -- to figure out
+how to diddle SRST and TRST in certain cases.
+
+
+&gt;<i> There would be a few *default* reset sequences - in tcl... that one 
+</I>&gt;<i> could point &quot;proc reset&quot; at.
+</I>
+I think I'd prefer to avoid that particular level of
+need-to-rewrite.  But maybe one having that handful of
+standard models would remove the need for that, if the
+models were sanely factored.  (Initial design task:
+come up with that factored handful of models.)
+
+I'm not sure all the current events should be discarded,
+for example, and the easiest way to preserve them would
+involve less-than-wholesale replacement.
+
+
+So for example, your:
+
+&gt;<i> proc reset { } {
+</I>&gt;<i> &#160; &#160; jtag &#160;assert &#160;TRST &#160;SRST
+</I>&gt;<i> &#160; &#160; jtag &#160;sleep-msecs &#160;250
+</I>
+To my taste, &quot;msleep 250&quot;.  ;)
+
+&gt;<i> &#160; &#160; jtag de-assert TRST
+</I>
+I'd like to see some &quot;jtag verify&quot; options here,
+so that part of the reset sequence is likewise
+not hard-wired in C code.  
+
+So maybe &quot;jtag verify from_trst [NBITS]&quot; would
+verify the IR length of NBITs total against the
+declared TAPs, and then the DR values for TAPs
+that have an IDCODE instruction.  And, harder,
+do something sensible when there's no match...
+today everything just continues to bull through.
+
+
+&gt;<i> &#160; &#160; jtag ... scan command
+</I>&gt;<i> &#160; &#160; jtag .. scan command
+</I>&gt;<i> &#160; &#160; jtag .. scan command
+</I>&gt;<i> &#160; &#160; jtag de-assert SRST
+</I>&gt;<i> }
+</I>
+That seems more like a component that should be plugged
+into the reset sequence than a reset itself.  (And it's
+a good example of getting work done while SRST is
+still asserted... something not all TAPS handle, but
+some require.)
+
+
+Doing a bit of brainstorming ... I think that should
+be instead a &quot;proc hard_reset&quot;, with those scans
+packaged not unlike the current *target* event ops,
+except done as *TAP* events.  Each TAP might need
+different setup too.
+
+That way for example if you've got a system that has
+no SRST and must instead issue resets through JTAG ops,
+just hard_reset would get overridden.
+
+And from the user interaction perspective, my initial
+thought is that being able to customize behavior of
+resets by permitting &quot;reset hard&quot;, &quot;reset soft&quot;, and
+other operations (&quot;reset fred&quot;, &quot;reset usb&quot;, etc)
+would seem a bit nicer than needing to define a bunch
+of custom operations.  But those models can be argued.
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008865.html">[Openocd-development] Advanced Reset Process
+</A></li>
+	<LI>Next message: <A HREF="008887.html">[Openocd-development] Advanced Reset Process
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8866">[ date ]</a>
+              <a href="thread.html#8866">[ thread ]</a>
+              <a href="subject.html#8866">[ subject ]</a>
+              <a href="author.html#8866">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

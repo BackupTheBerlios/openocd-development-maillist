@@ -1,0 +1,326 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Feroceon fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Feroceon%20fixes&In-Reply-To=%3Calpine.LFD.1.10.0806051541220.23581%40xanadu.home%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002230.html">
+   <LINK REL="Next"  HREF="002232.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Feroceon fixes</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Feroceon%20fixes&In-Reply-To=%3Calpine.LFD.1.10.0806051541220.23581%40xanadu.home%3E"
+       TITLE="[Openocd-development] [PATCH] Feroceon fixes">nico at cam.org
+       </A><BR>
+    <I>Thu Jun  5 22:19:27 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002230.html">[Openocd-development] Patch: Flase erase 20% speed improvmenton	STR9x
+</A></li>
+        <LI>Next message: <A HREF="002232.html">[Openocd-development] [PATCH] Feroceon fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2231">[ date ]</a>
+              <a href="thread.html#2231">[ thread ]</a>
+              <a href="subject.html#2231">[ subject ]</a>
+              <a href="author.html#2231">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The attached patch should fix the halting on Feroceon targets (some 
+revisions didn't halt without this patch) as well as making single-step 
+more reliable.  Branching back to thumb mode should be fixed too.
+
+I tried to make those Feroceon workarounds as unintrusive as possible, 
+but some minor changes to arm7_9_common code was necessary so to not 
+copy a whole bunch of code that would otherwise be identical.  Non 
+Feroceon targets should be unaffected (no functional changes in that 
+case).
+
+I would be grateful if this could be applied to the openocd repository.
+
+
+Nicolas
+-------------- next part --------------
+Index: src/target/feroceon.c
+===================================================================
+--- src/target/feroceon.c	(revision 703)
++++ src/target/feroceon.c	(working copy)
+@@ -100,6 +100,60 @@
+ };
+ 
+ 
++int feroceon_dummy_clock_out(arm_jtag_t *jtag_info, u32 instr)
++{
++	scan_field_t fields[3];
++	u8 out_buf[4];
++	u8 instr_buf[4];
++	u8 sysspeed_buf = 0x0;
++	
++	/* prepare buffer */
++	buf_set_u32(out_buf, 0, 32, 0);
++	
++	buf_set_u32(instr_buf, 0, 32, flip_u32(instr, 32));
++	
++	jtag_add_end_state(TAP_PD);
++	arm_jtag_scann(jtag_info, 0x1);
++	
++	arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL);
++		
++	fields[0].device = jtag_info-&gt;chain_pos;
++	fields[0].num_bits = 32;
++	fields[0].out_value = out_buf;
++	fields[0].out_mask = NULL;
++	fields[0].in_value = NULL;
++	fields[0].in_handler = NULL;
++	fields[0].in_handler_priv = NULL;
++	fields[0].in_check_value = NULL;
++	fields[0].in_check_mask = NULL;
++	
++	fields[1].device = jtag_info-&gt;chain_pos;
++	fields[1].num_bits = 3;
++	fields[1].out_value = &amp;sysspeed_buf;
++	fields[1].out_mask = NULL;
++	fields[1].in_value = NULL;
++	fields[1].in_check_value = NULL;
++	fields[1].in_check_mask = NULL;
++	fields[1].in_handler = NULL;
++	fields[1].in_handler_priv = NULL;
++		
++	fields[2].device = jtag_info-&gt;chain_pos;
++	fields[2].num_bits = 32;
++	fields[2].out_value = instr_buf;
++	fields[2].out_mask = NULL;
++	fields[2].in_value = NULL;
++	fields[2].in_check_value = NULL;
++	fields[2].in_check_mask = NULL;
++	fields[2].in_handler = NULL;
++	fields[2].in_handler_priv = NULL;
++
++	jtag_add_dr_scan(3, fields, -1);
++
++	/* no jtag_add_runtest(0, -1) here */
++	
++	return ERROR_OK;
++}
++
+ void feroceon_change_to_arm(target_t *target, u32 *r0, u32 *pc)
+ {
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+@@ -111,9 +165,10 @@
+ 	 * to allow common handling of ARM and THUMB debugging
+ 	 */
+ 
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
++	feroceon_dummy_clock_out(jtag_info, ARMV4_5_T_NOP);
++	feroceon_dummy_clock_out(jtag_info, ARMV4_5_T_NOP);
++	feroceon_dummy_clock_out(jtag_info, ARMV4_5_T_NOP);
++
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_STR(0, 0), 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+@@ -139,10 +194,10 @@
+ 
+ 	/*
+ 	 * fix program counter:
+-	 * MOV R0, PC was the 10th instruction (+18)
++	 * MOV R0, PC was the 7th instruction (+12)
+ 	 * reading PC in Thumb state gives address of instruction + 4
+ 	 */
+-	*pc -= 22;
++	*pc -= (12 + 4);
+ }
+ 
+ void feroceon_read_core_regs(target_t *target, u32 mask, u32* core_regs[16])
+@@ -314,9 +369,7 @@
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_B(0xfffff9, 0), 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 1);
+ 
+-	/* need BYPASS before RESTART */
+-	jtag_add_end_state(TAP_RTI);
+-	arm_jtag_set_instr(jtag_info, 0xf, NULL);
++	arm7_9-&gt;need_bypass_before_restart = 1;
+ }
+ 
+ void feroceon_branch_resume_thumb(target_t *target)
+@@ -329,28 +382,21 @@
+ 	u32 r0 = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[0].value, 0, 32);
+ 	u32 pc = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32);
+ 
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_LDMIA(0, 0x8000, 0, 0), 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, pc &amp; ~3, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+ 
++	arm9tdmi_clock_out(jtag_info, 0xE28F0001, 0, NULL, 0); // add r0,pc,#1
++	arm9tdmi_clock_out(jtag_info, ARMV4_5_BX(0), 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+ 
+-	arm9tdmi_clock_out(jtag_info, 0xE28F0001, 0, NULL, 0); /* add r0,r15,#1 */
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_BX(0), 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 0);
+-	
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_LDMIA(0, 1), 0, NULL, 0);
++	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_LDMIA(0, 0x1), 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+-	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, r0, NULL, 0);
++ 
++	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, pc, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 0);
+ 
+@@ -358,9 +404,7 @@
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_B(0x7e9 + pc), 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_T_NOP, 0, NULL, 1);
+ 
+-	/* need BYPASS before RESTART */
+-	jtag_add_end_state(TAP_RTI);
+-	arm_jtag_set_instr(jtag_info, 0xf, NULL);
++	arm7_9-&gt;need_bypass_before_restart = 1;
+ }
+ 
+ int feroceon_read_cp15(target_t *target, u32 op1, u32 op2, u32 CRn, u32 CRm, u32 *value)
+@@ -404,6 +448,16 @@
+ 	return arm7_9_execute_sys_speed(target);
+ }
+ 
++void feroceon_set_dbgrq(target_t *target)
++{
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	reg_t *dbg_ctrl = &amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_DBG_CTRL];
++
++	buf_set_u32(dbg_ctrl-&gt;value, 0, 8, 2);
++	embeddedice_store_reg(dbg_ctrl);
++}
++
+ void feroceon_enable_single_step(target_t *target)
+ {
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+@@ -627,8 +681,10 @@
+ 	arm926ejs-&gt;read_cp15 = feroceon_read_cp15;
+ 	arm926ejs-&gt;write_cp15 = feroceon_write_cp15;
+ 
+-	/* asserting DBGRQ won't win over the undef exception */
+-	arm7_9-&gt;use_dbgrq = 0;
++	/* Note: asserting DBGRQ might not win over the undef exception.
++	   If that happens then just use &quot;arm7_9 dbgrq disable&quot;. */
++	arm7_9-&gt;use_dbgrq = 1;
++	arm7_9-&gt;set_special_dbgrq = feroceon_set_dbgrq;
+ 
+ 	/* only one working comparator */
+ 	arm7_9-&gt;wp_available = 1; 
+Index: src/target/arm7_9_common.c
+===================================================================
+--- src/target/arm7_9_common.c	(revision 703)
++++ src/target/arm7_9_common.c	(working copy)
+@@ -559,6 +559,10 @@
+ 				
+ 	/* set RESTART instruction */
+ 	jtag_add_end_state(TAP_RTI);
++	if (arm7_9-&gt;need_bypass_before_restart) {
++		arm7_9-&gt;need_bypass_before_restart = 0;
++		arm_jtag_set_instr(jtag_info, 0xf, NULL);
++	}
+ 	arm_jtag_set_instr(jtag_info, 0x4, NULL);
+ 	
+ 	for (timeout=0; timeout&lt;50; timeout++)
+@@ -593,6 +597,10 @@
+ 				
+ 	/* set RESTART instruction */
+ 	jtag_add_end_state(TAP_RTI);
++	if (arm7_9-&gt;need_bypass_before_restart) {
++		arm7_9-&gt;need_bypass_before_restart = 0;
++		arm_jtag_set_instr(jtag_info, 0xf, NULL);
++	}
+ 	arm_jtag_set_instr(jtag_info, 0x4, NULL);
+ 	
+ 	if (!set)
+@@ -984,8 +992,12 @@
+ 	{
+ 		/* program EmbeddedICE Debug Control Register to assert DBGRQ
+ 		 */
+-		buf_set_u32(dbg_ctrl-&gt;value, EICE_DBG_CONTROL_DBGRQ, 1, 1);	
+-		embeddedice_store_reg(dbg_ctrl);
++		if (arm7_9-&gt;set_special_dbgrq) {
++			arm7_9-&gt;set_special_dbgrq(target);
++		} else {
++			buf_set_u32(dbg_ctrl-&gt;value, EICE_DBG_CONTROL_DBGRQ, 1, 1);	
++			embeddedice_store_reg(dbg_ctrl);
++		}
+ 	}
+ 	else
+ 	{
+@@ -1388,6 +1400,10 @@
+ 	
+ 	/* set RESTART instruction */
+ 	jtag_add_end_state(TAP_RTI);
++	if (arm7_9-&gt;need_bypass_before_restart) {
++		arm7_9-&gt;need_bypass_before_restart = 0;
++		arm_jtag_set_instr(jtag_info, 0xf, NULL);
++	}
+ 	arm_jtag_set_instr(jtag_info, 0x4, NULL);
+ 	
+ 	jtag_add_runtest(1, TAP_RTI);
+Index: src/target/arm7_9_common.h
+===================================================================
+--- src/target/arm7_9_common.h	(revision 703)
++++ src/target/arm7_9_common.h	(working copy)
+@@ -46,6 +46,7 @@
+ 	int force_hw_bkpts;
+ 	int dbgreq_adjust_pc;
+ 	int use_dbgrq;
++	int need_bypass_before_restart;
+ 	
+ 	etm_context_t *etm_ctx;
+ 	
+@@ -87,6 +88,8 @@
+ 	void (*enable_single_step)(target_t *target);
+ 	void (*disable_single_step)(target_t *target);
+ 	
++	void (*set_special_dbgrq)(target_t *target);
++
+ 	void (*pre_debug_entry)(target_t *target);
+ 	void (*post_debug_entry)(target_t *target);
+ 	
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002230.html">[Openocd-development] Patch: Flase erase 20% speed improvmenton	STR9x
+</A></li>
+	<LI>Next message: <A HREF="002232.html">[Openocd-development] [PATCH] Feroceon fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2231">[ date ]</a>
+              <a href="thread.html#2231">[ thread ]</a>
+              <a href="subject.html#2231">[ subject ]</a>
+              <a href="author.html#2231">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%27flash%20write_image%27%20and%20%27verify_image%27%0A%09commands%20fail%20if%20there%20are%20no%20more%20hardware%20breakpoints%20available&In-Reply-To=%3Cc09652430807310417m28445b11h95611251160bf876%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002831.html">
+   <LINK REL="Next"  HREF="002833.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%27flash%20write_image%27%20and%20%27verify_image%27%0A%09commands%20fail%20if%20there%20are%20no%20more%20hardware%20breakpoints%20available&In-Reply-To=%3Cc09652430807310417m28445b11h95611251160bf876%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Jul 31 13:17:59 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002831.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+        <LI>Next message: <A HREF="002833.html">[Openocd-development] 'flash write_image' and 'verify_image' commands fail if there are no more hardware breakpoints available
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2832">[ date ]</a>
+              <a href="thread.html#2832">[ thread ]</a>
+              <a href="subject.html#2832">[ subject ]</a>
+              <a href="author.html#2832">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, Jul 31, 2008 at 1:06 PM, Dario Vecchio &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dariovecchio at tiscali.it</A>&gt; wrote:
+&gt;&gt;<i> You could define a few step/breakpoint commands in tcl that has this
+</I>&gt;&gt;<i> functionality. The existing functions would then be the low level
+</I>&gt;&gt;<i> implementation
+</I>&gt;&gt;<i> of hardware/software breakpoints.
+</I>&gt;<i>
+</I>&gt;<i> with the &quot;breakpoints list/save/restore&quot; patch one can use a similar script:
+</I>
+I'd like to see this implemented as a tcl api proc.
+
+Are you interested in having a stab at it?
+
+The things you are contributing requires/ties very nicely into the scripting
+work being done and I think you'll find that your changes will become
+much more elegant using scripting.
+
+&gt;&gt;<i> How do you propose to deal with this from a users point of view?
+</I>&gt;<i>
+</I>&gt;<i> The first issue for users (like me) is to be aware of risks and problems.
+</I>&gt;<i> When a user execute:
+</I>&gt;<i>
+</I>&gt;&gt;<i> load_image zero.img 0x50000000 bin
+</I>&gt;<i>
+</I>&gt;<i> 256 byte written at address 0x50000000
+</I>&gt;<i> downloaded 256 byte in 0.015625s
+</I>&gt;<i>
+</I>&gt;<i> openocd says everything is ok but is not (not always) true.
+</I>
+If the operation failed, then it should report an error. Otherwise I'd just say
+that the code is broken. Error codes do not always propagate properly
+in the older openocd code.
+
+In this case I'm wondering if you have found a bug in the error handling for
+running algorithms when there are no free breakpoints.
+
+&gt;<i> Some idea can be:
+</I>&gt;<i>
+</I>&gt;<i> - In the default scripts add a comment like &quot;this area is reserved for the
+</I>&gt;<i>  debugger and should not be used by the application&quot;
+</I>
+Is anyone going to read that comment?
+
+&gt;<i> - Set 'backup' as default
+</I>
+That's slow and unecessary often.
+
+&gt;<i> - In the default scripts set a 'working_area' at the end of internal SRAM
+</I>&gt;<i>  (where is the stack? where is the heap?)
+</I>
+I don't think there is such a thing as the &quot;right&quot; place to put the
+working_area...
+is there?
+
+&gt;<i> - chek overlapping of 'working_area' and image load in the load_image
+</I>&gt;<i> implementation (this should be easy and mandatory)
+</I>
+hmm... sounds like a reasonable idea, though I'd try to push the
+error handling into target_write_buffer(). Have to be careful to allow
+writing to the working area as well though.
+
+&gt;<i>  - if possible, allocate the 'working_area' needed for the algorithm outside
+</I>&gt;<i>   of the loading image space (but inside the 'working_area' defined in the
+</I>&gt;<i> config file)
+</I>&gt;<i>  - if not enough space (e.g. the loading image space completely overlaps the
+</I>&gt;<i>   'working_area' defined in the config file) give an error and do not load
+</I>&gt;<i>   or load without dcc (or at least tell the user to disable dcc)
+</I>
+I would like to see a robust solution: it's code path should be easy
+to implement
+and easy to test(i.e. exercised often). If we put an error message in some code
+path that hardly ever happens, then the error message is probably not going to
+work when the user eventually needs it...
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002831.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+	<LI>Next message: <A HREF="002833.html">[Openocd-development] 'flash write_image' and 'verify_image' commands fail if there are no more hardware breakpoints available
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2832">[ date ]</a>
+              <a href="thread.html#2832">[ thread ]</a>
+              <a href="subject.html#2832">[ subject ]</a>
+              <a href="author.html#2832">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

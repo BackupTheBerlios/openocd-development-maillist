@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/3] CortexA8: Introduce Freescale	i.MX51 variant
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20CortexA8%3A%20Introduce%20Freescale%0A%09i.MX51%20variant&In-Reply-To=%3C1288315061-23319-2-git-send-email-marek.vasut%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016848.html">
+   <LINK REL="Next"  HREF="016849.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/3] CortexA8: Introduce Freescale	i.MX51 variant</H1>
+    <B>Marek Vasut</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20CortexA8%3A%20Introduce%20Freescale%0A%09i.MX51%20variant&In-Reply-To=%3C1288315061-23319-2-git-send-email-marek.vasut%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/3] CortexA8: Introduce Freescale	i.MX51 variant">marek.vasut at gmail.com
+       </A><BR>
+    <I>Fri Oct 29 03:17:40 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016848.html">[Openocd-development] [PATCH 1/3] CortexA8: Setup debug_base	according to variant
+</A></li>
+        <LI>Next message: <A HREF="016849.html">[Openocd-development] [PATCH 3/3] Add EfikaMX smarttop board support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16850">[ date ]</a>
+              <a href="thread.html#16850">[ thread ]</a>
+              <a href="subject.html#16850">[ subject ]</a>
+              <a href="author.html#16850">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch introduces support for Cortex A8 based Freescale i.MX51 CPU. This CPU
+has the Debug Access Port located at a different address (0x60008000) than TI
+OMAP3 series of CPUs.
+
+i.MX51 configuration file based on OMAP3 configuration file and an email from
+Alan Carvalho de Assis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">acassis at gmail.com</A>&gt;.
+
+Signed-off-by: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marek.vasut at gmail.com</A>&gt;
+---
+ src/target/cortex_a8.c |    7 ++++-
+ tcl/target/imx51.cfg   |   52 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 57 insertions(+), 2 deletions(-)
+ create mode 100644 tcl/target/imx51.cfg
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 64b78bd..3fe9c4b 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -73,7 +73,8 @@ static int cortex_a8_get_ttb(struct target *target, uint32_t *result);
+  */
+ #define swjdp_memoryap 0
+ #define swjdp_debugap 1
+-#define OMAP3530_DEBUG_BASE 0x54011000
++#define OMAP3530_DEBUG_BASE	0x54011000
++#define IMX51_DEBUG_BASE	0x60008000
+ 
+ /*
+  * Cortex-A8 Basic debug access, very low level assumes state is saved
+@@ -1719,7 +1720,9 @@ static int cortex_a8_examine_first(struct target *target)
+ 	LOG_DEBUG(&quot;TODO - autoconfigure&quot;);
+ 
+ 	/* Here we shall insert a proper ROM Table scan */
+-	if (strcmp(target-&gt;variant, &quot;amdm37x&quot;) == 0)
++	if (strcmp(target-&gt;variant, &quot;imx51&quot;) == 0)
++		armv7a-&gt;debug_base = IMX51_DEBUG_BASE;
++	else if (strcmp(target-&gt;variant, &quot;amdm37x&quot;) == 0)
+ 		armv7a-&gt;debug_base = OMAP3530_DEBUG_BASE;
+ 	else if (strcmp(target-&gt;variant, &quot;omap3530&quot;) == 0)
+ 		armv7a-&gt;debug_base = OMAP3530_DEBUG_BASE;
+diff --git a/tcl/target/imx51.cfg b/tcl/target/imx51.cfg
+new file mode 100644
+index 0000000..35d8a2c
+--- /dev/null
++++ b/tcl/target/imx51.cfg
+@@ -0,0 +1,52 @@
++# Freescale i.MX51
++
++if { [info exists CHIPNAME] } {
++   set  _CHIPNAME $CHIPNAME
++} else {
++   set  _CHIPNAME imx51
++}
++
++# CoreSight Debug Access Port
++if { [info exists DAP_TAPID ] } {
++   set _DAP_TAPID $DAP_TAPID
++} else {
++   set _DAP_TAPID 0x1ba00477
++}
++
++jtag newtap $_CHIPNAME DAP -irlen 4 -ircapture 0x1 -irmask 0xf \
++        -expected-id $_DAP_TAPID
++
++# SDMA / no IDCODE
++jtag newtap $_CHIPNAME SDMA -irlen 4 -ircapture 0x0 -irmask 0xf
++
++# SJC
++if { [info exists SJC_TAPID ] } {
++   set _SJC_TAPID SJC_TAPID
++} else {
++   set _SJC_TAPID 0x0190c01d
++}
++
++jtag newtap $_CHIPNAME SJC -irlen 5 -ircapture 0x1 -irmask 0x1f \
++        -expected-id $_SJC_TAPID -ignore-version
++
++# GDB target:  Cortex-A8, using DAP
++set _TARGETNAME $_CHIPNAME.cpu
++target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.DAP \
++	-variant imx51
++
++# some TCK tycles are required to activate the DEBUG power domain
++jtag configure $_CHIPNAME.SJC -event post-reset &quot;runtest 100&quot;
++
++# have the DAP &quot;always&quot; be active
++jtag configure $_CHIPNAME.SJC -event setup &quot;jtag tapenable $_CHIPNAME.DAP&quot;
++
++proc imx51_dbginit {target} {
++     # General Cortex A8 debug initialisation
++     cortex_a8 dbginit
++}
++
++# Slow speed to be sure it will work
++jtag_rclk 1000
++$_TARGETNAME configure -event &quot;reset-start&quot; { jtag_rclk 1000 }
++
++$_TARGETNAME configure -event reset-assert-post &quot;imx51_dbginit $_TARGETNAME&quot;
+-- 
+1.7.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016848.html">[Openocd-development] [PATCH 1/3] CortexA8: Setup debug_base	according to variant
+</A></li>
+	<LI>Next message: <A HREF="016849.html">[Openocd-development] [PATCH 3/3] Add EfikaMX smarttop board support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16850">[ date ]</a>
+              <a href="thread.html#16850">[ thread ]</a>
+              <a href="subject.html#16850">[ subject ]</a>
+              <a href="author.html#16850">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

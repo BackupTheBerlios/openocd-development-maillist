@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] committed - printf() warning fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20committed%20-%20printf%28%29%20warning%20fixes&In-Reply-To=%3C1D8FEAC4-B451-46E1-B03F-E0FC9965083D%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008272.html">
+   <LINK REL="Next"  HREF="008229.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] committed - printf() warning fixes</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20committed%20-%20printf%28%29%20warning%20fixes&In-Reply-To=%3C1D8FEAC4-B451-46E1-B03F-E0FC9965083D%40kc8apf.net%3E"
+       TITLE="[Openocd-development] committed - printf() warning fixes">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Sat Jun 20 22:19:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008272.html">[Openocd-development] committed - printf() warning fixes
+</A></li>
+        <LI>Next message: <A HREF="008229.html">[Openocd-development] [PATCH 0/2] Minor improvements in &quot;types.h&quot;.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8287">[ date ]</a>
+              <a href="thread.html#8287">[ thread ]</a>
+              <a href="subject.html#8287">[ subject ]</a>
+              <a href="author.html#8287">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+
+On Jun 20, 2009, at 6:16 AM, Duane Ellis wrote:
+
+&gt;<i> rick&gt;  For example, in your case:
+</I>&gt;<i>
+</I>&gt;<i> duane&gt;   uint32_t x;
+</I>&gt;<i> duane&gt;   void funny_function( uint32_t );
+</I>&gt;<i> duane&gt;
+</I>&gt;<i> duane&gt;  for( x = 0 ; x &lt; 10 ; x++ ){
+</I>&gt;<i> duane&gt;        printf(&quot; X = %d, Calling funny function\n&quot;, (int)(x));
+</I>&gt;<i> duane&gt;         funny_function( x ) ;
+</I>&gt;<i> duane&gt; }
+</I>&gt;<i>
+</I>&gt;<i> rick&gt; Casting to int is fine as long as int is 32-bits or greater.
+</I>&gt;<i>
+</I>&gt;<i> I assert that all OpenOCD hosts are:  at least 32bit basic machines,  
+</I>&gt;<i> they may be larger.
+</I>&gt;<i>
+</I>&gt;<i> =====
+</I>&gt;<i> snip
+</I>&gt;<i> =====
+</I>&gt;<i>
+</I>&gt;<i> rick&gt;  If you know that &quot;int&quot; has an appropriate data range for the  
+</I>&gt;<i> task, then (a) works.  But you would need to verify that.  You  
+</I>&gt;<i> should also leave a comment stating that such a verification was  
+</I>&gt;<i> done (and the date).  If you chose uint32_t just for convenience,  
+</I>&gt;<i> then it doesn't matter much, but you are guaranteed that using the  
+</I>&gt;<i> C99 printf macro will avoid any potential truncation issues.
+</I>&gt;<i>
+</I>&gt;<i> I assert (a) OpenOCD requires that all host basic integer types are  
+</I>&gt;<i> at least 32bits *AND*
+</I>
+I assert OpenOCD is a portable code base and such assumptions about  
+data types are invalid.
+
+&gt;<i> I assert (b) the following example is *self*evident* and does not  
+</I>&gt;<i> require a &quot;verification comment with date&quot;
+</I>&gt;<i>
+</I>&gt;<i>   uint32_t    foo;
+</I>&gt;<i>   printf(&quot;  The value we care about here is:   %d\n&quot;,   (int)( foo &amp;  
+</I>&gt;<i> 0x0ff  ) );
+</I>&gt;<i>
+</I>&gt;<i> True or false?
+</I>
+In this limited case where a mask is used as part of the argument to  
+printf is fine since the data range is clearly expressed as part of  
+the printf.  Of course, the choice of uint32_t might have been poor to  
+begin with.  If the original data required between 17 and 32 bits then  
+uint32_t is appropriate. If the data was guaranteed to have a more  
+limited range (perhaps by the same mask), then using an int or  
+unsigned int to begin with would be more appropriate.  Remember, if  
+you use the correct data type for the range of values required, the  
+compiler has less work to do.  In this contrived case, the compiler  
+would need to do a 64-bit promotion on the argument if compiled on 64- 
+bit windows even though the data is guaranteed to be within the 8bit  
+range.  Either a cast to unsigned char and %hhu or a cast to uint8_t  
+and PRIu8 is more appropriate.
+
+&gt;<i> (One could have used 'unsigned int' and '%u' instead).
+</I>&gt;<i>
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> duane&gt; Here, under OpenOCD we generally:
+</I>&gt;<i> duane&gt; (1) assume that all embedded openocd targets are *32bit* at  
+</I>&gt;<i> most...
+</I>&gt;<i>
+</I>&gt;<i> rick&gt;  This is a bad assumption since it limits us from supporting  
+</I>&gt;<i> various DSPs.
+</I>&gt;<i>
+</I>&gt;<i> To fix this, requires that we introduce a &quot;CORE_ADDR&quot; type - much  
+</I>&gt;<i> like GDB has internally, but in a far more complex way. Remember:  
+</I>&gt;<i> OpenOCD is 'target agnostic' - ie: Pic32 - is built in - same as ARM  
+</I>&gt;<i> - same as Future64Bit - thus CORE_ADDR will be a complex dynamic  
+</I>&gt;<i> type with specialized addition and subtraction routines, that are  
+</I>&gt;<i> &quot;current target aware&quot; for example:
+</I>
+
+If doesn't _need_ to be that complex.  You can simply choose a large  
+enough data type to encapsulate the largest target address size.  That  
+should be hidden behind a typedef, however, so it can be changed  
+later.  Then each target is responsible for validating the target  
+address range when committing it to the hardware.  In practice this  
+works reasonably well. (Yes, I've done exactly this for tools that  
+analyze data from various bitwidth architectures)
+
+&gt;<i>
+</I>&gt;<i>   CORE_ADDR   target_address;
+</I>&gt;<i>   target_addr +=  1;  //  illegal
+</I>&gt;<i>   CORE_ADDR_add( &amp;target_addr, 1 ); // allowed
+</I>&gt;<i>
+</I>&gt;<i> It becomes more complex when/where the target has a *true* Harvard  
+</I>&gt;<i> architecture, and/or non-linear escoterica memory
+</I>&gt;<i> (while *ARM* is generally Harvard, the majority of implementations  
+</I>&gt;<i> make that go away)
+</I>&gt;<i>
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> duane&gt; (2) assume all host platforms are at least 32bit host platforms
+</I>&gt;<i>
+</I>&gt;<i> rick&gt;  Limits us from using 16-bit processors.  Not necessarily a  
+</I>&gt;<i> problem, but a potentially unnecessary limitation.
+</I>&gt;<i>
+</I>&gt;<i> This line of reasoning is a red-herring.
+</I>&gt;<i>
+</I>
+No, it's assuming portability rather than a specific set of  
+architectures.  If someone wants to run OpenOCD on a 16-bit processor,  
+it should still work unless we happened to have introduced bugs in our  
+use of the type system.  By using the C99 types and printf macros, it  
+doesn't matter what the underlying size of 'int' is, uint32_t will  
+always be 32-bits.
+
+&gt;<i> ===
+</I>&gt;<i>
+</I>&gt;<i> duane  4) In most, if not all of the &quot;u32&quot; cases, the format string
+</I>&gt;<i> duane&gt; specifies &quot;%08x&quot; or equal.
+</I>&gt;<i>
+</I>&gt;<i> rick&gt; And that is horribly wrong for &quot;u32&quot;.  %x will change size  
+</I>&gt;<i> between 32-bit and 64-bit windows versions since &quot;int&quot; changes size.
+</I>&gt;<i>
+</I>&gt;<i> I agree it is *WRONG* when the value represents a &quot;TARGET_CORE_ADDR&quot;  
+</I>&gt;<i> type. But this has *NOTHING* to do with the
+</I>&gt;<i>
+</I>&gt;<i> But otherwise it does not.
+</I>&gt;<i>
+</I>&gt;<i> For example: A target 32bit value (perhaps the contents of memory)  
+</I>&gt;<i> the resulting value will never take on any value larger then 32bits  
+</I>&gt;<i> on the host. Thus, any host side calculation must be performed with  
+</I>&gt;<i> host type of least 32bits *UNTIL* the sufficiently interesting  
+</I>&gt;<i> component of that value has been extracted.
+</I>&gt;<i>
+</I>&gt;<i> At that point, the author of the code may choose to use any other  
+</I>&gt;<i> sufficiently wide enough variable type to hold &quot;the interesting  
+</I>&gt;<i> component&quot;.
+</I>&gt;<i>
+</I>&gt;<i> I again assert all openocd hosts are at least 32bit (or larger)  
+</I>&gt;<i> basic machines. Thus, I assert that a host side cast to &quot;int&quot; or  
+</I>&gt;<i> &quot;unsigned int&quot; is at least a 32bit value and in many cases is  
+</I>&gt;<i> sufficient for the majority of printf() like values,  
+</I>&gt;<i> TARGET_CORE_ADDR - the exception.
+</I>&gt;<i>
+</I>
+As I've pointed out time and time again, 'int' is not guaranteed to be  
+of any particular size.  Assuming otherwise limits portability for no  
+reason.  If you need a 32-bit value, use the data type guaranteed to  
+give you 32-bits regardless of platform.  'int' is generally something  
+to avoid unless you really don't care what type it is.  That is  
+limited to cases such as loops over small integer values (e.g. 0 to  
+10) which will fit in the smallest C data type.  The author of a piece  
+of code can always choose to use a larger type than strictly  
+necessary, but that doesn't mean they should choose a type that can be  
+any size.
+
+
+
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090620/a03a5059/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20090620/a03a5059/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008272.html">[Openocd-development] committed - printf() warning fixes
+</A></li>
+	<LI>Next message: <A HREF="008229.html">[Openocd-development] [PATCH 0/2] Minor improvements in &quot;types.h&quot;.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8287">[ date ]</a>
+              <a href="thread.html#8287">[ thread ]</a>
+              <a href="subject.html#8287">[ subject ]</a>
+              <a href="author.html#8287">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

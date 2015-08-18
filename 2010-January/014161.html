@@ -1,0 +1,228 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] ARM7/ARM9: improved reset support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM7/ARM9%3A%20improved%20reset%20support&In-Reply-To=%3C201001140007.55435.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014160.html">
+   <LINK REL="Next"  HREF="014164.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] ARM7/ARM9: improved reset support</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM7/ARM9%3A%20improved%20reset%20support&In-Reply-To=%3C201001140007.55435.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] ARM7/ARM9: improved reset support">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Jan 14 09:07:55 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014160.html">[Openocd-development] Adding support for SST 39VF6401B external	flash
+</A></li>
+        <LI>Next message: <A HREF="014164.html">[Openocd-development] [patch] ARM7/ARM9: improved reset support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14161">[ date ]</a>
+              <a href="thread.html#14161">[ thread ]</a>
+              <a href="subject.html#14161">[ subject ]</a>
+              <a href="author.html#14161">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Teach most remaining ARM cores how to use the &quot;reset-assert&quot; event.
+
+Same model as elsewhere:  iff a handler is provided for that event,
+use that instead of trying to assert SRST (which may be unavailable);
+else this code is a NOP.
+
+Shrink some overlong lines.  Add my 2009 copyright.
+---
+This is a bit borderline, but I'm inclined to commit for 0.4 anyway.
+Comments?
+
+It could be argued to be a new feature for ARM7/ARM9 ... or a bugfix,
+since all the other ARM cores currently can be reset without SRST
+(given an appropriate reset-assert event handler).  Either way it's
+a NOP unless you try to use this feature.
+
+Sorry I didn't merge this a long time back (patch hasn't changed in
+months, except for some comment tweaks) but the initial tests on a
+platform with severe reset problems didn't go well, and I've not
+touched a sanely-behaved ARM9 since then.
+
+ src/target/arm7_9_common.c |   88 +++++++++++++++++++++++++++----------------
+ 1 file changed, 57 insertions(+), 31 deletions(-)
+
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -11,6 +11,8 @@
+  *   Copyright (C) 2008 by Hongtao Zheng                                   *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">hontor at 126.com</A>                                                        *
+  *                                                                         *
++ *   Copyright (C) 2009 by David Brownell                                  *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -941,19 +943,21 @@ int arm7_9_poll(struct target *target)
+ int arm7_9_assert_reset(struct target *target)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
++	bool use_event = false;
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		  target_state_name(target));
+ 
+-	enum reset_types jtag_reset_config = jtag_get_reset_config();
+-	if (!(jtag_reset_config &amp; RESET_HAS_SRST))
+-	{
+-		LOG_ERROR(&quot;Can't assert SRST&quot;);
++	if (target_has_event_action(target, TARGET_EVENT_RESET_ASSERT))
++		use_event = true;
++	else if (!(jtag_reset_config &amp; RESET_HAS_SRST)) {
++		LOG_ERROR(&quot;%s: how to reset?&quot;, target_name(target));
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	/* At this point trst has been asserted/deasserted once. We would
+-	 * like to program EmbeddedICE while SRST is asserted, instead of
++	/* At this point trst has been asserted/deasserted once. We might
++	 * be able program EmbeddedICE while SRST is asserted, instead of
+ 	 * depending on SRST to leave that module alone.  However, many CPUs
+ 	 * gate the JTAG clock while SRST is asserted; or JTAG may need
+ 	 * clock stability guarantees (adaptive clocking might help).
+@@ -963,7 +967,8 @@ int arm7_9_assert_reset(struct target *t
+ 	 */
+ 	bool srst_asserted = false;
+ 
+-	if (((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) == 0)
++	if (!use_event
++			&amp;&amp; !(jtag_reset_config &amp; RESET_SRST_PULLS_TRST)
+ 			&amp;&amp; (jtag_reset_config &amp; RESET_SRST_NO_GATING))
+ 	{
+ 		jtag_add_reset(0, 1);
+@@ -973,48 +978,69 @@ int arm7_9_assert_reset(struct target *t
+ 	if (target-&gt;reset_halt)
+ 	{
+ 		/*
+-		 * Some targets do not support communication while SRST is asserted. We need to
+-		 * set up the reset vector catch here.
++		 * For targets that don't support communication while SRST is
++		 * asserted, we need to set up the reset vector catch first.
+ 		 *
+-		 * If TRST is asserted, then these settings will be reset anyway, so setting them
+-		 * here is harmless.
++		 * When we use TRST+SRST and that's equivalent to a power-up
++		 * reset, these settings may well be reset anyway; so setting
++		 * them here won't matter.
+ 		 */
+ 		if (arm7_9-&gt;has_vector_catch)
+ 		{
+-			/* program vector catch register to catch reset vector */
+-			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_VEC_CATCH], 0x1);
++			/* program vector catch register to catch reset */
++			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache
++					-&gt;reg_list[EICE_VEC_CATCH], 0x1);
+ 
+-			/* extra runtest added as issues were found with certain ARM9 cores (maybe more) - AT91SAM9260 and STR9 */
++			/* extra runtest added as issues were found with
++			 * certain ARM9 cores (maybe more) - AT91SAM9260
++			 * and STR9
++			 */
+ 			jtag_add_runtest(1, jtag_get_end_state());
+ 		}
+ 		else
+ 		{
+-			/* program watchpoint unit to match on reset vector address */
+-			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_ADDR_VALUE], 0x0);
+-			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_ADDR_MASK], 0x3);
+-			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_DATA_MASK], 0xffffffff);
+-			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_VALUE], EICE_W_CTRL_ENABLE);
+-			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_MASK], ~EICE_W_CTRL_nOPC &amp; 0xff);
++			/* program watchpoint unit to match on reset vector
++			 * address
++			 */
++			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache
++					-&gt;reg_list[EICE_W0_ADDR_VALUE], 0x0);
++			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache
++					-&gt;reg_list[EICE_W0_ADDR_MASK], 0x3);
++			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache
++					-&gt;reg_list[EICE_W0_DATA_MASK],
++						0xffffffff);
++			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache
++					-&gt;reg_list[EICE_W0_CONTROL_VALUE],
++						EICE_W_CTRL_ENABLE);
++			embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache
++					-&gt;reg_list[EICE_W0_CONTROL_MASK],
++						~EICE_W_CTRL_nOPC &amp; 0xff);
+ 		}
+ 	}
+ 
+-	/* here we should issue an SRST only, but we may have to assert TRST as well */
+-	if (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)
+-	{
+-		jtag_add_reset(1, 1);
+-	} else if (!srst_asserted)
+-	{
+-		jtag_add_reset(0, 1);
++	if (use_event) {
++		target_handle_event(target, TARGET_EVENT_RESET_ASSERT);
++	} else {
++		/* If we use SRST ... we'd like to issue just SRST, but the
++		 * board or chip may be set up so we have to assert TRST as
++		 * well.  On some chips that combination is equivalent to a
++		 * power-up reset, and generally clobbers EICE state.
++		 */
++		if (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)
++			jtag_add_reset(1, 1);
++		else if (!srst_asserted)
++			jtag_add_reset(0, 1);
++		jtag_add_sleep(50000);
+ 	}
+ 
+ 	target-&gt;state = TARGET_RESET;
+-	jtag_add_sleep(50000);
+-
+ 	register_cache_invalidate(arm7_9-&gt;armv4_5_common.core_cache);
+ 
+-	if ((target-&gt;reset_halt) &amp;&amp; ((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) == 0))
++	if (target-&gt;reset_halt
++			&amp;&amp; (!(jtag_reset_config &amp; RESET_SRST_PULLS_TRST)
++				|| use_event))
+ 	{
+-		/* debug entry was already prepared in arm7_9_assert_reset() */
++		/* debug entry was prepared above */
+ 		target-&gt;debug_reason = DBG_REASON_DBGRQ;
+ 	}
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014160.html">[Openocd-development] Adding support for SST 39VF6401B external	flash
+</A></li>
+	<LI>Next message: <A HREF="014164.html">[Openocd-development] [patch] ARM7/ARM9: improved reset support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14161">[ date ]</a>
+              <a href="thread.html#14161">[ thread ]</a>
+              <a href="subject.html#14161">[ subject ]</a>
+              <a href="author.html#14161">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

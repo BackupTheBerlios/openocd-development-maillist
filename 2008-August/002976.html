@@ -1,0 +1,121 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development]  Adding new cable to openocd
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%20Adding%20new%20cable%20to%20openocd&In-Reply-To=%3C26ce20080808200347l75c5c273sba972b6c198271b7%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002985.html">
+   <LINK REL="Next"  HREF="002977.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development]  Adding new cable to openocd</H1>
+    <B>Bart Bilos</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%20Adding%20new%20cable%20to%20openocd&In-Reply-To=%3C26ce20080808200347l75c5c273sba972b6c198271b7%40mail.gmail.com%3E"
+       TITLE="[Openocd-development]  Adding new cable to openocd">squantmuts at gmail.com
+       </A><BR>
+    <I>Wed Aug 20 12:47:36 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002985.html">[Openocd-development] should validation of jtag chain be	compulsory?
+</A></li>
+        <LI>Next message: <A HREF="002977.html">[Openocd-development] [PATCH] jim - NVP additions -
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2976">[ date ]</a>
+              <a href="thread.html#2976">[ thread ]</a>
+              <a href="subject.html#2976">[ subject ]</a>
+              <a href="author.html#2976">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello all,
+
+Well I have gotten a bit further and discovered the problem. It when
+moving from state with TMS, not all bits should be used. In my case
+the move TMS of 0x7F was the culprit, the last 0 was shifted out while
+that was invalid, shifting all the IDcodes of the chips by one. Why do
+you have to shift out only 7 bits instead of 8?
+
+Now that the IDcode is correct I get the following problem:
+$ ~/openocd-svn/trunk/src/openocd.exe -f com21_openocd_yajtag.cfg
+Open On-Chip Debugger 1.0 (2008-08-18-20:59) svn:
+$URL: <A HREF="svn://svn.berlios.de/openocd/trunk/src/openocd.c">svn://svn.berlios.de/openocd/trunk/src/openocd.c</A> $
+jtag_speed: 0
+Info:    yajtag_init succesful
+Info:   yajtag_execute_queue JTAG_STATEMOVE end in 0
+Info:   yajtag_jtag_write_tms 7f
+Info:   yajtag_execute_queue JTAG_SCAN
+Info:   yajtag_jtag_write_tms 17
+Info:   done yajtag_jtag_write_and_read size 640
+Info:   yajtag_jtag_write_tms 7f
+Info:   JTAG device found: 0x10900027 (Manufacturer: 0x013, Part:
+0x0900, Version: 0x1)
+Info:   JTAG device found: 0x10940027 (Manufacturer: 0x013, Part:
+0x0940, Version: 0x1)
+Info:   yajtag_execute_queue JTAG_SCAN
+Info:   yajtag_jtag_write_tms 1b
+Info:   done yajtag_jtag_write_and_read size 10
+Info:   yajtag_jtag_write_tms 7f
+Info:   yajtag_execute_queue JTAG_SCAN
+Info:   yajtag_jtag_write_tms 1b
+Info:   done yajtag_jtag_write_and_read size 8
+Info:   yajtag_jtag_write_tms 30
+Warning:value captured during scan didn't pass the requested check:
+captured: 0x00 check_value: 0x01 check_mask: 0x0f
+Warning:in_handler reported a failed check
+Warning:no tcl port specified, using default port 6666
+
+The IDcode matches now, and i dont get any errors of:
+Error:  Error validating JTAG scan chain, IR mismatch, scan returned 0x03ff
+but now the last warning.
+The JTAG statemachine moves to Test Logic Reset state with the TMS set
+to 0x7F (MSB ignored), tms pattern 1111111
+Then the JTAG statemachine moves to the Shift IR state with the TMS
+set to 0x1B (MSB ignored), tms pattern 0011011
+But then a command is given to move with TMS pattern 30, this pattern
+is nowhere found in the state change table!
+Anyone got a idea?
+
+u8 tap_move[6][6] =
+{
+/*	  TLR   RTI   SD    PD    SI    PI             */
+	{0x7f, 0x00, 0x17, 0x0a, 0x1b, 0x16},	/* TLR */
+	{0x7f, 0x00, 0x25, 0x05, 0x2b, 0x0b},	/* RTI */
+	{0x7f, 0x31, 0x00, 0x01, 0x0f, 0x2f},	/* SD  */
+	{0x7f, 0x30, 0x20, 0x17, 0x1e, 0x2f},	/* PD  */
+	{0x7f, 0x31, 0x07, 0x17, 0x00, 0x01},	/* SI No pattern 0x30!!! */
+	{0x7f, 0x30, 0x1c, 0x17, 0x20, 0x2f}	/* PI  */
+};
+
+With kind regards, Anton Bart Bilos
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002985.html">[Openocd-development] should validation of jtag chain be	compulsory?
+</A></li>
+	<LI>Next message: <A HREF="002977.html">[Openocd-development] [PATCH] jim - NVP additions -
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2976">[ date ]</a>
+              <a href="thread.html#2976">[ thread ]</a>
+              <a href="subject.html#2976">[ subject ]</a>
+              <a href="author.html#2976">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

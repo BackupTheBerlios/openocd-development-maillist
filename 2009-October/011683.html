@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/3] fix Thumb mode handling when single-stepping register based branch insns
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20fix%20Thumb%20mode%20handling%20when%0A%20single-stepping%20register%20based%20branch%20insns&In-Reply-To=%3C1256620474-27702-4-git-send-email-nico%40fluxnic.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011689.html">
+   <LINK REL="Next"  HREF="011690.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/3] fix Thumb mode handling when single-stepping register based branch insns</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20fix%20Thumb%20mode%20handling%20when%0A%20single-stepping%20register%20based%20branch%20insns&In-Reply-To=%3C1256620474-27702-4-git-send-email-nico%40fluxnic.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/3] fix Thumb mode handling when single-stepping register based branch insns">nico at fluxnic.net
+       </A><BR>
+    <I>Tue Oct 27 06:14:34 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011689.html">[Openocd-development] [PATCH 2/3] allow proper single stepping	of Thumb BL and BLX instructions
+</A></li>
+        <LI>Next message: <A HREF="011690.html">[Openocd-development] [PATCH 0/3] more fixes to Thumb mode	single stepping
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11683">[ date ]</a>
+              <a href="thread.html#11683">[ thread ]</a>
+              <a href="subject.html#11683">[ subject ]</a>
+              <a href="author.html#11683">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Currently, OpenOCD is always caching the PC value without the T bit.
+This means that assignment to the PC register must clear that bit and set
+the processor state to Thumb when it is set.  And when the PC register
+value is transferred to another register or stored into memory then
+the T bit must be restored.
+
+Discussion: It is arguable if OpenOCd should have preserved the original
+PC value which would have greatly simplified this code.  The processor
+state could then be obtained simply by getting at bit 0 of the PC.  This
+however would require special handling elsewhere instead since the T bit
+is not always relevant (like when PC is used with ALU insns or as an index
+with some addressing modes).  It is unclear which way would be simpler in
+the end.
+
+Signed-off-by: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">nico at marvell.com</A>&gt;
+---
+ src/target/arm_simulator.c |   55 ++++++++++++++++++++++++++-----------------
+ 1 files changed, 33 insertions(+), 22 deletions(-)
+
+diff --git a/src/target/arm_simulator.c b/src/target/arm_simulator.c
+index 5af2c12..c50a52c 100644
+--- a/src/target/arm_simulator.c
++++ b/src/target/arm_simulator.c
+@@ -380,7 +380,8 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			else if (instruction.type == ARM_BL)
+ 			{
+ 				uint32_t old_pc = sim-&gt;get_reg(sim, 15);
+-				sim-&gt;set_reg_mode(sim, 14, old_pc + 4);
++				int T = (sim-&gt;get_state(sim) == ARMV4_5_STATE_THUMB);
++				sim-&gt;set_reg_mode(sim, 14, old_pc + 4 + T);
+ 				sim-&gt;set_reg(sim, 15, target);
+ 			}
+ 			else if (instruction.type == ARM_BX)
+@@ -398,7 +399,8 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			else if (instruction.type == ARM_BLX)
+ 			{
+ 				uint32_t old_pc = sim-&gt;get_reg(sim, 15);
+-				sim-&gt;set_reg_mode(sim, 14, old_pc + 4);
++				int T = (sim-&gt;get_state(sim) == ARMV4_5_STATE_THUMB);
++				sim-&gt;set_reg_mode(sim, 14, old_pc + 4 + T);
+ 
+ 				if (target &amp; 0x1)
+ 				{
+@@ -465,24 +467,24 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 		if (dry_run_pc)
+ 		{
+ 			if (instruction.info.data_proc.Rd == 15)
+-			{
+-				*dry_run_pc = Rd;
+-				return ERROR_OK;
+-			}
++				*dry_run_pc = Rd &amp; ~1;
+ 			else
+-			{
+ 				*dry_run_pc = current_pc + instruction_size;
+-			}
+ 
+ 			return ERROR_OK;
+ 		}
+ 		else
+ 		{
++			if (instruction.info.data_proc.Rd == 15) {
++				sim-&gt;set_reg_mode(sim, 15, Rd &amp; ~1);
++				if (Rd &amp; 1)
++					sim-&gt;set_state(sim, ARMV4_5_STATE_THUMB);
++				else
++					sim-&gt;set_state(sim, ARMV4_5_STATE_ARM);
++				return ERROR_OK;
++			}
+ 			sim-&gt;set_reg_mode(sim, instruction.info.data_proc.Rd, Rd);
+ 			LOG_WARNING(&quot;no updating of flags yet&quot;);
+-
+-			if (instruction.info.data_proc.Rd == 15)
+-				return ERROR_OK;
+ 		}
+ 	}
+ 	/* compare instructions (CMP, CMN, TST, TEQ) */
+@@ -566,15 +568,9 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 		if (dry_run_pc)
+ 		{
+ 			if (instruction.info.load_store.Rd == 15)
+-			{
+-				*dry_run_pc = load_value;
+-				return ERROR_OK;
+-			}
++				*dry_run_pc = load_value &amp; ~1;
+ 			else
+-			{
+ 				*dry_run_pc = current_pc + instruction_size;
+-			}
+-
+ 			return ERROR_OK;
+ 		}
+ 		else
+@@ -584,10 +580,16 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			{
+ 				sim-&gt;set_reg_mode(sim, instruction.info.load_store.Rn, modified_address);
+ 			}
+-			sim-&gt;set_reg_mode(sim, instruction.info.load_store.Rd, load_value);
+ 
+-			if (instruction.info.load_store.Rd == 15)
++			if (instruction.info.load_store.Rd == 15) {
++				sim-&gt;set_reg_mode(sim, 15, load_value &amp; ~1);
++				if (load_value &amp; 1)
++					sim-&gt;set_state(sim, ARMV4_5_STATE_THUMB);
++				else
++					sim-&gt;set_state(sim, ARMV4_5_STATE_ARM);
+ 				return ERROR_OK;
++			}
++			sim-&gt;set_reg_mode(sim, instruction.info.load_store.Rd, load_value);
+ 		}
+ 	}
+ 	/* load multiple instruction */
+@@ -636,7 +638,7 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 		{
+ 			if (instruction.info.load_store_multiple.register_list &amp; 0x8000)
+ 			{
+-				*dry_run_pc = load_values[15];
++				*dry_run_pc = load_values[15] &amp; ~1;
+ 				return ERROR_OK;
+ 			}
+ 		}
+@@ -657,7 +659,16 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			{
+ 				if (instruction.info.load_store_multiple.register_list &amp; (1 &lt;&lt; i))
+ 				{
+-					sim-&gt;set_reg_mode(sim, i, load_values[i]);
++					if (i == 15) {
++						uint32_t val = load_values[i];
++					sim-&gt;set_reg_mode(sim, i, val &amp; ~1);
++					if (val &amp; 1)
++						sim-&gt;set_state(sim, ARMV4_5_STATE_THUMB);
++					else
++						sim-&gt;set_state(sim, ARMV4_5_STATE_ARM);
++					} else {
++						sim-&gt;set_reg_mode(sim, i, load_values[i]);
++					}
+ 				}
+ 			}
+ 
+-- 
+1.6.5.1.101.g325e5
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011689.html">[Openocd-development] [PATCH 2/3] allow proper single stepping	of Thumb BL and BLX instructions
+</A></li>
+	<LI>Next message: <A HREF="011690.html">[Openocd-development] [PATCH 0/3] more fixes to Thumb mode	single stepping
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11683">[ date ]</a>
+              <a href="thread.html#11683">[ thread ]</a>
+              <a href="subject.html#11683">[ subject ]</a>
+              <a href="author.html#11683">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

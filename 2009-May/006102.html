@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Add minimalist Cortex A8 file
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20minimalist%20Cortex%20A8%20file&In-Reply-To=%3C4A005697.2080603%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006088.html">
+   <LINK REL="Next"  HREF="006103.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Add minimalist Cortex A8 file</H1>
+    <B>Strontium</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Add%20minimalist%20Cortex%20A8%20file&In-Reply-To=%3C4A005697.2080603%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] Add minimalist Cortex A8 file">strntydog at gmail.com
+       </A><BR>
+    <I>Tue May  5 17:09:11 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006088.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+        <LI>Next message: <A HREF="006103.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6102">[ date ]</a>
+              <a href="thread.html#6102">[ thread ]</a>
+              <a href="subject.html#6102">[ subject ]</a>
+              <a href="author.html#6102">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Ok,
+
+I am trying to make the files described below.  And have gotten  along 
+fine, but have found the following problem.
+
+The first time my script executes after a reset of the beagle:
+
+dap apsel 1
+
+openocd halts with an error, thus: (at -d 3)
+
+Fails:
+
+Debug: 166 1139 arm_adi_v5.c:242 swjdp_transaction_endcheck(): swjdp: 
+CTRL/STAT error 0x20
+Debug: 167 1139 arm_adi_v5.c:951 ahbap_debugport_init(): 
+Debug: 168 1146 arm_adi_v5.c:996 ahbap_debugport_init(): AHB-AP ID 
+Register 0x4770002, Debug ROM Address 0x80000000
+User : 169 1146 command.c:383 command_print(): ap 1 selected, 
+identification register 0x00000000
+Debug: 170 1146 command.c:427 run_command(): Command failed with error 
+code -107
+
+The second time I execute:
+
+dap apsel 1
+
+it works, thus (also at - d 3):
+
+Works:
+
+Debug: 163 1134 command.c:91 script_command(): script_command - apsel
+Debug: 164 1134 command.c:108 script_command(): script_command - apsel, 
+argv[0]=ocd_dap_apsel
+Debug: 165 1134 command.c:108 script_command(): script_command - apsel, 
+argv[1]=1
+User : 166 1139 command.c:383 command_print(): ap 1 selected, 
+identification register 0x04770002
+
+I have tracked the fault to the processing that follows (lines 239 to 
+247 of arm_adi_v5.c:
+
+    /* Check for STICKYERR and STICKYORUN */
+    if (ctrlstat &amp; (SSTICKYORUN | SSTICKYERR))
+    {
+        LOG_DEBUG(&quot;swjdp: CTRL/STAT error 0x%x&quot;, ctrlstat);
+        /* Check power to debug regions */
+        if ((ctrlstat &amp; 0xf0000000) != 0xf0000000)
+        {
+             ahbap_debugport_init(swjdp);
+
+That is the path it executes.  If I change this code by simply returning 
+the status of the ahbap_debugport_init(... command, openocd doesnt 
+halt.  but it prints the following (which is clearly still wrong):
+
+Debug: 166 1134 arm_adi_v5.c:242 swjdp_transaction_endcheck(): swjdp: 
+CTRL/STAT error 0x20
+Debug: 167 1134 arm_adi_v5.c:951 ahbap_debugport_init(): 
+Debug: 168 1143 arm_adi_v5.c:996 ahbap_debugport_init(): AHB-AP ID 
+Register 0x4770002, Debug ROM Address 0x80000000
+User : 169 1143 command.c:383 command_print(): ap 1 selected, 
+identification register 0x00000000
+
+I then immediately execute dap apsel 1 again, which returns with the 
+expected result
+
+Debug: 177 2143 command.c:91 script_command(): script_command - apsel
+Debug: 178 2143 command.c:108 script_command(): script_command - apsel, 
+argv[0]=ocd_dap_apsel
+Debug: 179 2143 command.c:108 script_command(): script_command - apsel, 
+argv[1]=1
+User : 180 2150 command.c:383 command_print(): ap 1 selected, 
+identification register 0x04770002
+
+So it would appear that the ahbap_debugport_init function is working 
+correctly, its just that its results do not get out, so that dap apsel 1 
+reports a correct result, the first time it is called.
+
+any ideas?
+
+Attached are my config script and tcl script for reference
+
+Strontium
+
+Magnus Lundin wrote:
+&gt;<i> Dirk Behme wrote:
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Btw.: Is there an option or a possibility to run a script when I 
+</I>&gt;&gt;<i> connect e.g. by telnet?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I'm a little tired to always type the commands
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> jtag tapenable omap3.cpu
+</I>&gt;&gt;<i> target create omap3.cpu cortex_a8 -endian little -chain-position 
+</I>&gt;&gt;<i> omap3.cpu
+</I>&gt;&gt;<i> dap apsel 1
+</I>&gt;&gt;<i> omap3.cpu mww 0x54011FB0 0xC5ACCE55 4
+</I>&gt;&gt;<i> omap3.cpu mdw 0x54011314
+</I>&gt;&gt;<i> omap3.cpu mdw 0x54011314
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> manually.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>     
+</I>&gt;<i> Yes, we will put this in the target support but for now I suggest to use 
+</I>&gt;<i> a Tcl script.
+</I>&gt;<i> [ This is  true, but not tested ]
+</I>&gt;<i> - create a file   omap.tcl
+</I>&gt;<i> - put  &quot;source [ &lt;path.../&gt;omap.tcl&quot; in your cfg file
+</I>&gt;<i>
+</I>&gt;<i> Now define some handy procedures in the omap.tcl file:
+</I>&gt;<i>
+</I>&gt;<i> proc dbginit { } {
+</I>&gt;<i>      dap apsel 1
+</I>&gt;<i>      omap3.cpu mww 0x54011FB0 0xC5ACCE55 4
+</I>&gt;<i>      omap3.cpu mdw 0x54011314
+</I>&gt;<i>      omap3.cpu mdw 0x54011314
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> Now just giving the command  dbginit should do the trick.
+</I>&gt;<i> If you edit the script you can rerun the source command without 
+</I>&gt;<i> restarting openocd
+</I>&gt;<i>
+</I>&gt;<i> Then we can collect Tcl procedures for different debug activities before 
+</I>&gt;<i> we code into the C, we can actually test a large part of the A8 and OMAP 
+</I>&gt;<i> support just with tcl scripts.
+</I>&gt;<i>  
+</I>&gt;<i> Regards,
+</I>&gt;<i> Magnus
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: omap.tcl
+Type: text/x-tcl
+Size: 376 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090505/f0bf69a1/attachment.tcl">https://lists.berlios.de/pipermail/openocd-development/attachments/20090505/f0bf69a1/attachment.tcl</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: openocd.cfg
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090505/f0bf69a1/attachment.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20090505/f0bf69a1/attachment.ksh</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006088.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+	<LI>Next message: <A HREF="006103.html">[Openocd-development] [PATCH] Add minimalist Cortex A8 file
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6102">[ date ]</a>
+              <a href="thread.html#6102">[ thread ]</a>
+              <a href="subject.html#6102">[ subject ]</a>
+              <a href="author.html#6102">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

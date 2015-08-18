@@ -1,0 +1,708 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] LPC2888 New driver patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20LPC2888%20New%20driver%20patch&In-Reply-To=%3C200804210903.07949.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001936.html">
+   <LINK REL="Next"  HREF="001938.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] LPC2888 New driver patch</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20LPC2888%20New%20driver%20patch&In-Reply-To=%3C200804210903.07949.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] LPC2888 New driver patch">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Mon Apr 21 09:03:07 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001936.html">[Openocd-development] LPC2888 New driver patch
+</A></li>
+        <LI>Next message: <A HREF="001938.html">[Openocd-development] LPC2888 New driver patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1937">[ date ]</a>
+              <a href="thread.html#1937">[ thread ]</a>
+              <a href="subject.html#1937">[ subject ]</a>
+              <a href="author.html#1937">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Karl,
+
+On Sunday 20 April 2008 12:25:18 Karl RobinSod wrote:
+&gt;<i> Well, svn doesn't seem to like to diff files that aren't in it's repository
+</I>
+Hum, did you try to add the file to SVN before making the diff? Usually this 
+should work just fine. Anyway, it's no big problem.
+
+&gt;<i> * You need to unprotect flash sectors each time you connect the OpenOCD
+</I>&gt;<i> * Dumping 1MB takes about 60 Seconds
+</I>&gt;<i> * 1MB erase (sectors 0-22 inclusive) takes 2-4 seconds
+</I>&gt;<i> * Writing 1MB takes 88 seconds
+</I>
+Sounds good :). Maybe this can be tweaked a bit by using a target algorithm, 
+but it's a good start the way it is.
+
+&gt;<i> Im not too happy with the way I write to the targets memory in
+</I>&gt;<i> lpc288x_write() perhaps one of the Gurus can help?
+</I>
+target_write_buffer would be &quot;right&quot;, unless you require guaranteed access 
+widths (e.g. 32-bit writes). Maybe &#216;yvind can comment on this, he made some 
+changes to the memory write routines in the last months.
+
+Best regards,
+
+Dominic
+
+&gt;<i> A small patch to include the driver
+</I>&gt;<i>
+</I>&gt;<i> Index: src/flash/flash.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/flash/flash.c   (revision 588)
+</I>&gt;<i> +++ src/flash/flash.c   (working copy)
+</I>&gt;<i> @@ -70,6 +70,7 @@
+</I>&gt;<i>  extern flash_driver_t stm32x_flash;
+</I>&gt;<i>  extern flash_driver_t tms470_flash;
+</I>&gt;<i>  extern flash_driver_t ecosflash_flash;
+</I>&gt;<i> +extern flash_driver_t lpc288x_flash;
+</I>&gt;<i>
+</I>&gt;<i>  flash_driver_t *flash_drivers[] =
+</I>&gt;<i>  {
+</I>&gt;<i> @@ -83,6 +84,7 @@
+</I>&gt;<i>         &amp;stm32x_flash,
+</I>&gt;<i>         &amp;tms470_flash,
+</I>&gt;<i>         &amp;ecosflash_flash,
+</I>&gt;<i> +       &amp;lpc288x_flash,
+</I>&gt;<i>         NULL,
+</I>&gt;<i>  };
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> And the driver files ....
+</I>&gt;<i>
+</I>&gt;<i> src/flash/lpc288x.h
+</I>&gt;<i> ===================================================================
+</I>&gt;<i>
+</I>&gt;<i> #ifndef lpc288x_H
+</I>&gt;<i> #define lpc288x_H
+</I>&gt;<i>
+</I>&gt;<i> #include &quot;flash.h&quot;
+</I>&gt;<i> #include &quot;target.h&quot;
+</I>&gt;<i>
+</I>&gt;<i> typedef struct lpc288x_flash_bank_s
+</I>&gt;<i> {
+</I>&gt;<i>     u32 working_area;
+</I>&gt;<i>     u32 working_area_size;
+</I>&gt;<i>
+</I>&gt;<i>     /* chip id register */
+</I>&gt;<i>     u32 cidr;
+</I>&gt;<i>     char * target_name;
+</I>&gt;<i>     u32 cclk;
+</I>&gt;<i>
+</I>&gt;<i>     u32 sector_size_break;
+</I>&gt;<i> } lpc288x_flash_bank_t;
+</I>&gt;<i>
+</I>&gt;<i> #endif /* lpc288x_H */
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> src/flash/lpc288x.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> /**************************************************************************
+</I>&gt;<i>* * There are some things to notice
+</I>&gt;<i> *
+</I>&gt;<i> * You need to unprotect flash sectors each time you connect the OpenOCD
+</I>&gt;<i> * Dumping 1MB takes about 60 Seconds
+</I>&gt;<i> * Full erase (sectors 0-22 inclusive) takes 2-4 seconds
+</I>&gt;<i> * Writing 1MB takes 88 seconds
+</I>&gt;<i> *
+</I>&gt;<i> 
+</I>&gt;<i> ***************************************************************************
+</I>&gt;<i>/ #ifdef HAVE_CONFIG_H
+</I>&gt;<i> #include &quot;config.h&quot;
+</I>&gt;<i> #endif
+</I>&gt;<i>
+</I>&gt;<i> #include &quot;replacements.h&quot;
+</I>&gt;<i>
+</I>&gt;<i> #include &quot;lpc288x.h&quot;
+</I>&gt;<i>
+</I>&gt;<i> #include &quot;flash.h&quot;
+</I>&gt;<i> #include &quot;target.h&quot;
+</I>&gt;<i> #include &quot;log.h&quot;
+</I>&gt;<i> #include &quot;binarybuffer.h&quot;
+</I>&gt;<i> #include &quot;types.h&quot;
+</I>&gt;<i>
+</I>&gt;<i> #include &lt;stdlib.h&gt;
+</I>&gt;<i> #include &lt;string.h&gt;
+</I>&gt;<i> #include &lt;unistd.h&gt;
+</I>&gt;<i>
+</I>&gt;<i> #define LOAD_TIMER_ERASE    0
+</I>&gt;<i> #define LOAD_TIMER_WRITE    1
+</I>&gt;<i>
+</I>&gt;<i> #define FLASH_PAGE_SIZE     512
+</I>&gt;<i>
+</I>&gt;<i> /* LPC288X control registers */
+</I>&gt;<i> #define DBGU_CIDR     0x8000507C
+</I>&gt;<i> /* LPC288X flash registers */
+</I>&gt;<i> #define F_CTRL         0x80102000  /* Flash control register R/W 0x5 */
+</I>&gt;<i> #define F_STAT         0x80102004  /* Flash status register RO 0x45 */
+</I>&gt;<i> #define F_PROG_TIME 0x80102008  /* Flash program time register R/W 0 */
+</I>&gt;<i> #define F_WAIT         0x80102010  /* Flash read wait state register R/W
+</I>&gt;<i> 0xC004 */
+</I>&gt;<i> #define F_CLK_TIME     0x8010201C     /* Flash clock divider for 66 kHz
+</I>&gt;<i> generation R/W 0 */
+</I>&gt;<i> #define F_INTEN_CLR 0x80102FD8     /* Clear interrupt enable bits WO - */
+</I>&gt;<i> #define F_INTEN_SET 0x80102FDC  /* Set interrupt enable bits WO - */
+</I>&gt;<i> #define F_INT_STAT  0x80102FE0  /* Interrupt status bits RO 0 */
+</I>&gt;<i> #define F_INTEN     0x80102FE4    /* Interrupt enable bits RO 0 */
+</I>&gt;<i> #define F_INT_CLR     0x80102FE8  /* Clear interrupt status bits WO */
+</I>&gt;<i> #define F_INT_SET     0x80102FEC  /* Set interrupt status bits WO - */
+</I>&gt;<i> #define FLASH_PD     0x80005030  /* Allows turning off the Flash memory for
+</I>&gt;<i> power savings. R/W 1*/
+</I>&gt;<i> #define FLASH_INIT     0x80005034  /* Monitors Flash readiness, such as
+</I>&gt;<i> recovery from Power Down mode. R/W -*/
+</I>&gt;<i>
+</I>&gt;<i> /* F_CTRL bits */
+</I>&gt;<i> #define FC_CS         0x0001
+</I>&gt;<i> #define FC_FUNC     0x0002
+</I>&gt;<i> #define FC_WEN         0x0004
+</I>&gt;<i> #define FC_RD_LATCH 0x0020
+</I>&gt;<i> #define FC_PROTECT    0x0080
+</I>&gt;<i> #define FC_SET_DATA 0x0400
+</I>&gt;<i> #define FC_RSSL     0x0800
+</I>&gt;<i> #define FC_PROG_REQ 0x1000
+</I>&gt;<i> #define FC_CLR_BUF  0x4000
+</I>&gt;<i> #define FC_LOAD_REQ 0x8000
+</I>&gt;<i> /* F_STAT bits */
+</I>&gt;<i> #define FS_DONE     0x0001
+</I>&gt;<i> #define FS_PROGGNT     0x0002
+</I>&gt;<i> #define FS_RDY         0x0004
+</I>&gt;<i> #define FS_ERR         0x0020
+</I>&gt;<i> /* F_PROG_TIME */
+</I>&gt;<i> #define FPT_TIME_MASK    0x7FFF
+</I>&gt;<i>
+</I>&gt;<i> #define FPT_ENABLE         0x8000
+</I>&gt;<i> /* F_WAIT */
+</I>&gt;<i> #define FW_WAIT_STATES_MASK    0x00FF
+</I>&gt;<i> #define FW_SET_MASK            0xC000
+</I>&gt;<i>
+</I>&gt;<i> /* F_CLK_TIME */
+</I>&gt;<i> #define FCT_CLK_DIV_MASK    0x0FFF
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_register_commands(struct command_context_s *cmd_ctx);
+</I>&gt;<i> int lpc288x_flash_bank_command(struct command_context_s *cmd_ctx, char
+</I>&gt;<i> *cmd, char **args, int argc, struct flash_bank_s *bank);
+</I>&gt;<i> int lpc288x_erase(struct flash_bank_s *bank, int first, int last);
+</I>&gt;<i> int lpc288x_protect(struct flash_bank_s *bank, int set, int first, int
+</I>&gt;<i> last);
+</I>&gt;<i> int lpc288x_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32
+</I>&gt;<i> count);
+</I>&gt;<i> int lpc288x_probe(struct flash_bank_s *bank);
+</I>&gt;<i> int lpc288x_auto_probe(struct flash_bank_s *bank);
+</I>&gt;<i> int lpc288x_erase_check(struct flash_bank_s *bank);
+</I>&gt;<i> int lpc288x_protect_check(struct flash_bank_s *bank);
+</I>&gt;<i> int lpc288x_info(struct flash_bank_s *bank, char *buf, int buf_size);
+</I>&gt;<i> void lpc288x_set_flash_mode(flash_bank_t *bank, u8 flashplane, int mode);
+</I>&gt;<i> u32 lpc288x_wait_status_busy(flash_bank_t *bank, int timeout);
+</I>&gt;<i> void lpc288x_load_timer(int erase, struct target_s *target);
+</I>&gt;<i> void lpc288x_set_flash_clk(struct flash_bank_s *bank);
+</I>&gt;<i> u32 lpc288x_system_ready(struct flash_bank_s *bank);
+</I>&gt;<i> int lpc288x_handle_part_id_command(struct command_context_s *cmd_ctx, char
+</I>&gt;<i> *cmd, char **args, int argc);
+</I>&gt;<i>
+</I>&gt;<i> flash_driver_t lpc288x_flash =
+</I>&gt;<i> {
+</I>&gt;<i>     .name = &quot;lpc288x&quot;,
+</I>&gt;<i>     .register_commands = lpc288x_register_commands,
+</I>&gt;<i>     .flash_bank_command = lpc288x_flash_bank_command,
+</I>&gt;<i>     .erase = lpc288x_erase,
+</I>&gt;<i>     .protect = lpc288x_protect,
+</I>&gt;<i>     .write = lpc288x_write,
+</I>&gt;<i>     .probe = lpc288x_probe,
+</I>&gt;<i>     .auto_probe = lpc288x_probe,
+</I>&gt;<i>     .erase_check = lpc288x_erase_check,
+</I>&gt;<i>     .protect_check = lpc288x_protect_check,
+</I>&gt;<i>     .info = lpc288x_info
+</I>&gt;<i> };
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_register_commands(struct command_context_s *cmd_ctx)
+</I>&gt;<i> {
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> u32 lpc288x_wait_status_busy(flash_bank_t *bank, int timeout)
+</I>&gt;<i> {
+</I>&gt;<i>     u32 status;
+</I>&gt;<i>     target_t *target = bank-&gt;target;
+</I>&gt;<i>     do
+</I>&gt;<i>     {
+</I>&gt;<i>         usleep(1000);
+</I>&gt;<i>         timeout--;
+</I>&gt;<i>         target_read_u32(target, F_STAT, &amp;status);
+</I>&gt;<i>     }while (((status &amp; FS_DONE) == 0) &amp;&amp; timeout);
+</I>&gt;<i>
+</I>&gt;<i>     if(timeout == 0)
+</I>&gt;<i>     {
+</I>&gt;<i>         LOG_DEBUG(&quot;Timedout!&quot;);
+</I>&gt;<i>         return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>     }
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> /* Read device id register and fill in driver info structure */
+</I>&gt;<i> int lpc288x_read_part_info(struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i>     lpc288x_flash_bank_t *lpc288x_info = bank-&gt;driver_priv;
+</I>&gt;<i>     target_t *target = bank-&gt;target;
+</I>&gt;<i>     u32 cidr, status;
+</I>&gt;<i>     int sectornum;
+</I>&gt;<i>
+</I>&gt;<i>     int i = 0;
+</I>&gt;<i>     u32 offset;
+</I>&gt;<i>
+</I>&gt;<i>     if (lpc288x_info-&gt;cidr == 0x0102100A)
+</I>&gt;<i>         return ERROR_OK; /* already probed, multiple probes may cause
+</I>&gt;<i> memory leak, not allowed */
+</I>&gt;<i>
+</I>&gt;<i>     /* Read and parse chip identification register */
+</I>&gt;<i>     target_read_u32(target, DBGU_CIDR, &amp;cidr);
+</I>&gt;<i>
+</I>&gt;<i>     if (cidr != 0x0102100A)
+</I>&gt;<i>     {
+</I>&gt;<i>         LOG_WARNING(&quot;Cannot identify target as an LPC288X (%08X)&quot;,cidr);
+</I>&gt;<i>         return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     lpc288x_info-&gt;cidr                 = cidr;
+</I>&gt;<i>     lpc288x_info-&gt;sector_size_break = 0x000F0000;
+</I>&gt;<i>     lpc288x_info-&gt;target_name         = &quot;LPC288x&quot;;
+</I>&gt;<i>
+</I>&gt;<i>     /* setup the sector info... */
+</I>&gt;<i>     offset = bank-&gt;base;
+</I>&gt;<i>     bank-&gt;num_sectors = 23;
+</I>&gt;<i>     bank-&gt;sectors = malloc(sizeof(flash_sector_t) * 23);
+</I>&gt;<i>
+</I>&gt;<i>     for (i = 0; i &lt; 15; i++)
+</I>&gt;<i>     {
+</I>&gt;<i>         bank-&gt;sectors[i].offset = offset;
+</I>&gt;<i>         bank-&gt;sectors[i].size = 64 * 1024;
+</I>&gt;<i>         offset += bank-&gt;sectors[i].size;
+</I>&gt;<i>         bank-&gt;sectors[i].is_erased = -1;
+</I>&gt;<i>         bank-&gt;sectors[i].is_protected = 1;
+</I>&gt;<i>     }
+</I>&gt;<i>     for (i = 15; i &lt; 23; i++)
+</I>&gt;<i>     {
+</I>&gt;<i>         bank-&gt;sectors[i].offset = offset;
+</I>&gt;<i>         bank-&gt;sectors[i].size = 8 * 1024;
+</I>&gt;<i>         offset += bank-&gt;sectors[i].size;
+</I>&gt;<i>         bank-&gt;sectors[i].is_erased = -1;
+</I>&gt;<i>         bank-&gt;sectors[i].is_protected = 1;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_protect_check(struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> /* flash_bank LPC288x 0 0 0 0 &lt;target#&gt; &lt;cclk&gt;
+</I>&gt;<i>  */
+</I>&gt;<i> int lpc288x_flash_bank_command(struct command_context_s *cmd_ctx, char
+</I>&gt;<i> *cmd, char **args, int argc, struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i>     lpc288x_flash_bank_t *lpc288x_info;
+</I>&gt;<i>     int i;
+</I>&gt;<i>
+</I>&gt;<i>     if (argc &lt; 6)
+</I>&gt;<i>     {
+</I>&gt;<i>         LOG_WARNING(&quot;incomplete flash_bank LPC288x configuration&quot;);
+</I>&gt;<i>         return ERROR_FLASH_BANK_INVALID;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     lpc288x_info = malloc(sizeof(lpc288x_flash_bank_t));
+</I>&gt;<i>     bank-&gt;driver_priv = lpc288x_info;
+</I>&gt;<i>
+</I>&gt;<i>     /* part wasn't probed for info yet */
+</I>&gt;<i>     lpc288x_info-&gt;cidr = 0;
+</I>&gt;<i>     lpc288x_info-&gt;cclk = strtoul(args[6], NULL, 0);
+</I>&gt;<i>
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> /*
+</I>&gt;<i> The frequency is the AHB clock frequency divided by (CLK_DIV &#215;
+</I>&gt;<i> 3) + 1. This must be programmed such that the Flash
+</I>&gt;<i> Programming clock frequency is 66 kHz &#177; 20%.
+</I>&gt;<i>     AHB = 12 MHz ?
+</I>&gt;<i>     12000000/66000 = 182
+</I>&gt;<i>     CLK_DIV = 60 ?
+</I>&gt;<i> */
+</I>&gt;<i> void lpc288x_set_flash_clk(struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i>     u32 clk_time;
+</I>&gt;<i>     lpc288x_flash_bank_t *lpc288x_info = bank-&gt;driver_priv;
+</I>&gt;<i>     clk_time = (lpc288x_info-&gt;cclk / 66000) / 3;
+</I>&gt;<i>     target_write_u32(bank-&gt;target, F_CTRL, FC_CS | FC_WEN );
+</I>&gt;<i>     target_write_u32(bank-&gt;target, F_CLK_TIME, clk_time);
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> /*
+</I>&gt;<i> AHB tcyc (in ns) 83 ns
+</I>&gt;<i>
+</I>&gt;<i> LOAD_TIMER_ERASE    FPT_TIME     = ((400,000,000 / AHB tcyc (in ns)) - 2) /
+</I>&gt;<i> 512
+</I>&gt;<i>                                 = 9412 (9500) (AN10548 9375)
+</I>&gt;<i> LOAD_TIMER_WRITE    FPT_TIME     = ((1,000,000 / AHB tcyc (in ns)) - 2) /
+</I>&gt;<i> 512
+</I>&gt;<i>                                 = 23 (75) (AN10548 72 - is this wrong?)
+</I>&gt;<i>
+</I>&gt;<i> TODO: Sort out timing calcs ;)
+</I>&gt;<i> */
+</I>&gt;<i> void lpc288x_load_timer(int erase, struct target_s *target)
+</I>&gt;<i> {
+</I>&gt;<i>     if(erase == LOAD_TIMER_ERASE)
+</I>&gt;<i>     {
+</I>&gt;<i>         target_write_u32(target, F_PROG_TIME, FPT_ENABLE | 9500);
+</I>&gt;<i>     }
+</I>&gt;<i>     else
+</I>&gt;<i>     {
+</I>&gt;<i>         target_write_u32(target, F_PROG_TIME, FPT_ENABLE | 75);
+</I>&gt;<i>     }
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> u32 lpc288x_system_ready(struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i>     lpc288x_flash_bank_t *lpc288x_info = bank-&gt;driver_priv;
+</I>&gt;<i>     if (lpc288x_info-&gt;cidr == 0)
+</I>&gt;<i>     {
+</I>&gt;<i>         return ERROR_FLASH_BANK_NOT_PROBED;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     if (bank-&gt;target-&gt;state != TARGET_HALTED)
+</I>&gt;<i>     {
+</I>&gt;<i>         return ERROR_TARGET_NOT_HALTED;
+</I>&gt;<i>     }
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_erase_check(struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i>     u32 buffer, test_bytes;
+</I>&gt;<i>     u32 addr, sector, i, status = lpc288x_system_ready(bank);    /* probed?
+</I>&gt;<i> halted? */
+</I>&gt;<i>     if(status != ERROR_OK)
+</I>&gt;<i>     {
+</I>&gt;<i>         LOG_INFO(&quot;Processor not halted/not probed&quot;);
+</I>&gt;<i>         return status;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_erase(struct flash_bank_s *bank, int first, int last)
+</I>&gt;<i> {
+</I>&gt;<i>     u32 status;
+</I>&gt;<i>     int sector;
+</I>&gt;<i>     target_t *target = bank-&gt;target;
+</I>&gt;<i>
+</I>&gt;<i>     status = lpc288x_system_ready(bank);    /* probed? halted? */
+</I>&gt;<i>     if(status != ERROR_OK)
+</I>&gt;<i>     {
+</I>&gt;<i>         return status;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     if ((first &lt; 0) || (last &lt; first) || (last &gt;= bank-&gt;num_sectors))
+</I>&gt;<i>     {
+</I>&gt;<i>         LOG_INFO(&quot;Bad sector range&quot;);
+</I>&gt;<i>         return ERROR_FLASH_SECTOR_INVALID;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     /* Configure the flash controller timing */
+</I>&gt;<i>     lpc288x_set_flash_clk(bank);
+</I>&gt;<i>
+</I>&gt;<i>     for (sector = first; sector &lt;= last; sector++)
+</I>&gt;<i>     {
+</I>&gt;<i>         if (lpc288x_wait_status_busy(bank, 1000) != ERROR_OK)
+</I>&gt;<i>         {
+</I>&gt;<i>             return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>         }
+</I>&gt;<i>
+</I>&gt;<i>         lpc288x_load_timer(LOAD_TIMER_ERASE,target);
+</I>&gt;<i>
+</I>&gt;<i>         target_write_u32(    target,
+</I>&gt;<i>                             bank-&gt;sectors[sector].offset,
+</I>&gt;<i>                             0x00);
+</I>&gt;<i>
+</I>&gt;<i>         target_write_u32(    target,
+</I>&gt;<i>                             F_CTRL,
+</I>&gt;<i>                             FC_PROG_REQ |
+</I>&gt;<i>                             FC_PROTECT    |
+</I>&gt;<i>                             FC_CS);
+</I>&gt;<i>     }
+</I>&gt;<i>     if (lpc288x_wait_status_busy(bank, 1000) != ERROR_OK)
+</I>&gt;<i>     {
+</I>&gt;<i>         return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>     }
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i>
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32
+</I>&gt;<i> count)
+</I>&gt;<i> {
+</I>&gt;<i>     u8 page_buffer[FLASH_PAGE_SIZE];
+</I>&gt;<i>     u32 i, status, source_offset,dest_offset;
+</I>&gt;<i>     target_t *target = bank-&gt;target;
+</I>&gt;<i>     u32 bytes_remaining = count;
+</I>&gt;<i>     u32 first_sector, last_sector, sector, page;
+</I>&gt;<i>
+</I>&gt;<i>     /* probed? halted? */
+</I>&gt;<i>     status = lpc288x_system_ready(bank);
+</I>&gt;<i>     if(status != ERROR_OK)
+</I>&gt;<i>     {
+</I>&gt;<i>         return status;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     /* Initialise search indices */
+</I>&gt;<i>     first_sector = last_sector = 0xffffffff;
+</I>&gt;<i>
+</I>&gt;<i>     /* validate the write range... */
+</I>&gt;<i>     for(i = 0; i &lt; bank-&gt;num_sectors; i++)
+</I>&gt;<i>     {
+</I>&gt;<i>         if((offset &gt;= bank-&gt;sectors[i].offset) &amp;&amp;
+</I>&gt;<i>            (offset &lt; (bank-&gt;sectors[i].offset + bank-&gt;sectors[i].size)) &amp;&amp;
+</I>&gt;<i>            (first_sector == 0xffffffff))
+</I>&gt;<i>         {
+</I>&gt;<i>            first_sector = i;
+</I>&gt;<i>            /* all writes must start on a sector boundary...  */
+</I>&gt;<i>            if (offset % bank-&gt;sectors[i].size)
+</I>&gt;<i>            {
+</I>&gt;<i>                LOG_INFO(&quot;offset 0x%x breaks required alignment 0x%x&quot;,
+</I>&gt;<i> offset, bank-&gt;sectors[i].size);
+</I>&gt;<i>                return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+</I>&gt;<i>            }
+</I>&gt;<i>         }
+</I>&gt;<i>         if(((offset + count) &gt; bank-&gt;sectors[i].offset) &amp;&amp;
+</I>&gt;<i>            ((offset + count) &lt;= (bank-&gt;sectors[i].offset +
+</I>&gt;<i> bank-&gt;sectors[i].size)) &amp;&amp;
+</I>&gt;<i>            (last_sector == 0xffffffff))
+</I>&gt;<i>         {
+</I>&gt;<i>            last_sector = i;
+</I>&gt;<i>         }
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     /* Range check... */
+</I>&gt;<i>     if (first_sector == 0xffffffff || last_sector == 0xffffffff)
+</I>&gt;<i>     {
+</I>&gt;<i>           LOG_INFO(&quot;Range check failed %x %x&quot;, offset, count);
+</I>&gt;<i>         return ERROR_FLASH_DST_OUT_OF_BANK;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     /* Configure the flash controller timing */
+</I>&gt;<i>     lpc288x_set_flash_clk(bank);
+</I>&gt;<i>
+</I>&gt;<i>     /* initialise the offsets */
+</I>&gt;<i>     source_offset = 0;
+</I>&gt;<i>     dest_offset   = 0;
+</I>&gt;<i>
+</I>&gt;<i>     for (sector=first_sector; sector&lt;=last_sector; sector++)
+</I>&gt;<i>     {
+</I>&gt;<i>         for(page = 0; page &lt; bank-&gt;sectors[sector].size / FLASH_PAGE_SIZE;
+</I>&gt;<i> page++)
+</I>&gt;<i>         {
+</I>&gt;<i>             if(bytes_remaining == 0)
+</I>&gt;<i>             {
+</I>&gt;<i>                 count = 0;
+</I>&gt;<i>                 memset(page_buffer, 0xFF, FLASH_PAGE_SIZE);
+</I>&gt;<i>             }
+</I>&gt;<i>             else if (bytes_remaining &lt; FLASH_PAGE_SIZE)
+</I>&gt;<i>             {
+</I>&gt;<i>                 count = bytes_remaining;
+</I>&gt;<i>                 memset(page_buffer, 0xFF, FLASH_PAGE_SIZE);
+</I>&gt;<i>                 memcpy(page_buffer, &amp;buffer[source_offset], count);
+</I>&gt;<i>             }
+</I>&gt;<i>             else
+</I>&gt;<i>             {
+</I>&gt;<i>                 count = FLASH_PAGE_SIZE;
+</I>&gt;<i>                 memcpy(page_buffer, &amp;buffer[source_offset], count);
+</I>&gt;<i>             }
+</I>&gt;<i>
+</I>&gt;<i>             /* Wait for flash to become ready */
+</I>&gt;<i>             if (lpc288x_wait_status_busy(bank, 1000) != ERROR_OK)
+</I>&gt;<i>             {
+</I>&gt;<i>                 return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>             }
+</I>&gt;<i>
+</I>&gt;<i>             /* fill flash data latches with 1's */
+</I>&gt;<i>             target_write_u32(target,     F_CTRL,
+</I>&gt;<i>                                         FC_CS             |
+</I>&gt;<i>                                         FC_SET_DATA        |
+</I>&gt;<i>                                         FC_WEN            |
+</I>&gt;<i>                                         FC_FUNC    );
+</I>&gt;<i>
+</I>&gt;<i>             target_write_u32(target,     F_CTRL,
+</I>&gt;<i>                                         FC_CS             |
+</I>&gt;<i>                                         FC_WEN            |
+</I>&gt;<i>                                         FC_FUNC    );
+</I>&gt;<i>             /*would be better to use the clean target_write_buffer()
+</I>&gt;<i> interface but
+</I>&gt;<i>               it seems not to be a LOT slower....
+</I>&gt;<i>               bulk_write_memory() is no quicker :(*/
+</I>&gt;<i> #if 1
+</I>&gt;<i>             if (target-&gt;type-&gt;write_memory(target, offset + dest_offset, 4,
+</I>&gt;<i> 128, page_buffer) != ERROR_OK)
+</I>&gt;<i>             {
+</I>&gt;<i>                 LOG_ERROR(&quot;Write failed s %x p %x&quot;, sector, page);
+</I>&gt;<i>                 return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>             }
+</I>&gt;<i> #else
+</I>&gt;<i>             if(target_write_buffer(target, offset + dest_offset,
+</I>&gt;<i> FLASH_PAGE_SIZE, page_buffer) != ERROR_OK)
+</I>&gt;<i>             {
+</I>&gt;<i>                 LOG_INFO(&quot;Write to flash buffer failed&quot;);
+</I>&gt;<i>                 return ERROR_FLASH_OPERATION_FAILED;
+</I>&gt;<i>             }
+</I>&gt;<i> #endif
+</I>&gt;<i>             dest_offset       += FLASH_PAGE_SIZE;
+</I>&gt;<i>             source_offset    += count;
+</I>&gt;<i>             bytes_remaining -= count;
+</I>&gt;<i>
+</I>&gt;<i>             lpc288x_load_timer(LOAD_TIMER_WRITE, target);
+</I>&gt;<i>
+</I>&gt;<i>             target_write_u32(    target,
+</I>&gt;<i>                                 F_CTRL,
+</I>&gt;<i>                                 FC_PROG_REQ |
+</I>&gt;<i>                                 FC_PROTECT    |
+</I>&gt;<i>                                 FC_FUNC        |
+</I>&gt;<i>                                 FC_CS);
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>         }
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_probe(struct flash_bank_s *bank)
+</I>&gt;<i> {
+</I>&gt;<i>     /* we only deal with LPC2888 so flash config is fixed
+</I>&gt;<i>      */
+</I>&gt;<i>     lpc288x_flash_bank_t *lpc288x_info = bank-&gt;driver_priv;
+</I>&gt;<i>     int retval;
+</I>&gt;<i>
+</I>&gt;<i>     if (lpc288x_info-&gt;cidr != 0)
+</I>&gt;<i>     {
+</I>&gt;<i>         return ERROR_OK; /* already probed */
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     if (bank-&gt;target-&gt;state != TARGET_HALTED)
+</I>&gt;<i>     {
+</I>&gt;<i>         return ERROR_TARGET_NOT_HALTED;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     retval = lpc288x_read_part_info(bank);
+</I>&gt;<i>     if (retval != ERROR_OK)
+</I>&gt;<i>         return retval;
+</I>&gt;<i>
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_info(struct flash_bank_s *bank, char *buf, int buf_size)
+</I>&gt;<i> {
+</I>&gt;<i>     snprintf(buf, buf_size, &quot;lpc288x flash driver&quot;);
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> int lpc288x_protect(struct flash_bank_s *bank, int set, int first, int
+</I>&gt;<i> last) {
+</I>&gt;<i>     int lockregion, status;
+</I>&gt;<i>     u32 value;
+</I>&gt;<i>     target_t *target = bank-&gt;target;
+</I>&gt;<i>
+</I>&gt;<i>     /* probed? halted? */
+</I>&gt;<i>     status = lpc288x_system_ready(bank);
+</I>&gt;<i>     if(status != ERROR_OK)
+</I>&gt;<i>     {
+</I>&gt;<i>         return status;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     if ((first &lt; 0) || (last &lt; first) || (last &gt;= bank-&gt;num_sectors))
+</I>&gt;<i>     {
+</I>&gt;<i>         return ERROR_FLASH_SECTOR_INVALID;
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     /* Configure the flash controller timing */
+</I>&gt;<i>     lpc288x_set_flash_clk(bank);
+</I>&gt;<i>
+</I>&gt;<i>     for (lockregion = first; lockregion &lt;= last; lockregion++)
+</I>&gt;<i>     {
+</I>&gt;<i>         if(set)
+</I>&gt;<i>         {
+</I>&gt;<i>             /* write an odd value to base addy to protect... */
+</I>&gt;<i>             value = 0x01;
+</I>&gt;<i>         }
+</I>&gt;<i>         else
+</I>&gt;<i>         {
+</I>&gt;<i>             /* write an even value to base addy to unprotect... */
+</I>&gt;<i>             value = 0x00;
+</I>&gt;<i>         }
+</I>&gt;<i>         target_write_u32(    target,
+</I>&gt;<i>                             bank-&gt;sectors[lockregion].offset,
+</I>&gt;<i>                             value);
+</I>&gt;<i>
+</I>&gt;<i>         target_write_u32(    target,
+</I>&gt;<i>                             F_CTRL,
+</I>&gt;<i>                             FC_LOAD_REQ |
+</I>&gt;<i>                             FC_PROTECT    |
+</I>&gt;<i>                             FC_WEN        |
+</I>&gt;<i>                             FC_FUNC        |
+</I>&gt;<i>                             FC_CS);
+</I>&gt;<i>     }
+</I>&gt;<i>
+</I>&gt;<i>     return ERROR_OK;
+</I>&gt;<i> }
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001936.html">[Openocd-development] LPC2888 New driver patch
+</A></li>
+	<LI>Next message: <A HREF="001938.html">[Openocd-development] LPC2888 New driver patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1937">[ date ]</a>
+              <a href="thread.html#1937">[ thread ]</a>
+              <a href="subject.html#1937">[ subject ]</a>
+              <a href="author.html#1937">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

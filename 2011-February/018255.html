@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] jtag: add wait_srst_deassert	command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20jtag%3A%20add%20wait_srst_deassert%0A%09command&In-Reply-To=%3C1298559022-19808-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018259.html">
+   <LINK REL="Next"  HREF="018256.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] jtag: add wait_srst_deassert	command</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20jtag%3A%20add%20wait_srst_deassert%0A%09command&In-Reply-To=%3C1298559022-19808-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] jtag: add wait_srst_deassert	command">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Feb 24 15:50:21 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018259.html">[Openocd-development] [PATCH] ft2232: fix possible read buffer	overflow
+</A></li>
+        <LI>Next message: <A HREF="018256.html">[Openocd-development] [PATCH 2/2] log: debug level is between	silent and debug output levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18255">[ date ]</a>
+              <a href="thread.html#18255">[ thread ]</a>
+              <a href="subject.html#18255">[ subject ]</a>
+              <a href="author.html#18255">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Useful to do something *real quick* after a SRST deassert.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/jtag/tcl.c |   51 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 51 insertions(+), 0 deletions(-)
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 3e6074b..267802e 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -40,6 +40,8 @@
+ #include &lt;strings.h&gt;
+ #endif
+ 
++#include &lt;helper/time_support.h&gt;
++
+ /**
+  * @file
+  * Holds support for accessing JTAG-specific mechanisms from TCl scripts.
+@@ -1266,6 +1268,46 @@ COMMAND_HANDLER(handle_jtag_flush_queue_sleep)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(handle_wait_srst_deassert)
++{
++	if (CMD_ARGC != 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	int timeout_ms;
++	COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], timeout_ms);
++	if ((timeout_ms &lt;= 0) || (timeout_ms &gt; 100000))
++	{
++		LOG_ERROR(&quot;Timeout must be an integer between 0 and 100000&quot;);
++		return ERROR_FAIL;
++	}
++
++	LOG_USER(&quot;Waiting for srst assert + deassert for at most %dms&quot;, timeout_ms);
++	int asserted_yet;
++	long long then = timeval_ms();
++	while (jtag_srst_asserted(&amp;asserted_yet) == ERROR_OK)
++	{
++		if ((timeval_ms() - then) &gt; timeout_ms)
++		{
++			LOG_ERROR(&quot;Timed out&quot;);
++			return ERROR_FAIL;
++		}
++		if (asserted_yet)
++			break;
++	}
++	while (jtag_srst_asserted(&amp;asserted_yet) == ERROR_OK)
++	{
++		if ((timeval_ms() - then) &gt; timeout_ms)
++		{
++			LOG_ERROR(&quot;Timed out&quot;);
++			return ERROR_FAIL;
++		}
++		if (!asserted_yet)
++			break;
++	}
++
++	return ERROR_OK;
++}
++
+ 
+ 
+ static const struct command_registration jtag_command_handlers[] = {
+@@ -1358,6 +1400,15 @@ static const struct command_registration jtag_command_handlers[] = {
+ 		.usage = &quot;['short'|'long']&quot;,
+ 	},
+ 	{
++		.name = &quot;wait_srst_deassert&quot;,
++		.handler = handle_wait_srst_deassert,
++		.mode = COMMAND_ANY,
++		.help = &quot;Wait for an SRST deassert. &quot;
++			&quot;Useful for cases where you need something to happen within ms &quot;
++			&quot;of an srst deassert. Timeout in ms &quot;,
++		.usage = &quot;ms&quot;,
++	},
++	{
+ 		.name = &quot;jtag&quot;,
+ 		.mode = COMMAND_ANY,
+ 		.help = &quot;perform jtag tap actions&quot;,
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018259.html">[Openocd-development] [PATCH] ft2232: fix possible read buffer	overflow
+</A></li>
+	<LI>Next message: <A HREF="018256.html">[Openocd-development] [PATCH 2/2] log: debug level is between	silent and debug output levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18255">[ date ]</a>
+              <a href="thread.html#18255">[ thread ]</a>
+              <a href="subject.html#18255">[ subject ]</a>
+              <a href="author.html#18255">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

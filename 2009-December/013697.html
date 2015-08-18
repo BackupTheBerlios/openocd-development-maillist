@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] NAND read data page refactor.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20NAND%20read%20data%20page%20refactor.&In-Reply-To=%3C61a057ae0912172212rb997a8djf7a089529c48ecc1%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013695.html">
+   <LINK REL="Next"  HREF="013700.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] NAND read data page refactor.</H1>
+    <B>Dean Glazeski</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20NAND%20read%20data%20page%20refactor.&In-Reply-To=%3C61a057ae0912172212rb997a8djf7a089529c48ecc1%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] NAND read data page refactor.">dnglaze at gmail.com
+       </A><BR>
+    <I>Fri Dec 18 07:12:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013695.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+        <LI>Next message: <A HREF="013700.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13697">[ date ]</a>
+              <a href="thread.html#13697">[ thread ]</a>
+              <a href="subject.html#13697">[ subject ]</a>
+              <a href="author.html#13697">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'm fine with that.  It probably is better to keep an eye on the actual read
+data function as well.  Feel free to make the same tweak to the NAND write
+page data function as well (patch 2/2 in the series).
+
+// Dean Glazeski
+
+
+On Thu, Dec 17, 2009 at 11:51 PM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt;wrote:
+
+&gt;<i> On Thursday 17 December 2009, Dean Glazeski wrote:
+</I>&gt;<i> &gt; +int nand_read_data_page(struct nand_device *nand, uint8_t *data,
+</I>&gt;<i> uint32_t size)
+</I>&gt;<i> &gt; +{
+</I>&gt;<i> &gt; +       uint32_t i;
+</I>&gt;<i> &gt; +       int retval = ERROR_NAND_OPERATION_FAILED;
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +       if (nand-&gt;controller-&gt;read_block_data != NULL) {
+</I>&gt;<i> &gt; +               retval = (nand-&gt;controller-&gt;read_block_data)(nand, data,
+</I>&gt;<i> size);
+</I>&gt;<i> &gt; +       }
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +       if (ERROR_NAND_NO_BUFFER == retval) {
+</I>&gt;<i> &gt; +               int incr = (nand-&gt;device-&gt;options &amp; NAND_BUSWIDTH_16) ? 2
+</I>&gt;<i> : 1;
+</I>&gt;<i> &gt; +               for (i = 0; i &lt; size; i += incr) {
+</I>&gt;<i> &gt; +                       nand-&gt;controller-&gt;read_data(nand, data);
+</I>&gt;<i> &gt; +                       data += incr;
+</I>&gt;<i> &gt; +               }
+</I>&gt;<i> &gt; +       }
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +       return ERROR_OK;
+</I>&gt;<i>
+</I>&gt;<i> However, returning ERROR_OK if retval != NAND_NO_BUFFER is wrong
+</I>&gt;<i> on multiple counts.
+</I>&gt;<i>
+</I>&gt;<i> Any problem if I just combine it with the appended fixup patch?
+</I>&gt;<i>
+</I>&gt;<i> - Dave
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> --- oocd.orig/src/flash/nand/core.c     2009-12-17 21:48:27.000000000 -0800
+</I>&gt;<i> +++ oocd/src/flash/nand/core.c  2009-12-17 21:47:05.000000000 -0800
+</I>&gt;<i> @@ -770,22 +770,23 @@ int nand_page_command(struct nand_device
+</I>&gt;<i>
+</I>&gt;<i>  int nand_read_data_page(struct nand_device *nand, uint8_t *data, uint32_t
+</I>&gt;<i> size)
+</I>&gt;<i>  {
+</I>&gt;<i> -       uint32_t i;
+</I>&gt;<i> -       int retval = ERROR_NAND_OPERATION_FAILED;
+</I>&gt;<i> +       int retval = ERROR_NAND_NO_BUFFER;
+</I>&gt;<i>
+</I>&gt;<i> -       if (nand-&gt;controller-&gt;read_block_data != NULL) {
+</I>&gt;<i> +       if (nand-&gt;controller-&gt;read_block_data != NULL)
+</I>&gt;<i>                retval = (nand-&gt;controller-&gt;read_block_data)(nand, data,
+</I>&gt;<i> size);
+</I>&gt;<i> -       }
+</I>&gt;<i>
+</I>&gt;<i>        if (ERROR_NAND_NO_BUFFER == retval) {
+</I>&gt;<i> +               uint32_t i;
+</I>&gt;<i>                int incr = (nand-&gt;device-&gt;options &amp; NAND_BUSWIDTH_16) ? 2 :
+</I>&gt;<i> 1;
+</I>&gt;<i> -               for (i = 0; i &lt; size; i += incr) {
+</I>&gt;<i> -                       nand-&gt;controller-&gt;read_data(nand, data);
+</I>&gt;<i> +
+</I>&gt;<i> +               retval = ERROR_OK;
+</I>&gt;<i> +               for (i = 0; retval == ERROR_OK &amp;&amp; i &lt; size; i += incr) {
+</I>&gt;<i> +                       retval = nand-&gt;controller-&gt;read_data(nand, data);
+</I>&gt;<i>                        data += incr;
+</I>&gt;<i>                }
+</I>&gt;<i>        }
+</I>&gt;<i>
+</I>&gt;<i> -       return ERROR_OK;
+</I>&gt;<i> +       return retval;
+</I>&gt;<i>  }
+</I>&gt;<i>
+</I>&gt;<i>  int nand_read_page_raw(struct nand_device *nand, uint32_t page,
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091218/76d6ce9a/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20091218/76d6ce9a/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013695.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+	<LI>Next message: <A HREF="013700.html">[Openocd-development] [PATCH 1/2] NAND read data page refactor.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13697">[ date ]</a>
+              <a href="thread.html#13697">[ thread ]</a>
+              <a href="subject.html#13697">[ subject ]</a>
+              <a href="author.html#13697">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

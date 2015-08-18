@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD SVN /trunk and GDB not showing	the correct PC
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20SVN%20/trunk%20and%20GDB%20not%20showing%0A%09the%20correct%20PC&In-Reply-To=%3Cc09652430807231257o50778bb9x5dd3375885eea35b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002764.html">
+   <LINK REL="Next"  HREF="002768.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD SVN /trunk and GDB not showing	the correct PC</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20SVN%20/trunk%20and%20GDB%20not%20showing%0A%09the%20correct%20PC&In-Reply-To=%3Cc09652430807231257o50778bb9x5dd3375885eea35b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] OpenOCD SVN /trunk and GDB not showing	the correct PC">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Jul 23 21:57:07 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002764.html">[Openocd-development] OpenOCD SVN /trunk and GDB not showing	the correct PC
+</A></li>
+        <LI>Next message: <A HREF="002768.html">[Openocd-development] OpenOCD SVN /trunk and GDB not showingthe	correct PC
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2765">[ date ]</a>
+              <a href="thread.html#2765">[ thread ]</a>
+              <a href="subject.html#2765">[ subject ]</a>
+              <a href="author.html#2765">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> When I found the bug
+</I>&gt;<i> - my target was running
+</I>&gt;<i> - the OpenOCD was running
+</I>&gt;<i> - I realized that my application was locked, i.e. it must have crashed
+</I>&gt;<i> somewhere, or entered some infinite loop
+</I>&gt;<i> - I wanted to know where my application was, and possibly examine some data,
+</I>&gt;<i> registers etc.
+</I>&gt;<i>
+</I>&gt;<i> In that case, there's absolutely no reason why starting GDB and connecting to
+</I>&gt;<i> the OpenOCD should result in stale/bogus data being presented to the user.
+</I>&gt;<i> The halt might take a while (~1s with jtag_speed 1400), but the target can
+</I>&gt;<i> easily enter debug state, and by the time it is halted we have reliable data.
+</I>&gt;<i>
+</I>&gt;&gt;<i> Do you specifically mean that the target should be halted, if possible,
+</I>&gt;&gt;<i> before replying to the register packet?
+</I>&gt;<i>
+</I>&gt;<i> Well, that's what GDB expects, isn't it? Upon connection, GDB believes the
+</I>&gt;<i> target is halted, and queries its current state (e.g. 'g' packet).
+</I>
+That's right: the GDB model is broken here.
+
+It doesn't really support the concept of *attaching* to a target, which we
+need here. If GDB does support this, the by all means, prove me wrong
+by telling me how :-)
+
+GDB wants to attach to the target and have the target in the halted state.
+
+w/e.g. Visual C++ debugger, when one attaches to a process, that process
+continues to run until halted. Same thing would be nice w/GDB.
+
+&gt;<i>
+</I>&gt;&gt;<i> There are a couple of things that need to line up just right:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> - we need to allow GDB connections to dead or unresponsive targets. This
+</I>&gt;&gt;<i> is to allow users to have monitor commands in the GDB init script to set
+</I>&gt;&gt;<i> things up.
+</I>&gt;&gt;<i> - we need to respond immediately to the connect, or we get weird error
+</I>&gt;&gt;<i> messages that are pretty much impossible to deduce anything from, it
+</I>&gt;&gt;<i> just looks like  OpenOCD or GDB is broken)
+</I>&gt;<i>
+</I>&gt;<i> You forgot:
+</I>&gt;<i>
+</I>&gt;<i> - we must not reply with bogus/stale data. if we absolutely must reply with
+</I>&gt;<i> bogus data we should at least inform the user...
+</I>
+That is is imperative, does make a patch that solves all the problems
+materialize
+out of thin air.
+
+&gt;<i>
+</I>&gt;&gt;<i> You didn't include a -d3 log, so I don't know much about what happened
+</I>&gt;&gt;<i> in your debug session.
+</I>&gt;<i>
+</I>&gt;<i> I've already sent the -d3 log last night:
+</I>&gt;<i> <A HREF="https://lists.berlios.de/pipermail/openocd-development/2008-July/002756.html">https://lists.berlios.de/pipermail/openocd-development/2008-July/002756.html</A>
+</I>&gt;<i>
+</I>&gt;&gt;<i> Perhaps we can get rid of the white lie upon connect, but for
+</I>&gt;&gt;<i> now it seems like the best option.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Perhaps waiting 500ms for the halted state will do the trick?
+</I>&gt;<i>
+</I>&gt;<i> Thanks a lot, looks like that worked. Do you know how much time we have here?
+</I>
+Nope.
+
+&gt;<i> Would it be possible to keep GDB going with the empty reply packets we send
+</I>&gt;<i> in keep_alive?
+</I>
+The keep_alive() trick only works when the target is in the running state,
+or executing a monitor command.
+
+Actually... perhaps you have the solution right there.
+
+Add a &quot;monitor wait_halt&quot; at the beginning of your GDB init script.
+
+This will wait upto 5 seconds and afterwards the PC should be correct.
+
+A robust approach would then be:
+
+- we do nothing when connecting to the target. We don't even issue a halt.
+Remove the current &quot;target_halt&quot; even.
+- lie to the GDB register packet that GDB insists on sending upon startup
+and return garbage.
+- require the user to add in GDB commands to halt the target. &quot;monitor
+reset init&quot;,
+&quot;monitor halt&quot;, &quot;stepi&quot;, &quot;monitor wait_halt&quot;, etc. Note that monitor
+halt is synchronous.
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002764.html">[Openocd-development] OpenOCD SVN /trunk and GDB not showing	the correct PC
+</A></li>
+	<LI>Next message: <A HREF="002768.html">[Openocd-development] OpenOCD SVN /trunk and GDB not showingthe	correct PC
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2765">[ date ]</a>
+              <a href="thread.html#2765">[ thread ]</a>
+              <a href="subject.html#2765">[ subject ]</a>
+              <a href="author.html#2765">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

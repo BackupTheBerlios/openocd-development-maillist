@@ -1,0 +1,228 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/8] add jtag/usb_common.[ch] files
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/8%5D%20add%20jtag/usb_common.%5Bch%5D%20files&In-Reply-To=%3C1258671214-31773-2-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012572.html">
+   <LINK REL="Next"  HREF="012573.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/8] add jtag/usb_common.[ch] files</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/8%5D%20add%20jtag/usb_common.%5Bch%5D%20files&In-Reply-To=%3C1258671214-31773-2-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 1/8] add jtag/usb_common.[ch] files">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 19 23:53:27 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012572.html">[Openocd-development] [PATCH 0/8] unify usb device opening
+</A></li>
+        <LI>Next message: <A HREF="012573.html">[Openocd-development] [PATCH 2/8] arm-jtag-ew: use jtag_usb_open
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12577">[ date ]</a>
+              <a href="thread.html#12577">[ thread ]</a>
+              <a href="subject.html#12577">[ subject ]</a>
+              <a href="author.html#12577">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Begins to consolidate code used by several USB JTAG interfaces.
+This first patch provides the required build system changes and
+a common jtag_usb_open routine, which will replace the guts for
+probing the busses and devices for possible VID/PID matches.
+The following patches convert each driver to use it.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ configure.in          |    2 +
+ src/jtag/Makefile.am  |    7 +++++-
+ src/jtag/usb_common.c |   61 +++++++++++++++++++++++++++++++++++++++++++++++++
+ src/jtag/usb_common.h |   30 ++++++++++++++++++++++++
+ 4 files changed, 99 insertions(+), 1 deletions(-)
+ create mode 100644 src/jtag/usb_common.c
+ create mode 100644 src/jtag/usb_common.h
+
+diff --git a/configure.in b/configure.in
+index 8ba8951..81e4326 100644
+--- a/configure.in
++++ b/configure.in
+@@ -996,6 +996,7 @@ if test $build_jlink = yes -o $build_vsllink = yes -o $build_usbprog = yes -o \
+ then
+   AC_CHECK_HEADERS([usb.h],[],
+   [AC_MSG_ERROR([usb.h is required to build some OpenOCD driver(s)])])
++  build_usb=yes
+ fi
+ 
+ AM_CONDITIONAL(RELEASE, test $build_release = yes)
+@@ -1021,6 +1022,7 @@ AM_CONDITIONAL(JLINK, test $build_jlink = yes)
+ AM_CONDITIONAL(VSLLINK, test $build_vsllink = yes)
+ AM_CONDITIONAL(RLINK, test $build_rlink = yes)
+ AM_CONDITIONAL(ARMJTAGEW, test $build_armjtagew = yes)
++AM_CONDITIONAL(USB, test $build_usb = yes)
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+ AM_CONDITIONAL(IS_MINGW, test $is_mingw = yes)
+ AM_CONDITIONAL(IS_WIN32, test $is_win32 = yes)
+diff --git a/src/jtag/Makefile.am b/src/jtag/Makefile.am
+index 85d98c0..5254a2b 100644
+--- a/src/jtag/Makefile.am
++++ b/src/jtag/Makefile.am
+@@ -23,6 +23,10 @@ else
+ # Standard Driver: common files
+ DRIVERFILES += driver.c commands.c
+ 
++if USB
++DRIVERFILES += usb_common.c
++endif
++
+ if BITBANG
+ DRIVERFILES += bitbang.c
+ endif
+@@ -92,7 +96,8 @@ noinst_HEADERS = \
+ 	rlink/ep1_cmd.h \
+ 	rlink/rlink.h \
+ 	rlink/st7.h \
+-	minidummy/jtag_minidriver.h
++	minidummy/jtag_minidriver.h \
++	usb_common.h
+ 
+ EXTRA_DIST = startup.tcl
+ 
+diff --git a/src/jtag/usb_common.c b/src/jtag/usb_common.c
+new file mode 100644
+index 0000000..463f1af
+--- /dev/null
++++ b/src/jtag/usb_common.c
+@@ -0,0 +1,61 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;          *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++#include &quot;usb_common.h&quot;
++
++
++static bool jtag_usb_match(struct usb_device *dev,
++		const uint16_t vids[], const uint16_t pids[])
++{
++	for (unsigned i = 0; vids[i] &amp;&amp; pids[i]; i++)
++	{
++		if (dev-&gt;descriptor.idVendor == vids[i] &amp;&amp;
++			dev-&gt;descriptor.idProduct == pids[i])
++		{
++			return true;
++		}
++	}
++	return false;
++}
++
++int jtag_usb_open(const uint16_t vids[], const uint16_t pids[],
++		struct usb_dev_handle **out)
++{
++	usb_find_busses();
++	usb_find_devices();
++
++	struct usb_bus *busses = usb_get_busses();
++	for (struct usb_bus *bus = busses; bus; bus = bus-&gt;next)
++	{
++		for (struct usb_device *dev = bus-&gt;devices; dev; dev = dev-&gt;next)
++		{
++			if (!jtag_usb_match(dev, vids, pids))
++				continue;
++
++			*out = usb_open(dev);
++			if (NULL == *out)
++				return -errno;
++			return 0;
++		}
++	}
++	return -ENODEV;
++}
+diff --git a/src/jtag/usb_common.h b/src/jtag/usb_common.h
+new file mode 100644
+index 0000000..da395ad
+--- /dev/null
++++ b/src/jtag/usb_common.h
+@@ -0,0 +1,30 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;          *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef JTAG_USB_COMMON_H
++#define JTAG_USB_COMMON_H
++
++#include &quot;types.h&quot;
++
++#include &lt;usb.h&gt;
++
++int jtag_usb_open(const uint16_t vids[], const uint16_t pids[],
++		struct usb_dev_handle **out);
++
++#endif // JTAG_USB_COMMON_H
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012572.html">[Openocd-development] [PATCH 0/8] unify usb device opening
+</A></li>
+	<LI>Next message: <A HREF="012573.html">[Openocd-development] [PATCH 2/8] arm-jtag-ew: use jtag_usb_open
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12577">[ date ]</a>
+              <a href="thread.html#12577">[ thread ]</a>
+              <a href="subject.html#12577">[ subject ]</a>
+              <a href="author.html#12577">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

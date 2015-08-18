@@ -1,0 +1,405 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 17/22] target: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2017/22%5D%20target%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100321-14469-18-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012837.html">
+   <LINK REL="Next"  HREF="012838.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 17/22] target: use register_commands()</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2017/22%5D%20target%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100321-14469-18-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 17/22] target: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:16 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012837.html">[Openocd-development] [PATCH 16/22] oocd_trace: use	register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012838.html">[Openocd-development] [PATCH 18/22] target_request: use	register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12839">[ date ]</a>
+              <a href="thread.html#12839">[ thread ]</a>
+              <a href="subject.html#12839">[ subject ]</a>
+              <a href="author.html#12839">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/target.c |  305 +++++++++++++++++++++++++++++++++-----------------
+ 1 files changed, 201 insertions(+), 104 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 2e93382..6f48808 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -4762,19 +4762,211 @@ static int jim_mcrmrc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return JIM_OK;
+ }
+ 
++static const struct command_registration target_command_handlers[] = {
++	{
++		.name = &quot;targets&quot;,
++		.handler = &amp;handle_targets_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;change current command line target (one parameter) &quot;
++			&quot;or list targets (no parameters)&quot;,
++		.usage = &quot;[&lt;new_current_target&gt;]&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ int target_register_commands(struct command_context *cmd_ctx)
+ {
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;targets&quot;,
+-			handle_targets_command, COMMAND_EXEC,
+-			&quot;change current command line target (one parameter) &quot;
+-			&quot;or list targets (no parameters)&quot;);
+-
+ 	register_jim(cmd_ctx, &quot;target&quot;, jim_target, &quot;configure target&quot;);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, target_command_handlers);
+ }
+ 
++static const struct command_registration target_exec_command_handlers[] = {
++	{
++		.name = &quot;fast_load_image&quot;,
++		.handler = &amp;handle_fast_load_image_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;Load image into memory, mainly for profiling purposes&quot;,
++		.usage = &quot;&lt;file&gt; &lt;address&gt; ['bin'|'ihex'|'elf'|'s19'] &quot;
++			&quot;[min_address] [max_length]&quot;,
++	},
++	{
++		.name = &quot;fast_load&quot;,
++		.handler = &amp;handle_fast_load_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;loads active fast load image to current target &quot;
++			&quot;- mainly for profiling purposes&quot;,
++	},
++	{
++		.name = &quot;profile&quot;,
++		.handler = &amp;handle_profile_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;profiling samples the CPU PC&quot;,
++	},
++	/** @todo don't register virt2phys() unless target supports it */
++	{
++		.name = &quot;virt2phys&quot;,
++		.handler = &amp;handle_virt2phys_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;translate a virtual address into a physical address&quot;,
++	},
++
++	{
++		.name = &quot;reg&quot;,
++		.handler = &amp;handle_reg_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display or set a register&quot;,
++	},
++
++	{
++		.name = &quot;poll&quot;,
++		.handler = &amp;handle_poll_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;poll target state&quot;,
++	},
++	{
++		.name = &quot;wait_halt&quot;,
++		.handler = &amp;handle_wait_halt_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;wait for target halt&quot;,
++		.usage = &quot;[time (s)]&quot;,
++	},
++	{
++		.name = &quot;halt&quot;,
++		.handler = &amp;handle_halt_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;halt target&quot;,
++	},
++	{
++		.name = &quot;resume&quot;,
++		.handler = &amp;handle_resume_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;resume target&quot;,
++		.usage = &quot;[&lt;address&gt;]&quot;,
++	},
++	{
++		.name = &quot;reset&quot;,
++		.handler = &amp;handle_reset_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;[run|halt|init]&quot;,
++		.help = &quot;Reset all targets into the specified mode.&quot;
++			&quot;Default reset mode is run, if not given.&quot;,
++	},
++	{
++		.name = &quot;soft_reset_halt&quot;,
++		.handler = &amp;handle_soft_reset_halt_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;halt the target and do a soft reset&quot;,
++	},
++	{
++
++		.name = &quot;step&quot;,
++		.handler = &amp;handle_step_command,
++		.mode = COMMAND_EXEC,
++		.help =	&quot;step one instruction from current PC or [addr]&quot;,
++		.usage = &quot;[&lt;address&gt;]&quot;,
++	},
++	{
++
++		.name = &quot;mdw&quot;,
++		.handler = &amp;handle_md_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display memory words&quot;,
++		.usage = &quot;[phys] &lt;addr&gt; [count]&quot;,
++	},
++	{
++		.name = &quot;mdh&quot;,
++		.handler = &amp;handle_md_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display memory half-words&quot;,
++		.usage = &quot;[phys] &lt;addr&gt; [count]&quot;,
++	},
++	{
++		.name = &quot;mdb&quot;,
++		.handler = &amp;handle_md_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display memory bytes&quot;,
++		.usage = &quot;[phys] &lt;addr&gt; [count]&quot;,
++	},
++	{
++
++		.name = &quot;mww&quot;,
++		.handler = &amp;handle_mw_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;write memory word&quot;,
++		.usage = &quot;[phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;,
++	},
++	{
++		.name = &quot;mwh&quot;,
++		.handler = &amp;handle_mw_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;write memory half-word&quot;,
++		.usage = &quot;[phys] &lt;addr&gt; &lt;value&gt; [count]&quot;,
++	},
++	{
++		.name = &quot;mwb&quot;,
++		.handler = &amp;handle_mw_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;write memory byte&quot;,
++		.usage = &quot;[phys] &lt;addr&gt; &lt;value&gt; [count]&quot;,
++	},
++	{
++
++		.name = &quot;bp&quot;,
++		.handler = &amp;handle_bp_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;list or set breakpoint&quot;,
++		.usage = &quot;[&lt;address&gt; &lt;length&gt; [hw]]&quot;,
++	},
++	{
++		.name = &quot;rbp&quot;,
++		.handler = &amp;handle_rbp_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;remove breakpoint&quot;,
++		.usage = &quot;&lt;address&gt;&quot;,
++	},
++	{
++
++		.name = &quot;wp&quot;,
++		.handler = &amp;handle_wp_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;list or set watchpoint&quot;,
++		.usage = &quot;[&lt;address&gt; &lt;length&gt; &lt;r/w/a&gt; [value] [mask]]&quot;,
++	},
++	{
++		.name = &quot;rwp&quot;,
++		.handler = &amp;handle_rwp_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;remove watchpoint&quot;,
++		.usage = &quot;&lt;address&gt;&quot;,
++
++	},
++	{
++		.name = &quot;load_image&quot;,
++		.handler = &amp;handle_load_image_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;file&gt; &lt;address&gt; ['bin'|'ihex'|'elf'|'s19'] &quot;
++			&quot;[min_address] [max_length]&quot;,
++	},
++	{
++		.name = &quot;dump_image&quot;,
++		.handler = &amp;handle_dump_image_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;file&gt; &lt;address&gt; &lt;size&gt;&quot;,
++	},
++	{
++		.name = &quot;verify_image&quot;,
++		.handler = &amp;handle_verify_image_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;file&gt; [offset] [type]&quot;,
++	},
++	{
++		.name = &quot;test_image&quot;,
++		.handler = &amp;handle_test_image_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;file&gt; [offset] [type]&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
+ int target_register_user_commands(struct command_context *cmd_ctx)
+ {
+ 	int retval = ERROR_OK;
+@@ -4784,10 +4976,6 @@ int target_register_user_commands(struct command_context *cmd_ctx)
+ 	if ((retval = trace_register_commands(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+ 
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;profile&quot;,
+-			handle_profile_command, COMMAND_EXEC,
+-			&quot;profiling samples the CPU PC&quot;);
+-
+ 	register_jim(cmd_ctx, &quot;ocd_mem2array&quot;, jim_mem2array,
+ 			&quot;read memory and return as a TCL array for script processing &quot;
+ 			&quot;&lt;ARRAYNAME&gt; &lt;WIDTH = 32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
+@@ -4796,96 +4984,5 @@ int target_register_user_commands(struct command_context *cmd_ctx)
+ 			&quot;convert a TCL array to memory locations and write the values &quot;
+ 			&quot;&lt;ARRAYNAME&gt; &lt;WIDTH = 32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
+ 
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;fast_load_image&quot;,
+-			handle_fast_load_image_command, COMMAND_ANY,
+-			&quot;same CMD_ARGV as load_image, image stored in memory &quot;
+-			&quot;- mainly for profiling purposes&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;fast_load&quot;,
+-			handle_fast_load_command, COMMAND_ANY,
+-			&quot;loads active fast load image to current target &quot;
+-			&quot;- mainly for profiling purposes&quot;);
+-
+-	/** @todo don't register virt2phys() unless target supports it */
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;virt2phys&quot;,
+-			handle_virt2phys_command, COMMAND_ANY,
+-			&quot;translate a virtual address into a physical address&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;reg&quot;,
+-			handle_reg_command, COMMAND_EXEC,
+-			&quot;display or set a register&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;poll&quot;,
+-			handle_poll_command, COMMAND_EXEC,
+-			&quot;poll target state&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;wait_halt&quot;,
+-			handle_wait_halt_command, COMMAND_EXEC,
+-			&quot;wait for target halt [time (s)]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;halt&quot;,
+-			handle_halt_command, COMMAND_EXEC,
+-			&quot;halt target&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;resume&quot;,
+-			handle_resume_command, COMMAND_EXEC,
+-			&quot;resume target [addr]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;reset&quot;,
+-			handle_reset_command, COMMAND_EXEC,
+-			&quot;reset target [run | halt | init] - default is run&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;soft_reset_halt&quot;,
+-			handle_soft_reset_halt_command, COMMAND_EXEC,
+-			&quot;halt the target and do a soft reset&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;step&quot;,
+-			handle_step_command, COMMAND_EXEC,
+-			&quot;step one instruction from current PC or [addr]&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mdw&quot;,
+-			handle_md_command, COMMAND_EXEC,
+-			&quot;display memory words [phys] &lt;addr&gt; [count]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mdh&quot;,
+-			handle_md_command, COMMAND_EXEC,
+-			&quot;display memory half-words [phys] &lt;addr&gt; [count]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mdb&quot;,
+-			handle_md_command, COMMAND_EXEC,
+-			&quot;display memory bytes [phys] &lt;addr&gt; [count]&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mww&quot;,
+-			handle_mw_command, COMMAND_EXEC,
+-			&quot;write memory word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mwh&quot;,
+-			handle_mw_command, COMMAND_EXEC,
+-			&quot;write memory half-word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mwb&quot;,
+-			handle_mw_command, COMMAND_EXEC,
+-			&quot;write memory byte [phys] &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;bp&quot;,
+-			handle_bp_command, COMMAND_EXEC,
+-			&quot;list or set breakpoint [&lt;address&gt; &lt;length&gt; [hw]]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;rbp&quot;,
+-			handle_rbp_command, COMMAND_EXEC,
+-			&quot;remove breakpoint &lt;address&gt;&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;wp&quot;,
+-			handle_wp_command, COMMAND_EXEC,
+-			&quot;list or set watchpoint &quot;
+-				&quot;[&lt;address&gt; &lt;length&gt; &lt;r/w/a&gt; [value] [mask]]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;rwp&quot;,
+-			handle_rwp_command, COMMAND_EXEC,
+-			&quot;remove watchpoint &lt;address&gt;&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;load_image&quot;,
+-			handle_load_image_command, COMMAND_EXEC,
+-			&quot;load_image &lt;file&gt; &lt;address&gt; &quot;
+-			&quot;['bin'|'ihex'|'elf'|'s19'] [min_address] [max_length]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;dump_image&quot;,
+-			handle_dump_image_command, COMMAND_EXEC,
+-			&quot;dump_image &lt;file&gt; &lt;address&gt; &lt;size&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;verify_image&quot;,
+-			handle_verify_image_command, COMMAND_EXEC,
+-			&quot;verify_image &lt;file&gt; [offset] [type]&quot;);
+-	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;test_image&quot;,
+-			handle_test_image_command, COMMAND_EXEC,
+-			&quot;test_image &lt;file&gt; [offset] [type]&quot;);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, target_exec_command_handlers);
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012837.html">[Openocd-development] [PATCH 16/22] oocd_trace: use	register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012838.html">[Openocd-development] [PATCH 18/22] target_request: use	register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12839">[ date ]</a>
+              <a href="thread.html#12839">[ thread ]</a>
+              <a href="subject.html#12839">[ subject ]</a>
+              <a href="author.html#12839">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,816 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] initial &quot;transport&quot; framework
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20initial%20%22transport%22%20framework&In-Reply-To=%3C201003150904.29276.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015245.html">
+   <LINK REL="Next"  HREF="015284.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] initial &quot;transport&quot; framework</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20initial%20%22transport%22%20framework&In-Reply-To=%3C201003150904.29276.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] initial &quot;transport&quot; framework">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Mar 15 17:04:29 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015245.html">[Openocd-development] jtag_khz =&gt; adapter_khz change
+</A></li>
+        <LI>Next message: <A HREF="015284.html">[Openocd-development] [patch/rfc] initial &quot;transport&quot; framework
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15247">[ date ]</a>
+              <a href="thread.html#15247">[ thread ]</a>
+              <a href="subject.html#15247">[ subject ]</a>
+              <a href="author.html#15247">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This adds the guts of a transport framework with initialization.
+Each debug adapter can declare the transports it supports, and
+exactly one transport is initialized.  (with its commands).
+
+  * Define a new &quot;struct transport with initialization hooks and a few
+    sub commands to support it:
+    
+     &quot;list&quot; ... list the transports configured (just &quot;jtag&quot; for now)
+     &quot;select&quot; ... makes the debug session use that transport
+     &quot;init&quot; ... initializes that transport
+
+  * &quot;interface_transports&quot; ... declares transports the current interface
+    can support.  (Some will do this from C code instead, when there are
+    no hardware versioning (or other) issues to prevent it.
+
+Eventually src/jtag should probably become src/transport, moving
+jtag-specific stuff  to transport/jtag.
+
+There's currently an automagic default to selecting JTAG, if no
+config script does otherwise (including implicitly, by setting up
+a JTAG-only debug adapter).
+
+====================================================================
+MISSING STUFF includes target hooks (e.g.  what transports does a
+given target work with, setting up JTAG-or-SWD targets (&quot;dap new&quot;
+etc) ... and other stuff that must wait until SWD works a bit.
+
+Also missing: documentation.  This works OK with a cross-section
+of current JTAG-only configurations.
+
+====================================================================
+---
+ doc/openocd.texi          |   12 +
+ src/jtag/Makefile.am      |    2 
+ src/jtag/core.c           |   38 ++++
+ src/jtag/drivers/ft2232.c |   14 +
+ src/jtag/tcl.c            |   27 +++
+ src/jtag/transport.c      |  353 ++++++++++++++++++++++++++++++++++++++++++++
+ src/jtag/transport.h      |   72 ++++++++
+ src/openocd.c             |   49 +++---
+ 8 files changed, 548 insertions(+), 19 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2096,6 +2096,18 @@ List the interface drivers that have bee
+ the running copy of OpenOCD.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {interface_transports} transport...
++Declares the transports which the current debug adapter
++supports.  The parameters are a list of one or more
++transports, such as &quot;jtag&quot; for a JTAG-only debug adapter,
++or or &quot;jtag swd&quot; for one which also supports SWD.
++
++In many cases the adapter driver will declare that list
++directly, so no Tcl declaration should be used.  This
++command may be used when there are  differences
++which the adapter's driver can't detect.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ @deffn Command {jtag interface}
+ Returns the name of the interface driver being used.
+ @end deffn
+--- a/src/jtag/Makefile.am
++++ b/src/jtag/Makefile.am
+@@ -57,6 +57,7 @@ libjtag_la_SOURCES = \
+ 	interface.c \
+ 	interfaces.c \
+ 	tcl.c \
++	transport.c \
+ 	$(DRIVERFILES)
+ 
+ noinst_HEADERS = \
+@@ -65,6 +66,7 @@ noinst_HEADERS = \
+ 	interfaces.h \
+ 	minidriver.h \
+ 	jtag.h \
++	transport.h \
+ 	minidriver/minidriver_imp.h \
+ 	minidummy/jtag_minidriver.h
+ 
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -33,11 +33,15 @@
+ 
+ #include &quot;jtag.h&quot;
+ #include &quot;interface.h&quot;
++#include &quot;transport.h&quot;
+ 
+ #ifdef HAVE_STRINGS_H
+ #include &lt;strings.h&gt;
+ #endif
+ 
++/* SVF and XSVF are higher level JTAG command sets (for boundary scan) */
++#include &quot;svf/svf.h&quot;
++#include &quot;xsvf/xsvf.h&quot;
+ 
+ /// The number of JTAG queue flushes (for profiling and debugging purposes).
+ static int jtag_flush_queue_count;
+@@ -1728,3 +1732,37 @@ unsigned jtag_get_ntrst_assert_width(voi
+ {
+ 	return jtag_ntrst_assert_width;
+ }
++
++static int jtag_select(struct command_context *ctx)
++{
++	int retval;
++
++	/* NOTE:  interface init must already have been done.
++	 * That works with only C code ... no Tcl glue required.
++	 */
++
++
++	retval = jtag_register_commands(ctx);
++
++	if (retval != ERROR_OK)
++		return retval;
++
++	retval = svf_register_commands(ctx);
++
++	if (retval != ERROR_OK)
++		return retval;
++
++	return xsvf_register_commands(ctx);
++}
++
++static struct transport jtag_transport = {
++	.name = &quot;jtag&quot;,
++	.select = jtag_select,
++	.init = jtag_init,
++};
++
++static void jtag_constructor(void) __attribute__((constructor));
++static void jtag_constructor(void)
++{
++	transport_register(&amp;jtag_transport);
++}
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -69,6 +69,7 @@
+ 
+ /* project specific includes */
+ #include &lt;jtag/interface.h&gt;
++#include &lt;jtag/transport.h&gt;
+ #include &lt;helper/time_support.h&gt;
+ 
+ #if IS_CYGWIN == 1
+@@ -155,6 +156,7 @@ struct ft2232_layout {
+ 	void (*reset)(int trst, int srst);
+ 	void (*blink)(void);
+ 	int channel;
++	const char **transports;
+ };
+ 
+ /* init procedures for supported layouts */
+@@ -195,6 +197,10 @@ static void turtle_jtag_blink(void);
+ static void signalyzer_h_blink(void);
+ static void ktlink_blink(void);
+ 
++/* common transport support options */
++static const char *jtag_only[] = { &quot;jtag&quot;, NULL };
++//static const char *jtag_and_swd[] = { &quot;jtag&quot;, &quot;swd&quot;, NULL };
++
+ static const struct ft2232_layout  ft2232_layouts[] =
+ {
+ 	{ .name = &quot;usbjtag&quot;,
+@@ -220,10 +226,12 @@ static const struct ft2232_layout  ft223
+ 	{ .name = &quot;evb_lm3s811&quot;,
+ 		.init = usbjtag_init,
+ 		.reset = usbjtag_reset,
++// .transports = jtag_and_swd;
+ 	},
+ 	{ .name = &quot;luminary_icdi&quot;,
+ 		.init = usbjtag_init,
+ 		.reset = usbjtag_reset,
++// .transports = jtag_and_swd;
+ 	},
+ 	{ .name = &quot;olimex-jtag&quot;,
+ 		.init = olimex_jtag_init,
+@@ -3140,7 +3148,11 @@ COMMAND_HANDLER(ft2232_handle_layout_com
+ 	for (const struct ft2232_layout *l = ft2232_layouts; l-&gt;name; l++) {
+ 		if (strcmp(l-&gt;name, CMD_ARGV[0]) == 0) {
+ 			layout = l;
+-			return ERROR_OK;
++			/* This may also select the transport
++			 * if we only suppport one of them.
++			 */
++			return allow_transports(CMD_CTX,
++				l-&gt;transports ? : jtag_only);
+ 		}
+ 	}
+ 
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -35,6 +35,7 @@
+ #include &quot;minidriver.h&quot;
+ #include &quot;interface.h&quot;
+ #include &quot;interfaces.h&quot;
++#include &quot;transport.h&quot;
+ 
+ #ifdef HAVE_STRINGS_H
+ #include &lt;strings.h&gt;
+@@ -1043,6 +1044,25 @@ COMMAND_HANDLER(handle_interface_command
+ 	return ERROR_JTAG_INVALID_INTERFACE;
+ }
+ 
++COMMAND_HANDLER(interface_transport_command)
++{
++	char **transports;
++	int retval;
++
++	retval = CALL_COMMAND_HANDLER(transport_list_parse, &amp;transports);
++	if (retval != ERROR_OK) {
++		return retval;
++
++	retval = allow_transports(CMD_CTX, (const char **)transports);
++	if (retval != ERROR_OK) {
++		for (unsigned i = 0; transports[i]; i++)
++			free(transports[i]);
++		free(transports);
++	}
++	}
++	return retval;
++}
++
+ COMMAND_HANDLER(handle_scan_chain_command)
+ {
+ 	struct jtag_tap *tap;
+@@ -1640,6 +1660,13 @@ static const struct command_registration
+ 		.usage = &quot;driver_name&quot;,
+ 	},
+ 	{
++		.name = &quot;interface_transports&quot;,
++		.handler = interface_transport_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;Declare transports the interface supports.&quot;,
++		.usage = &quot;transport ... &quot;,
++	},
++	{
+ 		.name = &quot;interface_list&quot;,
+ 		.handler = handle_interface_list_command,
+ 		.mode = COMMAND_ANY,
+--- /dev/null
++++ b/src/jtag/transport.c
+@@ -0,0 +1,353 @@
++/*
++ * Copyright (c) 2010 by David Brownell
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++/** @file
++ * Infrastructure for specifying and managing the transport protocol
++ * used in a given debug or programming session.
++ *
++ * Examples of &quot;debug-capable&quot; transports are JTAG or SWD.
++ *
++ * Examples of &quot;programming-capable&quot; transports include SPI or UART;
++ * those are used (often mediated by a ROM bootloader) for ISP style
++ * programming, to perform an initial load of code into flash, or
++ * sometimes into SRAM.  Target code could use &quot;variant&quot; options to
++ * decide how to use such protocols.  For example, Cortex-M3 cores
++ * from TI/Luminary and from NXP use different protocols for for
++ * UART or SPI based firmware loading.
++ *
++ * As a rule, there are protocols layered on top of the transport.
++ * For example, different chip families use JTAG in different ways
++ * for debugging.  Also, each family that supports programming over
++ * a UART link for initial firmware loading tends to define its own
++ * messaging and error handling.
++ */
++
++#include &lt;helper/log.h&gt;
++
++#include &quot;transport.h&quot;
++
++/*-----------------------------------------------------------------------*/
++
++/*
++ * Infrastructure internals
++ */
++
++/** List of transports known to OpenOCD. */
++static struct transport *transport_list;
++
++/**
++ * NULL-terminated Vector of names of transports which the
++ * currently selected debug adapter supports.  This is declared
++ * by the time that adapter is fully set up.
++ */
++static const char **allowed_transports;
++
++/** * The transport being used for the current OpenOCD session.  */
++static struct transport *session;
++
++static  int transport_select(struct command_context *ctx, const char *name)
++{
++	/* name may only identify a known transport;
++	 * caller guarantees session's transport isn't yet set.*/
++	for (struct transport *t = transport_list; t; t = t-&gt;next) {
++			if (strcmp(t-&gt;name, name) == 0) {
++				int retval = t-&gt;select(ctx);
++			/* select() registers commands specific to this
++			 * transport, and may also reset the link, e.g.
++			 * forcing it to JTAG or SWD mode.
++			 */
++			if (retval == ERROR_OK)
++				session = t;
++			else
++				LOG_ERROR(&quot;Error %d selecting '%s' as &quot;
++					&quot;transport&quot;, retval, t-&gt;name);
++			return retval;
++		}
++	}
++
++	LOG_ERROR(&quot;No transport named '%s' is available.&quot;, name);
++	return ERROR_FAIL;
++}
++
++/**
++ * Called by debug adapter drivers, or affiliated Tcl config scripts,
++ * to declare the set of transports supported by an adapter.  When
++ * there is only one member of that set, it is automatically selected.
++ */
++int allow_transports(struct command_context *ctx, const char **vector)
++{
++	/* NOTE:  caller is required to provide only a list
++	 * of *valid* transport names
++	 *
++	 * REVISIT should we validate that?  and insist there's
++	 * at least one non-NULL element in that list?
++	 */
++	if (allowed_transports != NULL || session) {
++		LOG_ERROR(&quot;Can't modify the set of allowed transports.&quot;);
++		return ERROR_FAIL;
++	}
++
++
++	allowed_transports = vector;
++
++	/* force one selection if there's no choice ... */
++	if (!vector[1]) {
++		LOG_INFO(&quot;only one transport option; force '%s'&quot;, vector[0]);
++		return transport_select(ctx, vector [0]);
++	} else {
++		while (*vector)
++			LOG_DEBUG(&quot;allow transport '%s'&quot;, *vector++);
++		return ERROR_OK;
++	}
++}
++
++/**
++ * Registers a transport.  There are general purpose transports
++ * (such as JTAG), as well as relatively proprietary ones which are
++ * specific to a given chip (or chip family).
++ *
++ * Code implementing a transport needs to register it before it can
++ * be selected and then activated.  This is a dynamic process, so
++ * that chips (and families) can define transports as needed (without
++ * nneeding error-prone static tables).
++ *
++ * @param new_transport the transport being registered.  On a
++ * successful return, this memory is owned by the transport framework.
++ *
++ * @returns ERROR_OK on success, else a fault code.
++ */
++int transport_register(struct transport *new_transport)
++{
++	struct transport *t;
++
++	for (t = transport_list; t; t = t-&gt;next) {
++		if (strcmp(t-&gt;name, new_transport-&gt;name) == 0) {
++			LOG_ERROR(&quot;transport name already used&quot;);
++			return ERROR_FAIL;
++		}
++	}
++
++	if (!new_transport-&gt;select || !new_transport-&gt;init) {
++		LOG_ERROR(&quot;invalid transport %s&quot;, new_transport-&gt;name);
++	}
++
++	/* splice this into the list */
++	new_transport-&gt;next = transport_list;
++	transport_list = new_transport;
++	LOG_DEBUG(&quot;register '%s'&quot;, t-&gt;name);
++
++	return ERROR_OK;
++}
++
++/**
++ * Returns the transport currently being used by this debug or
++ * programming session.
++ *
++ * @returns handle to the read-only transport entity.
++ */
++struct transport *get_current_transport(void)
++{
++
++	/* REVISIT -- constify */
++	return session;
++}
++
++
++/*-----------------------------------------------------------------------*/
++
++/*
++ * Infrastructure for Tcl interface to transports.
++ */
++
++/**
++ * Makes and stores a copy of a set of transports passed as
++ * parameters to a command.
++ *
++ * @param vector where the resulting copy is stored, as an argv-style
++ *	NULL-terminated vector.
++ */
++COMMAND_HELPER(transport_list_parse, char ***vector)
++{
++	char **argv;
++	unsigned n = CMD_ARGC;
++	unsigned j = 0;
++
++	*vector = NULL;
++
++	if (n &lt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	/* our return vector must be NULL terminated */
++	argv = (char **) calloc(n + 1, sizeof(char *));
++	if (argv == NULL)
++		return ERROR_FAIL;
++
++	for (unsigned i = 0; i &lt; n; i++) {
++		struct transport *t;
++
++		for (t = transport_list; t; t = t-&gt;next) {
++			if (strcmp(t-&gt;name, CMD_ARGV[i]) != 0)
++				continue;
++			argv[j++] = strdup(CMD_ARGV[i]);
++			break;
++		}
++		if (!t) {
++			LOG_ERROR(&quot;no such transport '%s'&quot;, CMD_ARGV[i]);
++			goto fail;
++		}
++	}
++
++	*vector = argv;
++	return ERROR_OK;
++
++fail:
++	for (unsigned i = 0; i &lt; n; i++)
++		free(argv[i]);
++	free(argv);
++	return ERROR_FAIL;
++}
++
++COMMAND_HANDLER(handle_transport_init)
++{
++	LOG_DEBUG(&quot;%s&quot;, __func__);
++	if (!session) {
++		LOG_ERROR(&quot;session's transport is not selected.&quot;);
++		return ERROR_FAIL;
++	}
++
++	return session-&gt;init(CMD_CTX);
++}
++
++COMMAND_HANDLER(handle_transport_list)
++{
++	if (CMD_ARGC != 0)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	command_print(CMD_CTX, &quot;The following transports are available:&quot;);
++
++	for (struct transport *t = transport_list; t; t = t-&gt;next)
++		command_print(CMD_CTX, &quot;\t%s&quot;, t-&gt;name);
++
++	return ERROR_OK;
++}
++
++/**
++ * Implements the Tcl &quot;transport select&quot; command, choosing the
++ * transport to be used in this debug session from among the
++ * set supported by the debug adapter being used.
++ */
++COMMAND_HANDLER(handle_transport_select)
++{
++	int retval = ERROR_OK;;
++
++	switch (CMD_ARGC) {
++	case 0:			/* &quot;select&quot; */
++		if (session) {
++			goto show;
++		}
++		LOG_ERROR(&quot;session's transport is not selected.&quot;);
++		return ERROR_FAIL;
++
++	case 1:			/* &quot;select FOO&quot; */
++		/* we can't change this session's transport after-the-fact */
++		if (session) {
++			LOG_ERROR(&quot;session's transport is already selected.&quot;);
++			return ERROR_FAIL;
++		}
++		break;
++
++	default:		/* select FOO BAR */
++		/* we only select *one* transport per session */
++		LOG_ERROR(&quot;may only select one transport!&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* Is this transport supported by our debug adapter?
++	 * Example, &quot;JTAG-only&quot; means SWD is not supported.
++	 *
++	 * NOTE:  requires adapter to have been set up, including
++	 * declaring transport via C code or Tcl script.
++	 */
++	if (!allowed_transports) {
++		LOG_ERROR(&quot;Debug adapter doesn't support any transports?&quot;);
++		return ERROR_FAIL;
++	}
++	for (unsigned i = 0; allowed_transports[i]; i++) {
++
++		if (strcmp(allowed_transports[i], CMD_ARGV[0]) == 0)
++			retval = transport_select(CMD_CTX, CMD_ARGV[0]);
++		else {
++			LOG_ERROR(&quot;Debug adapter doesn't support '%s' &quot;
++					&quot;transport?&quot;, CMD_ARGV[0]);
++			return ERROR_FAIL;
++		}
++	}
++
++
++show:
++	/* report the current transport selection */
++	command_print(CMD_CTX, &quot;%s&quot;, session-&gt;name);
++	return retval;
++}
++
++static const struct command_registration transport_commands[] = {
++	{
++		.name = &quot;init&quot;,
++		.handler = handle_transport_init,
++		/* this would be COMMAND_CONFIG ... except that
++		 * it needs to trigger event handlers that may
++		 * require COMMAND_EXEC ...
++		 */
++		.mode = COMMAND_ANY,
++		.help = &quot;Initialize this session's transport&quot;,
++	},
++	{
++		.name = &quot;list&quot;,
++		.handler = handle_transport_list,
++		.mode = COMMAND_ANY,
++		.help = &quot;list all built-in transports&quot;,
++	},
++	{
++		.name = &quot;select&quot;,
++		.handler = handle_transport_select,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;Select this session's transport&quot;,
++		.usage = &quot;[transport_name]&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++static const struct command_registration transport_group[] = {
++	{
++		.name = &quot;transport&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;Transport command group&quot;,
++		.chain = transport_commands,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++
++int transport_register_commands(struct command_context *ctx)
++{
++	return register_commands(ctx, NULL, transport_group);
++}
+--- /dev/null
++++ b/src/jtag/transport.h
+@@ -0,0 +1,72 @@
++/*
++ * Copyright (c) 2010 by David Brownell
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ */
++
++#include &quot;helper/command.h&quot;
++
++/**
++ * Wrapper for transport lifecycle operations.
++ *
++ * OpenOCD talks to targets through some kind of debugging
++ * or programming adapter, using some protocol that probably
++ * has target-specific aspects.
++ *
++ * A &quot;transport&quot; reflects electrical protocol to the target,
++ * e..g jtag, swd, spi, uart, ... NOT the messaging protocols
++ * layered over it (e.g. JTAG has eICE, CoreSight, Nexus, OnCE,
++ * and more).
++ */
++struct transport {
++	/**
++	 * Each transport has a unique name, used to select it
++	 * from among the alternatives.  Examples include &quot;JTAG&quot;,
++	 * &quot;SWD&quot;, &quot;AVR_ISP&quot; and more.
++	 */
++	const char *name;
++
++	/**
++	 * When a transport is selected, this method registers
++	 * its commands and activates the transport (e.g. resets
++	 * the link).
++	 *
++	 * After those commands are registered, they will often
++	 * be used for further configuration of the debug link.
++	 */
++	int (*select)(struct command_context *ctx);
++
++	/**
++	 * server startup uses this method to validate transport
++	 * configuration.  (For example, with JTAG this interrogates
++	 * the scan chain against the list of expected TAPs.)
++	 */
++	int (*init)(struct command_context *ctx);
++
++	/**
++	 * Transports are stored in a singly linked list.
++	 */
++	struct transport *next;
++};
++
++int transport_register(struct transport *new_transport);
++
++struct transport *get_current_transport(void);
++
++int transport_register_commands(struct command_context *ctx);
++
++COMMAND_HELPER(transport_list_parse, char ***vector);
++
++int allow_transports(struct command_context *ctx, const char **vector);
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -31,10 +31,9 @@
+ #include &quot;openocd.h&quot;
+ #include &lt;jtag/driver.h&gt;
+ #include &lt;jtag/jtag.h&gt;
++#include &lt;jtag/transport.h&gt;
+ #include &lt;helper/ioutil.h&gt;
+ #include &lt;helper/configuration.h&gt;
+-#include &lt;xsvf/xsvf.h&gt;
+-#include &lt;svf/svf.h&gt;
+ #include &lt;flash/nor/core.h&gt;
+ #include &lt;flash/nand/core.h&gt;
+ #include &lt;pld/pld.h&gt;
+@@ -122,20 +121,37 @@ COMMAND_HANDLER(handle_init_command)
+ 	}
+ 	LOG_DEBUG(&quot;Debug Adapter init complete&quot;);
+ 
+-	/* Try to initialize &amp; examine the JTAG chain at this point,
+-	 * but continue startup regardless.  Note that platforms
+-	 * need to be able to provide JTAG event handlers that use
+-	 * a variety of JTAG operations in order to do that...
++	/* REVISIT can we drop the &quot;default transport&quot; notion?
++	 * for now, we do it primarily for legacy support.
++	 *
++	 * NOTE: for jtag, 'jtag newtap&quot; won't be available until JTAG
++	 * selection registers those commands. Also, platforms may rely
++	 * on JTAG event handlers which also use such JTAG operations.
++	 *
+ 	 */
+-	command_context_mode(CMD_CTX, COMMAND_EXEC);
+-	if (command_run_line(CMD_CTX, &quot;jtag init&quot;) == ERROR_OK)
+-	{
+-		LOG_DEBUG(&quot;Examining targets...&quot;);
+-		if (target_examine() != ERROR_OK)
+-			LOG_DEBUG(&quot;target examination failed&quot;);
++	if (get_current_transport() == NULL) {
++		LOG_WARNING(&quot;trying JTAG as default transport&quot;);
++		retval = command_run_line(CMD_CTX,
++				&quot;transport select jtag&quot;);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+-	else
+-		LOG_WARNING(&quot;jtag initialization failed; try 'jtag init' again.&quot;);
++
++	/* &quot;transport init&quot; verifies the expected devices are present;
++	 * for JTAG, it checks the list of configured TAPs against
++	 * what's discoverable, possibly with help from the platform's
++	 * JTAG event handlers.  (which require COMMAND_EXEC)
++	 */
++	command_context_mode(CMD_CTX, COMMAND_EXEC);
++
++	retval = command_run_line(CMD_CTX, &quot;transport init&quot;);
++	if (ERROR_OK != retval)
++		return ERROR_FAIL;
++
++	LOG_DEBUG(&quot;Examining targets...&quot;);
++	if (target_examine() != ERROR_OK)
++		LOG_DEBUG(&quot;target examination failed&quot;);
++
+ 	command_context_mode(CMD_CTX, COMMAND_CONFIG);
+ 
+ 	if (command_run_line(CMD_CTX, &quot;flash init&quot;) != ERROR_OK)
+@@ -208,16 +224,13 @@ struct command_context *setup_command_ha
+ 		&amp;server_register_commands,
+ 		&amp;gdb_register_commands,
+ 		&amp;log_register_commands,
++		&amp;transport_register_commands,
+ 		&amp;interface_register_commands,
+-		&amp;jtag_register_commands,
+-		&amp;xsvf_register_commands,
+-		&amp;svf_register_commands,
+ 		&amp;target_register_commands,
+ 		&amp;flash_register_commands,
+ 		&amp;nand_register_commands,
+ 		&amp;pld_register_commands,
+ 		&amp;mflash_register_commands,
+-		NULL
+ 	};
+ 	for (unsigned i = 0; NULL != command_registrants[i]; i++)
+ 	{
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015245.html">[Openocd-development] jtag_khz =&gt; adapter_khz change
+</A></li>
+	<LI>Next message: <A HREF="015284.html">[Openocd-development] [patch/rfc] initial &quot;transport&quot; framework
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15247">[ date ]</a>
+              <a href="thread.html#15247">[ thread ]</a>
+              <a href="subject.html#15247">[ subject ]</a>
+              <a href="author.html#15247">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/4] ARM: remove mrc_opcode(),	use MRC() or MCR()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20ARM%3A%20remove%20mrc_opcode%28%29%2C%0A%09use%20MRC%28%29%20or%20MCR%28%29&In-Reply-To=%3C200912071111.11849.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013401.html">
+   <LINK REL="Next"  HREF="013404.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/4] ARM: remove mrc_opcode(),	use MRC() or MCR()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20ARM%3A%20remove%20mrc_opcode%28%29%2C%0A%09use%20MRC%28%29%20or%20MCR%28%29&In-Reply-To=%3C200912071111.11849.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/4] ARM: remove mrc_opcode(),	use MRC() or MCR()">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Dec  7 20:11:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013401.html">[Openocd-development] [patch 0/4] ARM: &lt;target/arm.h&gt;
+</A></li>
+        <LI>Next message: <A HREF="013404.html">[Openocd-development] [patch 2/4] ARM: move opcode macros to	&lt;target/arm_opcodes.h&gt;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13402">[ date ]</a>
+              <a href="thread.html#13402">[ thread ]</a>
+              <a href="subject.html#13402">[ subject ]</a>
+              <a href="author.html#13402">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Get rid of mrc_opcode() in favor of ARMV4_5_MRC() or, where
+arm*20t should have used it, ARMV4_5_MCR() instead.
+
+Basically, *writing* coprocessor registers shouldn't have
+used the *read* opcode ... and both should stick to standard
+opcode constructors, not rearranging parameter sequence any
+more than already needed.
+---
+ src/target/arm720t.c |   20 ++++++++++++++++----
+ src/target/arm920t.c |   20 ++++++++++++++++----
+ src/target/armv4_5.h |   12 ------------
+ 3 files changed, 32 insertions(+), 20 deletions(-)
+
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -481,7 +481,10 @@ COMMAND_HANDLER(arm720t_handle_cp15_comm
+ 	return ERROR_OK;
+ }
+ 
+-static int arm720t_mrc(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value)
++static int arm720t_mrc(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t *value)
+ {
+ 	if (cpnum!=15)
+ 	{
+@@ -489,11 +492,17 @@ static int arm720t_mrc(struct target *ta
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	return arm720t_read_cp15(target, mrc_opcode(cpnum, op1, op2, CRn, CRm), value);
++	/* read &quot;to&quot; r0 */
++	return arm720t_read_cp15(target,
++			ARMV4_5_MRC(cpnum, op1, 0, CRn, CRm, op2),
++			value);
+ 
+ }
+ 
+-static int arm720t_mcr(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value)
++static int arm720t_mcr(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t value)
+ {
+ 	if (cpnum!=15)
+ 	{
+@@ -501,7 +510,10 @@ static int arm720t_mcr(struct target *ta
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	return arm720t_write_cp15(target, mrc_opcode(cpnum, op1, op2, CRn, CRm), value);
++	/* write &quot;from&quot; r0 */
++	return arm720t_write_cp15(target,
++			ARMV4_5_MCR(cpnum, op1, 0, CRn, CRm, op2),
++			value);
+ }
+ 
+ static const struct command_registration arm720t_exec_command_handlers[] = {
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -1352,7 +1352,10 @@ COMMAND_HANDLER(arm920t_handle_cache_inf
+ }
+ 
+ 
+-static int arm920t_mrc(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value)
++static int arm920t_mrc(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t *value)
+ {
+ 	if (cpnum!=15)
+ 	{
+@@ -1360,10 +1363,16 @@ static int arm920t_mrc(struct target *ta
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	return arm920t_read_cp15_interpreted(target, mrc_opcode(cpnum, op1, op2, CRn, CRm), 0, value);
++	/* read &quot;to&quot; r0 */
++	return arm920t_read_cp15_interpreted(target,
++			ARMV4_5_MRC(cpnum, op1, 0, CRn, CRm, op2),
++			0, value);
+ }
+ 
+-static int arm920t_mcr(struct target *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value)
++static int arm920t_mcr(struct target *target, int cpnum,
++		uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm,
++		uint32_t value)
+ {
+ 	if (cpnum!=15)
+ 	{
+@@ -1371,7 +1380,10 @@ static int arm920t_mcr(struct target *ta
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	return arm920t_write_cp15_interpreted(target, mrc_opcode(cpnum, op1, op2, CRn, CRm), 0, value);
++	/* write &quot;from&quot; r0 */
++	return arm920t_write_cp15_interpreted(target,
++			ARMV4_5_MCR(cpnum, op1, 0, CRn, CRm, op2),
++			0, value);
+ }
+ 
+ static const struct command_registration arm920t_exec_command_handlers[] = {
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -379,16 +379,4 @@ extern struct reg arm_gdb_dummy_fps_reg;
+  */
+ #define ARMV5_T_BKPT(Im) ((0xbe00 | Im) | ((0xbe00 | Im) &lt;&lt; 16))
+ 
+-/* build basic mrc/mcr opcode */
+-
+-static inline uint32_t mrc_opcode(int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm)
+-{
+-	uint32_t t = 0;
+-	t|=op1&lt;&lt;21;
+-	t|=op2&lt;&lt;5;
+-	t|=CRn&lt;&lt;16;
+-	t|=CRm&lt;&lt;0;
+-	return t;
+-}
+-
+ #endif /* ARMV4_5_H */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013401.html">[Openocd-development] [patch 0/4] ARM: &lt;target/arm.h&gt;
+</A></li>
+	<LI>Next message: <A HREF="013404.html">[Openocd-development] [patch 2/4] ARM: move opcode macros to	&lt;target/arm_opcodes.h&gt;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13402">[ date ]</a>
+              <a href="thread.html#13402">[ thread ]</a>
+              <a href="subject.html#13402">[ subject ]</a>
+              <a href="author.html#13402">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

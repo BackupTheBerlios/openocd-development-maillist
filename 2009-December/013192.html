@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/3] remove #if BUILD_HTTPD
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20remove%20%23if%20BUILD_HTTPD&In-Reply-To=%3C1259726822-26322-4-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013194.html">
+   <LINK REL="Next"  HREF="013195.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/3] remove #if BUILD_HTTPD</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20remove%20%23if%20BUILD_HTTPD&In-Reply-To=%3C1259726822-26322-4-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/3] remove #if BUILD_HTTPD">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Dec  2 05:07:02 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013194.html">[Openocd-development] [PATCH 2/3] remove BUILD_IOUTIL symbol
+</A></li>
+        <LI>Next message: <A HREF="013195.html">[Openocd-development] [PATCH 0/3] remove all #if logic from	openocd.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13192">[ date ]</a>
+              <a href="thread.html#13192">[ thread ]</a>
+              <a href="subject.html#13192">[ subject ]</a>
+              <a href="author.html#13192">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add httpd_stubs.c to provide no-op implementations of httpd_start()
+and httpd_stop().
+
+Allows these routines to be called unconditionally and ensures the
+libocdserver ABI remains unchanged regardless of whether this feature
+was built-in or not.
+
+Prints a DEBUG message when the stub implementation is included.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ configure.in             |    6 ------
+ src/openocd.c            |    4 ----
+ src/server/Makefile.am   |    1 +
+ src/server/httpd_stubs.c |   32 ++++++++++++++++++++++++++++++++
+ 4 files changed, 33 insertions(+), 10 deletions(-)
+ create mode 100644 src/server/httpd_stubs.c
+
+diff --git a/configure.in b/configure.in
+index 1a4299d..9cb2b0f 100644
+--- a/configure.in
++++ b/configure.in
+@@ -614,12 +614,6 @@ else
+   AC_DEFINE(BUILD_ZY1000, 0, [0 if you don't want ZY1000.])
+ fi
+ 
+-if test $build_httpd = yes; then
+-  AC_DEFINE(BUILD_HTTPD, 1, [1 if you want httpd.])
+-else
+-  AC_DEFINE(BUILD_HTTPD, 0, [0 if you don't want httpd.])
+-fi
+-
+ if test $build_at91rm9200 = yes; then
+   build_bitbang=yes
+   AC_DEFINE(BUILD_AT91RM9200, 1, [1 if you want at91rm9200.])
+diff --git a/src/openocd.c b/src/openocd.c
+index 1f45837..9a08019 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -244,10 +244,8 @@ int openocd_main(int argc, char *argv[])
+ 	if (ret != ERROR_OK)
+ 		return EXIT_FAILURE;
+ 
+-#if BUILD_HTTPD
+ 	if (httpd_start(cmd_ctx) != ERROR_OK)
+ 		return EXIT_FAILURE;
+-#endif
+ 
+ 	ret = server_init(cmd_ctx);
+ 	if (ERROR_OK != ret)
+@@ -266,9 +264,7 @@ int openocd_main(int argc, char *argv[])
+ 
+ 	server_quit();
+ 
+-#if BUILD_HTTPD
+ 	httpd_stop();
+-#endif
+ 
+ 	unregister_all_commands(cmd_ctx, NULL);
+ 
+diff --git a/src/server/Makefile.am b/src/server/Makefile.am
+index b47b8d0..989a682 100644
+--- a/src/server/Makefile.am
++++ b/src/server/Makefile.am
+@@ -14,6 +14,7 @@ libserver_la_SOURCES = server.c telnet_server.c gdb_server.c
+ if HTTPD
+ libserver_la_SOURCES += httpd.c
+ else
++libserver_la_SOURCES += httpd_stubs.c
+ if !ECOSBOARD
+ libserver_la_SOURCES += server_stubs.c
+ endif
+diff --git a/src/server/httpd_stubs.c b/src/server/httpd_stubs.c
+new file mode 100644
+index 0000000..0a63362
+--- /dev/null
++++ b/src/server/httpd_stubs.c
+@@ -0,0 +1,32 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &lt;config.h&gt;
++#endif
++#include &quot;httpd.h&quot;
++
++int httpd_start(struct command_context *cmd_ctx)
++{
++	LOG_DEBUG(&quot;libocdserver was built without HTTPD support&quot;);
++	return ERROR_OK;
++}
++void httpd_stop(void)
++{
++}
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013194.html">[Openocd-development] [PATCH 2/3] remove BUILD_IOUTIL symbol
+</A></li>
+	<LI>Next message: <A HREF="013195.html">[Openocd-development] [PATCH 0/3] remove all #if logic from	openocd.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13192">[ date ]</a>
+              <a href="thread.html#13192">[ thread ]</a>
+              <a href="subject.html#13192">[ subject ]</a>
+              <a href="author.html#13192">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

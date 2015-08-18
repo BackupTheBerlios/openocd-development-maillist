@@ -1,0 +1,240 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Flash programming PXA270
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20programming%20PXA270&In-Reply-To=%3C200701221453.10848.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000063.html">
+   <LINK REL="Next"  HREF="000076.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Flash programming PXA270</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20programming%20PXA270&In-Reply-To=%3C200701221453.10848.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] Flash programming PXA270">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Mon Jan 22 14:53:10 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000063.html">[Openocd-development] Flash programming PXA270
+</A></li>
+        <LI>Next message: <A HREF="000076.html">[Openocd-development] Flash programming PXA270
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#64">[ date ]</a>
+              <a href="thread.html#64">[ thread ]</a>
+              <a href="subject.html#64">[ subject ]</a>
+              <a href="author.html#64">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>These should have gone to the ML, too. Anyway, here they are.
+
+----------  Forwarded Message  ----------
+
+Subject: Re: [Openocd-development] Flash programming PXA270
+Date: Monday 22 January 2007 14:45
+From: Dominic Rath &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>&gt;
+To: Pierre Metrailler - s h o c k f i s h / &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">pierre at shockfish.com</A>&gt;
+
+Hello Pierre,
+
+On Monday 22 January 2007 11:42, you wrote:
+&gt;<i> Hello Dominic,
+</I>&gt;<i>
+</I>&gt;<i> Thank you for your response.
+</I>&gt;<i>
+</I>&gt;<i> &gt;&gt; could you verify if nTRST is high while the OpenOCD is in
+</I>&gt;<i> &gt;&gt; jtag_validate_chain()? The default behaviour for nTRST should be
+</I>&gt;<i> &gt;&gt; push-pull, but there might be a bug which causes nTRST to be open-drain.
+</I>&gt;<i>
+</I>&gt;<i> We have checked all the lines on the oscilloscope and found out that the
+</I>&gt;<i> JTAGKey VREF needs to be connected to an external, constant power
+</I>&gt;<i> supply. Now we have a clean SRST/TRST sequence as described in the Intel
+</I>&gt;<i> appnote. The scan chain validation does not fail anymore. The full log
+</I>&gt;<i> is attached.
+</I>
+It should be connected to a power supply pin of the same voltage as the
+signals on your JTAG port. Note that the JTAGkey-Tiny has a limited voltage
+range as opposed to the &quot;full&quot; JTAGkey.
+
+&gt;<i> &gt;&gt; You could also try increasing the jtag_nsrst_delay and jtag_ntrst_delay,
+</I>&gt;<i> &gt;&gt; to make sure there's no reset supervisor causing the reset lines to stay
+</I>&gt;<i> &gt;&gt; asserted while the OpenOCD already tries to talk to the target.
+</I>&gt;<i>
+</I>&gt;<i> Actually, before releasing SRST we do see operations on JTAG, both on
+</I>&gt;<i> the scope and on the debug output - so it seems that OpenOCD talks to
+</I>&gt;<i> the target before before releasing SRST. Is this normal ?:
+</I>
+This is intended behaviour. The OpenOCD tells the target to keep the reset
+internally asserted, preventing the core from starting to fetch and execute
+instructions. It then releases the reset, and starts downloading code (the
+debug handler) to the XScale's mini-instruction cache. After the download is
+finished the internal reset is released, the core starts fetching the first
+instruction from the reset vector, which has been overwritten with the debug
+handler. The debug handler then starts talking to the OpenOCD, and you can
+use the telnet interface to control your target.
+
+The problem is the first &quot;Warning&quot;. After loading the SEL_DCSR JTAG
+instruction, the XScale should load a fixed value of b10 into the two least
+significant bits of the data register. This isn't happening in your case.
+
+I've seen this behaviour reported by another PXA27x user, but we didn't know
+for sure whether their JTAG interface was fully stable, so we didn't
+investigate this problem any further. The code works fine on a PXA25x and
+reportedly on a IXP42x, too, so in theory it should work for a PXA27x, too. I
+found one posting in a discontinued Intel forum (only accessible via Google's
+cache) where someone reported a similar problem (working PXA25x, but PXA27x
+failed).
+
+Maybe the PXA27x needs a longer delay before trying to write the DCSR. Try
+increasing the jtag_ntrst_delay and jtag_nsrst_delay values to 1000.
+
+If that doesn't help, try adding the following two lines in
+
+xscale_deassert_reset() (context quoted):
+&gt;<i> /* release TRST */
+</I>&gt;<i> jtag_add_reset(0, -1);
+</I>&gt;<i> jtag_add_sleep(100000);
+</I>
+jtag_add_runtest(1000, TAP_RTI);
+jtag_execute_queue();
+
+&gt;<i> /* set Hold reset, Halt mode and Trap Reset */
+</I>&gt;<i> buf_set_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 30, 1, 0x1);
+</I>&gt;<i> buf_set_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 16, 1, 0x1);
+</I>
+Unfortunately I don't have a PXA27x board to test myself, only a PXA250 which
+is working fine with the current code.
+
+&gt;<i> We have also tried the same setup on a Colibri PXA270 board from Toradex
+</I>&gt;<i> with exactly the same result.
+</I>&gt;<i>
+</I>&gt;<i> Kind Regards
+</I>&gt;<i>
+</I>&gt;<i> Pierre
+</I>
+Best regards,
+
+Dominic
+
+-------------------------------------------------------
+
+
+----------  Forwarded Message  ----------
+
+Subject: Re: [Openocd-development] Flash programming PXA270
+Date: Sunday 21 January 2007 22:30
+From: Dominic Rath &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>&gt;
+To: Pierre Metrailler - s h o c k f i s h / &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">pierre at shockfish.com</A>&gt;
+
+Hello Pierre,
+
+could you verify if nTRST is high while the OpenOCD is in
+jtag_validate_chain()? The default behaviour for nTRST should be push-pull,
+but there might be a bug which causes nTRST to be open-drain.
+
+You could also try increasing the jtag_nsrst_delay and jtag_ntrst_delay, to
+make sure there's no reset supervisor causing the reset lines to stay
+asserted while the OpenOCD already tries to talk to the target.
+
+Increasing the jtag_speed (a divisor) could also help to identify the cause
+ of your problem.
+
+Regards,
+
+Dominic
+
+On Friday 19 January 2007 19:45, you wrote:
+&gt;<i> Hello Dominic,
+</I>&gt;<i>
+</I>&gt;<i> We have now wired the PXA270 to the JTAG as described in the appnote,
+</I>&gt;<i> section 5.1, &quot;Macraigor Raven* and Wind River Systems visionPROBE*
+</I>&gt;<i> /visionICE&quot; : TRST and SRST are both connected to the JTAGkey-tiny, with
+</I>&gt;<i>     TRST pulled down with a 10k.
+</I>&gt;<i>
+</I>&gt;<i> I have modified the configuration (attached) and set &quot;reset_config
+</I>&gt;<i> trst_and_srst&quot;.
+</I>&gt;<i>
+</I>&gt;<i> However, the scan chain validation now fails (Error validating JTAG scan
+</I>&gt;<i> chain, IR mismatch, scan returned 0x01ff, full debug output below).
+</I>&gt;<i> I have not changed the validation chain (jtag_device 7 0x1 0x7f 0x7e) -
+</I>&gt;<i> this shall be correct according to the Intel JFLASHMM configuration and
+</I>&gt;<i> this post
+</I>&gt;<i> <A HREF="https://lists.berlios.de/pipermail/openocd-development/2006-November/000033">https://lists.berlios.de/pipermail/openocd-development/2006-November/000033</A>
+</I>&gt;<i>.html
+</I>&gt;<i>
+</I>&gt;<i> Kind Regards
+</I>&gt;<i>
+</I>&gt;<i> Pierre
+</I>&gt;<i>
+</I>&gt;<i> Info:    openocd.c:83 main(): Open On-Chip Debugger (XScale branch,
+</I>&gt;<i> 2006-11-22 14:00 CEST)
+</I>&gt;<i> Debug:   jtag.c:1246 jtag_init():
+</I>&gt;<i> Debug:   ft2232.c:1243 ft2232_init(): 'ft2232' interface using FTD2XX
+</I>&gt;<i> with 'jtagkey' layout
+</I>&gt;<i> Debug:   ft2232.c:1329 ft2232_init(): current latency timer: 2
+</I>&gt;<i> Debug:   ft2232.c:1492 jtagkey_init(): 80 08 1b
+</I>&gt;<i> Debug:   ft2232.c:1550 jtagkey_init(): 82 09 0f
+</I>&gt;<i> Debug:   ft2232.c:241 ft2232_speed(): 86 00 00
+</I>&gt;<i> Debug:   jtag.c:274 jtag_call_event_callbacks(): jtag event: TRST asserted
+</I>&gt;<i> Debug:   jtag.c:1132 jtag_reset_callback():
+</I>&gt;<i> Debug:   ft2232.c:1126 ft2232_execute_queue(): statemove: 0
+</I>&gt;<i> Debug:   ft2232.c:335 ft2232_send_and_recv(): write buffer (size 3):
+</I>&gt;<i> Debug:   ft2232.c:316 ft2232_debug_dump_buffer(): 4b 06 7f
+</I>&gt;<i> Debug:   jtag.c:274 jtag_call_event_callbacks(): jtag event: TRST asserted
+</I>&gt;<i> Debug:   jtag.c:1132 jtag_reset_callback():
+</I>&gt;<i> Debug:   jtag.c:1001 jtag_build_buffer(): fields[0].out_value: 0x01ff
+</I>&gt;<i> Debug:   ft2232.c:1181 ft2232_execute_queue(): IR scan, 9 bit, end in 0
+</I>&gt;<i> Debug:   ft2232.c:335 ft2232_send_and_recv(): write buffer (size 10):
+</I>&gt;<i> Debug:   ft2232.c:316 ft2232_debug_dump_buffer(): 4b 06 1b 39 00 00 ff
+</I>&gt;<i> 6b 06 ff
+</I>&gt;<i> Debug:   ft2232.c:390 ft2232_send_and_recv(): read buffer (0 retries): 2
+</I>&gt;<i> bytes
+</I>&gt;<i> Debug:   ft2232.c:316 ft2232_debug_dump_buffer(): ff ff
+</I>&gt;<i> Debug:   jtag.c:1032 jtag_read_buffer(): fields[0].in_value: 0x01ff
+</I>&gt;<i> Error:   jtag.c:1185 jtag_validate_chain(): Error validating JTAG scan
+</I>&gt;<i> chain, IR mismatch, scan returned 0x01ff
+</I>&gt;<i>
+</I>&gt;<i> Dominic Rath wrote:
+</I>&gt;<i> &gt; individual connections for both resets are vital for debugging XScale
+</I>&gt;<i> &gt; systems. The debugger needs to be able to assert nSRST and nTRST, release
+</I>&gt;<i> &gt; nTRST but hold nSRST asserted, and after some programming release nSRST,
+</I>&gt;<i> &gt; too.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; See the Intel Appnote &quot;Recommended JTAGCircuitry for Debug with Intel&#174;
+</I>&gt;<i> &gt; Xscale&quot; Microarchitecture&quot; (Document Number: 273538-001) for further
+</I>&gt;<i> &gt; information and example circuitry.
+</I>
+-------------------------------------------------------
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000063.html">[Openocd-development] Flash programming PXA270
+</A></li>
+	<LI>Next message: <A HREF="000076.html">[Openocd-development] Flash programming PXA270
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#64">[ date ]</a>
+              <a href="thread.html#64">[ thread ]</a>
+              <a href="subject.html#64">[ subject ]</a>
+              <a href="author.html#64">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

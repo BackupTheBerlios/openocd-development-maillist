@@ -1,0 +1,279 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 8/8] split jim_newtap_cmd into pieces
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%208/8%5D%20split%20jim_newtap_cmd%20into%20pieces&In-Reply-To=%3C1259273350-9173-9-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012972.html">
+   <LINK REL="Next"  HREF="012974.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 8/8] split jim_newtap_cmd into pieces</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%208/8%5D%20split%20jim_newtap_cmd%20into%20pieces&In-Reply-To=%3C1259273350-9173-9-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 8/8] split jim_newtap_cmd into pieces">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 26 23:09:10 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012972.html">[Openocd-development] [PATCH 7/8] improve jtag_tap_configure
+</A></li>
+        <LI>Next message: <A HREF="012974.html">[Openocd-development] [Patch 0/8] more command cleaning
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12971">[ date ]</a>
+              <a href="thread.html#12971">[ thread ]</a>
+              <a href="subject.html#12971">[ subject ]</a>
+              <a href="author.html#12971">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Moves the ID and IR-related option parsing to static helpers, removing
+two levels of indent.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/jtag/tcl.c |  164 ++++++++++++++++++++++++++++++++------------------------
+ 1 files changed, 94 insertions(+), 70 deletions(-)
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index bb86a32..7ec7fa4 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -406,26 +406,106 @@ static int is_bad_irval(int ir_length, jim_wide w)
+ 	return (w &amp; v) != 0;
+ }
+ 
++static int jim_newtap_expected_id(Jim_Nvp *n, Jim_GetOptInfo *goi,
++		struct jtag_tap *pTap)
++{
++	jim_wide w;
++	int e = Jim_GetOpt_Wide(goi, &amp;w);
++	if (e != JIM_OK) {
++		Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
++		return e;
++	}
++
++	unsigned expected_len = sizeof(uint32_t) * pTap-&gt;expected_ids_cnt;
++	uint32_t *new_expected_ids = malloc(expected_len + sizeof(uint32_t));
++	if (new_expected_ids == NULL)
++	{
++		Jim_SetResult_sprintf(goi-&gt;interp, &quot;no memory&quot;);
++		return JIM_ERR;
++	}
++
++	memcpy(new_expected_ids, pTap-&gt;expected_ids, expected_len);
++
++	new_expected_ids[pTap-&gt;expected_ids_cnt] = w;
++
++	free(pTap-&gt;expected_ids);
++	pTap-&gt;expected_ids = new_expected_ids;
++	pTap-&gt;expected_ids_cnt++;
++
++	return JIM_OK;
++}
++
++#define NTAP_OPT_IRLEN     0
++#define NTAP_OPT_IRMASK    1
++#define NTAP_OPT_IRCAPTURE 2
++#define NTAP_OPT_ENABLED   3
++#define NTAP_OPT_DISABLED  4
++#define NTAP_OPT_EXPECTED_ID 5
++
++static int jim_newtap_ir_param(Jim_Nvp *n, Jim_GetOptInfo *goi,
++		struct jtag_tap *pTap)
++{
++	jim_wide w;
++	int e = Jim_GetOpt_Wide(goi, &amp;w);
++	if (e != JIM_OK)
++	{
++		Jim_SetResult_sprintf(goi-&gt;interp,
++				&quot;option: %s bad parameter&quot;, n-&gt;name);
++		free((void *)pTap-&gt;dotted_name);
++		return e;
++	}
++	switch (n-&gt;value) {
++	case NTAP_OPT_IRLEN:
++		if (w &gt; (jim_wide) (8 * sizeof(pTap-&gt;ir_capture_value)))
++		{
++			LOG_WARNING(&quot;%s: huge IR length %d&quot;,
++					pTap-&gt;dotted_name, (int) w);
++		}
++		pTap-&gt;ir_length = w;
++		break;
++	case NTAP_OPT_IRMASK:
++		if (is_bad_irval(pTap-&gt;ir_length, w))
++		{
++			LOG_ERROR(&quot;%s: IR mask %x too big&quot;,
++					pTap-&gt;dotted_name,
++					(int) w);
++			return JIM_ERR;
++		}
++		if ((w &amp; 3) != 3)
++			LOG_WARNING(&quot;%s: nonstandard IR mask&quot;, pTap-&gt;dotted_name);
++		pTap-&gt;ir_capture_mask = w;
++		break;
++	case NTAP_OPT_IRCAPTURE:
++		if (is_bad_irval(pTap-&gt;ir_length, w))
++		{
++			LOG_ERROR(&quot;%s: IR capture %x too big&quot;,
++					pTap-&gt;dotted_name, (int) w);
++			return JIM_ERR;
++		}
++		if ((w &amp; 3) != 1)
++			LOG_WARNING(&quot;%s: nonstandard IR value&quot;,
++					pTap-&gt;dotted_name);
++		pTap-&gt;ir_capture_value = w;
++		break;
++	default:
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++
+ static int jim_newtap_cmd(Jim_GetOptInfo *goi)
+ {
+ 	struct jtag_tap *pTap;
+-	jim_wide w;
+ 	int x;
+ 	int e;
+ 	Jim_Nvp *n;
+ 	char *cp;
+ 	const Jim_Nvp opts[] = {
+-#define NTAP_OPT_IRLEN     0
+ 		{ .name = &quot;-irlen&quot;			,	.value = NTAP_OPT_IRLEN },
+-#define NTAP_OPT_IRMASK    1
+ 		{ .name = &quot;-irmask&quot;			,	.value = NTAP_OPT_IRMASK },
+-#define NTAP_OPT_IRCAPTURE 2
+ 		{ .name = &quot;-ircapture&quot;		,	.value = NTAP_OPT_IRCAPTURE },
+-#define NTAP_OPT_ENABLED   3
+ 		{ .name = &quot;-enable&quot;			,	.value = NTAP_OPT_ENABLED },
+-#define NTAP_OPT_DISABLED  4
+ 		{ .name = &quot;-disable&quot;		,	.value = NTAP_OPT_DISABLED },
+-#define NTAP_OPT_EXPECTED_ID 5
+ 		{ .name = &quot;-expected-id&quot;	,	.value = NTAP_OPT_EXPECTED_ID },
+ 		{ .name = NULL				,	.value = -1 },
+ 	};
+@@ -483,81 +563,25 @@ static int jim_newtap_cmd(Jim_GetOptInfo *goi)
+ 			pTap-&gt;disabled_after_reset = true;
+ 			break;
+ 		case NTAP_OPT_EXPECTED_ID:
+-		{
+-			uint32_t *new_expected_ids;
+-
+-			e = Jim_GetOpt_Wide(goi, &amp;w);
+-			if (e != JIM_OK) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
++			e = jim_newtap_expected_id(n, goi, pTap);
++			if (JIM_OK != e)
++			{
+ 				free((void *)pTap-&gt;dotted_name);
+ 				free(pTap);
+ 				return e;
+ 			}
+-
+-			new_expected_ids = malloc(sizeof(uint32_t) * (pTap-&gt;expected_ids_cnt + 1));
+-			if (new_expected_ids == NULL) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;no memory&quot;);
+-				free((void *)pTap-&gt;dotted_name);
+-				free(pTap);
+-				return JIM_ERR;
+-			}
+-
+-			memcpy(new_expected_ids, pTap-&gt;expected_ids, sizeof(uint32_t) * pTap-&gt;expected_ids_cnt);
+-
+-			new_expected_ids[pTap-&gt;expected_ids_cnt] = w;
+-
+-			free(pTap-&gt;expected_ids);
+-			pTap-&gt;expected_ids = new_expected_ids;
+-			pTap-&gt;expected_ids_cnt++;
+ 			break;
+-		}
+ 		case NTAP_OPT_IRLEN:
+ 		case NTAP_OPT_IRMASK:
+ 		case NTAP_OPT_IRCAPTURE:
+-			e = Jim_GetOpt_Wide(goi, &amp;w);
+-			if (e != JIM_OK) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
++			e = jim_newtap_ir_param(n, goi, pTap);
++			if (JIM_OK != e)
++			{
+ 				free((void *)pTap-&gt;dotted_name);
+ 				free(pTap);
+ 				return e;
+ 			}
+-			switch (n-&gt;value) {
+-			case NTAP_OPT_IRLEN:
+-				if (w &gt; (jim_wide) (8 * sizeof(pTap-&gt;ir_capture_value)))
+-					LOG_WARNING(&quot;%s: huge IR length %d&quot;,
+-							pTap-&gt;dotted_name,
+-							(int) w);
+-				pTap-&gt;ir_length = w;
+-				break;
+-			case NTAP_OPT_IRMASK:
+-				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;%s: IR mask %x too big&quot;,
+-							pTap-&gt;dotted_name,
+-							(int) w);
+-					free((void *)pTap-&gt;dotted_name);
+-					free(pTap);
+-					return ERROR_FAIL;
+-				}
+-				if ((w &amp; 3) != 3)
+-					LOG_WARNING(&quot;%s: nonstandard IR mask&quot;,
+-							pTap-&gt;dotted_name);
+-				pTap-&gt;ir_capture_mask = w;
+-				break;
+-			case NTAP_OPT_IRCAPTURE:
+-				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;%s: IR capture %x too big&quot;,
+-							pTap-&gt;dotted_name,
+-							(int) w);
+-					free((void *)pTap-&gt;dotted_name);
+-					free(pTap);
+-					return ERROR_FAIL;
+-				}
+-				if ((w &amp; 3) != 1)
+-					LOG_WARNING(&quot;%s: nonstandard IR value&quot;,
+-							pTap-&gt;dotted_name);
+-				pTap-&gt;ir_capture_value = w;
+-				break;
+-			}
++			break;
+ 		} /* switch (n-&gt;value) */
+ 	} /* while (goi-&gt;argc) */
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012972.html">[Openocd-development] [PATCH 7/8] improve jtag_tap_configure
+</A></li>
+	<LI>Next message: <A HREF="012974.html">[Openocd-development] [Patch 0/8] more command cleaning
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12971">[ date ]</a>
+              <a href="thread.html#12971">[ thread ]</a>
+              <a href="subject.html#12971">[ subject ]</a>
+              <a href="author.html#12971">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

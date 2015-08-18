@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Flashing userinterface feedback (and a bug or	two?)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flashing%20userinterface%20feedback%20%28and%20a%20bug%20or%0A%09two%3F%29&In-Reply-To=%3C48A1DA85.7060700.2%40jaeger.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002905.html">
+   <LINK REL="Next"  HREF="002926.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Flashing userinterface feedback (and a bug or	two?)</H1>
+    <B>Christian Jaeger</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flashing%20userinterface%20feedback%20%28and%20a%20bug%20or%0A%09two%3F%29&In-Reply-To=%3C48A1DA85.7060700.2%40jaeger.mine.nu%3E"
+       TITLE="[Openocd-development] Flashing userinterface feedback (and a bug or	two?)">christian at jaeger.mine.nu
+       </A><BR>
+    <I>Wed Aug 13 09:42:55 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002905.html">[Openocd-development] mips support?
+</A></li>
+        <LI>Next message: <A HREF="002926.html">[Openocd-development] Flashing userinterface feedback (and a	bug or two?)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2925">[ date ]</a>
+              <a href="thread.html#2925">[ thread ]</a>
+              <a href="subject.html#2925">[ subject ]</a>
+              <a href="author.html#2925">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello
+
+I'm connecting an Olimex arm-usb-tiny to a STEVAL IFD001V1 with
+STR912FAW44 cpu. I run openocd (SVN revision 895 and/or 902) and then
+connect with gdb someimage.elf, then run:
+
+(gdb) load 
+Error erasing flash with vFlashErase packet
+
+Error:  error erasing flash bank, status: 0xa2
+Error:  failed erasing sectors 0 to 0 (-902)
+Error:  flash_erase returned -902
+
+Then I hit the reset button of the eval board, and:
+
+(gdb) load
+
+Error:  failed erasing sectors 0 to 0 (-304)
+Error:  flash_erase returned -304
+
+(gdb) load
+
+Error:  failed erasing sectors 0 to 0 (-304)
+Error:  flash_erase returned -304
+
+
+Similar problems from telnet. Ok, after much unfruitful Googling,
+mailing list searching and trying I realize that I have to issue
+&quot;reset halt&quot; (just stopping in gdb isn't enough):
+
+ &gt; reset halt
+jtag_khz: 16
+JTAG device found: 0x04570041 (Manufacturer: 0x020, Part: 0x4570, Version: 0x0)
+JTAG device found: 0x25966041 (Manufacturer: 0x020, Part: 0x5966, Version: 0x2)
+JTAG device found: 0x2457f041 (Manufacturer: 0x020, Part: 0x457f, Version: 0x2)
+target state: halted
+target halted in ARM state due to debug request, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000000
+BUG: keep_alive() was not invoked in the 1000ms timelimit. GDB alive packet not sent! (1093)
+
+And then retry.
+
+ &gt; flash erase_address 0x00000000 0x00070000
+error erasing flash bank, status: 0xa2
+failed erasing sectors 0 to 6 (-902)
+Runtime error, file &quot;?&quot;, line 1:
+    error erasing flash bank, status: 0xa2
+failed erasing sectors 0 to 6 (-902)
+
+In procedure 'flash' called at file &quot;?&quot;, line 1
+In procedure 'unknown' called at file &quot;?&quot;, line 1
+In procedure 'flash_erase_address' called at file &quot;?&quot;, line 1
+
+ &gt; flash protect 0 0 2 off
+cleared protection for sectors 0 through 2 on flash bank 0
+
+ &gt; flash erase_address 0x00000000 0x00030000
+erased address 0x00000000 length 196608 in 5.485549s
+
+Finally.
+
+
+Now I'd like to just point out two things:
+
+- it's difficult to find out what to do, since the user interface
+  doesn't explain the problems (what do the error codes mean, for
+  example?)
+
+- then there is an oddity:
+
+
+ &gt; flash info 1
+#1: str9x at 0x00080000, size 0x00008000, buswidth 0, chipwidth 0
+	#0: 0x00000000 (0x2000 8kB) protected
+	#1: 0x00002000 (0x2000 8kB) protected
+	#2: 0x00004000 (0x2000 8kB) protected
+	#3: 0x00006000 (0x2000 8kB) protected
+str9x flash driver info
+ &gt; flash erase_address 0x00000000 0x00030000
+erased address 0x00000000 length 196608 in 5.485549s
+ &gt; flash info 0
+#0: str9x at 0x00000000, size 0x00080000, buswidth 0, chipwidth 0
+	#0: 0x00000000 (0x10000 64kB) protected
+	#1: 0x00010000 (0x10000 64kB) protected
+	#2: 0x00020000 (0x10000 64kB) protected
+	#3: 0x00030000 (0x10000 64kB) protected
+	#4: 0x00040000 (0x10000 64kB) protected
+	#5: 0x00050000 (0x10000 64kB) protected
+	#6: 0x00060000 (0x10000 64kB) protected
+	#7: 0x00070000 (0x10000 64kB) protected
+str9x flash driver info
+
+Why are those sectors still listed as protected?
+
+
+Also, is the &quot;BUG: keep_alive() was not invoked ..&quot; message really a
+bug? It also happens when I issue
+
+(gdb) monitor reset halt
+jtag_khz: 16
+JTAG device found: 0x04570041 (Manufacturer: 0x020, Part: 0x4570, Version: 0x0)
+JTAG device found: 0x25966041 (Manufacturer: 0x020, Part: 0x5966, Version: 0x2)
+JTAG device found: 0x2457f041 (Manufacturer: 0x020, Part: 0x457f, Version: 0x2)
+target state: halted
+target halted in ARM state due to debug request, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000000
+BUG: keep_alive() was not invoked in the 1000ms timelimit. GDB alive packet not sent! (1091)
+
+
+Also, if (after a restart of everything) I connect to openocd with
+&quot;gdb someimage.elf&quot;, openocd prints:
+
+Info:   accepting 'gdb' connection from 0
+waiting for target halted...
+Error:  timed out while waiting for target halted
+Warning:acknowledgment received, but no packet pending
+Warning:target not halted
+Warning:target not halted
+
+Is this error serious?
+
+
+Thanks,
+Christian.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002905.html">[Openocd-development] mips support?
+</A></li>
+	<LI>Next message: <A HREF="002926.html">[Openocd-development] Flashing userinterface feedback (and a	bug or two?)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2925">[ date ]</a>
+              <a href="thread.html#2925">[ thread ]</a>
+              <a href="subject.html#2925">[ subject ]</a>
+              <a href="author.html#2925">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

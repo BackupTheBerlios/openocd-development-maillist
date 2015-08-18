@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Set of MIPS patches (big endian, FASTDATA,	error propagation, optimizations...)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%09error%20propagation%2C%20optimizations...%29&In-Reply-To=%3CBANLkTi%3DWCxrZ1fzVTt9FaU1bptU9qD6j8g%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018636.html">
+   <LINK REL="Next"  HREF="018640.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Set of MIPS patches (big endian, FASTDATA,	error propagation, optimizations...)</H1>
+    <B>Andrew Lyon</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%09error%20propagation%2C%20optimizations...%29&In-Reply-To=%3CBANLkTi%3DWCxrZ1fzVTt9FaU1bptU9qD6j8g%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Set of MIPS patches (big endian, FASTDATA,	error propagation, optimizations...)">andrew.lyon at gmail.com
+       </A><BR>
+    <I>Mon Apr  4 17:06:36 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018636.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+        <LI>Next message: <A HREF="018640.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA,	error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18638">[ date ]</a>
+              <a href="thread.html#18638">[ thread ]</a>
+              <a href="subject.html#18638">[ subject ]</a>
+              <a href="author.html#18638">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, Apr 4, 2011 at 2:51 PM, Drasko DRASKOVIC
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+&gt;<i> Hi all,
+</I>&gt;<i> here is a set of patched (separeted by the logical changes they
+</I>&gt;<i> introduce) that :
+</I>&gt;<i> 1) Correct endianess for big endian targets
+</I>&gt;<i> 2) Correct while(1) loop waiting for PrAcc to be &quot;1&quot;
+</I>&gt;<i> 3) Change FASTDATA operation, forcing the shift out to prevent &quot;ft2232
+</I>&gt;<i> buffer size reached&quot; errors
+</I>&gt;<i> 4) Add optimizations similar to ones introduced by &#216;yvind recently
+</I>&gt;<i>
+</I>&gt;<i> With these patches I was able to obtain decent performances and
+</I>&gt;<i> correct functioning for my big endian MIPS-M14Kc based target.
+</I>&gt;<i>
+</I>&gt;<i> I see no more problems with libftdi of type :
+</I>&gt;<i> Error: couldn't read enough bytes from FT2232 device (0 &lt; 5)
+</I>&gt;<i> Current stable version of libftdi can be used, no need for closed D2XX
+</I>&gt;<i> files nor for development branches of libusb-1.0
+</I>&gt;<i>
+</I>&gt;<i> I also have no more problems with GDB synchronisation - ELF can be
+</I>&gt;<i> correctly downloaded and executed from GDB.
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Drasko
+</I>&gt;<i>
+</I>
+Hi Drasko,
+
+I reverted the patches I used previously and applied your 4 patches
+but load_image is now much slower:
+
+Debug: 132 223732 command.c:151 script_debug(): command - ocd_command
+ocd_command type ocd_halt
+Debug: 133 223732 command.c:151 script_debug(): command - halt ocd_halt
+Debug: 135 223738 target.c:2196 handle_halt_command(): -
+Debug: 136 223738 mips_m4k.c:182 mips_m4k_halt(): target-&gt;state: running
+Debug: 137 223746 mips_ejtag.c:239 mips_ejtag_enter_debug():
+ejtag_ctrl: 0x4004c008
+Debug: 141 225374 mips_m4k.c:109 mips_m4k_debug_entry(): entered debug
+state at PC 0x83fe4128, target-&gt;state: halted
+Debug: 142 225374 target.c:1053 target_call_event_callbacks(): target
+event 2 (gdb-halt)
+Debug: 143 225374 target.c:1053 target_call_event_callbacks(): target
+event 3 (halted)
+User : 144 225374 target.c:1330 target_arch_state(): target state: halted
+User : 145 225374 mips32.c:259 mips32_arch_state(): target halted in
+MIPS32 mode due to debug-request, pc: 0x83fe4128
+Debug: 146 227896 command.c:151 script_debug(): command - ocd_command
+ocd_command type ocd_load_image u-boot.bin.new 0xa0400000
+Debug: 147 227897 command.c:151 script_debug(): command - load_image
+ocd_load_image u-boot.bin.new 0xa0400000
+Debug: 149 227903 configuration.c:87 find_file(): found u-boot.bin.new
+Debug: 150 227903 configuration.c:87 find_file(): found u-boot.bin.new
+Debug: 151 227904 target.c:1346 target_write_buffer(): writing buffer
+of 109628 byte at 0xa0400000
+Debug: 152 227904 mips_m4k.c:1037 mips_m4k_bulk_write_memory():
+address: 0xa0400000, count: 0x00006b0f
+Debug: 153 227904 target.c:1157 target_alloc_working_area_try(): MMU
+disabled, using physical address for working memory 0xa0010000
+Debug: 154 227904 target.c:1217 target_alloc_working_area_try():
+allocated new working area at address 0xa0010000
+Debug: 158 229698 mips32_pracc.c:1018 mips32_pracc_fastdata_xfer():
+mips32_pracc_fastdata_xfer using 0xa0010000 for write handler
+Debug: 159 284584 log.c:437 keep_alive(): keep_alive() was not invoked
+in the 1000ms timelimit (55226). This may cause trouble with GDB
+connections.
+User : 161 284588 command.c:557 command_print(): 109628 bytes written
+at address 0xa0400000
+User : 162 284588 command.c:557 command_print(): downloaded 109628
+bytes in 56.685356s (1.889 KiB/s)
+
+
+Compared to the version I was using previously which just had the two
+patches for endianness:
+
+Debug: 100 50064 command.c:151 script_debug(): command - ocd_command
+ocd_command type ocd_halt
+Debug: 101 50065 command.c:151 script_debug(): command - halt ocd_halt
+Debug: 103 50071 target.c:2196 handle_halt_command(): -
+Debug: 104 50071 mips_m4k.c:178 mips_m4k_halt(): target-&gt;state: running
+Debug: 105 50079 mips_ejtag.c:218 mips_ejtag_enter_debug():
+ejtag_ctrl: 0x4004c008
+Debug: 111 52855 mips_m4k.c:109 mips_m4k_debug_entry(): entered debug
+state at PC 0x83fe4128, target-&gt;state: halted
+Debug: 112 52855 target.c:1053 target_call_event_callbacks(): target
+event 2 (gdb-halt)
+Debug: 113 52855 target.c:1053 target_call_event_callbacks(): target
+event 3 (halted)
+User : 114 52855 target.c:1330 target_arch_state(): target state: halted
+User : 115 52855 mips32.c:259 mips32_arch_state(): target halted in
+MIPS32 mode due to debug-request, pc: 0x83fe4128
+Debug: 116 54993 command.c:151 script_debug(): command - ocd_command
+ocd_command type ocd_load_image u-boot.bin.new 0xa0400000
+Debug: 117 54993 command.c:151 script_debug(): command - load_image
+ocd_load_image u-boot.bin.new 0xa0400000
+Debug: 119 54999 configuration.c:87 find_file(): found u-boot.bin.new
+Debug: 120 54999 configuration.c:87 find_file(): found u-boot.bin.new
+Debug: 121 55000 target.c:1346 target_write_buffer(): writing buffer
+of 109628 byte at 0xa0400000
+Debug: 122 55000 mips_m4k.c:1016 mips_m4k_bulk_write_memory():
+address: 0xa0400000, count: 0x00006b0f
+Debug: 123 55000 target.c:1157 target_alloc_working_area_try(): MMU
+disabled, using physical address for working memory 0xa0010000
+Debug: 124 55000 target.c:1217 target_alloc_working_area_try():
+allocated new working area at address 0xa0010000
+Debug: 131 58210 mips32_pracc.c:995 mips32_pracc_fastdata_xfer():
+mips32_pracc_fastdata_xfer using 0xa0010000 for write handler
+Debug: 133 58513 ft2232.c:1959 ft2232_execute_scan(): ft2232 buffer
+size reached, sending queued commands (first_unsent: 0xb74db008, cmd:
+0xb73e1fe8)
+Debug: 134 58781 ft2232.c:1959 ft2232_execute_scan(): ft2232 buffer
+size reached, sending queued commands (first_unsent: 0xb73e1fe8, cmd:
+0xb72e8fac)
+Debug: 135 59049 ft2232.c:1959 ft2232_execute_scan(): ft2232 buffer
+size reached, sending queued commands (first_unsent: 0xb72e8fac, cmd:
+0xb71eff28)
+User : 137 59354 command.c:557 command_print(): 109628 bytes written
+at address 0xa0400000
+User : 138 59354 command.c:557 command_print(): downloaded 109628
+bytes in 4.355341s (24.581 KiB/s)
+
+Andy
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018636.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+	<LI>Next message: <A HREF="018640.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA,	error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18638">[ date ]</a>
+              <a href="thread.html#18638">[ thread ]</a>
+              <a href="subject.html#18638">[ subject ]</a>
+              <a href="author.html#18638">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

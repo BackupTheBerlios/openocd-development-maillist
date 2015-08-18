@@ -1,0 +1,390 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Reset Madness
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20Madness&In-Reply-To=%3C4885C543.3090100%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002742.html">
+   <LINK REL="Next"  HREF="002747.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Reset Madness</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20Madness&In-Reply-To=%3C4885C543.3090100%40duaneellis.com%3E"
+       TITLE="[Openocd-development] Reset Madness">openocd at duaneellis.com
+       </A><BR>
+    <I>Tue Jul 22 13:32:19 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002742.html">[Openocd-development] Reset Madness
+</A></li>
+        <LI>Next message: <A HREF="002747.html">[Openocd-development] Reset Madness
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2746">[ date ]</a>
+              <a href="thread.html#2746">[ thread ]</a>
+              <a href="subject.html#2746">[ subject ]</a>
+              <a href="author.html#2746">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&#216;yvind Harboe wrote:
+&gt;<i> On Tue, Jul 22, 2008 at 5:23 AM, Duane Ellis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">duane at duaneellis.com</A>&gt; wrote:
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Duane Ellis wrote:
+</I>&gt;&gt;<i>     
+</I>&gt;&gt;&gt;<i> &#216;yvind Harboe wrote:
+</I>&gt;&gt;&gt;<i>       
+</I>&gt;&gt;&gt;&gt;<i> Would you be interested in porting target_process_reset to Tcl?
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>         
+</I>&gt;&gt;&gt;<i> Let me read through this code a bit and digest it.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>       
+</I>&gt;&gt;<i> I've done some reading - What I have to say will take a while to digest.
+</I>&gt;&gt;<i> So think about it for a little bit - you might need to read this a few
+</I>&gt;&gt;<i> times.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> To resolve the &quot;process_reset&quot; - I think we need to tackle some lower level
+</I>&gt;&gt;<i> things first.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> For example - we need a &quot;target&quot; that is in TCL style first.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> agreed.
+</I>&gt;<i>
+</I>&gt;<i> My biggest fear with the below is that we alienate existing users, so
+</I>&gt;<i> backwards compatibility is important.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>Agreed.
+
+&gt;&gt;<i> This is important - because:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The higher level scripts will need to invoke specific things on each target
+</I>&gt;&gt;<i> in some order.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Details follow:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> -Duane.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> =========
+</I>&gt;&gt;<i> Background:
+</I>&gt;&gt;<i> =========
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I'm not sure if you (or others) have done TK stuff - the graphics side of
+</I>&gt;&gt;<i> TCL or not. Basically, in Tcl/TK when you create a &quot;button&quot; - you create a
+</I>&gt;&gt;<i> new command that is specific to that button. In TK there are two ways of
+</I>&gt;&gt;<i> creating a button:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> (1) Specifying lots of options all at once... when creating.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      button  .foobar  -background red -foreground green -font 10x20 -text
+</I>&gt;&gt;<i> &quot;Hi Mom&quot;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> OR (2) - Creating the button, then modifying the button using the new
+</I>&gt;&gt;<i> command.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      button .foobar [with no options]
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>     Which - creates a new command, in this case called &quot;.foobar&quot;.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      Which you can &quot;configure&quot; as desired, for example:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>         .foobar configure -background red -foreground green
+</I>&gt;&gt;<i>         .foobar configure -font 10x20 -text &quot;Hi Mom&quot;
+</I>&gt;&gt;<i>         .foobar -command { puts &quot;Hi duane&quot; }
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> When we create a target, - like the button example above - we need to create
+</I>&gt;&gt;<i> a new command for that target.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> =========
+</I>&gt;&gt;<i> The New &quot;target&quot; command.
+</I>&gt;&gt;<i> =========
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I propose a new &quot;target&quot; command - that works like the Tcl/TK button command
+</I>&gt;&gt;<i> does.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> For compatibility reasons only...
+</I>&gt;&gt;<i>         if argv[0] = is a known target type, ie: &quot;arm7tdmi&quot; or &quot;cortex_m3&quot;
+</I>&gt;&gt;<i>         we assume all other parameters are positional.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> If the argv[0] is not a known target type, we do something else.
+</I>&gt;&gt;<i>    We demand it be one of these 4 things:
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> I'd like this to work for old targets as well, otherwise we'll have nothing
+</I>&gt;<i> to test against.
+</I>&gt;<i>
+</I>&gt;<i> Shouldn't be hard to detect options vs. positional parameters and convert
+</I>&gt;<i> positional parameters into options?
+</I>&gt;<i>   
+</I>
+yes, simple to convert positional parameters.
+&gt;<i>   
+</I>&gt;&gt;<i> (1)     target create NAME [configure options]
+</I>&gt;&gt;<i>            [ as described above, sort of like 'button']
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> (2)     target delete NAME
+</I>&gt;&gt;<i>             [Destroys a target.]
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> (3)     target invoke NAME COMMAND
+</I>&gt;&gt;<i>            [see below, same as: &quot;NAME COMMAND&quot;]
+</I>&gt;&gt;<i>     (4)     target list
+</I>&gt;&gt;<i>        [You use it like this:]
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>         proc poll_all_targets {
+</I>&gt;&gt;<i>                 foreach T [ target list ] {
+</I>&gt;&gt;<i>                          $T poll
+</I>&gt;&gt;<i>                }
+</I>&gt;&gt;<i>         }
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> cmd_ctx contains current target today. The above definitively moves
+</I>&gt;<i> current target out of cmd_ctx. OK by me, but we need backwards compatibility.
+</I>&gt;<i>   
+</I>No it does not. The idea is the &quot;command private&quot; variable holds the 
+'current target pointer&quot;.
+
+I do not see that something is breaking with the above.
+
+&gt;<i>   
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i> TK Events - but OpenOCD events.
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> TK has a command called &quot;bind&quot;.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> You can use the BIND command to BIND X-window events to specific Tcl
+</I>&gt;&gt;<i> Procedures.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> We need something similar -an-  EVENT command.
+</I>&gt;&gt;<i> {If you can suggest a better name... please do} it would work like this:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   eventcommand  NAME   -command  &quot;some command&quot;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Some ideas/examples would be:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      eventcommand  gdbconnect   -command &quot;source gdb-connect-script&quot;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      eventcommand  prereset   -command &quot;DO SOMETHING...&quot;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Other names could be:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>         gdbdisconnect
+</I>&gt;&gt;<i>         gdbstep
+</I>&gt;&gt;<i>         ... you name it ...
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This would roughly replace what is today: target_invoke_script()
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Of course without breaking the target_script command. :-)
+</I>&gt;<i>   
+</I>
+How do you think this would break the existing target script. I mean to 
+specifically *DELETE* the &quot;target_X_NAME&quot; support and no longer support 
+that at all.
+Or is this something that needs to exist? I do not think so. It has had 
+less then 1month in the wild.
+
+&gt;<i>   
+</I>&gt;&gt;<i>        ==========
+</I>&gt;&gt;<i> The key here is: &quot;target invoke NAME COMMAND&quot;.
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> there are two ways of invoking a TARGET command.
+</I>&gt;&gt;<i> Option 1 -
+</I>&gt;&gt;<i>      target invoke NAME COMMAND
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Or Option 2
+</I>&gt;&gt;<i>      Because the 'target create' created a new command..
+</I>&gt;&gt;<i>      You can do this instead:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      NAME COMMAND
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i> This is important because:
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This lets higher level scripts invoke certain target specific function
+</I>&gt;&gt;<i> calls.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> For example, STEP 1 - create target called &quot;T_foobar&quot;.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>    target create T_foobar -type arm7tdmi -endian little -chainpos 3 -varient
+</I>&gt;&gt;<i> xyz
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> We now have a &quot;T_foobar&quot; command we later can create these commands.
+</I>&gt;&gt;<i>                 T_foobar halt
+</I>&gt;&gt;<i>         T_foobar step
+</I>&gt;&gt;<i>         T_foobar ... what ever ...
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> For example - today the &quot;mww&quot; only works with the current target.
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> I consider the current target functionality of mww part of the Telnet
+</I>&gt;<i> user interface.
+</I>&gt;<i>   
+</I>
+And &quot;mww&quot; will remain, a 1st class command - that effects the *CURRENT* 
+target. No intention of removing it. It should 100% stay there.
+
+However, if you prefix &quot;mww&quot; with  TARGETNAME - it effects only the 
+specified target and does not modify the current target.
+In theory Sort of like this... - but not implemented like this.
+
+              push current target.
+              set target to NAME.
+               execute mww   ADDRESS DATA
+               pop target
+
+&gt;<i> almost *all* use of OpenOCD is single target, so we must not complicate the
+</I>&gt;<i> life of single target users.
+</I>&gt;<i>   
+</I>
+Exactly - why &quot;mww&quot; and others will remain as 1st class commands, and 
+not become &quot;subcommands&quot;.
+
+The idea is   PREFIX the command with the target name... and it is 
+target specific.
+
+&gt;<i>   
+</I>&gt;&gt;<i> Yes, you *can* use the &quot;targets&quot; command to change targets - by number.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> But with the new idea - we can eventually can do this:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>         T_foobar poke32 0x1234 0xdeadbeef
+</I>&gt;&gt;<i>         set VALUE [ T_foobar peek16 0x44432]
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Or
+</I>&gt;&gt;<i>         T_foobar step -  which ONLY steps the target named T_foobar
+</I>&gt;&gt;<i>         T_foobar reg NAME  VALUE
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i> What I need right now to redo process_reset is something like this:
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>         T_foobar  reset assert  [calls the assert reset]
+</I>&gt;&gt;<i>         T_foobar  reset deassert [ calls the other function ]
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> looks OK to me.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i>   The above &quot;come along for free&quot; - with this.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i> I also need a &quot;jtag&quot; command of some sort.
+</I>&gt;&gt;<i> ==========
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Specifically - i need something that lets me mess with or &quot;enque&quot; commands.
+</I>&gt;&gt;<i> Or at least &quot;execute the que&quot;.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Today - there are many commands like:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      jtag_khz
+</I>&gt;&gt;<i>      jtag_nsrt_delay
+</I>&gt;&gt;<i>   .. and others ..
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> There is nothing that does:   jtag_execute_queue()
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> This needs a bit of thought:
+</I>&gt;<i>
+</I>&gt;<i> jtag_execute_queue() has a crucial feature: it tells you whether any
+</I>&gt;<i> of the commands
+</I>&gt;<i> in the queue failed.
+</I>&gt;<i>   
+</I>
+Simple:
+
+    if { catch [jtag -execute-queue]  msg } {
+        puts &quot;ERROR: $msg&quot;
+    }
+
+&gt;<i> however, looking at drscan you see that if you make all tcl jtag
+</I>&gt;<i> commands  return a
+</I>&gt;<i> value/scanned data, then you have to execute the queue before you return from
+</I>&gt;<i> the tcl api.
+</I>&gt;<i>   
+</I>
+I need to read that part of the code. I have not been inside the 
+&quot;drscan&quot; and that type of stuff yet.
+
+&gt;<i> I'm leaning towards *not* exposing jtag_execute_queue() and always return the
+</I>&gt;<i> data that was scanned.
+</I>&gt;<i>
+</I>&gt;<i> from C(high performance), you create large queues. High performance
+</I>&gt;<i> and tcl should
+</I>&gt;<i> not be mentioned in the same sentence :-)
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>&gt;&gt;<i> ====
+</I>&gt;&gt;<i> Thus, one can do this:
+</I>&gt;&gt;<i> ====
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   During the various &quot;reset&quot; steps.  Events occur.
+</I>&gt;&gt;<i>   if an event procedure is defined for that event - it is invoked.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   In each of those events - a specific target command can occur.
+</I>&gt;&gt;<i>   One can now - define the &quot;post-reset&quot; event procedure to
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>      1) Halt target FOO - because there is no other way.
+</I>&gt;&gt;<i>      2) Set target FOO register: PC to 0xFFFF0000
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   And other complicated things - like:
+</I>&gt;&gt;<i>       starting with a slow jtag speed.
+</I>&gt;&gt;<i>       Programing the clocks &amp; sdram
+</I>&gt;&gt;<i>       Changing the jtag speed to fast
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> The above looks OK to me. I assume Jim supports all the features.
+</I>&gt;<i>   
+</I>
+Yes, it should.
+
+&gt;<i> My general comments is that we need to make sure that we don't alienate existing
+</I>&gt;<i> users and that things are backwards compatible. I don't think that
+</I>&gt;<i> will be too hard
+</I>&gt;<i> or be detrimental to the design.
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>Otherwise as some would say  -- we would start another   s__t storm.
+
+-Duane.
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002742.html">[Openocd-development] Reset Madness
+</A></li>
+	<LI>Next message: <A HREF="002747.html">[Openocd-development] Reset Madness
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2746">[ date ]</a>
+              <a href="thread.html#2746">[ thread ]</a>
+              <a href="subject.html#2746">[ subject ]</a>
+              <a href="author.html#2746">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

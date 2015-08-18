@@ -1,0 +1,263 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] SEGFAULT fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SEGFAULT%20fixes&In-Reply-To=%3Cc09652430810071104h51501706x977485dd4107f9c%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003306.html">
+   <LINK REL="Next"  HREF="003309.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] SEGFAULT fixes</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SEGFAULT%20fixes&In-Reply-To=%3Cc09652430810071104h51501706x977485dd4107f9c%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] SEGFAULT fixes">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Oct  7 20:04:16 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003306.html">[Openocd-development] [PATCH] trace.c Segmentation fault
+</A></li>
+        <LI>Next message: <A HREF="003309.html">[Openocd-development] Concerns about testing and availability of	targets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3307">[ date ]</a>
+              <a href="thread.html#3307">[ thread ]</a>
+              <a href="subject.html#3307">[ subject ]</a>
+              <a href="author.html#3307">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+Fixes SEGFAULT when setting registers from GDB.
+
+set $cpsr=1234
+
+=&gt; SEGFAULT
+
+Similar problems existed across ARM, Cortex, MIPS and ARM11.
+
+Thanks to Spen for pointing that out!
+
+
+I didn't test all the cases, I just duplicated the fix from Cortex to
+the rest of the code.
+
+Xing fingers that I didn't break anything...
+
+Testing appreciated!
+
+
+Index: C:/workspace/openocd/src/target/arm11.c
+===================================================================
+--- C:/workspace/openocd/src/target/arm11.c	(revision 1025)
++++ C:/workspace/openocd/src/target/arm11.c	(working copy)
+@@ -1683,7 +1683,10 @@
+     NEW(arm11_reg_state_t,	arm11_reg_states,	ARM11_REGCACHE_COUNT);
+
+     if (arm11_regs_arch_type == -1)
+-	arm11_regs_arch_type = register_reg_arch_type(arm11_get_reg, arm11_set_reg);
++    	arm11_regs_arch_type = register_reg_arch_type(arm11_get_reg,
+arm11_set_reg);
++
++	register_init_dummy(&amp;arm11_gdb_dummy_fp_reg);
++	register_init_dummy(&amp;arm11_gdb_dummy_fps_reg);
+
+     arm11-&gt;reg_list	= reg_list;
+
+Index: C:/workspace/openocd/src/target/armv4_5.c
+===================================================================
+--- C:/workspace/openocd/src/target/armv4_5.c	(revision 1025)
++++ C:/workspace/openocd/src/target/armv4_5.c	(working copy)
+@@ -277,6 +277,9 @@
+ 	if (armv4_5_core_reg_arch_type == -1)
+ 		armv4_5_core_reg_arch_type =
+register_reg_arch_type(armv4_5_get_core_reg, armv4_5_set_core_reg);
+
++	register_init_dummy(&amp;armv4_5_gdb_dummy_fp_reg);
++	register_init_dummy(&amp;armv4_5_gdb_dummy_fps_reg);
++
+ 	for (i = 0; i &lt; 37; i++)
+ 	{
+ 		arch_info[i] = armv4_5_core_reg_list_arch_info[i];
+Index: C:/workspace/openocd/src/target/armv7m.c
+===================================================================
+--- C:/workspace/openocd/src/target/armv7m.c	(revision 1025)
++++ C:/workspace/openocd/src/target/armv7m.c	(working copy)
+@@ -198,21 +198,6 @@
+ 	return ERROR_OK;
+ }
+
+-int armv7m_get_dummy_core_reg(reg_t *reg)
+-{
+-	return ERROR_OK;
+-}
+-
+-int armv7m_set_dummy_core_reg(reg_t *reg, u8 *buf)
+-{
+-	u32 value = buf_get_u32(buf, 0, 32);
+-	buf_set_u32(reg-&gt;value, 0, 32, value);
+-	reg-&gt;dirty = 1;
+-	reg-&gt;valid = 1;
+-
+-	return ERROR_OK;
+-}
+-
+ int armv7m_read_core_reg(struct target_s *target, int num)
+ {
+ 	u32 reg_value;
+@@ -485,12 +470,11 @@
+ 	if (armv7m_core_reg_arch_type == -1)
+ 	{
+ 		armv7m_core_reg_arch_type =
+register_reg_arch_type(armv7m_get_core_reg, armv7m_set_core_reg);
+-		armv7m_dummy_core_reg_arch_type =
+register_reg_arch_type(armv7m_get_dummy_core_reg,
+armv7m_set_dummy_core_reg);
+-
+-		armv7m_gdb_dummy_fp_reg.arch_type=armv7m_dummy_core_reg_arch_type;
+-		armv7m_gdb_dummy_fps_reg.arch_type=armv7m_dummy_core_reg_arch_type;
+-		armv7m_gdb_dummy_cpsr_reg.arch_type=armv7m_dummy_core_reg_arch_type;
+ 	}
++	
++	register_init_dummy(&amp;armv7m_gdb_dummy_fps_reg);
++	register_init_dummy(&amp;armv7m_gdb_dummy_cpsr_reg);
++	register_init_dummy(&amp;armv7m_gdb_dummy_fp_reg);
+ 		
+ 	/* Build the process context cache */
+ 	cache-&gt;name = &quot;arm v7m registers&quot;;
+Index: C:/workspace/openocd/src/target/mips32.c
+===================================================================
+--- C:/workspace/openocd/src/target/mips32.c	(revision 1025)
++++ C:/workspace/openocd/src/target/mips32.c	(working copy)
+@@ -4,6 +4,9 @@
+  *                                                                         *
+  *   Copyright (C) 2008 by David T.L. Wong                                 *
+  *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -286,7 +289,10 @@
+ 	
+ 	if (mips32_core_reg_arch_type == -1)
+ 		mips32_core_reg_arch_type =
+register_reg_arch_type(mips32_get_core_reg, mips32_set_core_reg);
+-		
++
++	register_init_dummy(&amp;mips32_gdb_dummy_fsr_reg);
++	register_init_dummy(&amp;mips32_gdb_dummy_fir_reg);
++
+ 	/* Build the process context cache */
+ 	cache-&gt;name = &quot;mips32 registers&quot;;
+ 	cache-&gt;next = NULL;
+Index: C:/workspace/openocd/src/target/register.c
+===================================================================
+--- C:/workspace/openocd/src/target/register.c	(revision 1025)
++++ C:/workspace/openocd/src/target/register.c	(working copy)
+@@ -2,6 +2,9 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -103,3 +106,27 @@
+ 	exit(-1);
+ 	return NULL;
+ }
++
++
++
++static int register_get_dummy_core_reg(reg_t *reg)
++{
++	return ERROR_OK;
++}
++
++static int register_set_dummy_core_reg(reg_t *reg, u8 *buf)
++{
++	reg-&gt;dirty = 1;
++	reg-&gt;valid = 1;
++
++	return ERROR_OK;
++}
++
++void register_init_dummy(reg_t *reg)
++{
++	static int dummy_arch_type = -1;
++	if (dummy_arch_type == -1 )
++		register_reg_arch_type(register_get_dummy_core_reg,
+register_set_dummy_core_reg);
++	
++	reg-&gt;arch_type = dummy_arch_type;
++}
+Index: C:/workspace/openocd/src/target/register.h
+===================================================================
+--- C:/workspace/openocd/src/target/register.h	(revision 1025)
++++ C:/workspace/openocd/src/target/register.h	(working copy)
+@@ -2,6 +2,9 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -64,6 +67,7 @@
+ extern reg_cache_t** register_get_last_cache_p(reg_cache_t **first);
+ extern int register_reg_arch_type(int (*get)(reg_t *reg), int
+(*set)(reg_t *reg, u8 *buf));
+ extern reg_arch_type_t* register_get_arch_type(int id);
++extern void register_init_dummy(reg_t *reg);
+
+ #endif /* REGISTER_H */
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+Free eCos workshop in Oslo October 21!
+<A HREF="http://www.zylin.com/workshop.html">http://www.zylin.com/workshop.html</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003306.html">[Openocd-development] [PATCH] trace.c Segmentation fault
+</A></li>
+	<LI>Next message: <A HREF="003309.html">[Openocd-development] Concerns about testing and availability of	targets
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3307">[ date ]</a>
+              <a href="thread.html#3307">[ thread ]</a>
+              <a href="subject.html#3307">[ subject ]</a>
+              <a href="author.html#3307">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

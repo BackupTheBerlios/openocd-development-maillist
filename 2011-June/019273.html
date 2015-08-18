@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3CBANLkTim_v4i0iMCF1izcyV%3DGkDkboZKEMA%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019271.html">
+   <LINK REL="Next"  HREF="019276.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred</H1>
+    <B>Tomek CEDRO</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3CBANLkTim_v4i0iMCF1izcyV%3DGkDkboZKEMA%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred">tomek.cedro at gmail.com
+       </A><BR>
+    <I>Wed Jun  1 20:58:18 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019271.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+        <LI>Next message: <A HREF="019276.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19273">[ date ]</a>
+              <a href="thread.html#19273">[ thread ]</a>
+              <a href="subject.html#19273">[ subject ]</a>
+              <a href="author.html#19273">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello again :-)
+
+I have reviewed the patch.
+
+The old source code had 3 functions ft2232_init() that can call
+ft2232_init_libftdi() or ft2232_init_ftd2xx() depending on a ft2232
+ftdi communication library available. This is pretty simple and
+coherent.
+
+The new source code (after patching)  have 6 functions doing almost
+the same: ft2232_init_ftd2xx(), ft2232_open_ftd2xx(),
+ft2232_init_libftdi(), ft2232_open_libftdi(),  ft2232_init_sub(void),
+ft2232_init() and the header update ;-)
+
+As I understand the problem is with the ft2232_buffer=malloc() within
+ft2232_init() that can fail after malloc causing function return
+without ft2232_buffer=free().
+The current behavior is as follows: Program returns error and finish
+execution because it cannot run without interface. Operating system
+makes memory page free on process termination.
+The proposed solution is to free() allocated memory before
+ft2232_init() returns.
+
+I can understand that leaving allocated memory is bad. However there
+is a simpler solution to the problem (patch attached) by only changing
+few lines of existing code and leaving driver infrastructure/layout
+common for all source code:
+
+     ft2232_buffer_size = 0;
+     ft2232_buffer = malloc(FT2232_BUFFER_SIZE); &lt;-- this is the bad malloc
+
+*     for (;;){
+
+*        if (layout-&gt;init() != ERROR_OK) break; &lt;-- we jump out on failure
+
+          if (ft2232_device_is_highspeed())
+          {
+#ifndef BUILD_FT2232_HIGHSPEED
+ #if BUILD_FT2232_FTD2XX == 1
+               LOG_WARNING(&quot;High Speed device found - You need a newer
+FTD2XX driver (version 2.04.16 or later)&quot;);
+ #elif BUILD_FT2232_LIBFTDI == 1
+               LOG_WARNING(&quot;High Speed device found - You need a newer
+libftdi version (0.16 or later)&quot;);
+ #endif
+#endif
+               /* make sure the legacy mode is disabled */
+*               if (ft2232h_ft4232h_clk_divide_by_5(false) !=
+ERROR_OK) break;
+          }
+
+          buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+          if ((retval = ft2232_write(buf, 1, &amp;bytes_written)) !=
+ERROR_OK)
+          {
+               LOG_ERROR(&quot;couldn't write to FT2232 to disable
+loopback&quot;);
+*               break;
+          }
+
+#if BUILD_FT2232_FTD2XX == 1
+          retval = ft2232_purge_ftd2xx();
+#elif BUILD_FT2232_LIBFTDI == 1
+          retval = ft2232_purge_libftdi();
+#endif
+*          if (retval != ERROR_OK) break;
+
+*          return ERROR_OK; &lt;-- do not run infinite loop, return ok if no error
+     }
+
+ *    free(ft2232_buffer); &lt;-- and land here with freeing bad memory
+ *    return ERROR_JTAG_INIT_FAILED;
+
+In my opinion patch brings only unnecessary confusion and source code
+complication, sorry, there is simpler solution. This program does not
+need doubling function number and making code even more difficult to
+read and understand as it is already enough complicated. Using more
+function(void) and global structures only make things worst :-(
+
+%./openocd -f interface/kt-link.cfg -f board/stm3210b_eval.cfg
+Open On-Chip Debugger 0.5.0-dev-00895-g796086c-dirty (2011-06-01-20:16)
+Licensed under GNU GPL v2
+For bug reports, read
+	<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+Info : only one transport option; autoselect 'jtag'
+1000 kHz
+adapter_nsrst_delay: 100
+jtag_ntrst_delay: 100
+cortex_m3 reset_config sysresetreq
+Info : max TCK change to: 30000 kHz
+Info : clock speed 1000 kHz
+Info : JTAG tap: stm32.cpu tap/device found: 0x3ba00477 (mfg: 0x23b,
+part: 0xba00, ver: 0x3)
+Info : JTAG tap: stm32.bs tap/device found: 0x16410041 (mfg: 0x020,
+part: 0x6410, ver: 0x1)
+Info : stm32.cpu: hardware has 6 breakpoints, 4 watchpoints
+
+%./openocd -f interface/jtagkey2p.cfg -f board/stm3210b_eval.cfg
+Open On-Chip Debugger 0.5.0-dev-00895-g796086c-dirty (2011-06-01-20:16)
+Licensed under GNU GPL v2
+For bug reports, read
+	<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+Info : only one transport option; autoselect 'jtag'
+1000 kHz
+1000 kHz
+adapter_nsrst_delay: 100
+jtag_ntrst_delay: 100
+cortex_m3 reset_config sysresetreq
+Info : max TCK change to: 30000 kHz
+Info : clock speed 1000 kHz
+Info : JTAG tap: stm32.cpu tap/device found: 0x3ba00477 (mfg: 0x23b,
+part: 0xba00, ver: 0x3)
+Info : JTAG tap: stm32.bs tap/device found: 0x16410041 (mfg: 0x020,
+part: 0x6410, ver: 0x1)
+Info : stm32.cpu: hardware has 6 breakpoints, 4 watchpoints
+^C
+
+It would be nice however to add Ctrl+C signal capture to gracefully
+shutdown the program with proper deinitialization... maybe simple tcl
+&quot;quit&quot; mapping would do the job :-)
+
+Best regards :-)
+Tomek
+
+-- 
+CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-Fixed-missing-free-after-malloc-in-ft2232_init.patch
+Type: application/octet-stream
+Size: 2502 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110601/8303ea94/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20110601/8303ea94/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019271.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+	<LI>Next message: <A HREF="019276.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19273">[ date ]</a>
+              <a href="thread.html#19273">[ thread ]</a>
+              <a href="subject.html#19273">[ subject ]</a>
+              <a href="author.html#19273">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

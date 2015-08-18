@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtagdp: remove #if 0'd kludges and	explain why the code is correct
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtagdp%3A%20remove%20%23if%200%27d%20kludges%20and%0A%09explain%20why%20the%20code%20is%20correct&In-Reply-To=%3C1285100084-28685-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016636.html">
+   <LINK REL="Next"  HREF="016592.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtagdp: remove #if 0'd kludges and	explain why the code is correct</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtagdp%3A%20remove%20%23if%200%27d%20kludges%20and%0A%09explain%20why%20the%20code%20is%20correct&In-Reply-To=%3C1285100084-28685-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] jtagdp: remove #if 0'd kludges and	explain why the code is correct">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Sep 21 22:14:44 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016636.html">[Openocd-development] [PATCH] TCL scripts: collect duplicated	procedures
+</A></li>
+        <LI>Next message: <A HREF="016592.html">[Openocd-development] luminary eval board and ft2232 serial port	permissions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16591">[ date ]</a>
+              <a href="thread.html#16591">[ thread ]</a>
+              <a href="subject.html#16591">[ subject ]</a>
+              <a href="author.html#16591">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>short story: if the JTAG clock is too high, then the
+behavior will be flaky and kludging the code may
+seem to make things beter, but really it's just a red
+herring.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/adi_v5_jtag.c |   40 ++++++++++++++++++++++++----------------
+ 1 files changed, 24 insertions(+), 16 deletions(-)
+
+diff --git a/src/target/adi_v5_jtag.c b/src/target/adi_v5_jtag.c
+index 8731a1a..48b4a7b 100644
+--- a/src/target/adi_v5_jtag.c
++++ b/src/target/adi_v5_jtag.c
+@@ -191,22 +191,30 @@ static int jtagdp_transaction_endcheck(struct adiv5_dap *dap)
+ 
+ 	/* too expensive to call keep_alive() here */
+ 
+-#if 0
+-	/* Danger!!!! BROKEN!!!! */
+-	adi_jtag_scan_inout_check_u32(dap, JTAG_DP_DPACC,
+-			DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
+-	/* Danger!!!! BROKEN!!!! Why will jtag_execute_queue() fail here????
+-	R956 introduced the check on return value here and now Michael Schwingen reports
+-	that this code no longer works....
+-
+-	<A HREF="https://lists.berlios.de/pipermail/openocd-development/2008-September/003107.html">https://lists.berlios.de/pipermail/openocd-development/2008-September/003107.html</A>
+-	*/
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;BUG: Why does this fail the first time????&quot;);
+-	}
+-	/* Why??? second time it works??? */
+-#endif
++	/* Here be dragons!
++	 *
++	 * It is easy to be in a JTAG clock range where the target
++	 * is not operating in a stable fashion. This happens
++	 * for a few reasons:
++	 *
++	 * - the user may construct a simple test case to try to see
++	 * if a higher JTAG clock works to eke out more performance.
++	 * This simple case may pass, but more complex situations can
++	 * fail.
++	 *
++	 * - The mostly works JTAG clock rate and the complete failure
++	 * JTAG clock rate may be as much as 2-4x apart. This seems
++	 * to be especially true on RC oscillator driven parts.
++	 *
++	 * So: even if calling adi_jtag_scan_inout_check_u32() multiple
++	 * times here seems to &quot;make things better here&quot;, it is just
++	 * hiding problems with too high a JTAG clock.
++	 *
++	 * Note that even if some parts have RCLK/RTCK, that doesn't
++	 * mean that RCLK/RTCK is the *correct* rate to run the JTAG
++	 * interface at, i.e. RCLK/RTCK rates can be &quot;too high&quot;, especially
++	 * before the RC oscillator phase is not yet complete.
++	 */
+ 
+ 	/* Post CTRL/STAT read; discard any previous posted read value
+ 	 * but collect its ACK status.
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016636.html">[Openocd-development] [PATCH] TCL scripts: collect duplicated	procedures
+</A></li>
+	<LI>Next message: <A HREF="016592.html">[Openocd-development] luminary eval board and ft2232 serial port	permissions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16591">[ date ]</a>
+              <a href="thread.html#16591">[ thread ]</a>
+              <a href="subject.html#16591">[ subject ]</a>
+              <a href="author.html#16591">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

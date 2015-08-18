@@ -1,0 +1,178 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/fyi 2/2] FA526 uses the new	inheritance/nesting scheme
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%202/2%5D%20FA526%20uses%20the%20new%0A%09inheritance/nesting%20scheme&In-Reply-To=%3C200911042208.28103.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012002.html">
+   <LINK REL="Next"  HREF="011974.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/fyi 2/2] FA526 uses the new	inheritance/nesting scheme</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%202/2%5D%20FA526%20uses%20the%20new%0A%09inheritance/nesting%20scheme&In-Reply-To=%3C200911042208.28103.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/fyi 2/2] FA526 uses the new	inheritance/nesting scheme">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov  5 07:08:27 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012002.html">[Openocd-development] [patch/fyi 1/2] target: provide	container_of()
+</A></li>
+        <LI>Next message: <A HREF="011974.html">[Openocd-development] putting developer branches on sourceforge
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11972">[ date ]</a>
+              <a href="thread.html#11972">[ thread ]</a>
+              <a href="subject.html#11972">[ subject ]</a>
+              <a href="author.html#11972">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Replace needless pointer traversals, simplify.
+---
+Lookit that diffstat!  Shrink!  :)
+
+And the object sizes shrink a bit too; this one, not so much,
+but sometimes more.  The arm7tdmi and arm9tdmi structures get
+to be almost NOPS -- worth removing, they only contain one
+member, the arm7_9 struct.
+
+This file was chosen since it's about the smallest example.
+The others probably average three times bigger.  Those rude
+get_arch_pointers() functions shrink drastically.  
+
+ src/target/fa526.c |   33 +++++++--------------------------
+ 1 file changed, 7 insertions(+), 26 deletions(-)
+
+--- a/src/target/fa526.c
++++ b/src/target/fa526.c
+@@ -43,9 +43,7 @@ static void fa526_read_core_regs(target_
+ 		uint32_t mask, uint32_t* core_regs[16])
+ {
+ 	int i;
+-	/* get pointers to arch-specific information */
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+ 	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+ 	/* STMIA r0-15, [r0] at debug speed
+@@ -72,9 +70,7 @@ static void fa526_read_core_regs_target_
+ 		uint32_t mask, void* buffer, int size)
+ {
+ 	int i;
+-	/* get pointers to arch-specific information */
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+ 	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 	int be = (target-&gt;endianness == TARGET_BIG_ENDIAN) ? 1 : 0;
+ 	uint32_t *buf_u32 = buffer;
+@@ -114,9 +110,7 @@ static void fa526_read_core_regs_target_
+ 
+ static void fa526_read_xpsr(target_t *target, uint32_t *xpsr, int spsr)
+ {
+-	/* get pointers to arch-specific information */
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+ 	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+ 	/* MRS r0, cpsr */
+@@ -141,9 +135,7 @@ static void fa526_read_xpsr(target_t *ta
+ 
+ static void fa526_write_xpsr(target_t *target, uint32_t xpsr, int spsr)
+ {
+-	/* get pointers to arch-specific information */
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+ 	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+ 	LOG_DEBUG(&quot;xpsr: %8.8&quot; PRIx32 &quot;, spsr: %i&quot;, xpsr, spsr);
+@@ -180,9 +172,7 @@ static void fa526_write_xpsr(target_t *t
+ static void fa526_write_xpsr_im8(target_t *target,
+ 		uint8_t xpsr_im, int rot, int spsr)
+ {
+-	/* get pointers to arch-specific information */
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+ 	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+ 	LOG_DEBUG(&quot;xpsr_im: %2.2x, rot: %i, spsr: %i&quot;, xpsr_im, rot, spsr);
+@@ -210,9 +200,7 @@ static void fa526_write_core_regs(target
+ 		uint32_t mask, uint32_t core_regs[16])
+ {
+ 	int i;
+-	/* get pointers to arch-specific information */
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+ 	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+ 	/* LDMIA r0-15, [r0] at debug speed
+@@ -238,9 +226,7 @@ static void fa526_write_core_regs(target
+ 
+ static void fa526_write_pc(target_t *target, uint32_t pc)
+ {
+-	/* get pointers to arch-specific information */
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	struct arm7_9_common_s *arm7_9 = target_to_arm7_9(target);
+ 	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+ 	/* LDMIA r0-15, [r0] at debug speed
+@@ -272,11 +258,9 @@ static void fa526_branch_resume_thumb(ta
+ static int fa526_init_arch_info_2(target_t *target,
+ 		arm9tdmi_common_t *arm9tdmi, jtag_tap_t *tap)
+ {
+-	armv4_5_common_t *armv4_5;
+ 	arm7_9_common_t *arm7_9;
+ 
+ 	arm7_9 = &amp;arm9tdmi-&gt;arm7_9_common;
+-	armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+ 
+ 	/* prepare JTAG information for the new target */
+ 	arm7_9-&gt;jtag_info.tap = tap;
+@@ -319,9 +303,6 @@ static int fa526_init_arch_info_2(target
+ 	arm7_9-&gt;thumb_bkpt = 0xdeee;
+ 
+ 	arm7_9-&gt;dbgreq_adjust_pc = 3;
+-	arm7_9-&gt;arch_info = arm9tdmi;
+-
+-	arm9tdmi-&gt;common_magic = ARM9TDMI_COMMON_MAGIC;
+ 
+ 	arm7_9_init_arch_info(target, arm7_9);
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012002.html">[Openocd-development] [patch/fyi 1/2] target: provide	container_of()
+</A></li>
+	<LI>Next message: <A HREF="011974.html">[Openocd-development] putting developer branches on sourceforge
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11972">[ date ]</a>
+              <a href="thread.html#11972">[ thread ]</a>
+              <a href="subject.html#11972">[ subject ]</a>
+              <a href="author.html#11972">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

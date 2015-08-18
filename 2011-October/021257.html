@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] New patch to review for openocd: a2b8874	rtos: remove broken code for handling the deprecated qP packet
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%20a2b8874%0A%09rtos%3A%20remove%20broken%20code%20for%20handling%20the%20deprecated%20qP%20packet&In-Reply-To=%3C20111019223503.3C71924E%40openocd.zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021259.html">
+   <LINK REL="Next"  HREF="021256.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] New patch to review for openocd: a2b8874	rtos: remove broken code for handling the deprecated qP packet</H1>
+    <B>Gerrit</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%20a2b8874%0A%09rtos%3A%20remove%20broken%20code%20for%20handling%20the%20deprecated%20qP%20packet&In-Reply-To=%3C20111019223503.3C71924E%40openocd.zylin.com%3E"
+       TITLE="[Openocd-development] New patch to review for openocd: a2b8874	rtos: remove broken code for handling the deprecated qP packet">gerrit at openocd.zylin.com
+       </A><BR>
+    <I>Thu Oct 20 00:35:02 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021259.html">[Openocd-development] Remove &quot;qP&quot; from rtos code?
+</A></li>
+        <LI>Next message: <A HREF="021256.html">[Openocd-development] New patch to review for openocd: 4d01a6e	rtos: return the correct value if the T or H packets are handled
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21257">[ date ]</a>
+              <a href="thread.html#21257">[ thread ]</a>
+              <a href="subject.html#21257">[ subject ]</a>
+              <a href="author.html#21257">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from Gerrit.
+
+Andreas Fritiofson (<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>) just uploaded a new patch set to Gerrit, which you can find at <A HREF="http://openocd.zylin.com/37">http://openocd.zylin.com/37</A>
+
+-- gerrit
+commit a2b8874f55b71a6318fa9447193d62231c53da9a
+Author: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>&gt;
+Date:   Thu Oct 20 00:21:33 2011 +0200
+
+    rtos: remove broken code for handling the deprecated qP packet
+    
+    Change-Id: Icca522c1e2a2877abb20665b171c61079b1d8f48
+    Signed-off-by: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>&gt;
+
+diff --git a/src/rtos/rtos.c b/src/rtos/rtos.c
+index 74e8724..73e2d29 100644
+--- a/src/rtos/rtos.c
++++ b/src/rtos/rtos.c
+@@ -132,91 +132,7 @@ int gdb_thread_packet(struct connection *connection, char *packet, int packet_si
+ {
+ 	struct target *target = get_target_from_connection(connection);
+ 
+-	if (strstr(packet, &quot;qP&quot;))
+-	{
+-		#define TAG_THREADID 1		/* Echo the thread identifier */
+-		#define TAG_EXISTS 2		/* Is this process defined enough to
+-						   fetch registers and its stack */
+-		#define TAG_DISPLAY 4		/* A short thing maybe to put on a window */
+-		#define TAG_THREADNAME 8	/* string, maps 1-to-1 with a thread is */
+-		#define TAG_MOREDISPLAY 16	/* Whatever the kernel wants to say about */
+-
+-			// TODO: need to scanf the mode variable (or it with the tags), and the threadid
+-
+-		unsigned long mode;
+-		threadid_t threadid = 0;
+-		struct thread_detail* detail;
+-		sscanf(packet, &quot;qP%8lx%16&quot; SCNx64, &amp;mode, &amp;threadid);
+-
+-
+-		int found = -1;
+-
+-		if ((target-&gt;rtos != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_details
+-				!= NULL)) {
+-			int thread_num;
+-			for (thread_num = 0; thread_num
+-					&lt; target-&gt;rtos-&gt;thread_count; thread_num++) {
+-				if (target-&gt;rtos-&gt;thread_details[thread_num].threadid
+-						== threadid) {
+-					if (target-&gt;rtos-&gt;thread_details[thread_num].exists) {
+-						found = thread_num;
+-					}
+-				}
+-			}
+-		}
+-		if (found == -1) {
+-			gdb_put_packet(connection, &quot;E01&quot;, 3); // thread not found
+-			return ERROR_OK;
+-		}
+-
+-		detail = &amp;target-&gt;rtos-&gt;thread_details[found];
+-
+-		if ( detail-&gt;display_str != NULL )
+-		{
+-			mode &amp;= TAG_DISPLAY;
+-		}
+-		if ( detail-&gt;thread_name_str != NULL )
+-		{
+-			mode &amp;= TAG_THREADNAME;
+-		}
+-		if ( detail-&gt;extra_info_str != NULL )
+-		{
+-			mode &amp;= TAG_MOREDISPLAY;
+-		}
+-
+-
+-		mode &amp;= TAG_THREADID | TAG_EXISTS;
+-
+-		char thread_str[1000];
+-
+-		sprintf(thread_str, &quot;%08lx&quot;, mode);
+-		sprintf(thread_str, &quot;%016&quot; PRIx64, threadid);
+-
+-
+-		if (mode &amp; TAG_THREADID) {
+-			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;10%016&quot; PRIx64, TAG_THREADID, threadid);
+-		}
+-		if (mode &amp; TAG_EXISTS) {
+-			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;08%08&quot; PRIx32, TAG_EXISTS, (detail-&gt;exists==true)?1:0);
+-		}
+-		if (mode &amp; TAG_DISPLAY) {
+-			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;%02x%s&quot;, TAG_DISPLAY, (unsigned char)strlen(detail-&gt;display_str), detail-&gt;display_str );
+-		}
+-		if (mode &amp; TAG_MOREDISPLAY) {
+-			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;%02x%s&quot;, TAG_MOREDISPLAY, (unsigned char)strlen(detail-&gt;extra_info_str), detail-&gt;extra_info_str );
+-		}
+-		if (mode &amp; TAG_THREADNAME) {
+-			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;%02x%s&quot;, TAG_THREADNAME, (unsigned char)strlen(detail-&gt;thread_name_str), detail-&gt;thread_name_str );
+-		}
+-
+-		//gdb_put_packet(connection, tmpstr, sizeof(tmpstr)-1);
+-		gdb_put_packet(connection, thread_str, strlen(thread_str));
+-
+-		//			gdb_put_packet(connection, &quot;&quot;, 0);
+-		//		gdb_put_packet(connection, &quot;OK&quot;, 2); // all threads alive
+-		return ERROR_OK;
+-	}
+-	else if (strstr(packet, &quot;qThreadExtraInfo,&quot;))
++	if (strstr(packet, &quot;qThreadExtraInfo,&quot;))
+ 	{
+ 		if ((target-&gt;rtos != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_details != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_count != 0))
+ 		{
+
+-- 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021259.html">[Openocd-development] Remove &quot;qP&quot; from rtos code?
+</A></li>
+	<LI>Next message: <A HREF="021256.html">[Openocd-development] New patch to review for openocd: 4d01a6e	rtos: return the correct value if the T or H packets are handled
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21257">[ date ]</a>
+              <a href="thread.html#21257">[ thread ]</a>
+              <a href="subject.html#21257">[ subject ]</a>
+              <a href="author.html#21257">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

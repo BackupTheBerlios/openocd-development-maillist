@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Programming unique device IDs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Programming%20unique%20device%20IDs&In-Reply-To=%3C20080509203149.GA10345%40hog.Informatik.FH-Augsburg.DE%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002073.html">
+   <LINK REL="Next"  HREF="002080.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Programming unique device IDs</H1>
+    <B>Hubert Hoegl</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Programming%20unique%20device%20IDs&In-Reply-To=%3C20080509203149.GA10345%40hog.Informatik.FH-Augsburg.DE%3E"
+       TITLE="[Openocd-development] Programming unique device IDs">Hubert.Hoegl at fh-augsburg.de
+       </A><BR>
+    <I>Fri May  9 22:31:49 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002073.html">[Openocd-development] Programming unique device IDs
+</A></li>
+        <LI>Next message: <A HREF="002080.html">[Openocd-development] New Smoketest for r651
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2079">[ date ]</a>
+              <a href="thread.html#2079">[ thread ]</a>
+              <a href="subject.html#2079">[ subject ]</a>
+              <a href="author.html#2079">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Edwin,
+
+if you need more complex control structures when handling your target
+with OpenOCD you could try to script the telnet interface.  My
+favourite language for this job is Python (www.python.org). You may
+choose between &quot;pexpect&quot; (an implementation of &quot;expect&quot; in Python) and
+&quot;telnetlib&quot;.  Below are some sketches covering only the mww and mdw
+commands. Wrapping other telnet commands is straightforward. 
+
+Concerning your problem with flashing random IDs you could use
+the &quot;random&quot; module in Python:
+
+    import random
+    for r in range(2):
+        random.randrange(0x100000000)
+
+This generates two 32-bit random numbers. It would also be easy to
+assemble a binary flash file on the fly using your ID_SIGNATURE and
+the generated random numbers and call the approriate command for 
+writing the flash.
+
+Regards,
+
+Hubert
+
+--- telnetlib snippet (taken from an LPC2 program) ---
+
+# telnetlib is a built-in library
+import telnetlib, string
+
+TIMEOUT = 1.0  # sec
+PLLSTAT = 0xE01FC088
+
+def mww(addr, data):
+    tn.write(&quot;mww %s %s\n&quot; % (addr, data))
+    (result, mobj, str) = tn.expect([&quot;(.*)\n&gt;&quot;], TIMEOUT)
+    return
+
+def mdw(addr):
+    tn.write(&quot;mdw %s\n&quot; % addr)
+    (result, mobj, str) = tn.expect([&quot;(.*)\n(.*):(.*)\n&gt;&quot;], TIMEOUT)
+    if mobj:
+        return string.atoi(mobj.groups()[2].strip(), 16)
+
+if __name__ == &quot;__main__&quot;:
+    tn = telnetlib.Telnet(&quot;localhost&quot;, 4444)
+    s = tn.read_until('\n&gt;') # read and ignore header
+    d = mdw(PLLSTAT)
+    # ...
+    data = 0x11223344
+    for offset in range(0, 100, 4):
+        mww(0x81000000 + offset, data)
+    tn.close()
+
+--- pexpect snippet (taken from a SAM7 program) ---
+
+<A HREF="http://pexpect.sourceforge.net">http://pexpect.sourceforge.net</A>
+import pexpect, re, string
+
+# Clock Generator (contained in Power Management Controller (PMC))
+CKGR_MOR = 0xFFFFFC20 # rw - Main Oscillator Register
+CKGR_MCFR = 0xFFFFFC24 # r - Main Clock Frequency Register
+CKGR_PLLR = 0xFFFFFC2C # rw - Main Register
+
+def mdw(addr):
+    child.sendline(&quot;mdw 0x%x&quot; % addr)
+    child.expect(&quot;&gt; &quot;)
+    n = child.before.find(':')
+    return string.atoi(child.before[n+1:], 16)
+
+def mww(addr, data):
+    child.sendline(&quot;mww 0x%x 0x%x&quot; % (addr, data))
+    child.expect(&quot;&gt; &quot;)
+    if string.find(child.before, &quot;Failure&quot;) &gt;= 0 or \
+       string.find(child.before, &quot;abort&quot;) &gt;= 0:
+        return 0
+    else:
+        return 1
+
+if __name__ == &quot;__main__&quot;:
+    child = pexpect.spawn ('telnet localhost 4444')
+    child.expect ('&gt; ')
+    d = mdw(CKGR_MOR)
+    # ...
+
+
+On Fri, May 09, 2008 at 07:55:23AM -0400, Edwin Olson wrote:
+&gt;<i> I would like to program each of my devices (all using the same firmware) 
+</I>&gt;<i> with a unique identifier. A pseudo-random ID is completely adequate. I 
+</I>&gt;<i> would also like this pseudo-random ID to survive minor firmware 
+</I>&gt;<i> upgrades. In short, I'd like to implement the following procedure, which 
+</I>&gt;<i> I would use after flashing an image.
+</I>&gt;<i> 
+</I>&gt;<i> MAGIC_ADDRESS is in FLASH somewhere (probably high addresses so it won't 
+</I>&gt;<i> overwrite program data). The user would specify this address.
+</I>&gt;<i> 
+</I>&gt;<i> ID_SIGNATURE is just some fixed value. The user could specify it if they 
+</I>&gt;<i> want.
+</I>&gt;<i> 
+</I>&gt;<i> R = read_u32(MAGIC_ADDRESS);
+</I>&gt;<i> if (R == ID_SIGNATURE)
+</I>&gt;<i>     exit; // an ID is already present, don't write a new one
+</I>&gt;<i> else
+</I>&gt;<i>     write_u32(MAGIC_ADDRESS, ID_SIGNATURE);
+</I>&gt;<i>     write_u32(MAGIC_ADDRESS+4, rand()); // write 64 bits of &quot;unique&quot; id data
+</I>&gt;<i>     write_u32(MAGIC_ADDRESS+8, rand());
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002073.html">[Openocd-development] Programming unique device IDs
+</A></li>
+	<LI>Next message: <A HREF="002080.html">[Openocd-development] New Smoketest for r651
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2079">[ date ]</a>
+              <a href="thread.html#2079">[ thread ]</a>
+              <a href="subject.html#2079">[ subject ]</a>
+              <a href="author.html#2079">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

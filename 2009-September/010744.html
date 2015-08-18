@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] TAP doc updates
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20TAP%20doc%20updates&In-Reply-To=%3C200909221022.29628.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010769.html">
+   <LINK REL="Next"  HREF="010756.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] TAP doc updates</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20TAP%20doc%20updates&In-Reply-To=%3C200909221022.29628.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] TAP doc updates">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Sep 22 19:22:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010769.html">[Openocd-development] Some variable initialisation and	typecasting patches
+</A></li>
+        <LI>Next message: <A HREF="010756.html">[Openocd-development] [patch] ETM cleanup, #1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10744">[ date ]</a>
+              <a href="thread.html#10744">[ thread ]</a>
+              <a href="subject.html#10744">[ subject ]</a>
+              <a href="author.html#10744">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Update presentation of TAP events and tap enable/disable.
+
+Highlight that the &quot;post-reset&quot; event kicks in before the
+scan chain is validated, which limits what can be done
+in a post-reset handler.
+---
+And this explains why the &quot;post-reset&quot; event isn't enough
+when the task is to automatically re-enable one or more
+TAPs using ICEpick:  that must happen *AFTER* validation.
+
+I'll have to add a new TAP event, &quot;post-validate&quot; I think,
+which can run after scanchain validation to make sure the
+target's TAP gets enabled...
+
+ doc/openocd.texi |  108 +++++++++++++++++++++++++++++++++++++++----------------
+ 1 file changed, 77 insertions(+), 31 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2343,12 +2343,69 @@ ID code could appear (for example, multiple versions).
+ @end itemize
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at section</A> Other TAP commands
++
+ @c @deffn Command {jtag arp_init-reset}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> ... more or less &quot;init&quot; ?
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at c</A> ... more or less &quot;toggle TRST ... and SRST too, what the heck&quot;
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {jtag cget} dotted.name @option{-event} name
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffnx</A> Command {jtag configure} dotted.name @option{-event} name string
++At this writing this TAP attribute
++mechanism is used only for event handling.
++(It is not a direct analogue of the @code{cget}/@code{configure}
++mechanism for debugger targets.)
++See the next section for information about the available events.
++
++The @code{configure} subcommand assigns an event handler,
++a TCL string which is evaluated when the event is triggered.
++The @code{cget} subcommand returns that handler.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at anchor</A>{TAP Events}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at section</A> TAP Events
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at cindex</A> events
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at cindex</A> TAP events
++
++OpenOCD includes two event mechanisms.
++The one presented here applies to all JTAG TAPs.
++The other applies to debugger targets,
++which are associated with certain TAPs.
++
++The TAP events currently defined are:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{post-reset}
++@* The TAP has just completed a JTAG reset.
++For the first such handler called, the tap is still
++in the JTAG @sc{reset} state.
++Because the scan chain has not yet been verified, handlers for these events
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at emph</A>{should not issue commands which scan the JTAG IR or DR registers}
++of any particular target.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at b</A>{NOTE:} As this is written (September 2009), nothing prevents such access.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{tap-disable}
++@* The TAP needs to be disabled.  This handler should
++implement @command{jtag tapdisable}
++by issuing the relevant JTAG commands.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{tap-enable}
++@* The TAP needs to be enabled.  This handler should
++implement @command{jtag tapenable}
++by issuing the relevant JTAG commands.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> itemize
++
++If you need some action after each JTAG reset, which isn't actually
++specific to any TAP (since you can't yet trust the scan chain's
++contents to be accurate), you might:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at example</A>
++jtag configure CHIP.jrc -event post-reset @{
++  echo &quot;Reset done&quot;
++  ... non-scan jtag operations to be done after reset
++@}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> example
++
+ 
+ @anchor{Enabling and Disabling TAPs}
+ @section Enabling and Disabling TAPs
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at cindex</A> TAP events
+ @cindex JTAG Route Controller
+ @cindex jrc
+ 
+@@ -2380,20 +2437,9 @@ does include a kind of JTAG router functionality.
+ 
+ @c (a) currently the event handlers don't seem to be able to
+ @c     fail in a way that could lead to no-change-of-state.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> (b) eventually non-event configuration should be possible,
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A>     in which case some this documentation must move.
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffn</A> Command {jtag cget} dotted.name @option{-event} name
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffnx</A> Command {jtag configure} dotted.name @option{-event} name string
+-At this writing this mechanism is used only for event handling.
+-Three events are available. Two events relate to TAP enabling
+-and disabling, one to post reset handling.
+-
+-The @code{configure} subcommand assigns an event handler,
+-a TCL string which is evaluated when the event is triggered.
+-The @code{cget} subcommand returns that handler.
+-The three possible values for an event @var{name} are @option{tap-disable}, @option{tap-enable} and @option{post-reset}.
+ 
++In OpenOCD, tap enabling/disabling is invoked by the Tcl commands
++shown below, and is implemented using TAP event handlers.
+ So for example, when defining a TAP for a CPU connected to
+ a JTAG router, you should define TAP event handlers using
+ code that looks something like this:
+@@ -2409,30 +2455,29 @@ jtag configure CHIP.cpu -event tap-disable @{
+ @}
+ @end example
+ 
+-If you need some post reset action, you can do:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {jtag tapdisable} dotted.name
++If necessary, disables the tap
++by sending it a @option{tap-disable} event.
++Returns the string &quot;1&quot; if the tap
++specified by @var{dotted.name} is enabled,
++and &quot;0&quot; if it is disbabled.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at example</A>
+-jtag configure CHIP.cpu -event post-reset @{
+-  echo &quot;Reset done&quot;
+-  ... jtag operations to be done after reset
+-@}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {jtag tapenable} dotted.name
++If necessary, enables the tap
++by sending it a @option{tap-enable} event.
++Returns the string &quot;1&quot; if the tap
++specified by @var{dotted.name} is enabled,
++and &quot;0&quot; if it is disbabled.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffn</A> Command {jtag tapdisable} dotted.name
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffnx</A> Command {jtag tapenable} dotted.name
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffnx</A> Command {jtag tapisenabled} dotted.name
+-These three commands all return the string &quot;1&quot; if the tap
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {jtag tapisenabled} dotted.name
++Returns the string &quot;1&quot; if the tap
+ specified by @var{dotted.name} is enabled,
+ and &quot;0&quot; if it is disbabled.
+-The @command{tapenable} variant first enables the tap
+-by sending it a @option{tap-enable} event.
+-The @command{tapdisable} variant first disables the tap
+-by sending it a @option{tap-disable} event.
+ 
+ @quotation Note
+ Humans will find the @command{scan_chain} command more helpful
+-than the script-oriented @command{tapisenabled}
+ for querying the state of the JTAG taps.
+ @end quotation
+ @end deffn
+@@ -2889,6 +2934,7 @@ at the specified address @var{addr}.
+ 
+ @anchor{Target Events}
+ @section Target Events
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at cindex</A> target events
+ @cindex events
+ At various times, certain things can happen, or you want them to happen.
+ For example:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010769.html">[Openocd-development] Some variable initialisation and	typecasting patches
+</A></li>
+	<LI>Next message: <A HREF="010756.html">[Openocd-development] [patch] ETM cleanup, #1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10744">[ date ]</a>
+              <a href="thread.html#10744">[ thread ]</a>
+              <a href="subject.html#10744">[ subject ]</a>
+              <a href="author.html#10744">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

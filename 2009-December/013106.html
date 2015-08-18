@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/2] XScale: restore_context() cleanup
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20XScale%3A%20restore_context%28%29%20cleanup&In-Reply-To=%3C200911301841.19248.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013103.html">
+   <LINK REL="Next"  HREF="013108.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/2] XScale: restore_context() cleanup</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20XScale%3A%20restore_context%28%29%20cleanup&In-Reply-To=%3C200911301841.19248.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/2] XScale: restore_context() cleanup">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Dec  1 03:41:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013103.html">[Openocd-development] [patch 1/2] XScale: context restore,	cleanup/bugfix
+</A></li>
+        <LI>Next message: <A HREF="013108.html">[Openocd-development] [patch 0/5] arm11/cortex-a8 coprocessor	cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13106">[ date ]</a>
+              <a href="thread.html#13106">[ thread ]</a>
+              <a href="subject.html#13106">[ subject ]</a>
+              <a href="author.html#13106">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Clean up two aspects to this routine:  bad naming, since it
+doesn't restore the context, just the banked registers; and
+excess indentation for the bulk of the code.
+
+Also make some of its call sites stash the function's return
+code; someday they should use it for error checking.
+---
+ src/target/xscale.c |   68 ++++++++++++++++++++++----------------------------
+ 1 file changed, 30 insertions(+), 38 deletions(-)
+
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -62,7 +62,7 @@
+ static int xscale_resume(struct target *, int current,
+ 	uint32_t address, int handle_breakpoints, int debug_execution);
+ static int xscale_debug_entry(struct target *);
+-static int xscale_restore_context(struct target *);
++static int xscale_restore_banked(struct target *);
+ static int xscale_get_reg(struct reg *reg);
+ static int xscale_set_reg(struct reg *reg, uint8_t *buf);
+ static int xscale_set_breakpoint(struct target *, struct breakpoint *);
+@@ -1251,7 +1251,7 @@ static int xscale_resume(struct target *
+ 			xscale_enable_single_step(target, next_pc);
+ 
+ 			/* restore banked registers */
+-			xscale_restore_context(target);
++			retval = xscale_restore_banked(target);
+ 
+ 			/* send resume request (command 0x30 or 0x31)
+ 			 * clean the trace buffer if it is to be enabled (0x62) */
+@@ -1296,7 +1296,7 @@ static int xscale_resume(struct target *
+ 	xscale_enable_watchpoints(target);
+ 
+ 	/* restore banked registers */
+-	xscale_restore_context(target);
++	retval = xscale_restore_banked(target);
+ 
+ 	/* send resume request (command 0x30 or 0x31)
+ 	 * clean the trace buffer if it is to be enabled (0x62) */
+@@ -1371,7 +1371,7 @@ static int xscale_step_inner(struct targ
+ 		return retval;
+ 
+ 	/* restore banked registers */
+-	if ((retval = xscale_restore_context(target)) != ERROR_OK)
++	if ((retval = xscale_restore_banked(target)) != ERROR_OK)
+ 		return retval;
+ 
+ 	/* send resume request (command 0x30 or 0x31)
+@@ -1755,7 +1755,7 @@ static int xscale_full_context(struct ta
+ 	return ERROR_OK;
+ }
+ 
+-static int xscale_restore_context(struct target *target)
++static int xscale_restore_banked(struct target *target)
+ {
+ 	struct arm *armv4_5 = target_to_armv4_5(target);
+ 
+@@ -1774,8 +1774,8 @@ static int xscale_restore_context(struct
+ 	 */
+ 	for (i = 1; i &lt; 7; i++)
+ 	{
+-		int dirty = 0;
+ 		enum armv4_5_mode mode = armv4_5_number_to_mode(i);
++		struct reg *r;
+ 
+ 		if (mode == ARMV4_5_MODE_USR)
+ 			continue;
+@@ -1785,7 +1785,7 @@ static int xscale_restore_context(struct
+ 		{
+ 			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					mode, j).dirty)
+-				dirty = 1;
++				goto dirty;
+ 		}
+ 
+ 		/* if not USR/SYS, check if the SPSR needs to be written */
+@@ -1793,43 +1793,35 @@ static int xscale_restore_context(struct
+ 		{
+ 			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					mode, 16).dirty)
+-				dirty = 1;
++				goto dirty;
+ 		}
+ 
+-		/* is there anything to flush for this mode? */
+-		if (dirty)
+-		{
+-			uint32_t tmp_cpsr;
+-			struct reg *r;
+-
+-			/* command 0x1:  &quot;send banked registers&quot; */
+-			xscale_send_u32(target, 0x1);
++		/* there's nothing to flush for this mode */
++		continue;
+ 
+-			tmp_cpsr = 0x0;
+-			tmp_cpsr |= mode;
+-			tmp_cpsr |= 0xc0; /* I/F bits */
++dirty:
++		/* command 0x1:  &quot;send banked registers&quot; */
++		xscale_send_u32(target, 0x1);
+ 
+-			/* send CPSR for desired mode */
+-			xscale_send_u32(target, tmp_cpsr);
++		/* send CPSR for desired mode */
++		xscale_send_u32(target, mode | 0xc0 /* I/F bits */);
+ 
+-			/* send banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+-			for (j = 8; j &lt;= 14; j++)
+-			{
+-				r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-						mode, j);
+-				xscale_send_u32(target,
+-						buf_get_u32(r-&gt;value, 0, 32));
+-				r-&gt;dirty = false;
+-			}
++		/* send r8 to r14/lr ... only FIQ needs more than r13..r14,
++		 * but this protocol doesn't understand that nuance.
++		 */
++		for (j = 8; j &lt;= 14; j++) {
++			r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, j);
++			xscale_send_u32(target, buf_get_u32(r-&gt;value, 0, 32));
++			r-&gt;dirty = false;
++		}
+ 
+-			if (mode != ARMV4_5_MODE_SYS)
+-			{
+-				r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-						mode, 16);
+-				xscale_send_u32(target,
+-						buf_get_u32(r-&gt;value, 0, 32));
+-				r-&gt;dirty = false;
+-			}
++		/* send spsr if not in USR/SYS mode */
++		if (mode != ARMV4_5_MODE_SYS) {
++			r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, 16);
++			xscale_send_u32(target, buf_get_u32(r-&gt;value, 0, 32));
++			r-&gt;dirty = false;
+ 		}
+ 	}
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013103.html">[Openocd-development] [patch 1/2] XScale: context restore,	cleanup/bugfix
+</A></li>
+	<LI>Next message: <A HREF="013108.html">[Openocd-development] [patch 0/5] arm11/cortex-a8 coprocessor	cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13106">[ date ]</a>
+              <a href="thread.html#13106">[ thread ]</a>
+              <a href="subject.html#13106">[ subject ]</a>
+              <a href="author.html#13106">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

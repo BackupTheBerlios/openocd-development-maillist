@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 09/10] log: improve initialization
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2009/10%5D%20log%3A%20improve%20initialization&In-Reply-To=%3C1259100329-14549-10-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012867.html">
+   <LINK REL="Next"  HREF="012877.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 09/10] log: improve initialization</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2009/10%5D%20log%3A%20improve%20initialization&In-Reply-To=%3C1259100329-14549-10-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 09/10] log: improve initialization">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:28 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012867.html">[Openocd-development] [PATCH 08/10] add 'testee' target type
+</A></li>
+        <LI>Next message: <A HREF="012877.html">[Openocd-development] [PATCH 10/10] support OPENOCD_DEBUG_LEVEL	environment setting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12878">[ date ]</a>
+              <a href="thread.html#12878">[ thread ]</a>
+              <a href="subject.html#12878">[ subject ]</a>
+              <a href="author.html#12878">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Removes redundant assignment of start_ms from log_register_commands().
+Eliminates command_context parameter and return value.
+Adds Doxygen comment block for this API call.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/log.c |   11 +++--------
+ src/helper/log.h |    5 ++++-
+ src/openocd.c    |    9 ++++-----
+ 3 files changed, 11 insertions(+), 14 deletions(-)
+
+diff --git a/src/helper/log.c b/src/helper/log.c
+index 3799fb3..27fa831 100644
+--- a/src/helper/log.c
++++ b/src/helper/log.c
+@@ -336,25 +336,20 @@ static struct command_registration log_command_handlers[] = {
+ 
+ int log_register_commands(struct command_context *cmd_ctx)
+ {
+-	start = timeval_ms();
+-
+ 	return register_commands(cmd_ctx, NULL, log_command_handlers);
+ }
+ 
+-int log_init(struct command_context *cmd_ctx)
++void log_init(void)
+ {
+-	/* set defaults for daemon configuration, if not set by cmdline or cfgfile */
++	/* set defaults for daemon configuration,
++	 * if not set by cmdline or cfgfile */
+ 	if (debug_level == -1)
+ 		debug_level = LOG_LVL_INFO;
+ 
+ 	if (log_output == NULL)
+-	{
+ 		log_output = stderr;
+-	}
+ 
+ 	start = last_time = timeval_ms();
+-
+-	return ERROR_OK;
+ }
+ 
+ int set_log_output(struct command_context *cmd_ctx, FILE *output)
+diff --git a/src/helper/log.h b/src/helper/log.h
+index 6f7c24a..f2d19d1 100644
+--- a/src/helper/log.h
++++ b/src/helper/log.h
+@@ -66,7 +66,10 @@ void log_printf_lf(enum log_levels level, const char *file, unsigned line,
+ 	const char *function, const char *format, ...)
+ __attribute__ ((format (PRINTF_ATTRIBUTE_FORMAT, 5, 6)));
+ 
+-int log_init(struct command_context *cmd_ctx);
++/**
++ * Initialize logging module.  Call during program startup.
++ */
++void log_init(void);
+ int set_log_output(struct command_context *cmd_ctx, FILE *output);
+ 
+ int log_register_commands(struct command_context *cmd_ctx);
+diff --git a/src/openocd.c b/src/openocd.c
+index 1f29acd..629d50a 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -182,6 +182,9 @@ struct command_context *global_cmd_ctx;
+ /* NB! this fn can be invoked outside this file for non PC hosted builds */
+ struct command_context *setup_command_handler(void)
+ {
++	log_init();
++	LOG_DEBUG(&quot;log_init: complete&quot;);
++
+ 	struct command_context *cmd_ctx;
+ 
+ 	global_cmd_ctx = cmd_ctx = command_init(openocd_startup_tcl);
+@@ -202,11 +205,7 @@ struct command_context *setup_command_handler(void)
+ 	pld_register_commands(cmd_ctx);
+ 	mflash_register_commands(cmd_ctx);
+ 
+-	if (log_init(cmd_ctx) != ERROR_OK)
+-	{
+-		exit(-1);
+-	}
+-	LOG_DEBUG(&quot;log init complete&quot;);
++	LOG_DEBUG(&quot;command registration: complete&quot;);
+ 
+ 	LOG_OUTPUT(OPENOCD_VERSION &quot;\n&quot;);
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012867.html">[Openocd-development] [PATCH 08/10] add 'testee' target type
+</A></li>
+	<LI>Next message: <A HREF="012877.html">[Openocd-development] [PATCH 10/10] support OPENOCD_DEBUG_LEVEL	environment setting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12878">[ date ]</a>
+              <a href="thread.html#12878">[ thread ]</a>
+              <a href="subject.html#12878">[ subject ]</a>
+              <a href="author.html#12878">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

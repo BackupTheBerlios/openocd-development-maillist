@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] prevent abort via polling during	jtag_reset
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20prevent%20abort%20via%20polling%20during%0A%09jtag_reset&In-Reply-To=%3C200910081126.56036.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011083.html">
+   <LINK REL="Next"  HREF="011088.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] prevent abort via polling during	jtag_reset</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20prevent%20abort%20via%20polling%20during%0A%09jtag_reset&In-Reply-To=%3C200910081126.56036.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] prevent abort via polling during	jtag_reset">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Oct  8 20:26:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011083.html">[Openocd-development] [patch] Stop ignoring most scan chain	validation errors
+</A></li>
+        <LI>Next message: <A HREF="011088.html">[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11084">[ date ]</a>
+              <a href="thread.html#11084">[ thread ]</a>
+              <a href="subject.html#11084">[ subject ]</a>
+              <a href="author.html#11084">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Observed:
+
+  openocd: core.c:318: jtag_checks: Assertion `jtag_trst == 0' failed.
+
+The issue was that nothing disabled background polling during calls
+from the TCL shell to &quot;jtag_reset 1 1&quot;.  Fix by moving the existing
+poll-disable mechanism to the JTAG layer where it belongs, and then
+augmenting it to always pay attention to TRST and SRST.
+---
+ src/jtag/core.c     |   26 ++++++++++++++++++++++++++
+ src/jtag/jtag.h     |   17 +++++++++++++++++
+ src/target/target.c |   17 ++++++++---------
+ 3 files changed, 51 insertions(+), 9 deletions(-)
+
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -137,6 +137,32 @@ int jtag_error_clear(void)
+ 	return temp;
+ }
+ 
++/************/
++
++static bool jtag_poll = 1;
++
++bool is_jtag_poll_safe(void)
++{
++	/* Polling can be disabled explicitly with set_enabled(false).
++	 * It is also implicitly disabled while TRST is active and
++	 * while SRST is gating the JTAG clock.
++	 */
++	if (!jtag_poll || jtag_trst != 0)
++		return false;
++	return jtag_srst == 0 || (jtag_reset_config &amp; RESET_SRST_NO_GATING);
++}
++
++bool jtag_poll_get_enabled(void)
++{
++	return jtag_poll;
++}
++
++void jtag_poll_set_enabled(bool value)
++{
++	jtag_poll = value;
++}
++
++/************/
+ 
+ jtag_tap_t *jtag_all_taps(void)
+ {
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -737,4 +737,21 @@ int jtag_get_error(void);
+  */
+ int jtag_error_clear(void);
+ 
++/**
++ * Return true if it's safe for a background polling task to access the
++ * JTAG scan chain.  Polling may be explicitly disallowed, and is also
++ * unsafe while nTRST is active or the JTAG clock is gated off.,
++ */
++bool is_jtag_poll_safe(void);
++
++/**
++ * Return flag reporting whether JTAG polling is disallowed.
++ */
++bool jtag_poll_get_enabled(void);
++
++/**
++ * Assign flag reporting whether JTAG polling is disallowed.
++ */
++void jtag_poll_set_enabled(bool value);
++
+ #endif /* JTAG_H */
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -269,8 +269,6 @@ static int new_target_number(void)
+ 	return x + 1;
+ }
+ 
+-static int target_continuous_poll = 1;
+-
+ /* read a uint32_t from a buffer in target memory endianness */
+ uint32_t target_buffer_get_u32(target_t *target, const uint8_t *buffer)
+ {
+@@ -436,13 +434,14 @@ int target_process_reset(struct command_
+ 	 * more predictable, i.e. dr/irscan &amp; pathmove in events will
+ 	 * not have JTAG operations injected into the middle of a sequence.
+ 	 */
+-	int save_poll = target_continuous_poll;
+-	target_continuous_poll = 0;
++	bool save_poll = jtag_poll_get_enabled();
++
++	jtag_poll_set_enabled(false);
+ 
+ 	sprintf(buf, &quot;ocd_process_reset %s&quot;, n-&gt;name);
+ 	retval = Jim_Eval(interp, buf);
+ 
+-	target_continuous_poll = save_poll;
++	jtag_poll_set_enabled(save_poll);
+ 
+ 	if (retval != JIM_OK) {
+ 		Jim_PrintErrorMessage(interp);
+@@ -1726,7 +1725,7 @@ int handle_target(void *priv)
+ 	 * Skip targets that are currently disabled.
+ 	 */
+ 	for (target_t *target = all_targets;
+-			target_continuous_poll &amp;&amp; target;
++			is_jtag_poll_safe() &amp;&amp; target;
+ 			target = target-&gt;next)
+ 	{
+ 		if (!target-&gt;tap-&gt;enabled)
+@@ -1886,7 +1885,7 @@ static int handle_poll_command(struct co
+ 	if (argc == 0)
+ 	{
+ 		command_print(cmd_ctx, &quot;background polling: %s&quot;,
+-				target_continuous_poll ?  &quot;on&quot; : &quot;off&quot;);
++				jtag_poll_get_enabled() ? &quot;on&quot; : &quot;off&quot;);
+ 		command_print(cmd_ctx, &quot;TAP: %s (%s)&quot;,
+ 				target-&gt;tap-&gt;dotted_name,
+ 				target-&gt;tap-&gt;enabled ? &quot;enabled&quot; : &quot;disabled&quot;);
+@@ -1902,11 +1901,11 @@ static int handle_poll_command(struct co
+ 	{
+ 		if (strcmp(args[0], &quot;on&quot;) == 0)
+ 		{
+-			target_continuous_poll = 1;
++			jtag_poll_set_enabled(true);
+ 		}
+ 		else if (strcmp(args[0], &quot;off&quot;) == 0)
+ 		{
+-			target_continuous_poll = 0;
++			jtag_poll_set_enabled(false);
+ 		}
+ 		else
+ 		{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011083.html">[Openocd-development] [patch] Stop ignoring most scan chain	validation errors
+</A></li>
+	<LI>Next message: <A HREF="011088.html">[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11084">[ date ]</a>
+              <a href="thread.html#11084">[ thread ]</a>
+              <a href="subject.html#11084">[ subject ]</a>
+              <a href="author.html#11084">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

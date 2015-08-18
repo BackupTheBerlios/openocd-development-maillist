@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20SVF%20Chain%20Handling%20%28was%3A%0A%09lpc3131%09and%20Actel%20FPGA%20chain%20programming%29&In-Reply-To=%3C20101116231115.9957.qmail%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017176.html">
+   <LINK REL="Next"  HREF="017177.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20SVF%20Chain%20Handling%20%28was%3A%0A%09lpc3131%09and%20Actel%20FPGA%20chain%20programming%29&In-Reply-To=%3C20101116231115.9957.qmail%40stuge.se%3E"
+       TITLE="[Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)">peter at stuge.se
+       </A><BR>
+    <I>Wed Nov 17 00:11:15 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017176.html">[Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)
+</A></li>
+        <LI>Next message: <A HREF="017177.html">[Openocd-development] [PATCH] SVF Chain Handling (was: lpc3131 and Actel FPGA chain programming)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17175">[ date ]</a>
+              <a href="thread.html#17175">[ thread ]</a>
+              <a href="subject.html#17175">[ subject ]</a>
+              <a href="author.html#17175">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Andrew,
+
+Andrew Leech wrote:
+&gt;<i> Ok so I decided I could add support for this to openocd.
+</I>
+This is fantastic! :) I very much want to see this functionality in
+openocd, but I have some comments on fairly minor things in the
+patch.
+
+
+&gt;<i> diff --git a/src/svf/svf.c b/src/svf/svf.c
+</I>&gt;<i> index 62e2324..c7401c3 100644
+</I>&gt;<i> --- a/src/svf/svf.c
+</I>&gt;<i> +++ b/src/svf/svf.c
+</I>&gt;<i> @@ -221,6 +221,8 @@ static uint8_t *svf_tdi_buffer = NULL, *svf_tdo_buffer = NULL, *svf_mask_buffer
+</I>&gt;<i>  static int svf_buffer_index = 0, svf_buffer_size = 0;
+</I>&gt;<i>  static int svf_quiet = 0;
+</I>&gt;<i>  
+</I>&gt;<i> +static int svf_tap_is_specified = 0;
+</I>&gt;<i> +
+</I>&gt;<i>  
+</I>&gt;<i>  static void svf_free_xxd_para(struct svf_xxr_para *para)
+</I>&gt;<i>  {
+</I>&gt;<i> @@ -301,43 +303,50 @@ int svf_add_statemove(tap_state_t state_to)
+</I>&gt;<i>  
+</I>&gt;<i>  COMMAND_HANDLER(handle_svf_command)
+</I>&gt;<i>  {
+</I>&gt;<i> -#define SVF_NUM_OF_OPTIONS			1
+</I>&gt;<i> +#define SVF_NUM_OF_OPTIONS			2
+</I>
+Aren't there three?
+
+
+&gt;<i>  	int command_num = 0;
+</I>&gt;<i>  	int ret = ERROR_OK;
+</I>&gt;<i>  	long long time_ago;
+</I>&gt;<i>  
+</I>&gt;<i> -	if ((CMD_ARGC &lt; 1) || (CMD_ARGC &gt; (1 + SVF_NUM_OF_OPTIONS)))
+</I>&gt;<i> +	/* use NULL to indicate a &quot;plain&quot; xsvf file which accounts for
+</I>&gt;<i> +	   additional devices in the scan chain, otherwise the device
+</I>&gt;<i> +	   that should be affected
+</I>&gt;<i> +	*/
+</I>&gt;<i> +	struct jtag_tap *tap = NULL;
+</I>&gt;<i> +	
+</I>&gt;<i> +	if ((CMD_ARGC &lt; 2) || (CMD_ARGC &gt; (1 + SVF_NUM_OF_OPTIONS)))
+</I>&gt;<i>  	{
+</I>&gt;<i> -		command_print(CMD_CTX, &quot;usage: svf &lt;file&gt; [quiet]&quot;);
+</I>&gt;<i> +		command_print(CMD_CTX, &quot;usage: svf &lt;device#|plain&gt; &lt;file&gt; [quiet]&quot;);
+</I>
+Maybe we can find a better syntax for the command. Alternatively, I
+think it can be made backwards compatible.
+
+If jtag_tap_by_string() fails for the first parameter
+  If there are only two parameters
+    Assume that the first parameter is the filename
+
+This is somewhat heuristic:y however. Not nice. A more reliable
+approach might be:
+
+usage: svf [-tap device.tap] &lt;file&gt; [quiet]
+
+In particular I would also like to avoid &quot;device#&quot; because the
+parameter should not be a number at all, rather the dotted tap name.
+You mentioned that you modelled after xsvf, so that help text should
+probably also be clarified.
+
+
+&gt;<i> +		if (svf_command_buffer_size &lt; MAX_CHAIN_HEADER_COMMAND_LEN)
+</I>&gt;<i> +		svf_command_buffer = malloc(
+</I>&gt;<i> +							svf_command_buffer_size
+</I>&gt;<i> +							+ MAX_CHAIN_HEADER_COMMAND_LEN);
+</I>
+The indenting seems off in the above. But more importantly I think it
+would be nice to avoid runtime allocation of memory here. The
+commands that this buffer is being used for are short so a char cmd[64]
+should be enough, and makes operation more reliable.
+
+
+&gt;<i> +		sprintf(svf_command_buffer, &quot;STATE RESET &quot;);
+</I>&gt;<i> +		svf_run_command(CMD_CTX, svf_command_buffer);
+</I>
+sprintf() is not a friend. :) Yes, the commands are short, but still,
+it would feel better with snprintf(cmd, sizeof(cmd), ..).
+
+These commands without parameters don't even perhaps do not even need
+to be copied into the cmd buffer first, will svf_run_command() take a
+const char[]? Then just do:
+
+svf_run_command(CMD_CTX, &quot;STATE RESET&quot;);
+
+
+&gt;<i> +		sprintf(svf_command_buffer, &quot;RUNTEST IDLE 5 TCK 200E-6 SEC &quot;);
+</I>&gt;<i> +		svf_run_command(CMD_CTX, svf_command_buffer);
+</I>
+Can you reason a little around these particular values?
+
+
+&gt;<i> +		sprintf(svf_command_buffer, &quot;HDR %d TDI (0) &quot;,header_dr_len);
+</I>&gt;<i> +		sprintf(svf_command_buffer, &quot;HIR %d TDI (%X) &quot;,header_ir_len, ((1&lt;&lt;header_ir_len) - 1), ((1&lt;&lt;header_ir_len) - 1));
+</I>&gt;<i> +		sprintf(svf_command_buffer, &quot;TDR %d TDI (0) &quot;,trailer_dr_len);
+</I>&gt;<i> +		sprintf(svf_command_buffer, &quot;TIR %d TDI (%X) &quot;,trailer_ir_len, ((1&lt;&lt;trailer_ir_len) - 1), ((1&lt;&lt;trailer_ir_len) - 1));
+</I>
+..
+&gt;<i>  	case HDR:
+</I>&gt;<i> +		if (svf_tap_is_specified)
+</I>&gt;<i> +			break;
+</I>&gt;<i>  		xxr_para_tmp = &amp;svf_para.hdr_para;
+</I>&gt;<i>  		goto XXR_common;
+</I>
+Would it make sense to reuse the existing handling of head/tail
+rather than creating commands to be run? This would remove the
+need for a command buffer at all, and maybe make the change even
+smaller.
+
+
+Great work!
+
+
+//Peter
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017176.html">[Openocd-development] [PATCH] SVF Chain Handling (was:	lpc3131	and Actel FPGA chain programming)
+</A></li>
+	<LI>Next message: <A HREF="017177.html">[Openocd-development] [PATCH] SVF Chain Handling (was: lpc3131 and Actel FPGA chain programming)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17175">[ date ]</a>
+              <a href="thread.html#17175">[ thread ]</a>
+              <a href="subject.html#17175">[ subject ]</a>
+              <a href="author.html#17175">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

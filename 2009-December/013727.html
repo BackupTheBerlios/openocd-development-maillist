@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 4/4] ETM: add &quot;etm trigger_debug&quot;	command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%204/4%5D%20ETM%3A%20add%20%22etm%20trigger_debug%22%0A%09command&In-Reply-To=%3C200912191254.39481.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013725.html">
+   <LINK REL="Next"  HREF="013731.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 4/4] ETM: add &quot;etm trigger_debug&quot;	command</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%204/4%5D%20ETM%3A%20add%20%22etm%20trigger_debug%22%0A%09command&In-Reply-To=%3C200912191254.39481.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 4/4] ETM: add &quot;etm trigger_debug&quot;	command">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec 19 21:54:39 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013725.html">[Openocd-development] [patch 3/4] ETM: more ETM_CTRL bit cleanup
+</A></li>
+        <LI>Next message: <A HREF="013731.html">[Openocd-development] [PATCH] Driver for USB-JTAG,	Altera USB-Blaster and compatibles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13727">[ date ]</a>
+              <a href="thread.html#13727">[ thread ]</a>
+              <a href="subject.html#13727">[ subject ]</a>
+              <a href="author.html#13727">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>In conjunction with manual register setup, this lets the ETM trigger 
+cause entry to debug state.   It should make it easier to test and
+bugfix the ETM code, by enabling non-trace usage and isolating bugs
+specific to thef ETM support.  (One current issue being that trace
+data collection using the ETB doesn't yet behave.)
+
+For example, many ARM9 cores with an ETM should be able to implement
+four more (simple) breakpoints and two more (simple) watchpoints than
+the EmbeddedICE supports.  Or, they should be able to support complex
+breakpoints, incorporating ETM sequencer, counters, and/or subroutine
+entry/exit criteria int criteria used to trigger debug entry.
+---
+ NEWS             |    1 
+ doc/openocd.texi |   11 ++++++++
+ src/target/etm.c |   66 +++++++++++++++++++++++++++++++++++++++++++++++++----
+ 3 files changed, 74 insertions(+), 4 deletions(-)
+
+--- a/NEWS
++++ b/NEWS
+@@ -34,6 +34,7 @@ Target Layer:
+ 		- Exposed DWT registers like cycle counter
+ 	ETM, ETB
+ 		- &quot;trigger_percent&quot; command moved ETM --&gt; ETB
++		- &quot;etm trigger_debug&quot; command added
+ 
+ Flash Layer:
+ 	'flash bank' and 'nand device' take &lt;bank_name&gt; as first argument.
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -5521,6 +5521,17 @@ trace stream without an image of the cod
+ @end itemize
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {etm trigger_debug} (@option{enable}|@option{disable})
++Displays whether ETM triggering debug entry (like a breakpoint) is
++enabled or disabled, after optionally modifying that configuration.
++The default behaviour is @option{disable}.
++Any change takes effect after the next @command{etm start}.
++
++By using script commands to configure ETM registers, you can make the
++processor enter debug state automatically when certain conditions,
++more complex than supported by the breakpoint hardware, happen.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ @subsection ETM Trace Operation
+ 
+ After setting up the ETM, you can use it to collect data.
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -446,12 +446,15 @@ int etm_setup(struct target *target)
+ 	etm_ctrl_value = (etm_ctrl_value
+ 			&amp; ~ETM_PORT_WIDTH_MASK
+ 			&amp; ~ETM_PORT_MODE_MASK
++			&amp; ~ETM_CTRL_DBGRQ
+ 			&amp; ~ETM_PORT_CLOCK_MASK)
+ 		| etm_ctx-&gt;control;
+ 
+ 	buf_set_u32(etm_ctrl_reg-&gt;value, 0, 32, etm_ctrl_value);
+ 	etm_store_reg(etm_ctrl_reg);
+ 
++	etm_ctx-&gt;control = etm_ctrl_value;
++
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 		return retval;
+ 
+@@ -1339,8 +1342,6 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 		if (!etm_ctrl_reg)
+ 			return ERROR_FAIL;
+ 
+-		etm_get_reg(etm_ctrl_reg);
+-
+ 		etm-&gt;control &amp;= ~TRACEMODE_MASK;
+ 		etm-&gt;control |= tracemode &amp; TRACEMODE_MASK;
+ 
+@@ -2017,6 +2018,56 @@ COMMAND_HANDLER(handle_etm_stop_command)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(handle_etm_trigger_debug_command)
++{
++	struct target *target;
++	struct arm *arm;
++	struct etm_context *etm;
++
++	target = get_current_target(CMD_CTX);
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
++	{
++		command_print(CMD_CTX, &quot;ETM: %s isn't an ARM&quot;,
++				target_name(target));
++		return ERROR_FAIL;
++	}
++
++	etm = arm-&gt;etm;
++	if (!etm)
++	{
++		command_print(CMD_CTX, &quot;ETM: no ETM configured for %s&quot;,
++				target_name(target));
++		return ERROR_FAIL;
++	}
++
++	if (CMD_ARGC == 1) {
++		struct reg *etm_ctrl_reg;
++		bool dbgrq;
++
++		etm_ctrl_reg = etm_reg_lookup(etm, ETM_CTRL);
++		if (!etm_ctrl_reg)
++			return ERROR_FAIL;
++
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], dbgrq);
++		if (dbgrq)
++			etm-&gt;control |= ETM_CTRL_DBGRQ;
++		else
++			etm-&gt;control &amp;= ~ETM_CTRL_DBGRQ;
++
++		/* etm-&gt;control will be written to hardware
++		 * the next time an &quot;etm start&quot; is issued.
++		 */
++		buf_set_u32(etm_ctrl_reg-&gt;value, 0, 32, etm-&gt;control);
++	}
++
++	command_print(CMD_CTX, &quot;ETM: %s debug halt&quot;,
++			(etm-&gt;control &amp; ETM_CTRL_DBGRQ)
++				? &quot;triggers&quot;
++				: &quot;does not trigger&quot;);
++	return ERROR_OK;
++}
++
+ COMMAND_HANDLER(handle_etm_analyze_command)
+ {
+ 	struct target *target;
+@@ -2113,10 +2164,17 @@ static const struct command_registration
+ 		.help = &quot;stop ETM trace collection&quot;,
+ 	},
+ 	{
++		.name = &quot;trigger_debug&quot;,
++		.handler = handle_etm_trigger_debug_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;enable/disable debug entry on trigger&quot;,
++		.usage = &quot;(enable | disable)&quot;,
++	},
++	{
+ 		.name = &quot;analyze&quot;,
+-		.handler = &amp;handle_etm_analyze_command,
++		.handler = handle_etm_analyze_command,
+ 		.mode = COMMAND_EXEC,
+-		.help = &quot;anaylze collected ETM trace&quot;,
++		.help = &quot;analyze collected ETM trace&quot;,
+ 	},
+ 	{
+ 		.name = &quot;image&quot;,
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013725.html">[Openocd-development] [patch 3/4] ETM: more ETM_CTRL bit cleanup
+</A></li>
+	<LI>Next message: <A HREF="013731.html">[Openocd-development] [PATCH] Driver for USB-JTAG,	Altera USB-Blaster and compatibles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13727">[ date ]</a>
+              <a href="thread.html#13727">[ thread ]</a>
+              <a href="subject.html#13727">[ subject ]</a>
+              <a href="author.html#13727">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

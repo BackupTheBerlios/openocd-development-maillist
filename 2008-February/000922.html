@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problems%20with%20erase%20%28Re%3A%20Segfault%20because%0A%20ofconfiguration%20or%20hardware%3F%29&In-Reply-To=%3C47B9A914.7000705%40jaeger.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000892.html">
+   <LINK REL="Next"  HREF="000934.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)</H1>
+    <B>Christian Jaeger</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problems%20with%20erase%20%28Re%3A%20Segfault%20because%0A%20ofconfiguration%20or%20hardware%3F%29&In-Reply-To=%3C47B9A914.7000705%40jaeger.mine.nu%3E"
+       TITLE="[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)">christian at jaeger.mine.nu
+       </A><BR>
+    <I>Mon Feb 18 16:49:40 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000892.html">[Openocd-development] Problems with erase (Re: Segfault because	ofconfiguration or hardware?)
+</A></li>
+        <LI>Next message: <A HREF="000934.html">[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#922">[ date ]</a>
+              <a href="thread.html#922">[ thread ]</a>
+              <a href="subject.html#922">[ subject ]</a>
+              <a href="author.html#922">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Spen wrote:
+&gt;<i> ..these cannot be in the openocd config file. They need putting
+</I>&gt;<i> in a script.
+</I>&gt;<i> or enter using gdb:
+</I>&gt;<i>   
+</I>
+Ah, of course.
+
+&gt;<i> monitor str9x flash_config 0 4 2 0 0x80000
+</I>&gt;<i> monitor flash protect 0 0 7 off
+</I>&gt;<i> monitor flash erase 0 0 7
+</I>&gt;<i>   
+</I>
+I've tried those from gdb:
+
+$ src/openocd
+Info: 2 1203348580 openocd.c:93 main(): Open On-Chip Debugger 1.0 
+(2008-02-16-15:49) svn:exportiert
+Info: 3 1203348580 openocd.c:94 main(): $URL$
+Info: 17 1203348580 jtag.c:1228 jtag_examine_chain(): JTAG device found: 
+0x04570041 (Manufacturer: 0x020, Part: 0x4570, Version: 0x0)
+Info: 18 1203348580 jtag.c:1228 jtag_examine_chain(): JTAG device found: 
+0x25966041 (Manufacturer: 0x020, Part: 0x5966, Version: 0x2)
+Info: 19 1203348580 jtag.c:1228 jtag_examine_chain(): JTAG device found: 
+0x1457f041 (Manufacturer: 0x020, Part: 0x457f, Version: 0x1)
+
+$ arm-elf-gdb a.out
+
+Warning: 78 1203348585 arm7_9_common.c:954 arm7_9_halt(): target was 
+already halted
+Info: 79 1203348585 server.c:67 add_connection(): accepted 'gdb' 
+connection from 0
+Warning: 81 1203348585 gdb_server.c:286 gdb_get_packet_inner(): 
+acknowledgment received, but no packet pending
+
+(gdb) monitor str9x flash_config 0 4 2 0 0x80000
+# (returns after ~1 second; no messages on stdout/err of openocd)
+
+(gdb) monitor flash protect 0 0 7 off
+# (returns after ~3 seconds; no messages on stdout/err of openocd)
+cleared protection for sectors 0 through 7 on flash bank 0
+
+(gdb) monitor flash erase 0 0 7
+# (returns after ~10 seconds; no messages on stdout/err of openocd)
+erased sectors 0 through 7 on flash bank 0 in 11s 429625us
+
+(gdb) p *0x00000000
+$1 = -1
+
+Should an empty flash show up as 0 bits or 1 bits? Flash bank 0 is 
+located at address 0x00000000, right? In any case, p *0x00000000 already 
+returned -1 before; maybe that means, the flash is empty.
+
+(gdb) set *0x00000000=123
+
+Warning: 735 1203348880 arm7_9_common.c:1922 arm7_9_read_memory(): 
+memory read caused data abort (address: 0x03803934, size: 0x4, count: 0x1)
+
+Cannot access memory at address 0x3803934
+
+But I'm not sure whether directly writing to flash like this would work 
+at all. It's not an eeprom after all.
+
+
+Now I've got two things that could be a problem:
+
+- I did just compile like this:
+
+$ arm-elf-gcc -g -Wall exp1.c
+$ file a.out
+a.out: ELF 32-bit LSB executable, ARM, version 1 (ARM), statically 
+linked, not stripped
+
+and tried to &quot;load&quot; that from gdb (which succeeds but then at the 
+adresses it prints during flashing is 'nothing' (iirc all-1-bits, or 
+access errors); &quot;cont&quot; from gdb seems to go into an endless jump to 
+address 0, e.g. reset loop).
+
+Now I'm also trying:
+
+$ arm-elf-objcopy -O binary a.out a.bin
+$ file a.bin
+a.bin: data
+$ arm-elf-gdb
+(gdb) load &quot;a.bin&quot;
+&quot;a.bin&quot; is not an object file: File format not recognized
+
+Not sure what to do.
+
+In any case, I'd like to try to load the program into RAM; dunno how to 
+do that yet. I welcome any tips.
+
+
+The other thing I'm wondering about is the reset lines: the wiggler2 (I 
+hope so) clone that I've built does feed the parallel port pin 6 (data4) 
+through the voltage converter directly to JTRSTn of the ARM, and only 
+the parallel port pin 2 (data0) is going through a transistor (open 
+collector, pulled up with 50k) to nSRST; so the latter is being 
+inverted, while the former is not. Now I've seen in the diploma thesis 
+from Dominic, in Figure 1.1, that he is actually inverting *both* nTRST 
+and nSRST. Should I do like him or did that change?
+
+&gt;<i> No a divider, 0 being the fastest. Try for speed of 5 or 10 for testing.
+</I>&gt;<i>   
+</I>
+I've put 10 into the .cfg for now.
+
+Thanks,
+Christian.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000892.html">[Openocd-development] Problems with erase (Re: Segfault because	ofconfiguration or hardware?)
+</A></li>
+	<LI>Next message: <A HREF="000934.html">[Openocd-development] Problems with erase (Re: Segfault because ofconfiguration or hardware?)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#922">[ date ]</a>
+              <a href="thread.html#922">[ thread ]</a>
+              <a href="subject.html#922">[ subject ]</a>
+              <a href="author.html#922">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

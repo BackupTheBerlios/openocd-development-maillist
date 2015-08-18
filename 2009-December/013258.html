@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/7] ARM11: minor cleanup #1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/7%5D%20ARM11%3A%20minor%20cleanup%20%231&In-Reply-To=%3C200912022236.13261.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013259.html">
+   <LINK REL="Next"  HREF="013261.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/7] ARM11: minor cleanup #1</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/7%5D%20ARM11%3A%20minor%20cleanup%20%231&In-Reply-To=%3C200912022236.13261.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/7] ARM11: minor cleanup #1">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Dec  3 07:36:13 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013259.html">[Openocd-development] [patch 1/7] ARM DPM:  tweak initialization
+</A></li>
+        <LI>Next message: <A HREF="013261.html">[Openocd-development] [patch 3/7] ARM11: minor cleanup #2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13258">[ date ]</a>
+              <a href="thread.html#13258">[ thread ]</a>
+              <a href="subject.html#13258">[ subject ]</a>
+              <a href="author.html#13258">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Don't need/want arm11-&gt;target; we have arm11-&gt;arm.target instead.
+Also remove some unused watchpoint stuff.
+---
+ src/target/arm11.c        |   18 +++++++++---------
+ src/target/arm11.h        |    9 +--------
+ src/target/arm11_dbgtap.c |    5 ++---
+ 3 files changed, 12 insertions(+), 20 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -127,13 +127,14 @@ static int arm11_check_init(struct arm11
+ 			  * the target.
+ 			  */
+ 
+-			arm11-&gt;target-&gt;state	= TARGET_HALTED;
+-			arm11-&gt;target-&gt;debug_reason	= arm11_get_DSCR_debug_reason(*dscr);
++			arm11-&gt;arm.target-&gt;state = TARGET_HALTED;
++			arm11-&gt;arm.target-&gt;debug_reason =
++					arm11_get_DSCR_debug_reason(*dscr);
+ 		}
+ 		else
+ 		{
+-			arm11-&gt;target-&gt;state	= TARGET_RUNNING;
+-			arm11-&gt;target-&gt;debug_reason	= DBG_REASON_NOTHALTED;
++			arm11-&gt;arm.target-&gt;state = TARGET_RUNNING;
++			arm11-&gt;arm.target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+ 		}
+ 
+ 		arm11_sc7_clear_vbw(arm11);
+@@ -1221,8 +1222,6 @@ static int arm11_target_create(struct ta
+ 
+ 	armv4_5_init_arch_info(target, &amp;arm11-&gt;arm);
+ 
+-	arm11-&gt;target = target;
+-
+ 	arm11-&gt;jtag_info.tap = target-&gt;tap;
+ 	arm11-&gt;jtag_info.scann_size = 5;
+ 	arm11-&gt;jtag_info.scann_instr = ARM11_SCAN_N;
+@@ -1313,7 +1312,6 @@ static int arm11_examine(struct target *
+ 
+ 	/** \todo TODO: reserve one brp slot if we allow breakpoints during step */
+ 	arm11-&gt;free_brps = arm11-&gt;brp;
+-	arm11-&gt;free_wrps = arm11-&gt;wrp;
+ 
+ 	LOG_DEBUG(&quot;IDCODE %08&quot; PRIx32 &quot; IMPLEMENTOR %02x DIDR %08&quot; PRIx32,
+ 			device_id, implementor, didr);
+@@ -1350,7 +1348,8 @@ static int arm11_examine(struct target *
+ /** Load a register that is marked !valid in the register cache */
+ static int arm11_get_reg(struct reg *reg)
+ {
+-	struct target * target = ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;target;
++	struct arm11_reg_state *r = reg-&gt;arch_info;
++	struct target *target = r-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -1371,7 +1370,8 @@ static int arm11_get_reg(struct reg *reg
+ /** Change a value in the register cache */
+ static int arm11_set_reg(struct reg *reg, uint8_t *buf)
+ {
+-	struct target *target = ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;target;
++	struct arm11_reg_state *r = reg-&gt;arch_info;
++	struct target *target = r-&gt;target;
+ 	struct arm11_common *arm11 = target_to_arm11(target);
+ //	const struct arm11_reg_defs *arm11_reg_info = arm11_reg_defs + ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index;
+ 
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -51,18 +51,13 @@ enum arm11_debug_version
+ struct arm11_common
+ {
+ 	struct arm	arm;
+-	struct target *	target;		/**&lt; Reference back to the owner */
+ 
+ 	/** Debug module state. */
+ 	struct arm_dpm dpm;
+ 
+-	/** \name Processor type detection */
+-	/*@{*/
+-
+ 	size_t	brp;			/**&lt; Number of Breakpoint Register Pairs from DIDR	*/
+ 	size_t	wrp;			/**&lt; Number of Watchpoint Register Pairs from DIDR	*/
+-
+-	/*@}*/
++	size_t	free_brps;		/**&lt; Number of breakpoints allocated */
+ 
+ 	uint32_t		last_dscr;		/**&lt; Last retrieved DSCR value;
+ 							     Use only for debug message generation		*/
+@@ -77,8 +72,6 @@ struct arm11_common
+ 
+ 	/*@}*/
+ 
+-	size_t	free_brps;				/**&lt; keep track of breakpoints allocated by arm11_add_breakpoint() */
+-	size_t	free_wrps;				/**&lt; keep track of breakpoints allocated by arm11_add_watchpoint() */
+ 
+ 	// GA
+ 	struct reg_cache *core_cache;
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -85,7 +85,7 @@ int arm11_add_dr_scan_vc(int num_fields,
+  */
+ void arm11_setup_field(struct arm11_common * arm11, int num_bits, void * out_data, void * in_data, struct scan_field * field)
+ {
+-	field-&gt;tap   			= arm11-&gt;target-&gt;tap;
++	field-&gt;tap			= arm11-&gt;arm.target-&gt;tap;
+ 	field-&gt;num_bits			= num_bits;
+ 	field-&gt;out_value		= out_data;
+ 	field-&gt;in_value			= in_data;
+@@ -102,8 +102,7 @@ void arm11_setup_field(struct arm11_comm
+  */
+ void arm11_add_IR(struct arm11_common * arm11, uint8_t instr, tap_state_t state)
+ {
+-	struct jtag_tap *tap;
+-	tap = arm11-&gt;target-&gt;tap;
++	struct jtag_tap *tap = arm11-&gt;arm.target-&gt;tap;
+ 
+ 	if (buf_get_u32(tap-&gt;cur_instr, 0, 5) == instr)
+ 	{
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013259.html">[Openocd-development] [patch 1/7] ARM DPM:  tweak initialization
+</A></li>
+	<LI>Next message: <A HREF="013261.html">[Openocd-development] [patch 3/7] ARM11: minor cleanup #2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13258">[ date ]</a>
+              <a href="thread.html#13258">[ thread ]</a>
+              <a href="subject.html#13258">[ subject ]</a>
+              <a href="author.html#13258">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

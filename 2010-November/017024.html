@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] cortex_m3: report detected error condition in poll
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20cortex_m3%3A%20report%20detected%0A%20error%20condition%20in%20poll&In-Reply-To=%3CAANLkTimNpd-TPEHrKzNQU1sVkJOUjno%2BPLgqZ1CA%2B7gd%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017023.html">
+   <LINK REL="Next"  HREF="017014.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] cortex_m3: report detected error condition in poll</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20cortex_m3%3A%20report%20detected%0A%20error%20condition%20in%20poll&In-Reply-To=%3CAANLkTimNpd-TPEHrKzNQU1sVkJOUjno%2BPLgqZ1CA%2B7gd%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] cortex_m3: report detected error condition in poll">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Nov  9 12:26:41 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017023.html">[Openocd-development] [PATCH 1/2] cortex_m3: report	detected	error condition in poll
+</A></li>
+        <LI>Next message: <A HREF="017014.html">[Openocd-development] Disable stm32x block write by default?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17024">[ date ]</a>
+              <a href="thread.html#17024">[ thread ]</a>
+              <a href="subject.html#17024">[ subject ]</a>
+              <a href="author.html#17024">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tue, Nov 9, 2010 at 12:22 PM, Peter Stuge &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>&gt; wrote:
+&gt;<i> &#216;yvind Harboe wrote:
+</I>&gt;&gt;<i> &gt;&gt; &gt;&gt; + &#160; &#160; if (detected_failure != ERROR_OK)
+</I>&gt;&gt;<i> &gt;&gt; &gt;&gt; + &#160; &#160; &#160; &#160; &#160; &#160; return detected_failure;
+</I>&gt;&gt;<i> &gt;&gt; &gt;&gt; + &#160; &#160; return retval;
+</I>&gt;&gt;<i> &gt;&gt; &gt;
+</I>&gt;&gt;<i> &gt;&gt; &gt; Please just use retval also for the error.
+</I>&gt;<i> ..
+</I>&gt;&gt;<i> &gt; the value of retval becomes irrelevant
+</I>&gt;<i> ..
+</I>&gt;&gt;<i> Reading over the code, I can't match up what you write.
+</I>&gt;<i>
+</I>&gt;<i> Please look again at the above.
+</I>&gt;<i>
+</I>&gt;<i> There is always only *one* return value from every function, so it
+</I>&gt;<i> seems logical that only one variable would be needed to store the
+</I>&gt;<i> value that the function will ultimately return.
+</I>&gt;<i>
+</I>&gt;<i> The code above from your patch highlights this too. The if()
+</I>&gt;<i> condition has a priority higher than the previous value of retval.
+</I>&gt;<i> If the condition is true, retval is irrelevant.
+</I>&gt;<i>
+</I>&gt;<i> Another way to express this is to remove the extra variable and the
+</I>&gt;<i> extra condition above and simply set retval (thus clobbering the
+</I>&gt;<i> now-irrelevant value of retval) at the point where detected_failure
+</I>&gt;<i> gets set.
+</I>&gt;<i>
+</I>&gt;<i> There are numerous benefits with regard to readability of the code.
+</I>&gt;<i> Most importantly the high level logic for this function stays more
+</I>&gt;<i> clear that it will be with two sources of return values being
+</I>&gt;<i> arbitered between at the *end* of the function, as opposed to a
+</I>&gt;<i> single source of (ie. single variable for) return value which in the
+</I>&gt;<i> normal case is not touched at all, but in error cases will be changed
+</I>&gt;<i> (since it is not irrelevant) into an error return code.
+</I>
+It looks funky, but there *is* something funky going on here. I don't
+mind setting retval = detcted_failure if detected_failure != OK if that
+is better.
+
+&gt;&gt;<i> The normal behavior is:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> - detect and report failure. This is a failure that has occurred
+</I>&gt;&gt;<i> in the hardware previously, there is no error condition currently.
+</I>&gt;&gt;<i> The current function executes without any error as such.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> - once this error is detected, continue with the rest of the polling
+</I>&gt;&gt;<i> code.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> If an error was detected(which may have occurred millions of cycles
+</I>&gt;&gt;<i> before the current fn was even invoked), then report that error
+</I>&gt;&gt;<i> at the end of the fn.
+</I>&gt;<i>
+</I>&gt;<i> detected_failure is *outside* the function? Sorry then, I guess I
+</I>&gt;<i> looked too quickly at the patch. :\ I still think the above is kinda
+</I>&gt;<i> ugly though. Is there any way for a nicer approach? Also, is the
+</I>&gt;<i> logic you just described really OK? It seems that some information
+</I>&gt;<i> about the target is getting lost? (The fact that the error did not
+</I>&gt;<i> happen *now* but some time ago, and that the current poll was OK.)
+</I>
+Whether or not OpenOCD is running the hardware can &quot;fail&quot;.
+
+poll() will detect such asynchronous failure(e.g. power dropout)
+and report an error and then subsequently clear this error.
+
+
+-- 
+&#216;yvind Harboe
+
+Can Zylin Consulting help on your project?
+
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017023.html">[Openocd-development] [PATCH 1/2] cortex_m3: report	detected	error condition in poll
+</A></li>
+	<LI>Next message: <A HREF="017014.html">[Openocd-development] Disable stm32x block write by default?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17024">[ date ]</a>
+              <a href="thread.html#17024">[ thread ]</a>
+              <a href="subject.html#17024">[ subject ]</a>
+              <a href="author.html#17024">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

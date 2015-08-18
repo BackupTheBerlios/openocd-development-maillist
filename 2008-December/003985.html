@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] fix typo in smdk6431
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20fix%20typo%20in%20smdk6431&In-Reply-To=%3C49407C9C.7080002%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003984.html">
+   <LINK REL="Next"  HREF="003988.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] fix typo in smdk6431</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20fix%20typo%20in%20smdk6431&In-Reply-To=%3C49407C9C.7080002%40duaneellis.com%3E"
+       TITLE="[Openocd-development] [patch] fix typo in smdk6431">openocd at duaneellis.com
+       </A><BR>
+    <I>Thu Dec 11 03:36:12 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003984.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+        <LI>Next message: <A HREF="003988.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3985">[ date ]</a>
+              <a href="thread.html#3985">[ thread ]</a>
+              <a href="subject.html#3985">[ subject ]</a>
+              <a href="author.html#3985">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&#216;yvind Harboe wrote:
+&gt;<i> Sounds good to me.
+</I>&gt;<i>   
+</I>
+Let me back up a few steps here.
+
+There is a *SIMPLE* way to do this in TCL - it requires a couple 
+*SIMPLE* things be done.
+{See below}
+
+=================================
+
+The original purpose of the &quot;-expected-id&quot; was to print a big-nasty 
+warning if the TAP id did not match.
+
+Why did I add this? Because there was a *SLEW* of people trying to 
+figure out how to setup the taps and new boards and stuff.
+We release new versions of OpenOCD - people try something - blah blah 
+blah - there is no standardized config script schema or and method.
+
+This was a message to make the user go &quot;OOH  THAT  DOES NOT LOOK RIGHT&quot; 
+- perhaps that is my problem!
+
+Hence, if the expected id is ZERO - nothing happens.
+
+=================================
+
+Perhaps:   &quot;-expected-id&quot; was a bad choice of names.
+
+Maybe,  &quot;-one-possible-valid-id&quot; would have been better a choice.
+
+For example - today - the code does *NOT* ignore Tap VERSION numbers 
+(the high nibble).
+
+And that is problematic - the AT91RM9200 - has tapid version 0 for the 
+&quot;arm debug config&quot;
+and tap version number 1 - for the &quot;boundary scan mode&quot;.
+
+So - obviously masking and ignoring the TAP VERSION is not going to help.
+
+We specifically almost need a &quot;-disallow-this-tap-id&quot; in some cases :-( 
+boo hiss boo hiss.
+
+=================================
+
+I think the idea of supporting *MULTIPLE*  &quot;-expected-id&quot; parameters is 
+a good thing.
+(ie: an array of tap ids in the C code).  It is a *SMALL* and reasonable 
+price to pay.
+
+==================================
+
+Here is the *SIMPLE* thing that needs to happen.
+
+(1) There needs to be a new target event.
+       This event should happen when all taps have been &quot;re-id&quot; aka: 
+when the chain is validated.
+       Adding an event is really super easy.
+
+      target.h - there is an enum to add to
+      target.c - there is a Jim_Nvp to add to.
+
+(2) At the end of the function:  jtag_examine_chain() - you need to call 
+this function:
+
+             target_all_handle_event(   YOUR_NEW_EVENT_ENUM );
+
+(3)  Lastly - there needs to be a single new TCL sub command.
+
+     We need a command that works like this:
+          Given a TAPNAME - what is the TAPID that was discovered?
+      For example:
+
+               set foo [jtag tapidof   MYTAPNAME]
+               puts [format &quot;The tap id is: 0x%08x&quot;  $foo]
+
+     To add the above see: &quot;jtag.c&quot; - function: 'jim_jtag_command()&quot;
+
+      There is a table of sub commands.
+      There is a enumeration of commands.
+      And a switch statement to add the command into.
+      And an example is the &quot;JTAG_CMD_ISENABLED&quot;
+      Instead of returning 0/1 - you return the TAP ID.
+
+================================================
+
+Then, one could easily do this:
+[which has a bug in it...but is easy to fix. keep reading...
+
+ $_TARGETNAME  configure --event   jtag-verify-tapid    {
+   
+     set tapname [$_TARGETNAME  cget -chain-position]
+
+     # WHAT IS MISSING IS THIS COMMAND
+     # it takes the TAPNAME - and returns the TAPID.
+     set cur_tapid  [ jtag tapidof $tapname ]
+
+      if  {  $cur_tapid == 0x12345678 } {
+                # GOOD TAP
+                return;
+      }
+      if { $cur_tapid == 0x87654321 } {
+                puts &quot;**WARNING** THIS I NOT THE CHIP YOU ARE LOOKING FOR&quot;
+                puts &quot;You have the jumper configured wrong it will not 
+work in this config&quot;
+                return;
+      }
+
+      puts [format &quot;Unknown tap id 0x%08x - Maybe you have a new chip?&quot; 
+$cur_tapid]
+      return;
+}
+
+So - what is the bug? In the above, in the eventbody ... it uses 
+&quot;$_TARGETNAME&quot; as the target name,
+See: section 22.6.3 - BODY OR INLINE TEXT , item #1 in the description.
+A 'hazard' one must be able to work around.
+On a single target system - you will never find hit  bug.
+On a MULTIPLE GDB TARGET system - you would find this bug.
+
+===================
+
+Patches are welcome!
+
+-Duane.
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003984.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+	<LI>Next message: <A HREF="003988.html">[Openocd-development] [patch] fix typo in smdk6431
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3985">[ date ]</a>
+              <a href="thread.html#3985">[ thread ]</a>
+              <a href="subject.html#3985">[ subject ]</a>
+              <a href="author.html#3985">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

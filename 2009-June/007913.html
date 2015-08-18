@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] jtag_add_pathmove() and jtag_add_statemove()	error handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_add_pathmove%28%29%20and%20jtag_add_statemove%28%29%0A%09error%20handling&In-Reply-To=%3Cc09652430906102333o702e8069if39d7e3251341fc1%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007915.html">
+   <LINK REL="Next"  HREF="007917.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] jtag_add_pathmove() and jtag_add_statemove()	error handling</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_add_pathmove%28%29%20and%20jtag_add_statemove%28%29%0A%09error%20handling&In-Reply-To=%3Cc09652430906102333o702e8069if39d7e3251341fc1%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] jtag_add_pathmove() and jtag_add_statemove()	error handling">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Jun 11 08:33:14 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007915.html">[Openocd-development] ir/drscan and target &quot;layering violations&quot;
+</A></li>
+        <LI>Next message: <A HREF="007917.html">[Openocd-development] jtag_add_pathmove() and jtag_add_statemove() error handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7913">[ date ]</a>
+              <a href="thread.html#7913">[ thread ]</a>
+              <a href="subject.html#7913">[ subject ]</a>
+              <a href="author.html#7913">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>With synchronous and asynchronous execution error handling
+becomes a bit trickier...
+
+I'm thinking that jtag_add_pathmove() and jtag_add_stavemove()
+should be split into two: checking args and queing fns.
+
+Performance sensitive code that *KNOWS* that the arguments
+are correct can invoke the queue fn directly. The queue fn can
+have assert()'s that are compiled out.
+
+The argument checking fn can be invoked explicitly without queing
+a operation.
+
+a wrapper fn for the two should be written that does precisely
+the same as today, except that jtag_add_statemove() should,
+like, jtag_add_pathmove() return void. The programming model
+is that everything is queued and then the error is checked
+at jtag_add_execute_queue(). Code that needs to know the
+error sooner should invoke jtag_execute_queue() &quot;more often&quot;
+or use the arg checking fn's directly.
+
+Patch attached to illustrate what I have in mind.
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://consulting.zylin.com">http://consulting.zylin.com</A>
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/jtag/core.c
+===================================================================
+--- src/jtag/core.c	(revision 2179)
++++ src/jtag/core.c	(working copy)
+@@ -438,7 +438,7 @@
+ 	jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+ }
+ 
+-void jtag_add_pathmove(int num_states, const tap_state_t *path)
++int jtag_check_pathmove(int num_states, const tap_state_t *path)
+ {
+ 	tap_state_t cur_state = cmd_queue_cur_state;
+ 
+@@ -446,8 +446,7 @@
+ 	if (!tap_is_state_stable(path[num_states - 1]))
+ 	{
+ 		LOG_ERROR(&quot;BUG: TAP path doesn't finish in a stable state&quot;);
+-		jtag_set_error(ERROR_JTAG_NOT_STABLE_STATE);
+-		return;
++		return ERROR_JTAG_NOT_STABLE_STATE;
+ 	}
+ 
+ 	for (int i = 0; i &lt; num_states; i++)
+@@ -455,8 +454,7 @@
+ 		if (path[i] == TAP_RESET)
+ 		{
+ 			LOG_ERROR(&quot;BUG: TAP_RESET is not a valid state for pathmove sequences&quot;);
+-			jtag_set_error(ERROR_JTAG_STATE_INVALID);
+-			return;
++			return ERROR_JTAG_STATE_INVALID;
+ 		}
+ 
+ 		if ( tap_state_transition(cur_state, true)  != path[i]
+@@ -464,18 +462,36 @@
+ 		{
+ 			LOG_ERROR(&quot;BUG: %s -&gt; %s isn't a valid TAP transition&quot;,
+ 					tap_state_name(cur_state), tap_state_name(path[i]));
+-			jtag_set_error(ERROR_JTAG_TRANSITION_INVALID);
+-			return;
++			return ERROR_JTAG_TRANSITION_INVALID;
+ 		}
+ 		cur_state = path[i];
+ 	}
+ 
++	return ERROR_OK;
++}
++
++void jtag_add_pathmove_nocheck(int num_states, const tap_state_t *path)
++{
++	/* this check can be compiled out */
++	assert(jtag_check_pathmove(num_states, path)==ERROR_OK);
++
+ 	jtag_checks();
+ 
+ 	jtag_set_error(interface_jtag_add_pathmove(num_states, path));
+ 	cmd_queue_cur_state = path[num_states - 1];
+ }
+ 
++void jtag_add_pathmove(int num_states, const tap_state_t *path)
++{
++	int retval;
++	if ((retval=jtag_check_pathmove(num_states, path))!=ERROR_OK)
++	{
++		jtag_set_error(retval);
++		return;
++	}
++	jtag_add_pathmove_nocheck(num_states, path);
++}
++
+ void jtag_add_runtest(int num_cycles, tap_state_t state)
+ {
+ 	jtag_prelude(state);
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007915.html">[Openocd-development] ir/drscan and target &quot;layering violations&quot;
+</A></li>
+	<LI>Next message: <A HREF="007917.html">[Openocd-development] jtag_add_pathmove() and jtag_add_statemove() error handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7913">[ date ]</a>
+              <a href="thread.html#7913">[ thread ]</a>
+              <a href="subject.html#7913">[ subject ]</a>
+              <a href="author.html#7913">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

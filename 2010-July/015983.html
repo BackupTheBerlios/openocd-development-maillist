@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [RFC,	PATCH 2/2] ft2232: simplify ft2232_read_scan
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%2C%0A%09PATCH%202/2%5D%20ft2232%3A%20simplify%20ft2232_read_scan&In-Reply-To=%3C4C2DBAD4.1080806%40spen-soft.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015982.html">
+   <LINK REL="Next"  HREF="015984.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [RFC,	PATCH 2/2] ft2232: simplify ft2232_read_scan</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%2C%0A%09PATCH%202/2%5D%20ft2232%3A%20simplify%20ft2232_read_scan&In-Reply-To=%3C4C2DBAD4.1080806%40spen-soft.co.uk%3E"
+       TITLE="[Openocd-development] [RFC,	PATCH 2/2] ft2232: simplify ft2232_read_scan">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Fri Jul  2 12:09:24 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015982.html">[Openocd-development] single stepping problem with at91rm9200 in thumb mode with openocd 0.4.0
+</A></li>
+        <LI>Next message: <A HREF="015984.html">[Openocd-development] [RFC,	PATCH 2/2] ft2232: simplify 	ft2232_read_scan
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15983">[ date ]</a>
+              <a href="thread.html#15983">[ thread ]</a>
+              <a href="subject.html#15983">[ subject ]</a>
+              <a href="author.html#15983">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 17/06/2010 09:16, Marc Pignat wrote:
+&gt;<i>
+</I>&gt;<i> ---
+</I>&gt;<i>   src/jtag/drivers/ft2232.c |   19 ++++++++++---------
+</I>&gt;<i>   1 files changed, 10 insertions(+), 9 deletions(-)
+</I>&gt;<i>
+</I>&gt;<i> diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+</I>&gt;<i> index bc8463e..9d40b1c 100644
+</I>&gt;<i> --- a/src/jtag/drivers/ft2232.c
+</I>&gt;<i> +++ b/src/jtag/drivers/ft2232.c
+</I>&gt;<i> @@ -714,23 +714,24 @@ static void ft2232_end_state(tap_state_t state)
+</I>&gt;<i>
+</I>&gt;<i>   static void ft2232_read_scan(enum scan_type type, uint8_t* buffer, int scan_size)
+</I>&gt;<i>   {
+</I>&gt;<i> -	int num_bytes = (scan_size + 7) / 8;
+</I>&gt;<i> -	int bits_left = scan_size;
+</I>&gt;<i> -	int cur_byte  = 0;
+</I>&gt;<i> +	int num_bytes = scan_size / 8;
+</I>&gt;<i> +	int bits_left = scan_size % 8;
+</I>&gt;<i> +	int cur_byte;
+</I>&gt;<i>
+</I>&gt;<i> -	while (num_bytes--&gt;  1)
+</I>&gt;<i> +	for (cur_byte = 0; cur_byte&lt;  num_bytes; cur_byte++)
+</I>&gt;<i>   	{
+</I>&gt;<i> -		buffer[cur_byte++] = buffer_read();
+</I>&gt;<i> -		bits_left -= 8;
+</I>&gt;<i> +		buffer[cur_byte] = buffer_read();
+</I>&gt;<i>   	}
+</I>&gt;<i>
+</I>&gt;<i> -	buffer[cur_byte] = 0x0;
+</I>&gt;<i> -
+</I>&gt;<i> -	/* There is one more partial byte left from the clock data in/out instructions */
+</I>&gt;<i> +	/* Manage partial byte left from the clock data in/out instructions, if any */
+</I>&gt;<i>   	if (bits_left&gt;  1)
+</I>&gt;<i>   	{
+</I>&gt;<i>   		buffer[cur_byte] = buffer_read()&gt;&gt;  1;
+</I>&gt;<i>   	}
+</I>&gt;<i> +	else
+</I>&gt;<i> +	{
+</I>&gt;<i> +		buffer[cur_byte] = 0x0;
+</I>&gt;<i> +	}
+</I>&gt;<i>   	/* This shift depends on the length of the clock data to tms instruction, insterted at end of the scan, now fixed to a two step transition in ft2232_add_scan */
+</I>&gt;<i>   	buffer[cur_byte] = (buffer[cur_byte] | (((buffer_read())&lt;&lt;  1)&amp;  0x80))&gt;&gt;  (8 - bits_left);
+</I>&gt;<i>   }
+</I>&gt;<i> --
+</I>&gt;<i> 1.7.1
+</I>&gt;<i>
+</I>
+This breaks all my ftdi adapters under win32.
+
+Looking closer it actually introduces a overflow segfault when tested 
+under valgrind. After leaving the for loop cur_byte is always out of bounds.
+
+Ran out of time attempting to fix, so I propose this patch is reverted 
+any objections.
+
+Cheers
+Spen
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015982.html">[Openocd-development] single stepping problem with at91rm9200 in thumb mode with openocd 0.4.0
+</A></li>
+	<LI>Next message: <A HREF="015984.html">[Openocd-development] [RFC,	PATCH 2/2] ft2232: simplify 	ft2232_read_scan
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15983">[ date ]</a>
+              <a href="thread.html#15983">[ thread ]</a>
+              <a href="subject.html#15983">[ subject ]</a>
+              <a href="author.html#15983">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

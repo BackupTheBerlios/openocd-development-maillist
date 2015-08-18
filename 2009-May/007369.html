@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] let reset_config tokens	appear in any order
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20let%20reset_config%20tokens%0A%09appear%20in%20any%20order&In-Reply-To=%3C200905261131.19390.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007344.html">
+   <LINK REL="Next"  HREF="007390.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] let reset_config tokens	appear in any order</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20let%20reset_config%20tokens%0A%09appear%20in%20any%20order&In-Reply-To=%3C200905261131.19390.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] let reset_config tokens	appear in any order">david-b at pacbell.net
+       </A><BR>
+    <I>Tue May 26 20:31:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007344.html">[Openocd-development] [patch/rfc] let reset_config tokens appear in	any order
+</A></li>
+        <LI>Next message: <A HREF="007390.html">[Openocd-development] [patch/rfc] let reset_config tokens appear in any order
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7369">[ date ]</a>
+              <a href="thread.html#7369">[ thread ]</a>
+              <a href="subject.html#7369">[ subject ]</a>
+              <a href="author.html#7369">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 25 May 2009, David Brownell wrote:
+&gt;<i> Make it so the magic &quot;reset_config&quot; keywords can be provided in any
+</I>&gt;<i> order. &#160;Example, &quot;trst_and_srst&quot; after &quot;srst_open_drain&quot;, omitting
+</I>&gt;<i> the &quot;separate&quot; combination (which should be the default in any case).
+</I>&gt;<i> 
+</I>&gt;<i>         Why? &#160;(a) Makes it easier to define things at the right
+</I>&gt;<i>         level (adapter, board, target). &#160;You can just specify the
+</I>&gt;<i>         thing you *know* instead of having to somehow &quot;know&quot;
+</I>&gt;<i>         extraneous things, just so you can provide a long enough
+</I>&gt;<i>         keyword list.  (b) Removing needless error paths is always
+</I>&gt;<i>         good; such sequencing shouldn't matter.
+</I>&gt;<i> 
+</I>&gt;<i> This includes two behavioral changes:
+</I>&gt;<i> 
+</I>&gt;<i>   (1)   When &quot;handle_reset_config&quot; sees a parameter error, it
+</I>&gt;<i>         immediately exits without changing anything.   This is
+</I>&gt;<i>         best viewed as a bugfix.  (Old behavior:  restore all
+</I>&gt;<i>         the defaults, even if they weren't previously active.)
+</I>&gt;<i> 
+</I>&gt;<i>   (2)   Only the behaviors that were explicitly specified get
+</I>&gt;<i>         changed.  (Old behavior:  everything else gets reset to
+</I>&gt;<i>         the &quot;default&quot;.)  So for example you can specify SRST
+</I>&gt;<i>         drive requuirements without saying anything about the
+</I>&gt;<i>         three unrelated topics you previously had to specify,
+</I>&gt;<i>         and thus with no risk of providing incorrect values.
+</I>&gt;<i> 
+</I>&gt;<i> That second one might cause confusion for any configs that end
+</I>&gt;<i> up calling &quot;reset_config&quot; twice, so it will deserve to be called
+</I>&gt;<i> out in the release notes.
+</I>&gt;<i> 
+</I>&gt;<i> Update docs accordingly.  Note that at least some versions of
+</I>&gt;<i> the texi-to-html tools can't handle &quot;@xref{with spaces}&quot;, but
+</I>&gt;<i> those work properly in PDF and in the info files.
+</I>&gt;<i> ---
+</I>&gt;<i>  doc/openocd.texi |   62 +++++++++++++++++------
+</I>&gt;<i>  src/jtag/jtag.c  |  140 ++++++++++++++++++++++++++++++++---------------------
+</I>&gt;<i>  2 files changed, 134 insertions(+), 68 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> ... this is &quot;PROPOSAL 1&quot; implemented.  Didn't yet sanity test.
+</I>
+Works right if the loop is changed.  FWIW this is a strike
+against *non-use* of the standard argc/argv naming convention,
+since entire reason for not writing it right the first time
+was the need to think about it.
+ 
+
+--- openocd.orig/src/jtag/jtag.c	2009-05-26 10:41:59.000000000 -0700
++++ openocd/src/jtag/jtag.c	2009-05-26 00:34:17.000000000 -0700
+@@ -2664,7 +2664,7 @@ static int handle_reset_config_command(s
+ 	 * Here we don't care about the order, and only change values
+ 	 * which have been explicitly specified.
+ 	 */
+-	for (; argc; argc++) {
++	for (; argc; argc--, args++) {
+ 		int tmp = 0;
+ 		int m;
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007344.html">[Openocd-development] [patch/rfc] let reset_config tokens appear in	any order
+</A></li>
+	<LI>Next message: <A HREF="007390.html">[Openocd-development] [patch/rfc] let reset_config tokens appear in any order
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7369">[ date ]</a>
+              <a href="thread.html#7369">[ thread ]</a>
+              <a href="subject.html#7369">[ subject ]</a>
+              <a href="author.html#7369">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

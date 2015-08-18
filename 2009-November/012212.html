@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 16/20] command_handler_t: make args	parameter const
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2016/20%5D%20command_handler_t%3A%20make%20args%0A%09parameter%20const&In-Reply-To=%3C1257948772-26222-17-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012216.html">
+   <LINK REL="Next"  HREF="012215.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 16/20] command_handler_t: make args	parameter const</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2016/20%5D%20command_handler_t%3A%20make%20args%0A%09parameter%20const&In-Reply-To=%3C1257948772-26222-17-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 16/20] command_handler_t: make args	parameter const">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 11 15:12:48 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012216.html">[Openocd-development] [PATCH 15/20] command_handler_t: make cmd	parameter const
+</A></li>
+        <LI>Next message: <A HREF="012215.html">[Openocd-development] [PATCH 17/20] command_handler_t: make cmd an	indirect parameter
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12212">[ date ]</a>
+              <a href="thread.html#12212">[ thread ]</a>
+              <a href="subject.html#12212">[ subject ]</a>
+              <a href="author.html#12212">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch prevents command handlers from modifying the strings passed
+in the 'args' array.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   10 ++++++----
+ src/helper/command.h |    2 +-
+ 2 files changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 25755d8..45f5747 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -48,7 +48,7 @@ int fast_and_dangerous = 0;
+ Jim_Interp *interp = NULL;
+ 
+ static int run_command(command_context_t *context,
+-		command_t *c, char *words[], unsigned num_words);
++		command_t *c, const char *words[], unsigned num_words);
+ 
+ static void tcl_output(void *privData, const char *file, unsigned line,
+ 		const char *function, const char *string)
+@@ -141,7 +141,7 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	log_add_callback(tcl_output, tclOutput);
+ 
+-	retval = run_command(context, c, words, nwords);
++	retval = run_command(context, c, (const char **)words, nwords);
+ 
+ 	log_remove_callback(tcl_output, tclOutput);
+ 
+@@ -407,7 +407,7 @@ void command_print(command_context_t *context, const char *format, ...)
+ }
+ 
+ static int run_command(command_context_t *context,
+-		command_t *c, char *words[], unsigned num_words)
++		command_t *c, const char *words[], unsigned num_words)
+ {
+ 	int start_word = 0;
+ 	if (!((context-&gt;mode == COMMAND_CONFIG) || (c-&gt;mode == COMMAND_ANY) || (c-&gt;mode == context-&gt;mode)))
+@@ -417,7 +417,9 @@ static int run_command(command_context_t *context,
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	int retval = c-&gt;handler(context, c-&gt;name, words + start_word + 1, num_words - start_word - 1);
++	unsigned argc = num_words - start_word - 1;
++	const char **args = words + start_word + 1;
++	int retval = c-&gt;handler(context, c-&gt;name, args, argc);
+ 	if (retval == ERROR_COMMAND_SYNTAX_ERROR)
+ 	{
+ 		/* Print help for command */
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 3f462ff..260d9a1 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -88,7 +88,7 @@ typedef struct command_context_s
+  */
+ #define __COMMAND_HANDLER(name, extra...) \
+ 		int name(struct command_context_s *cmd_ctx, \
+-				const char *cmd, char **args, unsigned argc, ##extra)
++				const char *cmd, const char *args[], unsigned argc, ##extra)
+ 
+ /**
+  * Use this to macro to call a command helper (or a nested handler).
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012216.html">[Openocd-development] [PATCH 15/20] command_handler_t: make cmd	parameter const
+</A></li>
+	<LI>Next message: <A HREF="012215.html">[Openocd-development] [PATCH 17/20] command_handler_t: make cmd an	indirect parameter
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12212">[ date ]</a>
+              <a href="thread.html#12212">[ thread ]</a>
+              <a href="subject.html#12212">[ subject ]</a>
+              <a href="author.html#12212">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

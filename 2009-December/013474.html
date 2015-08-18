@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/4] gdb_server: use more local	variables in inner loop of fetching packetstiny refactoring	to allow optimisation of inner loops
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20gdb_server%3A%20use%20more%20local%0A%09variables%20in%20inner%20loop%20of%20fetching%20packetstiny%20refactoring%0A%09to%20allow%20optimisation%20of%20inner%20loops&In-Reply-To=%3Cc09652430912101217p30d783a6q2a70bf3ed15aa1a2%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013469.html">
+   <LINK REL="Next"  HREF="013464.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/4] gdb_server: use more local	variables in inner loop of fetching packetstiny refactoring	to allow optimisation of inner loops</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20gdb_server%3A%20use%20more%20local%0A%09variables%20in%20inner%20loop%20of%20fetching%20packetstiny%20refactoring%0A%09to%20allow%20optimisation%20of%20inner%20loops&In-Reply-To=%3Cc09652430912101217p30d783a6q2a70bf3ed15aa1a2%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 4/4] gdb_server: use more local	variables in inner loop of fetching packetstiny refactoring	to allow optimisation of inner loops">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Dec 10 21:17:09 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013469.html">[Openocd-development] [PATCH 4/4] gdb_server: use more local	variables in inner loop of fetching packetstiny refactoring	to allow optimisation of inner loops
+</A></li>
+        <LI>Next message: <A HREF="013464.html">[Openocd-development] [PATCH 1/1] - add dsp563xx support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13474">[ date ]</a>
+              <a href="thread.html#13474">[ thread ]</a>
+              <a href="subject.html#13474">[ subject ]</a>
+              <a href="author.html#13474">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, Dec 10, 2009 at 9:07 PM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+&gt;<i> On Thursday 10 December 2009, &#216;yvind Harboe wrote:
+</I>&gt;&gt;<i> Some profiling information for arm7 16MHz GDB load operation shows
+</I>&gt;&gt;<i> gdb_get_packet_inner() near the very top.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Each sample counts as 0.01 seconds.
+</I>&gt;&gt;<i> &#160; % &#160; cumulative &#160; self &#160; &#160; &#160; &#160; &#160; &#160; &#160;self &#160; &#160; total
+</I>&gt;&gt;<i> &#160;time &#160; seconds &#160; seconds &#160; &#160;calls &#160;Ts/call &#160;Ts/call &#160;name
+</I>&gt;&gt;<i> &#160;52.91 &#160; &#160; &#160;2.27 &#160; &#160; 2.27 &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; embeddedice_write_dcc
+</I>&gt;&gt;<i> &#160;11.89 &#160; &#160; &#160;2.78 &#160; &#160; 0.51 &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; gdb_get_packet_inner
+</I>&gt;&gt;<i> &#160; 8.86 &#160; &#160; &#160;3.16 &#160; &#160; 0.38 &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; memcpy
+</I>&gt;&gt;<i> &#160; 3.26 &#160; &#160; &#160;3.30 &#160; &#160; 0.14 &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; idle_thread_main(unsigned int)
+</I>&gt;&gt;<i> &#160; 3.03 &#160; &#160; &#160;3.43 &#160; &#160; 0.13 &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; cyg_in_cksum
+</I>&gt;<i>
+</I>&gt;<i> How does $SUBJECT patch change that?
+</I>&gt;<i>
+</I>&gt;<i> Specifically, how does affect *elapsed* time in terms
+</I>&gt;<i> of the GDB load operation?
+</I>
+I want to do these optimizations in small steps so git bisect will
+work well. Always a nice thing I find.
+
+It improves it a little bit more than you might think because the caches
+can be quite a bit smaller on an embedded host.
+
+Also, once I have the inner loop a bit more isolated now, I'll be able to
+have a closer look at it to see if more can be done.
+
+The *huge* wins have been had so far, so now it's many small victories
+that are required to make a dent.
+
+GDB load is at 600kBytes/s @ 16MHz for arm7 now with zy1000 revc.
+
+Perhaps this profiling session is more illustrative. I've taken out the
+target_write_memory() and only profiled gdb load(1500kByte/s).
+As you can see gdb_get_packet_inner() will be even more important
+at those speeds.
+
+%s
+ 38.82      0.59     0.59                             gdb_get_packet_inner
+ 16.20      0.84     0.25                             memcpy
+  5.26      0.92     0.08                             cyg_in_cksum
+  3.21      0.97     0.05                             cyg_tcp_input
+  2.63      1.01     0.04                             cyg_tcp_output
+  2.63      1.05     0.04                             ipintr
+  2.22      1.08     0.03
+idle_thread_main(unsigned int)
+  1.56      1.10     0.02
+Cyg_Flag::setbits(unsigned int)
+  1.40      1.12     0.02
+cyg_interrupt_call_pending_DSRs
+  1.32      1.14     0.02                             Cyg_Mutex::lock()
+  1.32      1.16     0.02                             cyg_callout_reset
+  1.32      1.18     0.02                             cyg_in_cksum_hdr
+  1.32      1.20     0.02                             cyg_in_cksum_skip
+
+
+-- 
+&#216;yvind Harboe
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013469.html">[Openocd-development] [PATCH 4/4] gdb_server: use more local	variables in inner loop of fetching packetstiny refactoring	to allow optimisation of inner loops
+</A></li>
+	<LI>Next message: <A HREF="013464.html">[Openocd-development] [PATCH 1/1] - add dsp563xx support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13474">[ date ]</a>
+              <a href="thread.html#13474">[ thread ]</a>
+              <a href="subject.html#13474">[ subject ]</a>
+              <a href="author.html#13474">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

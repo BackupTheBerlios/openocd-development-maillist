@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 7/7] rlink: simplify and optimize	queue fill level checks
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/7%5D%20rlink%3A%20simplify%20and%20optimize%0A%09queue%20fill%20level%20checks&In-Reply-To=%3C1310984041-13554-8-git-send-email-andreas.fritiofson%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020309.html">
+   <LINK REL="Next"  HREF="020317.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 7/7] rlink: simplify and optimize	queue fill level checks</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/7%5D%20rlink%3A%20simplify%20and%20optimize%0A%09queue%20fill%20level%20checks&In-Reply-To=%3C1310984041-13554-8-git-send-email-andreas.fritiofson%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 7/7] rlink: simplify and optimize	queue fill level checks">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Mon Jul 18 12:14:01 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020309.html">[Openocd-development] [PATCH 6/7] rlink: remove redundant text from	log messages
+</A></li>
+        <LI>Next message: <A HREF="020317.html">[Openocd-development] [PATCH 0/7] RLink interface speedup and	fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20310">[ date ]</a>
+              <a href="thread.html#20310">[ thread ]</a>
+              <a href="subject.html#20310">[ subject ]</a>
+              <a href="author.html#20310">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add a helper function for running the queue if it would overflow otherwise.
+Use it to simplify the queue fill level checks and optimize in a few cases
+that would previously run the queue prematurely.
+
+Signed-off-by: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>&gt;
+---
+ src/jtag/drivers/rlink.c |   78 ++++++++++++++++++++--------------------------
+ 1 files changed, 34 insertions(+), 44 deletions(-)
+
+diff --git a/src/jtag/drivers/rlink.c b/src/jtag/drivers/rlink.c
+index c501b56..f524b5c 100644
+--- a/src/jtag/drivers/rlink.c
++++ b/src/jtag/drivers/rlink.c
+@@ -795,6 +795,24 @@ dtc_queue_run(void) {
+ 	return(retval);
+ }
+ 
++/* runs the queue if it cannot take reserved_cmd bytes of command data
++ * or reserved_reply bytes of reply data */
++static
++int
++dtc_queue_run_if_full(
++		int reserved_cmd,
++		int reserved_reply
++) {
++	/* reserve one additional byte for the STOP cmd appended during run */
++	if (dtc_queue.cmd_index + reserved_cmd + 1 &gt; USB_EP2BANK_SIZE)
++		return dtc_queue_run();
++
++	if (dtc_queue.reply_index + reserved_reply &gt; USB_EP2IN_SIZE)
++		return dtc_queue_run();
++
++	return ERROR_OK;
++}
++
+ static
+ int
+ tap_state_queue_init(void) {
+@@ -825,12 +843,8 @@ tap_state_queue_run(void) {
+ 		if ((bits &gt;= 8) || !i) {
+ 			byte_param &lt;&lt;= (8 - bits);
+ 
+-			/* make sure there's room for stop, byte op, and one byte */
+-			if (dtc_queue.cmd_index &gt;= (sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1))) {
+-				dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
+-						DTC_CMD_STOP;
+-				dtc_queue_run();
+-			}
++			/* make sure there's room for two cmd bytes */
++			dtc_queue_run_if_full(2, 0);
+ 
+ #ifdef USE_HARDWARE_SHIFTER_FOR_TMS
+ 			if (bits == 8) {
+@@ -1141,12 +1155,9 @@ rlink_scan(
+ 	if (extra_bits &amp;&amp; (type == SCAN_OUT)) {
+ 		/* Schedule any extra bits into the DTC command buffer, padding as needed */
+ 		/* For SCAN_OUT, this comes before the full bytes so the (leading) padding bits will fall off the end */
+-		/* make sure there's room for stop, byte op, and one byte */
+-		if (
+-				(dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1))
+-		) {
+-			dtc_queue_run();
+-		}
++
++		/* make sure there's room for two cmd bytes */
++		dtc_queue_run_if_full(2, 0);
+ 
+ 		x = 0;
+ 		dtc_mask = 1 &lt;&lt; (extra_bits - 1);
+@@ -1173,22 +1184,9 @@ rlink_scan(
+ 
+ 	/* Loop scheduling full bytes into the DTC command buffer */
+ 	while (byte_bits) {
+-		if (type == SCAN_IN) {
+-			/* make sure there's room for stop and byte op */
+-			x = (dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1));
+-		} else {
+-			/* make sure there's room for stop, byte op, and at least one byte */
+-			x = (dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1));
+-		}
+-
+-		if (type != SCAN_OUT) {
+-			/* make sure there's room for at least one reply byte */
+-			x |= (dtc_queue.reply_index &gt;= USB_EP2IN_SIZE - (1));
+-		}
+-
+-		if (x) {
+-			dtc_queue_run();
+-		}
++		/* make sure there's room for one (for in scans) or two cmd bytes and
++		 * at least one reply byte for in or inout scans*/
++		dtc_queue_run_if_full(type == SCAN_IN ? 1 : 2, type != SCAN_OUT ? 1 : 0);
+ 
+ 		chunk_bits = byte_bits;
+ 		/* we can only use up to 16 bytes at a time */
+@@ -1266,14 +1264,10 @@ rlink_scan(
+ 
+ 	if (extra_bits &amp;&amp; (type != SCAN_OUT)) {
+ 		/* Schedule any extra bits into the DTC command buffer */
+-		/* make sure there's room for stop, byte op, and one byte */
+-		if (
+-				(dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1))
+-				||
+-				(dtc_queue.reply_index &gt;= USB_EP2IN_SIZE - (1))
+-		) {
+-			dtc_queue_run();
+-		}
++
++		/* make sure there's room for one (for in scans) or two cmd bytes
++		 * and one reply byte */
++		dtc_queue_run_if_full(type == SCAN_IN ? 1 : 2, 1);
+ 
+ 		if (dtc_queue_enqueue_reply(
+ 				type, buffer, scan_size, tdi_bit_offset,
+@@ -1318,14 +1312,10 @@ rlink_scan(
+ 	}
+ 
+ 	/* Schedule the last bit into the DTC command buffer */
+-	/* make sure there's room for stop, and bit pair command */
+-	if (
+-			(dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1))
+-			||
+-			(dtc_queue.reply_index &gt;= USB_EP2IN_SIZE - (1))
+-	) {
+-		dtc_queue_run();
+-	}
++
++	/* make sure there's room for one cmd byte and one reply byte
++	 * for in or inout scans*/
++	dtc_queue_run_if_full(1, type == SCAN_OUT ? 0 : 1);
+ 
+ 	if (type == SCAN_OUT) {
+ 		dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
+-- 
+1.7.4.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020309.html">[Openocd-development] [PATCH 6/7] rlink: remove redundant text from	log messages
+</A></li>
+	<LI>Next message: <A HREF="020317.html">[Openocd-development] [PATCH 0/7] RLink interface speedup and	fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20310">[ date ]</a>
+              <a href="thread.html#20310">[ thread ]</a>
+              <a href="subject.html#20310">[ subject ]</a>
+              <a href="author.html#20310">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

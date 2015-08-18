@@ -1,0 +1,373 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] How to go on with Cortex-A8 support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20go%20on%20with%20Cortex-A8%20support&In-Reply-To=%3CF6A5C58E-7C8C-47C6-9698-5DDDEAC7BC31%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005305.html">
+   <LINK REL="Next"  HREF="005317.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] How to go on with Cortex-A8 support</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20go%20on%20with%20Cortex-A8%20support&In-Reply-To=%3CF6A5C58E-7C8C-47C6-9698-5DDDEAC7BC31%40kc8apf.net%3E"
+       TITLE="[Openocd-development] How to go on with Cortex-A8 support">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Tue Apr 14 22:30:21 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005305.html">[Openocd-development] How to go on with Cortex-A8 support
+</A></li>
+        <LI>Next message: <A HREF="005317.html">[Openocd-development] How to go on with Cortex-A8 support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5312">[ date ]</a>
+              <a href="thread.html#5312">[ thread ]</a>
+              <a href="subject.html#5312">[ subject ]</a>
+              <a href="author.html#5312">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Apr 14, 2009, at 12:13 PM, Magnus Lundin wrote:
+
+&gt;<i> Hi
+</I>&gt;<i>
+</I>&gt;<i> The following patch is a first step towards support for sevaral AP  
+</I>&gt;<i> in one dap.
+</I>&gt;<i>
+</I>&gt;<i> - Adds a apsel variable, corresponding to the corresponding field in  
+</I>&gt;<i> the DP SELECT register, to the swjdap structure.
+</I>&gt;<i> - adds a function swjdp_apselect(swjdp_common_t *swjdp,u8 apsel) to  
+</I>&gt;<i> set this variable.
+</I>&gt;<i> - adds two cortex_m3 interactive commands
+</I>&gt;<i>   cortex_m3 dap #n      Shows the contents of ROM/Debug base  
+</I>&gt;<i> register and AP ID Register
+</I>&gt;<i>   cortex_m3 apsel #n    Configures to use AP #n in subsequent memory  
+</I>&gt;<i> accesses.
+</I>&gt;<i>
+</I>
+Shouldn't these be part of the cortex-swjdp rather than tied to the  
+M3?  Can we rename them to cortex_swjdap dap #n and cortex_swjdap  
+apsel #n?
+
+&gt;<i> This  should be a possible starting point to explore other debug  
+</I>&gt;<i> configurations that the Cortex_M3
+</I>&gt;<i>
+</I>&gt;<i> Tested on STM32 with no problems found. I dont have any A8 hardware.
+</I>&gt;<i>
+</I>&gt;<i> Regards,
+</I>&gt;<i> Magnus
+</I>&gt;<i>
+</I>&gt;<i> Index: src/target/cortex_m3.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/target/cortex_m3.c	(revision 1454)
+</I>&gt;<i> +++ src/target/cortex_m3.c	(working copy)
+</I>&gt;<i> @@ -45,6 +45,8 @@
+</I>&gt;<i> /* cli handling */
+</I>&gt;<i> int cortex_m3_register_commands(struct command_context_s *cmd_ctx);
+</I>&gt;<i> int handle_cortex_m3_mask_interrupts_command(struct  
+</I>&gt;<i> command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+</I>&gt;<i> +int handle_cortex_m3_dap_command(struct command_context_s *cmd_ctx,  
+</I>&gt;<i> char *cmd, char **args, int argc);
+</I>&gt;<i> +int handle_cortex_m3_apsel_command(struct command_context_s  
+</I>&gt;<i> *cmd_ctx, char *cmd, char **args, int argc);
+</I>&gt;<i>
+</I>&gt;<i> /* forward declarations */
+</I>&gt;<i> void cortex_m3_enable_breakpoints(struct target_s *target);
+</I>&gt;<i> @@ -1581,6 +1583,8 @@
+</I>&gt;<i> 	
+</I>&gt;<i> 	cortex_m3_cmd = register_command(cmd_ctx, NULL, &quot;cortex_m3&quot;, NULL,  
+</I>&gt;<i> COMMAND_ANY, &quot;cortex_m3 specific commands&quot;);		
+</I>&gt;<i> 	register_command(cmd_ctx, cortex_m3_cmd, &quot;maskisr&quot;,  
+</I>&gt;<i> handle_cortex_m3_mask_interrupts_command, COMMAND_EXEC, &quot;mask  
+</I>&gt;<i> cortex_m3 interrupts ['on'|'off']&quot;);
+</I>&gt;<i> +	register_command(cmd_ctx, cortex_m3_cmd, &quot;dap&quot;,  
+</I>&gt;<i> handle_cortex_m3_dap_command, COMMAND_EXEC, &quot;dap info for ap [num]  
+</I>&gt;<i> (default 0)&quot;);
+</I>&gt;<i> +	register_command(cmd_ctx, cortex_m3_cmd, &quot;apsel&quot;,  
+</I>&gt;<i> handle_cortex_m3_apsel_command, COMMAND_EXEC, &quot;select a different AP  
+</I>&gt;<i> [num] (default 0)&quot;);
+</I>&gt;<i> 	
+</I>&gt;<i> 	return retval;
+</I>&gt;<i> }
+</I>&gt;<i> @@ -1618,3 +1622,62 @@
+</I>&gt;<i> 	
+</I>&gt;<i> 	return ERROR_OK;
+</I>&gt;<i> }
+</I>&gt;<i> +
+</I>&gt;<i> +int handle_cortex_m3_dap_command(struct command_context_s *cmd_ctx,  
+</I>&gt;<i> char *cmd, char **args, int argc)
+</I>&gt;<i> +{
+</I>&gt;<i> +	target_t *target = get_current_target(cmd_ctx);
+</I>&gt;<i> +	armv7m_common_t *armv7m = target-&gt;arch_info;
+</I>&gt;<i> +	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+</I>&gt;<i> +	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
+</I>&gt;<i> +
+</I>&gt;<i> +	u32 dbgbase,apid;
+</I>&gt;<i> +	u32 apsel,apselold;
+</I>&gt;<i> +	u8 rev, mem_ap;
+</I>&gt;<i> +
+</I>&gt;<i> +	apsel = 0;
+</I>&gt;<i> +	apselold = swjdp-&gt;apsel;
+</I>&gt;<i> +	if (argc &gt; 0)
+</I>&gt;<i> +	{	
+</I>&gt;<i> +		apsel = strtoul(args[0], NULL, 0);
+</I>&gt;<i> +	}
+</I>&gt;<i> +
+</I>&gt;<i> +	
+</I>&gt;<i> +	swjdp_apselect(swjdp, apsel);
+</I>&gt;<i> +	ahbap_read_reg_u32(swjdp, 0xF8, &amp;dbgbase);
+</I>&gt;<i> +	ahbap_read_reg_u32(swjdp, 0xFC, &amp;apid);
+</I>&gt;<i> +	swjdp_transaction_endcheck(swjdp);
+</I>&gt;<i> +	swjdp_apselect(swjdp, apselold);
+</I>&gt;<i> +	command_print(cmd_ctx, &quot;ap debugbase 0x%8.8x&quot;, dbgbase);
+</I>&gt;<i> +	command_print(cmd_ctx, &quot;ap identification register 0x%8.8x&quot;, apid);
+</I>&gt;<i> +	if (apid)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		mem_ap = (apid&gt;&gt;16)&amp;0x1;
+</I>&gt;<i> +	}
+</I>&gt;<i> +
+</I>&gt;<i> +	return ERROR_OK;
+</I>&gt;<i> +
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +int handle_cortex_m3_apsel_command(struct command_context_s  
+</I>&gt;<i> *cmd_ctx, char *cmd, char **args, int argc)
+</I>&gt;<i> +{
+</I>&gt;<i> +	target_t *target = get_current_target(cmd_ctx);
+</I>&gt;<i> +	armv7m_common_t *armv7m = target-&gt;arch_info;
+</I>&gt;<i> +	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+</I>&gt;<i> +	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
+</I>&gt;<i> +
+</I>&gt;<i> +	u32 apsel,apid;
+</I>&gt;<i> +
+</I>&gt;<i> +	apsel = 0;
+</I>&gt;<i> +	if (argc &gt; 0)
+</I>&gt;<i> +	{	
+</I>&gt;<i> +		apsel = strtoul(args[0], NULL, 0);
+</I>&gt;<i> +	}
+</I>&gt;<i> +
+</I>&gt;<i> +	swjdp_apselect(swjdp, apsel);
+</I>&gt;<i> +	ahbap_read_reg_u32(swjdp, (apsel&lt;&lt;24)|0xFC, &amp;apid);
+</I>&gt;<i> +	swjdp_transaction_endcheck(swjdp);
+</I>&gt;<i> +	command_print(cmd_ctx, &quot;ap %i selected, identification register 0x 
+</I>&gt;<i> %8.8x&quot;, apsel, apid);
+</I>&gt;<i> +
+</I>&gt;<i> +	return ERROR_OK;
+</I>&gt;<i> +
+</I>&gt;<i> +}
+</I>&gt;<i>
+</I>&gt;<i> Index: src/target/cortex_swjdp.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/target/cortex_swjdp.c	(revision 1454)
+</I>&gt;<i> +++ src/target/cortex_swjdp.c	(working copy)
+</I>&gt;<i> @@ -246,9 +246,10 @@
+</I>&gt;<i> 		else
+</I>&gt;<i> 		{
+</I>&gt;<i> 			u32 dcb_dhcsr,nvic_shcsr, nvic_bfar, nvic_cfsr;
+</I>&gt;<i> +			u32 ahbap_csv;
+</I>&gt;<i>
+</I>&gt;<i> 			/* Print information about last AHBAP access */
+</I>&gt;<i> -			LOG_ERROR(&quot;AHBAP: dp_select 0x%x, ap_csw 0x%x, ap_tar 0x%x&quot;,  
+</I>&gt;<i> swjdp-&gt;dp_select_value, swjdp-&gt;ap_csw_value, swjdp-&gt;ap_tar_value);
+</I>&gt;<i> +			LOG_ERROR(&quot;AHBAP Cached values: dp_select 0x%x, ap_csw 0x%x,  
+</I>&gt;<i> ap_tar 0x%x&quot;, swjdp-&gt;dp_select_value, swjdp-&gt;ap_csw_value, swjdp- 
+</I>&gt;<i> &gt;ap_tar_value);
+</I>&gt;<i> 			if (ctrlstat &amp; SSTICKYORUN)
+</I>&gt;<i> 				LOG_ERROR(&quot;SWJ-DP OVERRUN - check clock or reduce jtag speed&quot;);
+</I>&gt;<i>
+</I>&gt;<i> @@ -263,12 +264,20 @@
+</I>&gt;<i>
+</I>&gt;<i> 			LOG_DEBUG(&quot;swjdp: status 0x%x&quot;, ctrlstat);
+</I>&gt;<i>
+</I>&gt;<i> +			ahbap_read_reg_u32(swjdp, AHBAP_CSW, &amp;ahbap_csv);
+</I>&gt;<i> +			if ((retval=jtag_execute_queue())!=ERROR_OK)
+</I>&gt;<i> +				return retval;
+</I>&gt;<i> +			LOG_ERROR(&quot;Read AHBAP_CSW 0x%x&quot;, ahbap_csv);
+</I>&gt;<i> +
+</I>&gt;<i> +#if 0
+</I>&gt;<i> 			/* Can we find out the reason for the error ?? */
+</I>&gt;<i> +			/* WARNING This creates an infinite loop when memorymapped core  
+</I>&gt;<i> registers cannot be accessed, and no info about SWJDP communicaton  
+</I>&gt;<i> problems, REMOVE!!? */
+</I>&gt;<i> 			ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;dcb_dhcsr);
+</I>&gt;<i> 			ahbap_read_system_atomic_u32(swjdp, NVIC_SHCSR, &amp;nvic_shcsr);
+</I>&gt;<i> 			ahbap_read_system_atomic_u32(swjdp, NVIC_CFSR, &amp;nvic_cfsr);
+</I>&gt;<i> 			ahbap_read_system_atomic_u32(swjdp, NVIC_BFAR, &amp;nvic_bfar);
+</I>&gt;<i> 			LOG_ERROR(&quot;dcb_dhcsr 0x%x, nvic_shcsr 0x%x, nvic_cfsr 0x%x,  
+</I>&gt;<i> nvic_bfar 0x%x&quot;, dcb_dhcsr, nvic_shcsr, nvic_cfsr, nvic_bfar);
+</I>&gt;<i> +#endif
+</I>&gt;<i> 		}
+</I>&gt;<i> 		if ((retval=jtag_execute_queue())!=ERROR_OK)
+</I>&gt;<i> 			return retval;
+</I>&gt;<i> @@ -294,14 +303,31 @@
+</I>&gt;<i> 	return scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, reg_addr,  
+</I>&gt;<i> DPAP_READ, 0, value);
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> +int swjdp_apselect(swjdp_common_t *swjdp,u8 apsel)
+</I>&gt;<i> +{
+</I>&gt;<i> +	u32 select;
+</I>&gt;<i> +	select = (apsel&lt;&lt;24) &amp; 0xFF000000;
+</I>&gt;<i> +
+</I>&gt;<i> +	if (select != swjdp-&gt;apsel)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		swjdp-&gt;apsel = select;
+</I>&gt;<i> +		/* Switchin AP invalidates cached values */
+</I>&gt;<i> +		swjdp-&gt;dp_select_value = -1;
+</I>&gt;<i> +		swjdp-&gt;ap_csw_value = -1;
+</I>&gt;<i> +		swjdp-&gt;ap_tar_value = -1;
+</I>&gt;<i> +	}
+</I>&gt;<i> +
+</I>&gt;<i> +	return ERROR_OK;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> int swjdp_bankselect_apacc(swjdp_common_t *swjdp,u32 reg_addr)
+</I>&gt;<i> {
+</I>&gt;<i> 	u32 select;
+</I>&gt;<i> -	select = (reg_addr &amp; 0xFF0000F0);
+</I>&gt;<i> +	select = (reg_addr &amp; 0x000000F0);
+</I>&gt;<i>
+</I>&gt;<i> 	if (select != swjdp-&gt;dp_select_value)
+</I>&gt;<i> 	{
+</I>&gt;<i> -		swjdp_write_dpacc(swjdp, select, DP_SELECT);
+</I>&gt;<i> +		swjdp_write_dpacc(swjdp, select | swjdp-&gt;apsel, DP_SELECT);
+</I>&gt;<i> 		swjdp-&gt;dp_select_value = select;
+</I>&gt;<i> 	}
+</I>&gt;<i>
+</I>&gt;<i> @@ -686,7 +712,7 @@
+</I>&gt;<i> *                                                                                *
+</I>&gt;<i> * ahbap_read_buf_u32(swjdp_common_t *swjdp, u8 *buffer, int count,  
+</I>&gt;<i> u32 address)  *
+</I>&gt;<i> *                                                                                *
+</I>&gt;<i> -* Read block fast in target order (little endian) into a  
+</I>&gt;<i> buffer                  *
+</I>&gt;<i> +* Read block of memory fast in target order (little endian) into a  
+</I>&gt;<i> buffer        *
+</I>&gt;<i> *                                                                                *
+</I>&gt;<i> **********************************************************************************/
+</I>&gt;<i> int ahbap_read_buf_u32(swjdp_common_t *swjdp, u8 *buffer, int count,  
+</I>&gt;<i> u32 address)
+</I>&gt;<i> @@ -922,6 +948,15 @@
+</I>&gt;<i> 	return retval;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> +/ 
+</I>&gt;<i> *****************************************************************************
+</I>&gt;<i> + 
+</I>&gt;<i> *                                                                            *
+</I>&gt;<i> +* ahbap_read_coreregister_u32(swjdp_common_t *swjdp, u32 *value,  
+</I>&gt;<i> int regnum) *
+</I>&gt;<i> + 
+</I>&gt;<i> *                                                                            *
+</I>&gt;<i> +* Read a u32 value from a processor core register using the NVIC/ 
+</I>&gt;<i> DCB         *
+</I>&gt;<i> +* core debug  
+</I>&gt;<i> component                                                       *
+</I>&gt;<i> + 
+</I>&gt;<i> *                                                                            *
+</I>&gt;<i> + 
+</I>&gt;<i> *****************************************************************************/
+</I>&gt;<i> +
+</I>&gt;<i> int ahbap_read_coreregister_u32(swjdp_common_t *swjdp, u32 *value,  
+</I>&gt;<i> int regnum)
+</I>&gt;<i> {
+</I>&gt;<i> 	int retval;
+</I>&gt;<i> @@ -981,6 +1016,7 @@
+</I>&gt;<i>
+</I>&gt;<i> 	LOG_DEBUG(&quot; &quot;);
+</I>&gt;<i>
+</I>&gt;<i> +	swjdp-&gt;apsel = 0;
+</I>&gt;<i> 	swjdp-&gt;ap_csw_value = -1;
+</I>&gt;<i> 	swjdp-&gt;ap_tar_value = -1;
+</I>&gt;<i> 	swjdp-&gt;trans_mode = TRANS_MODE_ATOMIC;
+</I>&gt;<i> Index: src/target/cortex_swjdp.h
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- src/target/cortex_swjdp.h	(revision 1454)
+</I>&gt;<i> +++ src/target/cortex_swjdp.h	(working copy)
+</I>&gt;<i> @@ -67,7 +67,7 @@
+</I>&gt;<i> #define CSW_ADDRINC_PACKED	(2&lt;&lt;4)
+</I>&gt;<i> #define CSW_HPROT			(1&lt;&lt;25)
+</I>&gt;<i> #define CSW_MASTER_DEBUG	(1&lt;&lt;29)
+</I>&gt;<i> -#define CSW_DBGSWENABLE		(1&lt;&lt;31)
+</I>&gt;<i> +#define CSW_DBGSWENABLE		(1&lt;&lt;31) /* Remove this, reserved bit,  
+</I>&gt;<i> Cortex-M3 TRM 11.39, different from CoreSight DAP-Lite */
+</I>&gt;<i>
+</I>&gt;<i> /* transaction mode */
+</I>&gt;<i> #define TRANS_MODE_NONE			0
+</I>&gt;<i> @@ -87,6 +87,8 @@
+</I>&gt;<i> 	arm_jtag_t *jtag_info;
+</I>&gt;<i> 	/* Control config */
+</I>&gt;<i> 	u32 dp_ctrl_stat;
+</I>&gt;<i> +	/* Support for several AP's in one DAP */
+</I>&gt;<i> +	u32 apsel;
+</I>&gt;<i> 	/* Register select cache */
+</I>&gt;<i> 	u32 dp_select_value;
+</I>&gt;<i> 	u32 ap_csw_value;
+</I>&gt;<i> @@ -102,6 +104,8 @@
+</I>&gt;<i> /* extern int swjdp_write_apacc(swjdp_common_t *swjdp, u32 value, u8  
+</I>&gt;<i> reg_addr); */
+</I>&gt;<i> extern int swjdp_read_dpacc(swjdp_common_t *swjdp, u32 *value, u8  
+</I>&gt;<i> reg_addr);
+</I>&gt;<i> /* extern int swjdp_read_apacc(swjdp_common_t *swjdp, u32 *value, u8  
+</I>&gt;<i> reg_addr); */
+</I>&gt;<i> +int swjdp_apselect(swjdp_common_t *swjdp,u8 apsel);
+</I>&gt;<i> +
+</I>&gt;<i> extern int ahbap_write_reg(swjdp_common_t *swjdp, u32 reg_addr, u8*  
+</I>&gt;<i> out_value_buf);
+</I>&gt;<i> extern int ahbap_read_reg(swjdp_common_t *swjdp, u32 reg_addr, u8  
+</I>&gt;<i> *in_value_buf);
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090414/4e395952/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20090414/4e395952/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005305.html">[Openocd-development] How to go on with Cortex-A8 support
+</A></li>
+	<LI>Next message: <A HREF="005317.html">[Openocd-development] How to go on with Cortex-A8 support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5312">[ date ]</a>
+              <a href="thread.html#5312">[ thread ]</a>
+              <a href="subject.html#5312">[ subject ]</a>
+              <a href="author.html#5312">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

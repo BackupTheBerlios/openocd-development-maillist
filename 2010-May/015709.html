@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH/RFC] NAND/davinci: Fix segfault for	hwecc4_infix reads
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH/RFC%5D%20NAND/davinci%3A%20Fix%20segfault%20for%0A%09hwecc4_infix%20reads&In-Reply-To=%3C1274080582-24988-1-git-send-email-jon.povey%40racelogic.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015714.html">
+   <LINK REL="Next"  HREF="015713.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH/RFC] NAND/davinci: Fix segfault for	hwecc4_infix reads</H1>
+    <B>Jon Povey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH/RFC%5D%20NAND/davinci%3A%20Fix%20segfault%20for%0A%09hwecc4_infix%20reads&In-Reply-To=%3C1274080582-24988-1-git-send-email-jon.povey%40racelogic.co.uk%3E"
+       TITLE="[Openocd-development] [PATCH/RFC] NAND/davinci: Fix segfault for	hwecc4_infix reads">jon.povey at racelogic.co.uk
+       </A><BR>
+    <I>Mon May 17 09:16:22 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015714.html">[Openocd-development] [PATCH] NAND: catch read errors when	building BBT
+</A></li>
+        <LI>Next message: <A HREF="015713.html">[Openocd-development] [PATCH/RFC] NAND/davinci: Fix segfault	for hwecc4_infix reads
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15709">[ date ]</a>
+              <a href="thread.html#15709">[ thread ]</a>
+              <a href="subject.html#15709">[ subject ]</a>
+              <a href="author.html#15709">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Page reads using hwecc4_infix layout segfaulted for check_bad_blocks because
+the read assumed a valid data buffer, which check_bad_blocks does not use
+(it only passes a 6 byte buffer for the start of OOB).
+
+This version copes with undersized or missing data or oob buffers and uses
+random read commands within the page to skip unwanted areas of data/OOB for
+speed.
+
+NOTE: Running check_bad_blocks with this layout will be reading infix
+OOB locations, not manufacturer bad block markers. This means that if you
+check blocks written in infix layout they will appear good, but manufacturer-
+marked bad blocks may also appear good.
+If you want to scan for manufactuer-marked bad blocks, you need to enable
+raw_access before running check_bad_blocks, or use the non-infix layout.
+
+Signed-off-by: Jon Povey &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jon.povey at racelogic.co.uk</A>&gt;
+CC: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+---
+Infix reads were broken before, but this fix raises questions about the bad
+block scanning. I think this is probably the right way to go about it and
+users need to beware (see NOTE above), but maybe some documentation change
+or warning message would be a good idea?
+
+Further NOTE: blocks written in non-infix &quot;correct&quot; layout will (probably)
+appear bad in this mode.
+Also all manufacturer bad blocks I have seen so far are actually all-zeros
+so will be detected as bad regardless of OOB layout.
+
+The read function could maybe be more elegant, suggestions welcome. I didn't
+want to go too nuts on refactoring.
+
+Tested on DM355 + Micron 12F16G08FAA NAND (2KB page / 128KB block)
+
+ src/flash/nand/davinci.c |   74 ++++++++++++++++++++++++++++++++++++++-------
+ 1 files changed, 62 insertions(+), 12 deletions(-)
+
+diff --git a/src/flash/nand/davinci.c b/src/flash/nand/davinci.c
+index 96cbfea..90219c6 100644
+--- a/src/flash/nand/davinci.c
++++ b/src/flash/nand/davinci.c
+@@ -338,6 +338,27 @@ static void davinci_write_pagecmd(struct nand_device *nand, uint8_t cmd, uint32_
+ 		target_write_u8(target, info-&gt;addr, page &gt;&gt; 24);
+ }
+ 
++static int davinci_seek_column(struct nand_device *nand, uint16_t column)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++
++	/* Random read, we must have issued a page read already */
++	target_write_u8(target, info-&gt;cmd, NAND_CMD_RNDOUT);
++
++	target_write_u8(target, info-&gt;addr, column);
++
++	if (nand-&gt;page_size &gt; 512) {
++		target_write_u8(target, info-&gt;addr, column &gt;&gt; 8);
++		target_write_u8(target, info-&gt;cmd, NAND_CMD_RNDOUTSTART);
++	}
++
++	if (!davinci_nand_ready(nand, 100))
++		return ERROR_NAND_OPERATION_TIMEOUT;
++
++	return ERROR_OK;
++}
++
+ static int davinci_writepage_tail(struct nand_device *nand,
+ 		uint8_t *oob, uint32_t oob_size)
+ {
+@@ -599,6 +620,10 @@ static int davinci_write_page_ecc4infix(struct nand_device *nand, uint32_t page,
+ static int davinci_read_page_ecc4infix(struct nand_device *nand, uint32_t page,
+ 		uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
+ {
++	int read_size;
++	int want_col, at_col;
++	int ret;
++
+ 	davinci_write_pagecmd(nand, NAND_CMD_READ0, page);
+ 
+ 	/* large page devices need a start command */
+@@ -610,18 +635,43 @@ static int davinci_read_page_ecc4infix(struct nand_device *nand, uint32_t page,
+ 
+ 	/* NOTE:  not bothering to compute and use ECC data for now */
+ 
+-	do {
+-		/* write 512 bytes */
+-		davinci_read_block_data(nand, data, 512);
+-		data += 512;
+-		data_size -= 512;
+-
+-		/* read this &quot;out-of-band&quot; data -- infix */
+-		davinci_read_block_data(nand, oob, 16);
+-		oob += 16;
+-		oob_size -= 16;
+-	} while (data_size);
+-
++	want_col = 0;
++	at_col = 0;
++	while ((data &amp;&amp; data_size) || (oob &amp;&amp; oob_size)) {
++
++		if (data &amp;&amp; data_size) {
++			if (want_col != at_col) {
++				/* Reads are slow, so seek past them when we can */
++				ret  = davinci_seek_column(nand, want_col);
++				if (ret != ERROR_OK)
++					return ret;
++				at_col = want_col;
++			}
++			/* read 512 bytes or data_size, whichever is smaller*/
++			read_size = data_size &gt; 512 ? 512 : data_size;
++			davinci_read_block_data(nand, data, read_size);
++			data += read_size;
++			data_size -= read_size;
++			at_col += read_size;
++		}
++		want_col += 512;
++
++		if (oob &amp;&amp; oob_size) {
++			if (want_col != at_col) {
++				ret  = davinci_seek_column(nand, want_col);
++				if (ret != ERROR_OK)
++					return ret;
++				at_col = want_col;
++			}
++			/* read this &quot;out-of-band&quot; data -- infix */
++			read_size = oob_size &gt; 16 ? 16 : oob_size;
++			davinci_read_block_data(nand, oob, read_size);
++			oob += read_size;
++			oob_size -= read_size;
++			at_col += read_size;
++		}
++		want_col += 16;
++	}
+ 	return ERROR_OK;
+ }
+ 
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015714.html">[Openocd-development] [PATCH] NAND: catch read errors when	building BBT
+</A></li>
+	<LI>Next message: <A HREF="015713.html">[Openocd-development] [PATCH/RFC] NAND/davinci: Fix segfault	for hwecc4_infix reads
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15709">[ date ]</a>
+              <a href="thread.html#15709">[ thread ]</a>
+              <a href="subject.html#15709">[ subject ]</a>
+              <a href="author.html#15709">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

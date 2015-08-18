@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Debug in RAM error with IAR EWARM thru GDB	since svn920(arm7/9 breakpoint cleanup)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Debug%20in%20RAM%20error%20with%20IAR%20EWARM%20thru%0A%20GDB%09since%20svn920%28arm7/9%20breakpoint%20cleanup%29&In-Reply-To=%3C48CC234A.2010300%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003145.html">
+   <LINK REL="Next"  HREF="003147.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Debug in RAM error with IAR EWARM thru GDB	since svn920(arm7/9 breakpoint cleanup)</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Debug%20in%20RAM%20error%20with%20IAR%20EWARM%20thru%0A%20GDB%09since%20svn920%28arm7/9%20breakpoint%20cleanup%29&In-Reply-To=%3C48CC234A.2010300%40duaneellis.com%3E"
+       TITLE="[Openocd-development] Debug in RAM error with IAR EWARM thru GDB	since svn920(arm7/9 breakpoint cleanup)">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Sep 13 22:32:10 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003145.html">[Openocd-development] Debug in RAM error with IAR EWARM thru	GDB since svn920(arm7/9 breakpoint cleanup)
+</A></li>
+        <LI>Next message: <A HREF="003147.html">[Openocd-development] Debug in RAM error with IAR EWARM thru	GDB since svn920(arm7/9 breakpoint cleanup)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3146">[ date ]</a>
+              <a href="thread.html#3146">[ thread ]</a>
+              <a href="subject.html#3146">[ subject ]</a>
+              <a href="author.html#3146">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There are 2 things in the attached patch that should help determine what
+is going wrong.
+
+(A) IAR has a problem with 'O' packets larger then 99 bytes
+new GDB command to help work around that, see below.
+
+(B) In the &quot;arm7_9&quot; debug section, I added some LOG_DEBUG() messages
+It seems there was little to *NONE* in that section of code.
+Hence, it is very hard to trace problems.
+See attached patch.
+
+There is no reason the attached patch should not be committed.
+
+--Duane.
+
+=========================================
+
+simony&gt; IAR Embeded Workbench for ARM 5.11 doesn't have GDB console output.
+
+I have this initial problem:
+
+IAR kick start (32k version) chokes on large O packets.
+
+I have a fix [see attached patch]
+
+In this new patch, There is a new command:
+
+&gt;<i> gdb configure -max-O-packet 0
+</I>
+Above is -max-(letter-O)-packet, not '-max-(number-ZERO)-packet.
+
+The value 0 (zero) - disables all O (letter Oh) packets.
+Default is now '256'
+
+They seem to have a *STUPID* limit of exactly 99 bytes.
+This works:
+&gt;<i> gdb configure -max-O-packet 99
+</I>This fails
+&gt;<i> gdb configure -max-O-packet 100
+</I>
+How much you wanna bet somebody @ IAR hard coded 100 somewhere?
+
+======================================
+Continuing.... with your original problem.
+
+&gt;&gt;<i> Error: unknown character 0x24 in reply, dropping connection
+</I>&gt;&gt;<i> Warning:ignoring character 0x6d
+</I>&gt;&gt;<i> Warning:ignoring character 0x31
+</I>&gt;&gt;<i> Warning:ignoring character 0x2c
+</I>&gt;&gt;<i> Warning:ignoring character 0x31
+</I>&gt;&gt;<i> Warning:ignoring character 0x23
+</I>&gt;&gt;<i> Warning:ignoring character 0x66
+</I>&gt;&gt;<i> Warning:ignoring character 0x62
+</I>
+That translates to: $m1,1#fa
+
+Which means: Read @ address 1, for 1 byte.
+
+Openocd should not have a problem with that command.
+
+However, I can't tell which of the two locations in 'gdb_server.c' this
+is coming from. There are two identical error messages :-(
+
+[NOT any more, my attached patch changes that]
+
+I cannot get my instance to fail like you are having it fail. Perhaps it
+is something specific to your code, or maybe your target.
+
+Anyway - I suspect - I cannot confirm - that in this exactly place, IAR
+has sent a 'm' packet. And OpenOCD is not expecting one... it is
+expecting an ACK or NAK only.
+
+My attached patch then tries to &quot;unget&quot; the 0x24 ($) start of packet and
+assumes the packet waiting for the ACK is good, and does an &quot;unget&quot; so
+the main packet decoder can find the new packet. (The other 'ignoring'
+messages are coming from the main packet decoder)
+
+I suspect IAR - gets no reply and dies a horrible death.
+
+======================================
+You are talking about BREAKPOINTS and STEPPING - etc.
+
+I don't have an NXP LPC chip, I have atmel stuff.
+I don't have problems you are having.
+
+But - perhaps the additional log messages [in the patch] will help
+narrow the problem.
+
+======================================
+**END**
+======================================
+
+
+
+
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: simon.iar.patch
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080913/44dc91d8/attachment.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20080913/44dc91d8/attachment.ksh</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003145.html">[Openocd-development] Debug in RAM error with IAR EWARM thru	GDB since svn920(arm7/9 breakpoint cleanup)
+</A></li>
+	<LI>Next message: <A HREF="003147.html">[Openocd-development] Debug in RAM error with IAR EWARM thru	GDB since svn920(arm7/9 breakpoint cleanup)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3146">[ date ]</a>
+              <a href="thread.html#3146">[ thread ]</a>
+              <a href="subject.html#3146">[ subject ]</a>
+              <a href="author.html#3146">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

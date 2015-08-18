@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS target, big endian host
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3C4EDEF3C9EF255F499422CAF83CC53E1709846E2BF9%40bzsvex01.sas.sys.sphairon.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020160.html">
+   <LINK REL="Next"  HREF="020155.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS target, big endian host</H1>
+    <B>Mahr, Stefan</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3C4EDEF3C9EF255F499422CAF83CC53E1709846E2BF9%40bzsvex01.sas.sys.sphairon.com%3E"
+       TITLE="[Openocd-development] MIPS target, big endian host">Stefan.Mahr at sphairon.com
+       </A><BR>
+    <I>Mon Jul 11 11:10:13 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020160.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+        <LI>Next message: <A HREF="020155.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20154">[ date ]</a>
+              <a href="thread.html#20154">[ thread ]</a>
+              <a href="subject.html#20154">[ subject ]</a>
+              <a href="author.html#20154">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;<i> buf_get_u32:
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return (((uint32_t)buffer[3]) &lt;&lt; 24) |
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;(((uint32_t)buffer[2]) &lt;&lt; 16) |
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;(((uint32_t)buffer[1]) &lt;&lt; 8) |
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;(((uint32_t)buffer[0]) &lt;&lt; 0);
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> I do not get this function at all... What I see is that it is presumed
+</I>&gt;<i> that host executing this code must be in the same endianess as the
+</I>&gt;<i> target who filled this buffer. Otherwise bytes get flipped.
+</I>&gt;<i> 
+</I>&gt;<i> Here is an experiment :
+</I>&gt;<i> Let's imagine that target is BE. Then it will put word 0x12345678 read
+</I>&gt;<i> from the it's (target's) mem like this :
+</I>&gt;<i> buffer[0] = 0x12
+</I>&gt;<i> buffer [1] = 0x34
+</I>&gt;<i> buffer[2] = 0x56
+</I>&gt;<i> buffer[3] = 0x78
+</I>
+Let's forget target endianness for a moment. If you buffer is filled like above,
+LE host will do following:
+
+result =  (uint32_t)buffer[0] &lt;&lt; 0;     //  result = 0x00000012  or in memory 0x12 0x00 0x00 0x00
+result |= (uint32_t)buffer[1] &lt;&lt; 8;     //  result = 0x00003412  or in memory 0x12 0x34 0x00 0x00
+result |= (uint32_t)buffer[2] &lt;&lt; 16;    //  result = 0x00563412  or in memory 0x12 0x34 0x56 0x00
+result |= (uint32_t)buffer[3] &lt;&lt; 24;    //  result = 0x78563412  or in memory 0x12 0x34 0x56 0x78
+
+BE host will do:
+
+result =  (uint32_t)buffer[0] &lt;&lt; 0;     //  result = 0x00000012  or in memory 0x00 0x00 0x00 0x12
+result |= (uint32_t)buffer[1] &lt;&lt; 8;     //  result = 0x00003412  or in memory 0x00 0x00 0x34 0x12
+result |= (uint32_t)buffer[2] &lt;&lt; 16;    //  result = 0x00563412  or in memory 0x00 0x56 0x34 0x12
+result |= (uint32_t)buffer[3] &lt;&lt; 24;    //  result = 0x78563412  or in memory 0x78 0x56 0x34 0x12
+
+As you see result is always the same, but order in memory differs depending on host endianness.
+This is what I mean when I say it's ensured the result is in host endianness.
+
+If you would simply cast the buffer, result would be swapped:
+LE host:  result = (uint32_t)buffer[0];    // result = 0x78563412  (memory 0x12 0x34 0x56 0x78)
+BE host:  result = (uint32_t)buffer[0];    // result = 0x12345678  (memory 0x12 0x34 0x56 0x78)
+
+
+&gt;<i> What is funny however, is that I have BE target and LE host, and MIPS
+</I>&gt;<i> code seems to be working fine... Which would say that EJTAG somehow
+</I>&gt;<i> speaks LE with my host. Crazy thing.
+</I>
+&gt;&gt;<i> &quot;Byte 0 refers to bits 7:0, byte 1 refers to bits 15:8, byte 2 refers to bits 23:16, and byte 3 refers to bits
+</I>&gt;&gt;<i> 31:24, independent of endianess.&quot;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> My guess is, if you read out a 32bit value, target endianness doesn't matter.
+</I>&gt;<i> This is the only sane solution I can think of. It would say that EJTAG
+</I>&gt;<i> is a bi-endian machine that can read both BE and LE if we feed it
+</I>&gt;<i> fixed instr. size.
+</I>
+No, there is no bi-endian machine.
+
+The sentence &quot;Byte 0 refers to bits 7:0, byte 1 refers to bits 15:8, byte 2 refers to bits 23:16, and byte 3
+refers to bits 31:24, independent of endianess.&quot; says for me that EJTAG is always LE, no matter of target
+endianness setting.
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020160.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+	<LI>Next message: <A HREF="020155.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20154">[ date ]</a>
+              <a href="thread.html#20154">[ thread ]</a>
+              <a href="subject.html#20154">[ subject ]</a>
+              <a href="author.html#20154">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

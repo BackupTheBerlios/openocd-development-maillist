@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%200/6%5D%20OMAP4430/Cortex-A9%20Support&In-Reply-To=%3CAANLkTikqH09D%3DYZF4_4h%2Bu1%2BYLqA%3DD%2BsCwTT8p7D2CV_%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017981.html">
+   <LINK REL="Next"  HREF="018000.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support</H1>
+    <B>luca ellero</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%200/6%5D%20OMAP4430/Cortex-A9%20Support&In-Reply-To=%3CAANLkTikqH09D%3DYZF4_4h%2Bu1%2BYLqA%3DD%2BsCwTT8p7D2CV_%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support">lroluk at gmail.com
+       </A><BR>
+    <I>Tue Jan 25 14:13:35 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017981.html">[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support
+</A></li>
+        <LI>Next message: <A HREF="018000.html">[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17987">[ date ]</a>
+              <a href="thread.html#17987">[ thread ]</a>
+              <a href="subject.html#17987">[ subject ]</a>
+              <a href="author.html#17987">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>2011/1/24 Aaron Carroll &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">aaronc at cse.unsw.edu.au</A>&gt;
+
+&gt;<i> This patchset adds support for the OMAP4430/Pandaboard and the ARM
+</I>&gt;<i> Cortex-A9 CPU.  For now I have clagged the A8 code into cortex_a9.c
+</I>&gt;<i> to avoid breaking A8.
+</I>&gt;<i>
+</I>&gt;<i> To deal with multiple cores exposed by one DAP, I've introduced a
+</I>&gt;<i> '-coreid' target option, which does the obvious.  At present, only
+</I>&gt;<i> one of the A9 cores can be connected at a time.  I think the main
+</I>&gt;<i> impediment to connecting several A9 targets is sharing of a single
+</I>&gt;<i> ADIv5 instance.
+</I>&gt;<i>
+</I>&gt;<i> Note that debugging the A9's on the Pandaboard does not work with
+</I>&gt;<i> the usual bootloader (x-loader), because (I think) the debug clocks
+</I>&gt;<i> get disabled.  If anyone knows how to re-enable them, please get in
+</I>&gt;<i> touch.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>
+Good job Aaron!
+
+I've been  working on this issue as well, but I was stuck trying to halt the
+core.
+With your patch it seems to work. Anyway after issuing &quot;halt&quot; instruction, I
+always get the following message:
+
+target state: halted
+target halted in Thumb state due to debug-request, current mode: Supervisor
+cpsr: 0x60000173 pc: 0x0002dc92
+MMU: disabled, D-Cache: disabled, I-Cache: enabled
+
+I would point out that I'm using PandaBoard without any SD inserted, so only
+ROM code is executed.
+
+It seems quite strange that the target state is always Thumb and not ARM.
+Even pc value is strange, I would expect someting in the range
+0x40028000-0x40033FFF (which is where the ROM boot code is mapped, right?).
+
+Am I missing something here? Thanks.
+
+
+Regarding x-loader issue, I also noticed this problem. After a little
+investigation I found that the problem is related to clocking (as you
+correctly presume).
+
+After executing the following function (in x-loader source,
+board/omap4430panda/clock.c) OpenOCD is no more able to talk to the target:
+
+void lock_core_dpll_shadow(void)
+{
+    dpll_param *dpll_param_p;
+    /* Lock the core dpll using freq update method */
+    *(volatile int*)0x4A004120 = 10;    //(CM_CLKMODE_DPLL_CORE)
+
+    dpll_param_p = &amp;core_dpll_param[6];
+    /* CM_SHADOW_FREQ_CONFIG1: DLL_OVERRIDE = 1(hack), DLL_RESET = 1,
+     * DPLL_CORE_M2_DIV =1, DPLL_CORE_DPLL_EN = 0x7, FREQ_UPDATE = 1
+     */
+    *(volatile int*)0x4A004260 = 0x70D | (dpll_param_p-&gt;m2 &lt;&lt; 11);
+
+    /* Wait for Freq_Update to get cleared: CM_SHADOW_FREQ_CONFIG1 */
+    while( ( (*(volatile int*)0x4A004260) &amp; 0x1) == 0x1 );
+
+    /* Wait for DPLL to Lock : CM_IDLEST_DPLL_CORE */
+    wait_on_value(BIT0, 1, CM_IDLEST_DPLL_CORE, LDELAY);
+    //lock_core_dpll();
+
+    return;
+}
+
+In particular the write to CM_SHADOW_FREQ_CONFIG1 (0x4A004260) is causing
+the problem (before writing 0x70D the value is 0xC0C).
+At the moment I'm not able to understand very well what this means (clocking
+in OMAP4430 is quite complicated). However I'm still investigating... keep
+in touch.
+
+Thanks
+regards
+Luca Ellero
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110125/2ac10104/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110125/2ac10104/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017981.html">[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support
+</A></li>
+	<LI>Next message: <A HREF="018000.html">[Openocd-development] [PATCH 0/6] OMAP4430/Cortex-A9 Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17987">[ date ]</a>
+              <a href="thread.html#17987">[ thread ]</a>
+              <a href="subject.html#17987">[ subject ]</a>
+              <a href="author.html#17987">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

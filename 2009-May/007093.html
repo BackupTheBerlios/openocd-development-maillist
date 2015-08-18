@@ -1,0 +1,115 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] svn 1881 with jlink and STM32
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20svn%201881%20with%20jlink%20and%20STM32&In-Reply-To=%3Cfd211a420905221749q3af1f00etbd453cc682b1692%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007092.html">
+   <LINK REL="Next"  HREF="007101.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] svn 1881 with jlink and STM32</H1>
+    <B>Dylan Reid</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20svn%201881%20with%20jlink%20and%20STM32&In-Reply-To=%3Cfd211a420905221749q3af1f00etbd453cc682b1692%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] svn 1881 with jlink and STM32">dgreid at gmail.com
+       </A><BR>
+    <I>Sat May 23 02:49:49 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007092.html">[Openocd-development] svn 1881 with jlink and STM32
+</A></li>
+        <LI>Next message: <A HREF="007101.html">[Openocd-development] svn 1881 with jlink and STM32
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7093">[ date ]</a>
+              <a href="thread.html#7093">[ thread ]</a>
+              <a href="subject.html#7093">[ subject ]</a>
+              <a href="author.html#7093">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Something strikes me as pretty broken here.  Maybe I am seeing ghosts.
+
+I put in a few prints to see what was going on, then got confused and
+ran from the debugger.  This is what I found:
+
+
+static int jlink_get_version_info(void)
+{
+       int result;
+       int len;
+       u32 jlink_caps, jlink_max_size;
+
+       /* query hardware version */
+       jlink_simple_command(EMU_CMD_VERSION);
+
+       result = jlink_usb_read(jlink_jtag_handle, 2);
+       if (2 != result)
+       {
+///***** Sometimes this fails, that doesn't seem to matter
+               LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed
+(%d)\n&quot;, result);
+               return ERROR_JTAG_DEVICE_ERROR;
+       }
+///***** most of the time it works and we get to here
+///***** Problem is that what is read is &quot;J-&quot; the first two bytes of
+the jlink identifier string
+       len = buf_get_u32(usb_in_buffer, 0, 16);
+///***** len now holds 11594, which is what buf_get_u32 returns when
+it is fed &quot;J-&quot;
+       result = jlink_usb_read(jlink_jtag_handle, len);
+///***** jlink_usb_read doesn't check the length of the buffer before reading
+///*****  so it wipes out a bunch of variables including jlink_jtag_handle
+       if (result != len)
+       {
+               LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION read failed
+(%d)\n&quot;, result);
+               return ERROR_JTAG_DEVICE_ERROR;
+       }
+
+
+The crazy thing is that sometimes this works.  Often enough to be
+usable actually.  I added a check to jlink_usb_read and it makes it
+fail every time.  I attached the patch as I think it is the right
+thing to do anyways.  If you increase JLINK_IN_BUFFER_SIZE to
+something big enough, it will keep it functional.
+
+I don't have any experience with low level jtag interfacing, what is
+this code trying to do?  Should something other than &quot;J-&quot; be returned
+after EMU_CMD_VERSION?
+
+Wish I had more time to debug this tonight, but if I don't get home
+for memorial day weekend the GF is not going to be too happy :-)
+
+Dylan
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007092.html">[Openocd-development] svn 1881 with jlink and STM32
+</A></li>
+	<LI>Next message: <A HREF="007101.html">[Openocd-development] svn 1881 with jlink and STM32
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7093">[ date ]</a>
+              <a href="thread.html#7093">[ thread ]</a>
+              <a href="subject.html#7093">[ subject ]</a>
+              <a href="author.html#7093">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,440 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/3] minidriver: fix inline capability of minidriver
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20minidriver%3A%20fix%20inline%0A%20capability%20of%20minidriver&In-Reply-To=%3C1260264127.27619.42239.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013420.html">
+   <LINK REL="Next"  HREF="013423.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/3] minidriver: fix inline capability of minidriver</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/3%5D%20minidriver%3A%20fix%20inline%0A%20capability%20of%20minidriver&In-Reply-To=%3C1260264127.27619.42239.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH 3/3] minidriver: fix inline capability of minidriver">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Dec  8 10:22:07 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013420.html">[Openocd-development] [PATCH 3/3] minidriver: fix inline capability	of minidriver
+</A></li>
+        <LI>Next message: <A HREF="013423.html">[Openocd-development] [PATCH 2/3] zy1000: remove unecessary include
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13427">[ date ]</a>
+              <a href="thread.html#13427">[ thread ]</a>
+              <a href="subject.html#13427">[ subject ]</a>
+              <a href="author.html#13427">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Do you really need to have the commands.[ch] changes here?  If you can
+leave that alone, it would be preferred, as it doesn't appear to have
+anything to do with this patch.
+
+Also, you should not convert header file #includes in .c files to &lt;&gt; if
+the header is in the same directory.  Indeed, that is what the &quot;&quot;'s help
+indicate to developers: it's a local module file.   Read any of the 100
+or so commit log messages and you will see this was done explicitly.
+
+In jtag.h, you add an extra line when you remove jtag_add_dr_out(), and
+that probably deserves to be removed too.
+
+Other than these nits, there remains the fundamental problem that we are
+now duplicating code between the out-of-line version in drivers.c and
+the inline version in minidriver/minidriver_imp.h.
+
+Once the nits are fixed, you might as well commit it, as the process to
+add multiple interface support will probably tear this apart anyway. 
+
+--Z
+
+On Tue, 2009-12-08 at 09:39 +0100, &#216;yvind Harboe wrote:
+&gt;<i> Low latency low CPU processing power systems(embedded)
+</I>&gt;<i> will benefit greatly from being able to inline certain
+</I>&gt;<i> jtag_add_xxx() fn's. The trick is that this has to be
+</I>&gt;<i> done in such a way as to allow implementing an OpenOCD
+</I>&gt;<i> API with a shared library(eventually) on a PC hosted
+</I>&gt;<i> OpenOCD.
+</I>&gt;<i> 
+</I>&gt;<i> Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+</I>&gt;<i> ---
+</I>&gt;<i>  .gitignore                           |    4 ++++
+</I>&gt;<i>  src/jtag/Makefile.am                 |   32 ++++++++++++++++++++++++--------
+</I>&gt;<i>  src/jtag/commands.c                  |    1 +
+</I>&gt;<i>  src/jtag/commands.h                  |    2 --
+</I>&gt;<i>  src/jtag/core.c                      |   31 ++-----------------------------
+</I>&gt;<i>  src/jtag/drivers/driver.c            |   31 ++++++++++++++++++++++++++++++-
+</I>&gt;<i>  src/jtag/drivers/minidriver_imp.h    |   11 ++++++++++-
+</I>&gt;<i>  src/jtag/jtag.h                      |   12 ++++++------
+</I>&gt;<i>  src/jtag/minidriver.h                |    2 +-
+</I>&gt;<i>  src/jtag/minidriver/minidriver_imp.h |   19 ++++++++++++++++++-
+</I>&gt;<i>  src/jtag/minidummy/minidummy.c       |    1 +
+</I>&gt;<i>  11 files changed, 97 insertions(+), 49 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> diff --git a/.gitignore b/.gitignore
+</I>&gt;<i> index 114fc05..9928129 100644
+</I>&gt;<i> --- a/.gitignore
+</I>&gt;<i> +++ b/.gitignore
+</I>&gt;<i> @@ -10,6 +10,10 @@
+</I>&gt;<i>  *.la
+</I>&gt;<i>  *.in
+</I>&gt;<i>  
+</I>&gt;<i> +# generated source files
+</I>&gt;<i> +src/jtag/minidriver_imp.h
+</I>&gt;<i> +src/jtag/jtag_minidriver.h
+</I>&gt;<i> +
+</I>&gt;<i>  # editor files
+</I>&gt;<i>  *.swp
+</I>&gt;<i>  
+</I>&gt;<i> diff --git a/src/jtag/Makefile.am b/src/jtag/Makefile.am
+</I>&gt;<i> index da2eddd..3f132d4 100644
+</I>&gt;<i> --- a/src/jtag/Makefile.am
+</I>&gt;<i> +++ b/src/jtag/Makefile.am
+</I>&gt;<i> @@ -9,33 +9,49 @@ SUBDIRS =
+</I>&gt;<i>  DRIVERFILES =
+</I>&gt;<i>  libjtag_la_LIBADD =
+</I>&gt;<i>  
+</I>&gt;<i> -if MINIDRIVER
+</I>&gt;<i> +CLEANFILES =
+</I>&gt;<i> +
+</I>&gt;<i> +BUILT_SOURCES =
+</I>&gt;<i> +
+</I>&gt;<i> +BUILT_SOURCES += minidriver_imp.h
+</I>&gt;<i> +CLEANFILES += minidriver_imp.h
+</I>&gt;<i>  
+</I>&gt;<i> -# for minidriver_imp.h
+</I>&gt;<i> -AM_CPPFLAGS += -I$(srcdir)/minidriver
+</I>&gt;<i> +if MINIDRIVER
+</I>&gt;<i>  
+</I>&gt;<i>  if ZY1000
+</I>&gt;<i>  DRIVERFILES += zy1000/zy1000.c
+</I>&gt;<i> -AM_CPPFLAGS += -I$(srcdir)/zy1000
+</I>&gt;<i> +JTAG_MINIDRIVER_DIR = $(srcdir)/zy1000
+</I>&gt;<i>  endif
+</I>&gt;<i>  if MINIDRIVER_DUMMY
+</I>&gt;<i>  DRIVERFILES += minidummy/minidummy.c commands.c
+</I>&gt;<i> -AM_CPPFLAGS += -I$(srcdir)/minidummy
+</I>&gt;<i> +JTAG_MINIDRIVER_DIR = $(srcdir)/minidummy
+</I>&gt;<i>  endif
+</I>&gt;<i>  
+</I>&gt;<i> +MINIDRIVER_IMP_DIR = $(srcdir)/minidriver
+</I>&gt;<i> +
+</I>&gt;<i> +jtag_minidriver.h: $(JTAG_MINIDRIVER_DIR)/jtag_minidriver.h
+</I>&gt;<i> +	cp $&lt; $@
+</I>&gt;<i> +
+</I>&gt;<i> +BUILT_SOURCES += jtag_minidriver.h
+</I>&gt;<i> +
+</I>&gt;<i> +CLEANFILES += jtag_minidriver.h
+</I>&gt;<i> +
+</I>&gt;<i>  else
+</I>&gt;<i>  
+</I>&gt;<i> +MINIDRIVER_IMP_DIR = $(srcdir)/drivers
+</I>&gt;<i>  DRIVERFILES += commands.c
+</I>&gt;<i>  
+</I>&gt;<i>  SUBDIRS += drivers
+</I>&gt;<i>  libjtag_la_LIBADD += $(top_builddir)/src/jtag/drivers/libocdjtagdrivers.la
+</I>&gt;<i>  
+</I>&gt;<i> -# for minidriver_imp.h
+</I>&gt;<i> -AM_CPPFLAGS += -I$(srcdir)/drivers
+</I>&gt;<i> -
+</I>&gt;<i>  endif
+</I>&gt;<i> +
+</I>&gt;<i>  # endif // MINIDRIVER
+</I>&gt;<i>  
+</I>&gt;<i> +minidriver_imp.h: $(MINIDRIVER_IMP_DIR)/minidriver_imp.h
+</I>&gt;<i> +	cp $&lt; $@
+</I>&gt;<i> +
+</I>&gt;<i> +
+</I>&gt;<i>  libjtag_la_SOURCES = \
+</I>&gt;<i>  	core.c \
+</I>&gt;<i>  	interface.c \
+</I>&gt;<i> diff --git a/src/jtag/commands.c b/src/jtag/commands.c
+</I>&gt;<i> index 4e8ce40..6951f03 100644
+</I>&gt;<i> --- a/src/jtag/commands.c
+</I>&gt;<i> +++ b/src/jtag/commands.c
+</I>&gt;<i> @@ -31,6 +31,7 @@
+</I>&gt;<i>  #include &quot;config.h&quot;
+</I>&gt;<i>  #endif
+</I>&gt;<i>  
+</I>&gt;<i> +#include &lt;jtag/jtag.h&gt;
+</I>&gt;<i>  #include &quot;commands.h&quot;
+</I>&gt;<i>  
+</I>&gt;<i>  struct cmd_queue_page {
+</I>&gt;<i> diff --git a/src/jtag/commands.h b/src/jtag/commands.h
+</I>&gt;<i> index 86ded15..b10b545 100644
+</I>&gt;<i> --- a/src/jtag/commands.h
+</I>&gt;<i> +++ b/src/jtag/commands.h
+</I>&gt;<i> @@ -26,8 +26,6 @@
+</I>&gt;<i>  #ifndef JTAG_COMMANDS_H
+</I>&gt;<i>  #define JTAG_COMMANDS_H
+</I>&gt;<i>  
+</I>&gt;<i> -#include &lt;jtag/jtag.h&gt;
+</I>&gt;<i> -
+</I>&gt;<i>  /**
+</I>&gt;<i>   * The inferred type of a scan_command_s structure, indicating whether
+</I>&gt;<i>   * the command has the host scan in from the device, the host scan out
+</I>&gt;<i> diff --git a/src/jtag/core.c b/src/jtag/core.c
+</I>&gt;<i> index 373dd7e..8cc346d 100644
+</I>&gt;<i> --- a/src/jtag/core.c
+</I>&gt;<i> +++ b/src/jtag/core.c
+</I>&gt;<i> @@ -31,9 +31,8 @@
+</I>&gt;<i>  #include &quot;config.h&quot;
+</I>&gt;<i>  #endif
+</I>&gt;<i>  
+</I>&gt;<i> -#include &quot;jtag.h&quot;
+</I>&gt;<i> -#include &quot;minidriver.h&quot;
+</I>&gt;<i> -#include &quot;interface.h&quot;
+</I>&gt;<i> +#include &lt;jtag/jtag.h&gt;
+</I>&gt;<i> +#include &lt;jtag/interface.h&gt;
+</I>&gt;<i>  
+</I>&gt;<i>  #ifdef HAVE_STRINGS_H
+</I>&gt;<i>  #include &lt;strings.h&gt;
+</I>&gt;<i> @@ -398,18 +397,6 @@ void jtag_add_plain_ir_scan(int in_num_fields, const struct scan_field *in_field
+</I>&gt;<i>  	jtag_set_error(retval);
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i> -void jtag_add_callback(jtag_callback1_t f, jtag_callback_data_t data0)
+</I>&gt;<i> -{
+</I>&gt;<i> -	interface_jtag_add_callback(f, data0);
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i> -void jtag_add_callback4(jtag_callback_t f, jtag_callback_data_t data0,
+</I>&gt;<i> -		jtag_callback_data_t data1, jtag_callback_data_t data2,
+</I>&gt;<i> -		jtag_callback_data_t data3)
+</I>&gt;<i> -{
+</I>&gt;<i> -	interface_jtag_add_callback4(f, data0, data1, data2, data3);
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i>  static int jtag_check_value_inner(uint8_t *captured, uint8_t *in_check_value,
+</I>&gt;<i>  		uint8_t *in_check_mask, int num_bits);
+</I>&gt;<i>  
+</I>&gt;<i> @@ -491,20 +478,6 @@ void jtag_add_plain_dr_scan(int in_num_fields, const struct scan_field *in_field
+</I>&gt;<i>  	jtag_set_error(retval);
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i> -void jtag_add_dr_out(struct jtag_tap* tap,
+</I>&gt;<i> -		int num_fields, const int* num_bits, const uint32_t* value,
+</I>&gt;<i> -		tap_state_t end_state)
+</I>&gt;<i> -{
+</I>&gt;<i> -	assert(end_state != TAP_RESET);
+</I>&gt;<i> -	assert(end_state != TAP_INVALID);
+</I>&gt;<i> -
+</I>&gt;<i> -	cmd_queue_cur_state = end_state;
+</I>&gt;<i> -
+</I>&gt;<i> -	interface_jtag_add_dr_out(tap,
+</I>&gt;<i> -			num_fields, num_bits, value,
+</I>&gt;<i> -			end_state);
+</I>&gt;<i> -}
+</I>&gt;<i> -
+</I>&gt;<i>  void jtag_add_tlr(void)
+</I>&gt;<i>  {
+</I>&gt;<i>  	jtag_prelude(TAP_RESET);
+</I>&gt;<i> diff --git a/src/jtag/drivers/driver.c b/src/jtag/drivers/driver.c
+</I>&gt;<i> index 7fa9ead..c57386a 100644
+</I>&gt;<i> --- a/src/jtag/drivers/driver.c
+</I>&gt;<i> +++ b/src/jtag/drivers/driver.c
+</I>&gt;<i> @@ -2,7 +2,7 @@
+</I>&gt;<i>   *   Copyright (C) 2005 by Dominic Rath                                    *
+</I>&gt;<i>   *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+</I>&gt;<i>   *                                                                         *
+</I>&gt;<i> - *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
+</I>&gt;<i> + *   Copyright (C) 2007-2009 &#216;yvind Harboe                                 *
+</I>&gt;<i>   *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+</I>&gt;<i>   *                                                                         *
+</I>&gt;<i>   *   Copyright (C) 2009 SoftPLC Corporation                                *
+</I>&gt;<i> @@ -31,7 +31,9 @@
+</I>&gt;<i>  #include &quot;config.h&quot;
+</I>&gt;<i>  #endif
+</I>&gt;<i>  
+</I>&gt;<i> +#include &lt;jtag/jtag.h&gt;
+</I>&gt;<i>  #include &lt;jtag/interface.h&gt;
+</I>&gt;<i> +#include &lt;jtag/commands.h&gt;
+</I>&gt;<i>  #include &lt;jtag/minidriver.h&gt;
+</I>&gt;<i>  #include &lt;helper/command.h&gt;
+</I>&gt;<i>  
+</I>&gt;<i> @@ -525,3 +527,30 @@ void interface_jtag_add_callback(jtag_callback1_t callback, jtag_callback_data_t
+</I>&gt;<i>  	jtag_add_callback4(jtag_convert_to_callback4, data0, (jtag_callback_data_t)callback, 0, 0);
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i> +
+</I>&gt;<i> +/* A minidriver can use use an inline versions of this API level fn */
+</I>&gt;<i> +void jtag_add_dr_out(struct jtag_tap* tap,
+</I>&gt;<i> +		int num_fields, const int* num_bits, const uint32_t* value,
+</I>&gt;<i> +		tap_state_t end_state)
+</I>&gt;<i> +{
+</I>&gt;<i> +	assert(end_state != TAP_RESET);
+</I>&gt;<i> +	assert(end_state != TAP_INVALID);
+</I>&gt;<i> +
+</I>&gt;<i> +	cmd_queue_cur_state = end_state;
+</I>&gt;<i> +
+</I>&gt;<i> +	interface_jtag_add_dr_out(tap,
+</I>&gt;<i> +			num_fields, num_bits, value,
+</I>&gt;<i> +			end_state);
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +void jtag_add_callback(jtag_callback1_t f, jtag_callback_data_t data0)
+</I>&gt;<i> +{
+</I>&gt;<i> +	interface_jtag_add_callback(f, data0);
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +void jtag_add_callback4(jtag_callback_t f, jtag_callback_data_t data0,
+</I>&gt;<i> +		jtag_callback_data_t data1, jtag_callback_data_t data2,
+</I>&gt;<i> +		jtag_callback_data_t data3)
+</I>&gt;<i> +{
+</I>&gt;<i> +	interface_jtag_add_callback4(f, data0, data1, data2, data3);
+</I>&gt;<i> +}
+</I>&gt;<i> diff --git a/src/jtag/drivers/minidriver_imp.h b/src/jtag/drivers/minidriver_imp.h
+</I>&gt;<i> index 1efd242..76cf9dd 100644
+</I>&gt;<i> --- a/src/jtag/drivers/minidriver_imp.h
+</I>&gt;<i> +++ b/src/jtag/drivers/minidriver_imp.h
+</I>&gt;<i> @@ -1,6 +1,6 @@
+</I>&gt;<i>  /***************************************************************************
+</I>&gt;<i>   *   Copyright (C) 2005 by Dominic Rath &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>&gt;              *
+</I>&gt;<i> - *   Copyright (C) 2007,2008 &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;       *
+</I>&gt;<i> + *   Copyright (C) 2007-2009 &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;       *
+</I>&gt;<i>   *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
+</I>&gt;<i>   *                                                                         *
+</I>&gt;<i>   *   This program is free software; you can redistribute it and/or modify  *
+</I>&gt;<i> @@ -44,4 +44,13 @@ void interface_jtag_add_callback4(jtag_callback_t f, jtag_callback_data_t data0,
+</I>&gt;<i>  		jtag_callback_data_t data1, jtag_callback_data_t data2,
+</I>&gt;<i>  		jtag_callback_data_t data3);
+</I>&gt;<i>  
+</I>&gt;<i> +void jtag_add_dr_out(struct jtag_tap* tap,
+</I>&gt;<i> +		int num_fields, const int* num_bits, const uint32_t* value,
+</I>&gt;<i> +		tap_state_t end_state);
+</I>&gt;<i> +
+</I>&gt;<i> +
+</I>&gt;<i> +void jtag_add_callback4(jtag_callback_t f, jtag_callback_data_t data0,
+</I>&gt;<i> +		jtag_callback_data_t data1, jtag_callback_data_t data2,
+</I>&gt;<i> +		jtag_callback_data_t data3);
+</I>&gt;<i> +
+</I>&gt;<i>  #endif // MINIDRIVER_IMP_H
+</I>&gt;<i> diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+</I>&gt;<i> index eaa0c7c..8c6fa44 100644
+</I>&gt;<i> --- a/src/jtag/jtag.h
+</I>&gt;<i> +++ b/src/jtag/jtag.h
+</I>&gt;<i> @@ -461,9 +461,6 @@ typedef int (*jtag_callback_t)(jtag_callback_data_t data0,
+</I>&gt;<i>   * @param data3 An integer big enough to use as an @c int or a pointer.
+</I>&gt;<i>   *
+</I>&gt;<i>   */
+</I>&gt;<i> -void jtag_add_callback4(jtag_callback_t f, jtag_callback_data_t data0,
+</I>&gt;<i> -		jtag_callback_data_t data1, jtag_callback_data_t data2,
+</I>&gt;<i> -		jtag_callback_data_t data3);
+</I>&gt;<i>  
+</I>&gt;<i> 
+</I>&gt;<i>  /**
+</I>&gt;<i> @@ -688,9 +685,7 @@ void jtag_sleep(uint32_t us);
+</I>&gt;<i>   * There is no jtag_add_dr_outin() version of this fn that also allows
+</I>&gt;<i>   * clocking data back in. Patches gladly accepted!
+</I>&gt;<i>   */
+</I>&gt;<i> -void jtag_add_dr_out(struct jtag_tap* tap,
+</I>&gt;<i> -		int num_fields, const int* num_bits, const uint32_t* value,
+</I>&gt;<i> -		tap_state_t end_state);
+</I>&gt;<i> +
+</I>&gt;<i>  
+</I>&gt;<i> 
+</I>&gt;<i>  /**
+</I>&gt;<i> @@ -725,4 +720,9 @@ bool jtag_poll_get_enabled(void);
+</I>&gt;<i>   */
+</I>&gt;<i>  void jtag_poll_set_enabled(bool value);
+</I>&gt;<i>  
+</I>&gt;<i> +
+</I>&gt;<i> +/* The minidriver may have inline versions of some of the low
+</I>&gt;<i> + * level APIs that are used in inner loops. */
+</I>&gt;<i> +#include &lt;jtag/minidriver.h&gt;
+</I>&gt;<i> +
+</I>&gt;<i>  #endif /* JTAG_H */
+</I>&gt;<i> diff --git a/src/jtag/minidriver.h b/src/jtag/minidriver.h
+</I>&gt;<i> index ea780fa..2109c75 100644
+</I>&gt;<i> --- a/src/jtag/minidriver.h
+</I>&gt;<i> +++ b/src/jtag/minidriver.h
+</I>&gt;<i> @@ -47,7 +47,7 @@
+</I>&gt;<i>  
+</I>&gt;<i>  // this header will be provided by the minidriver implementation,
+</I>&gt;<i>  // and it may provide additional declarations that must be defined.
+</I>&gt;<i> -#include &quot;minidriver_imp.h&quot;
+</I>&gt;<i> +#include &lt;jtag/minidriver_imp.h&gt;
+</I>&gt;<i>  
+</I>&gt;<i>  int interface_jtag_add_ir_scan(
+</I>&gt;<i>  		int num_fields, const struct scan_field* fields,
+</I>&gt;<i> diff --git a/src/jtag/minidriver/minidriver_imp.h b/src/jtag/minidriver/minidriver_imp.h
+</I>&gt;<i> index e371514..b6cdbea 100644
+</I>&gt;<i> --- a/src/jtag/minidriver/minidriver_imp.h
+</I>&gt;<i> +++ b/src/jtag/minidriver/minidriver_imp.h
+</I>&gt;<i> @@ -21,7 +21,7 @@
+</I>&gt;<i>  #ifndef MINIDRIVER_IMP_H
+</I>&gt;<i>  #define MINIDRIVER_IMP_H
+</I>&gt;<i>  
+</I>&gt;<i> -#include &quot;jtag_minidriver.h&quot;
+</I>&gt;<i> +#include &lt;jtag/jtag_minidriver.h&gt;
+</I>&gt;<i>  
+</I>&gt;<i>  static inline void interface_jtag_alloc_in_value32(struct scan_field *field)
+</I>&gt;<i>  {
+</I>&gt;<i> @@ -41,4 +41,21 @@ static inline void interface_jtag_add_scan_check_alloc(struct scan_field *field)
+</I>&gt;<i>  		field-&gt;in_value = field-&gt;intmp;
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i> +static inline void jtag_add_dr_out(struct jtag_tap* tap,
+</I>&gt;<i> +		int num_fields, const int* num_bits, const uint32_t* value,
+</I>&gt;<i> +		tap_state_t end_state)
+</I>&gt;<i> +{
+</I>&gt;<i> +	cmd_queue_cur_state = end_state;
+</I>&gt;<i> +
+</I>&gt;<i> +	interface_jtag_add_dr_out(tap,
+</I>&gt;<i> +			num_fields, num_bits, value,
+</I>&gt;<i> +			end_state);
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +#define jtag_add_callback(callback, in) interface_jtag_add_callback(callback, in)
+</I>&gt;<i> +
+</I>&gt;<i> +#define jtag_add_callback4(callback, in, data1, data2, data3) interface_jtag_add_callback4(callback, in, data1, data2, data3)
+</I>&gt;<i> +
+</I>&gt;<i> +
+</I>&gt;<i> +
+</I>&gt;<i>  #endif // MINIDRIVER_IMP_H
+</I>&gt;<i> diff --git a/src/jtag/minidummy/minidummy.c b/src/jtag/minidummy/minidummy.c
+</I>&gt;<i> index e60e832..9c608cd 100644
+</I>&gt;<i> --- a/src/jtag/minidummy/minidummy.c
+</I>&gt;<i> +++ b/src/jtag/minidummy/minidummy.c
+</I>&gt;<i> @@ -20,6 +20,7 @@
+</I>&gt;<i>  #include &quot;config.h&quot;
+</I>&gt;<i>  #endif
+</I>&gt;<i>  
+</I>&gt;<i> +#include &lt;jtag/jtag.h&gt;
+</I>&gt;<i>  #include &lt;target/embeddedice.h&gt;
+</I>&gt;<i>  #include &lt;jtag/minidriver.h&gt;
+</I>&gt;<i>  #include &lt;jtag/interface.h&gt;
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013420.html">[Openocd-development] [PATCH 3/3] minidriver: fix inline capability	of minidriver
+</A></li>
+	<LI>Next message: <A HREF="013423.html">[Openocd-development] [PATCH 2/3] zy1000: remove unecessary include
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13427">[ date ]</a>
+              <a href="thread.html#13427">[ thread ]</a>
+              <a href="subject.html#13427">[ subject ]</a>
+              <a href="author.html#13427">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

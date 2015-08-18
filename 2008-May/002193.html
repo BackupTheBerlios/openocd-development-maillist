@@ -1,0 +1,121 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Chaining watchpoints? Tried by	hacking	OpenOCD, but it does not work
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Chaining%20watchpoints%3F%20Tried%20by%0A%09hacking%09OpenOCD%2C%20but%20it%20does%20not%20work&In-Reply-To=%3C14FFB10D8C44FC42BCE4B9425148537B0E51D3E5%40pscptsrvexc02.psitek.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002183.html">
+   <LINK REL="Next"  HREF="002184.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Chaining watchpoints? Tried by	hacking	OpenOCD, but it does not work</H1>
+    <B>Pieter Conradie</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Chaining%20watchpoints%3F%20Tried%20by%0A%09hacking%09OpenOCD%2C%20but%20it%20does%20not%20work&In-Reply-To=%3C14FFB10D8C44FC42BCE4B9425148537B0E51D3E5%40pscptsrvexc02.psitek.local%3E"
+       TITLE="[Openocd-development] Chaining watchpoints? Tried by	hacking	OpenOCD, but it does not work">Pieter.Conradie at psitek.com
+       </A><BR>
+    <I>Wed May 28 08:35:54 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002183.html">[Openocd-development] Chaining watchpoints? Tried by hacking	OpenOCD, but it does not work
+</A></li>
+        <LI>Next message: <A HREF="002184.html">[Openocd-development] jlink scan patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2193">[ date ]</a>
+              <a href="thread.html#2193">[ thread ]</a>
+              <a href="subject.html#2193">[ subject ]</a>
+              <a href="author.html#2193">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi List,
+
+I tried to follow ARM's example. Extract :
+
+
+ARM7TDMI Technical Reference Manual &gt; B.18.1. Breakpoint and watchpoint coupling example
+
+<A HREF="http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0210c/apbs18s01.html">http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0210c/apbs18s01.html</A>
+
+
+The CHAINOUT output of watchpoint register 1 provides the CHAIN input to Watchpoint 0. This CHAIN input enables you to specify complicated configurations of breakpoints and watchpoints.
+
+Note : There is no CHAIN input to Watchpoint 1 and no CHAIN output from Watchpoint 0.
+
+Consider, for example, the request by a debugger to breakpoint on the instruction at location YYY when running process XXX in a multi-process system. If the current process ID is stored in memory, you can implement the above function with a watchpoint and breakpoint chained together. The watchpoint address points to a known memory location containing the current process ID. The watchpoint data points to the required process ID. The ENABLE bit is cleared.
+
+The address comparator output of the watchpoint is used to drive the write enable for the CHAINOUT latch. The input to the latch is the output of the data comparator from the same watchpoint. The output of the latch drives the CHAIN input of the breakpoint comparator. The address YYY is stored in the breakpoint register and when the CHAIN input is asserted, the breakpoint address matches and the breakpoint triggers correctly.
+
+
+After experimentation, it looks like the CHAINOUT signal of WP1 does not give the desired signal to WP0. I'm stumped as to why this is not working. Any suggestions?
+
+Comments on OpenOCD: A nice advanced feature would be to set complex watchpoints, i.e. specify WP0 and WP1 and which flags, e.g. (CHAIN, nOPC, ENABLE) should be set. At the moment one can not specify which watchpoint should be set, as this &quot;complexity&quot; is abstracted from the user with a linked list.
+
+Best regards,
+Pieter Conradie
+
+________________________________
+From: Pieter Conradie
+Sent: 27 May 2008 04:06 PM
+To: '<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>'
+Subject: [Openocd-development] Chaining watchpoints? Tried by hacking OpenOCD, but it does not work
+
+Hi List,
+
+I am unable to chain watchpoints, i.e. halt the CPU when a value A is written to address B and then if value C is written to address D.
+
+Side Note: this is usually used to halt the CPU when a specific task is executing a piece of code in a multi-tasking kernel. It is accomplished by configuring Watchpoint 1 with the address in memory of the Process ID and the value of the Process we wish to halt. Watchpoint 0 is then configured with the address of the code that we wish to break on and chained to WP1.
+
+In arm7_9_common.c, arm7_9_set_watchpoint(), I hacked the function to set  Watchpoint 0 with:
+
+Line 362 : embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_MASK], 0xff &amp; ~EICE_W_CTRL_CHAIN &amp; ~EICE_W_CTRL_nOPC &amp; ~rw_mask);
+Line 363 : embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_VALUE], EICE_W_CTRL_ENABLE | EICE_W_CTRL_CHAIN | EICE_W_CTRL_nOPC | (watchpoint-&gt;rw &amp; 1));
+
+Watchpoint 1 is set with:
+
+Line 376 : embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W1_CONTROL_MASK], 0xff &amp; ~EICE_W_CTRL_nOPC &amp; ~rw_mask);
+Line 377 : embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W1_CONTROL_VALUE], EICE_W_CTRL_nOPC | (watchpoint-&gt;rw &amp; 1));
+
+Note that the CHAIN bit is set for WP0 and that the ENABLE bit is not set for WP1. The breakpoint is supposed to trigger for WP0 when the CHAIN bit is set by WP1. WP1 should not trigger a breakpoint.
+
+This does not work, because a breakpoint is never triggered when the target is resumed. Has anyone tried chaining watchpoints? Any hints/help?
+
+Thanks in advance,
+
+Pieter Conradie
+
+Notice
+This email is intended for the addressee only and may contain legally privileged and/or confidential information. If you have received this email in error and are not the intended recipient, you are hereby informed that you are not entitled to read, broadcast, distribute or in any manner whatsoever use the contents of this email or any attachments thereto. You are requested to please notify Psitek that you have received the email and then delete it. Unless clearly stated otherwise, the content and sentiments expressed in this email or any attachments thereto are those of the sender and not of Psitek (Proprietary) Limited. Psitek does not accept liability for any damages, loss or expense of any nature whatsoever arising (a) out of or in connection with the email or any attachments thereto and/or (b) from any act or omission by the recipient relying upon the content of the email or attachments. Psitek further disclaims liability for any damages caused by computer and/or software viruses. Should this email contain the terms of a contract, no binding agreement will result until such time as a written (hardcopy) document is signed on behalf of Psitek.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080528/c5a4920b/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080528/c5a4920b/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002183.html">[Openocd-development] Chaining watchpoints? Tried by hacking	OpenOCD, but it does not work
+</A></li>
+	<LI>Next message: <A HREF="002184.html">[Openocd-development] jlink scan patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2193">[ date ]</a>
+              <a href="thread.html#2193">[ thread ]</a>
+              <a href="subject.html#2193">[ subject ]</a>
+              <a href="author.html#2193">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

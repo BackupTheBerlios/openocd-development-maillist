@@ -1,0 +1,348 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 3/3] ARM DPM: share debug reason logic
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/3%5D%20ARM%20DPM%3A%20share%20debug%20reason%20logic&In-Reply-To=%3C200912031455.28327.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013298.html">
+   <LINK REL="Next"  HREF="013301.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 3/3] ARM DPM: share debug reason logic</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/3%5D%20ARM%20DPM%3A%20share%20debug%20reason%20logic&In-Reply-To=%3C200912031455.28327.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 3/3] ARM DPM: share debug reason logic">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Dec  3 23:55:28 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013298.html">[Openocd-development] [patch 2/3] ARM11: use shared DSCR bit names
+</A></li>
+        <LI>Next message: <A HREF="013301.html">[Openocd-development] everything must be &quot;used before init&quot; ??
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13300">[ date ]</a>
+              <a href="thread.html#13300">[ thread ]</a>
+              <a href="subject.html#13300">[ subject ]</a>
+              <a href="author.html#13300">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>No point in both ARM11 and Cortex-A8 having private copies
+of the logic sorting out e.g. DBG_REASON_WATCHPOINT.
+
+Add and use a shared routine for this ... there's actually
+a bunch more debug entry logic that could be shared, this
+is just a start on that.  Note that this routine fixes a
+bug observed in the ARM11 code, where some abort mode quirks
+were displayed as being an unknown debug reason; and also
+silences needless ARM11 chatter.
+
+Likewise with private copies of DSCR ... add one to the DPM
+struct.  Save it as part of setting DBG_REASON_* so later
+patches can switch over to using that copy.
+---
+ src/target/arm11.c        |   24 +++++++-----------------
+ src/target/arm11.h        |   12 ------------
+ src/target/arm11_dbgtap.c |   44 --------------------------------------------
+ src/target/arm11_dbgtap.h |    2 --
+ src/target/arm_dpm.c      |   36 ++++++++++++++++++++++++++++++++++++
+ src/target/arm_dpm.h      |    5 +++++
+ src/target/cortex_a8.c    |   35 +++++++++++------------------------
+ 7 files changed, 59 insertions(+), 99 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -83,8 +83,7 @@ static int arm11_check_init(struct arm11
+ 			  */
+ 
+ 			arm11-&gt;arm.target-&gt;state = TARGET_HALTED;
+-			arm11-&gt;arm.target-&gt;debug_reason =
+-					arm11_get_DSCR_debug_reason(arm11-&gt;dscr);
++			arm_dpm_report_dscr(arm11-&gt;arm.dpm, arm11-&gt;dscr);
+ 		}
+ 		else
+ 		{
+@@ -108,8 +107,7 @@ static int arm11_debug_entry(struct arm1
+ 	int retval;
+ 
+ 	arm11-&gt;arm.target-&gt;state = TARGET_HALTED;
+-	arm11-&gt;arm.target-&gt;debug_reason =
+-			arm11_get_DSCR_debug_reason(arm11-&gt;dscr);
++	arm_dpm_report_dscr(arm11-&gt;arm.dpm, arm11-&gt;dscr);
+ 
+ 	/* REVISIT entire cache should already be invalid !!! */
+ 	register_cache_invalidate(arm11-&gt;arm.core_cache);
+@@ -551,20 +549,12 @@ static int arm11_resume(struct target *t
+ 		i++;
+ 	}
+ 
++	target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+ 	if (!debug_execution)
+-	{
+-		target-&gt;state			= TARGET_RUNNING;
+-		target-&gt;debug_reason	= DBG_REASON_NOTHALTED;
+-
+-		CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_RESUMED));
+-	}
++		target-&gt;state = TARGET_RUNNING;
+ 	else
+-	{
+-		target-&gt;state			= TARGET_DEBUG_RUNNING;
+-		target-&gt;debug_reason	= DBG_REASON_NOTHALTED;
+-
+-		CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_RESUMED));
+-	}
++		target-&gt;state = TARGET_DEBUG_RUNNING;
++	CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_RESUMED));
+ 
+ 	return ERROR_OK;
+ }
+@@ -728,7 +718,7 @@ static int arm11_step(struct target *tar
+ 
+ 	}
+ 
+-	target-&gt;debug_reason	= DBG_REASON_SINGLESTEP;
++	target-&gt;debug_reason = DBG_REASON_SINGLESTEP;
+ 
+ 	CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_HALTED));
+ 
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -94,18 +94,6 @@ enum arm11_instructions
+ 	ARM11_BYPASS    = 0x1F,
+ };
+ 
+-enum arm11_dscr
+-{
+-
+-	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_MASK					= 0x0F &lt;&lt; 2,
+-	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_HALT					= 0x00 &lt;&lt; 2,
+-	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_BREAKPOINT				= 0x01 &lt;&lt; 2,
+-	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_WATCHPOINT				= 0x02 &lt;&lt; 2,
+-	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_BKPT_INSTRUCTION		= 0x03 &lt;&lt; 2,
+-	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_EDBGRQ					= 0x04 &lt;&lt; 2,
+-	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_VECTOR_CATCH			= 0x05 &lt;&lt; 2,
+-};
+-
+ enum arm11_sc7
+ {
+ 	ARM11_SC7_NULL				= 0,
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -288,50 +288,6 @@ int arm11_write_DSCR(struct arm11_common
+ 	return ERROR_OK;
+ }
+ 
+-
+-
+-/** Get the debug reason from Debug Status and Control Register (DSCR)
+- *
+- * \param dscr		DSCR value to analyze
+- * \return			Debug reason
+- *
+- */
+-enum target_debug_reason arm11_get_DSCR_debug_reason(uint32_t dscr)
+-{
+-	switch (dscr &amp; ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_MASK)
+-	{
+-	case ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_HALT:
+-		LOG_INFO(&quot;Debug entry: JTAG HALT&quot;);
+-		return DBG_REASON_DBGRQ;
+-
+-	case ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_BREAKPOINT:
+-		LOG_INFO(&quot;Debug entry: breakpoint&quot;);
+-		return DBG_REASON_BREAKPOINT;
+-
+-	case ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_WATCHPOINT:
+-		LOG_INFO(&quot;Debug entry: watchpoint&quot;);
+-		return DBG_REASON_WATCHPOINT;
+-
+-	case ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_BKPT_INSTRUCTION:
+-		LOG_INFO(&quot;Debug entry: BKPT instruction&quot;);
+-		return DBG_REASON_BREAKPOINT;
+-
+-	case ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_EDBGRQ:
+-		LOG_INFO(&quot;Debug entry: EDBGRQ signal&quot;);
+-		return DBG_REASON_DBGRQ;
+-
+-	case ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_VECTOR_CATCH:
+-		LOG_INFO(&quot;Debug entry: VCR vector catch&quot;);
+-		return DBG_REASON_BREAKPOINT;
+-
+-	default:
+-		LOG_INFO(&quot;Debug entry: unknown&quot;);
+-		return DBG_REASON_DBGRQ;
+-	}
+-};
+-
+-
+-
+ /** Prepare the stage for ITR/DTR operations
+  * from the arm11_run_instr... group of functions.
+  *
+--- a/src/target/arm11_dbgtap.h
++++ b/src/target/arm11_dbgtap.h
+@@ -14,8 +14,6 @@ int arm11_add_debug_SCAN_N(struct arm11_
+ int arm11_read_DSCR(struct arm11_common *arm11);
+ int arm11_write_DSCR(struct arm11_common *arm11, uint32_t dscr);
+ 
+-enum target_debug_reason arm11_get_DSCR_debug_reason(uint32_t dscr);
+-
+ int arm11_run_instr_data_prepare(struct arm11_common *arm11);
+ int arm11_run_instr_data_finish(struct arm11_common *arm11);
+ int arm11_run_instr_no_data1(struct arm11_common *arm11, uint32_t opcode);
+--- a/src/target/arm_dpm.c
++++ b/src/target/arm_dpm.c
+@@ -756,6 +756,42 @@ void arm_dpm_report_wfar(struct arm_dpm 
+ /*----------------------------------------------------------------------*/
+ 
+ /*
++ * Other debug and support utilities
++ */
++
++void arm_dpm_report_dscr(struct arm_dpm *dpm, uint32_t dscr)
++{
++	struct target *target = dpm-&gt;arm-&gt;target;
++
++	dpm-&gt;dscr = dscr;
++
++	/* Examine debug reason */
++	switch (DSCR_ENTRY(dscr)) {
++	case 6:		/* Data abort (v6 only) */
++	case 7:		/* Prefetch abort (v6 only) */
++		/* FALL THROUGH -- assume a v6 core in abort mode */
++	case 0:		/* HALT request from debugger */
++	case 4:		/* EDBGRQ */
++		target-&gt;debug_reason = DBG_REASON_DBGRQ;
++		break;
++	case 1:		/* HW breakpoint */
++	case 3:		/* SW BKPT */
++	case 5:		/* vector catch */
++		target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
++		break;
++	case 2:		/* asynch watchpoint */
++	case 10:	/* precise watchpoint */
++		target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
++		break;
++	default:
++		target-&gt;debug_reason = DBG_REASON_UNDEFINED;
++		break;
++	}
++}
++
++/*----------------------------------------------------------------------*/
++
++/*
+  * Setup and management support.
+  */
+ 
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -125,6 +125,9 @@ struct arm_dpm {
+ 	/** Address of the instruction which triggered a watchpoint. */
+ 	uint32_t wp_pc;
+ 
++	/** Recent value of DSCR. */
++	uint32_t dscr;
++
+ 	// FIXME -- read/write DCSR methods and symbols
+ };
+ 
+@@ -151,4 +154,6 @@ void arm_dpm_report_wfar(struct arm_dpm 
+ 
+ #define DSCR_ENTRY(dscr) (((dscr) &gt;&gt; 2) &amp; 0xf)
+ 
++void arm_dpm_report_dscr(struct arm_dpm *dpm, uint32_t dcsr);
++
+ #endif /* __ARM_DPM_H */
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -782,7 +782,7 @@ static int cortex_a8_resume(struct targe
+ static int cortex_a8_debug_entry(struct target *target)
+ {
+ 	int i;
+-	uint32_t regfile[16], wfar, cpsr, dscr;
++	uint32_t regfile[16], cpsr, dscr;
+ 	int retval = ERROR_OK;
+ 	struct working_area *regfile_working_area = NULL;
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+@@ -793,6 +793,7 @@ static int cortex_a8_debug_entry(struct 
+ 
+ 	LOG_DEBUG(&quot;dscr = 0x%08&quot; PRIx32, cortex_a8-&gt;cpudbg_dscr);
+ 
++	/* REVISIT surely we should not re-read DSCR !! */
+ 	mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+ 
+@@ -807,30 +808,16 @@ static int cortex_a8_debug_entry(struct 
+ 			armv7a-&gt;debug_base + CPUDBG_DSCR, dscr);
+ 
+ 	/* Examine debug reason */
+-	switch (DSCR_ENTRY(cortex_a8-&gt;cpudbg_dscr))
+-	{
+-		case 0:		/* DRCR[0] write */
+-		case 4:		/* EDBGRQ */
+-			target-&gt;debug_reason = DBG_REASON_DBGRQ;
+-			break;
+-		case 1:		/* HW breakpoint */
+-		case 3:		/* SW BKPT */
+-		case 5:		/* vector catch */
+-			target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
+-			break;
+-		case 2:		/* asynch watchpoint */
+-		case 10:	/* precise watchpoint */
+-			target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
++	arm_dpm_report_dscr(&amp;armv7a-&gt;dpm, cortex_a8-&gt;cpudbg_dscr);
+ 
+-			/* save address of faulting instruction */
+-			retval = mem_ap_read_atomic_u32(swjdp,
+-					armv7a-&gt;debug_base + CPUDBG_WFAR,
+-					&amp;wfar);
+-			arm_dpm_report_wfar(&amp;armv7a-&gt;dpm, wfar);
+-			break;
+-		default:
+-			target-&gt;debug_reason = DBG_REASON_UNDEFINED;
+-			break;
++	/* save address of instruction that triggered the watchpoint? */
++	if (target-&gt;debug_reason == DBG_REASON_WATCHPOINT) {
++		uint32_t wfar;
++
++		retval = mem_ap_read_atomic_u32(swjdp,
++				armv7a-&gt;debug_base + CPUDBG_WFAR,
++				&amp;wfar);
++		arm_dpm_report_wfar(&amp;armv7a-&gt;dpm, wfar);
+ 	}
+ 
+ 	/* REVISIT fast_reg_read is never set ... */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013298.html">[Openocd-development] [patch 2/3] ARM11: use shared DSCR bit names
+</A></li>
+	<LI>Next message: <A HREF="013301.html">[Openocd-development] everything must be &quot;used before init&quot; ??
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13300">[ date ]</a>
+              <a href="thread.html#13300">[ thread ]</a>
+              <a href="subject.html#13300">[ subject ]</a>
+              <a href="author.html#13300">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

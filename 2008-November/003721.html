@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] JTAG emulator with openocd for beagleboard
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20emulator%20with%20openocd%20for%20beagleboard&In-Reply-To=%3C4928432B.6030807%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003708.html">
+   <LINK REL="Next"  HREF="003722.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] JTAG emulator with openocd for beagleboard</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20emulator%20with%20openocd%20for%20beagleboard&In-Reply-To=%3C4928432B.6030807%40duaneellis.com%3E"
+       TITLE="[Openocd-development] JTAG emulator with openocd for beagleboard">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Nov 22 18:36:43 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003708.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+        <LI>Next message: <A HREF="003722.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3721">[ date ]</a>
+              <a href="thread.html#3721">[ thread ]</a>
+              <a href="subject.html#3721">[ subject ]</a>
+              <a href="author.html#3721">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>All -
+
+I'm doing some work that with a new &quot;jtag&quot; tcl command to help support 
+beagle board.
+
+I need to deal a little bit with how taps are ordered. This also effects 
+the target command stuff some what.
+
+I have a general idea sort of worked out - and need some input/feed back 
+if the scheme described below is usable or not.
+
+-Duane.
+
+=======================
+
+Side Issue:
+   Today (sadly) several scripts use the hard coded name &quot;target0&quot; - 
+this is in effect the first debug target.
+
+The idea thus far is this:
+
+    jtag newtap NAME  [ various configuration options ]
+
+This creates a new command called NAME, that directly refers to that 
+specific tap.
+
+=======================
+
+The question is, how does, or should one specify the tap order? Today:  
+it is an integer - across 2 different commands.
+
+1) Today: &quot;jtag_device&quot; creates a new tap - of a certain size .
+
+2) Today: &quot;taps&quot; are in the (number) order they are created.
+
+3) And thus have an inherent &quot;birth index&quot;.
+
+4) The &quot;target&quot; command uses the &quot;-chain-position&quot; to specify the tap 
+position.
+
+=======================
+
+ISSUE #1.
+
+Going forward: The &quot;-chain-position&quot; should accept either (A) a number 
+[for legacy reasons] or (B) a NAME for future reasons.
+
+ISSUE #2 - has 3 parts - all related :-(
+
+(A) Many chips have a single jtag tap - others - have many taps.
+(B) Often - boards have chained parts... which effectively look just 
+like a chip with many taps.
+(C) No chip is consistent, and no board is consistent.
+
+=======================
+
+Examples:
+    imx27, has 2 taps,  Tap N+0 is the ETM, Tap N+1 is the arm926
+    imx31 has 4 taps, the arm11 is tap N+1
+    Insilica has 3 taps? Not sure which tap is the arm966 (I believe tap 
+N+0)
+    omap5912 has 3 taps, (I think the IR len =38 for tap N+0 is wacky) 
+the arm926 is tap N+1
+    samsung smdk6410 has 2 taps, and the arm926 appears to be N+0
+    stm32 has 2 taps, cortexm3 is N+0
+    stm32stick has 3 taps, cortex @ N+0
+    str910-eval has 3 taps...
+
+Above: N=0, for single chip chains, In multi-chip chains: 
+N=taps-before-this-chip
+
+=======================
+
+The problem I am trying to address:
+
+   There is no distinct way to refer to tap order in some relative or 
+*NAMED* way
+
+To explain my thinking - I have an contrived partial configuration file 
+example.
+
+I'd like some input if the commands and syntax are reasonable
+
+=======================
+
+TO BE CLEAR - this is the IDEA of what I think the syntax would be for a 
+fairly complex board.
+
+The idea is a board with 3 chips - in the jtag chain.
+
+    a stm32, a xilinx, and a omap3530.
+
+QUESTION: Does the following [partial and incomplete] openocd cfg file 
+make sense?
+
+=======================
+
+#-----------
+
+# OLD:  jtag_device  IRLEN  IRC IRCM IDCODE
+# NEW:  jtag newtap  TAPNAME  [options]
+# Where: &quot;[options]&quot; configure the tap.
+
+#-----------
+
+# Example: Declare a chip, for example some Xilinx FPGA
+jtag newtap xilinx   -chip xilinx  -ir-length  6 -ir-capture ???? 
+-ir-mask ????
+
+#-----------
+
+# Example: Declare a chip, example an stm32.
+jtag newtap  stm32_cortexm3 -chip stm32  -ir-length 4 -ir-capture 0xf 
+-ir-mask 0xe -after START
+jtag newtap  stm32_flash        -chip stm32  -ir-length 4 -ir-capture 
+0xf -ir-mask 0xe  -after stm32_cortexm3
+
+#NOTE:  in the above,
+#     -after START' means the cortex_m3 is tap N+0 in the chip
+#   and -after stm32_cortexm3 means the &quot;flash&quot; tap is 2nd in the chip.
+
+#-----------
+
+# And a more complex chip - the omap3530 (beagle board)
+# (I don't know details of omap3530 - this is a contrived example)
+jtag newtap   omap3530_icepick    -chip omap3530 -ir-length ? 
+-ir-capture ? -ir-mask ?  -after START
+jtag newtap   omap3530_foo          -chip omap3530 -ir-length ? 
+-ir-capture ? -ir-mask ?  -after omap3530_icepick
+jtag newtap   omap3530_cortexA8 -chip omap3530 -ir-length ? -ir-capture 
+? -ir-mask ?  -after omap3530_foo
+jtag newtap   omap3530_dsp          -chip omap3530 -ir-length ? 
+-ir-capture ? -ir mask -? -after omap 3530_cortexA8
+
+# The OMAP starts off with everything disabled but the icepick.
+omap3530_icepick enable
+omap3530_foo       disable
+omap3530_cortexA8 disable
+omap3530_dsp disable
+
+#-----------
+
+# NOW - specify the order the chips are wired in.
+# First is the stm32, then the xilinx, then the omap3530
+
+jtag chiporder stm32  xilinx  omap3530
+
+#-----------
+
+# Now declare the 2 GDB debug targets
+target create tgt_stm32           cortex_m3 -chain-position stm32_cortexm3
+target create tgt_omap3530    cortex_a8  -chain-position omap3530_cortexA8
+
+#-----------
+
+# This proc(command) reconfigures the ice-pick
+proc omap3530_enable_cortex_A8 { } {
+
+    FIXME: insert commands  here to enable the cortexA8
+
+    # Update the 'tap enable/disable list.
+    omap3530_icepick enable
+    omap3530_foo       disable
+    omap3530_cortexA8 enable
+    omap3530_dsp disable
+}
+
+#-----------
+
+# This proc(command) reconfigures the ice-pick
+proc omap3530_enable_dsp { } {
+
+    FIXME: insert commands  here to enable the DSP
+
+    # Update the 'tap enable/disable list.
+    omap3530_icepick enable
+    omap3530_foo       disable
+    omap3530_cortexA8 disable
+    omap3530_dsp disable
+}
+
+
+#-----------
+# My assumption is - on hard reset, OMAP3530 ice-pick
+# disables everything and the cortexA8 must be re-enabled.
+# So - we define an &quot;reset-event&quot; procedure for the omap.
+
+omap3530_cortexA8 configure -event reset-assert-post  
+omap3530_enable_cortex_A8
+
+#================
+# END
+#================
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081122/d6584dd9/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20081122/d6584dd9/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003708.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+	<LI>Next message: <A HREF="003722.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3721">[ date ]</a>
+              <a href="thread.html#3721">[ thread ]</a>
+              <a href="subject.html#3721">[ subject ]</a>
+              <a href="author.html#3721">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

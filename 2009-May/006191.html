@@ -1,0 +1,286 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Remove in_handler usage in arm_adi_v5.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Remove%20in_handler%20usage%20in%20arm_adi_v5.c&In-Reply-To=%3C4A035FC8.4000807%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006188.html">
+   <LINK REL="Next"  HREF="006194.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Remove in_handler usage in arm_adi_v5.c</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Remove%20in_handler%20usage%20in%20arm_adi_v5.c&In-Reply-To=%3C4A035FC8.4000807%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] Remove in_handler usage in arm_adi_v5.c">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Fri May  8 00:25:12 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006188.html">[Openocd-development] Remove in_handler usage in arm_adi_v5.c
+</A></li>
+        <LI>Next message: <A HREF="006194.html">[Openocd-development] Remove in_handler usage in arm_adi_v5.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6191">[ date ]</a>
+              <a href="thread.html#6191">[ thread ]</a>
+              <a href="subject.html#6191">[ subject ]</a>
+              <a href="author.html#6191">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The problem is that the inhandler is called asynchronosly from the jtag 
+layer when the indata has been received.
+When  jtag_add_dr_scan_now(2, fields, TAP_INVALID) is sent then we have 
+not even sent the jtag data to the target son the in value is not 
+available untail after the next jtag_execute_queue(), so this chande 
+rally changes how we handle large reads and writes where reformatting of 
+received values to corect byte order etc is handled by the jtag layer.
+
+This functionality should be kept !!!!! Revert PLEASE.
+
+Regards
+Magnus
+
+ 
+
+Magnus Lundin wrote:
+&gt;<i> This patch, from 1636 to 1637 breaks the cortx targets.
+</I>&gt;<i>
+</I>&gt;<i> I am not sure why but I really think removing the inhandler 
+</I>&gt;<i> functionallity is NOT ready for production use yet. Better testining is 
+</I>&gt;<i> needed before changes like this.
+</I>&gt;<i>
+</I>&gt;<i> Regards
+</I>&gt;<i> Magnus
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> &#216;yvind Harboe wrote:
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Committed.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> ### Eclipse Workspace Patch 1.0
+</I>&gt;&gt;<i> #P openocd
+</I>&gt;&gt;<i> Index: src/target/arm_adi_v5.c
+</I>&gt;&gt;<i> ===================================================================
+</I>&gt;&gt;<i> --- src/target/arm_adi_v5.c	(revision 1628)
+</I>&gt;&gt;<i> +++ src/target/arm_adi_v5.c	(working copy)
+</I>&gt;&gt;<i> @@ -77,22 +77,22 @@
+</I>&gt;&gt;<i>  	fields[0].num_bits = 3;
+</I>&gt;&gt;<i>  	buf_set_u32(&amp;out_addr_buf, 0, 3, ((reg_addr &gt;&gt; 1) &amp; 0x6) | (RnW &amp; 0x1));
+</I>&gt;&gt;<i>  	fields[0].out_value = &amp;out_addr_buf;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>  	fields[0].in_value = ack;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>  	fields[0].in_handler = NULL;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  	fields[1].tap = jtag_info-&gt;tap;
+</I>&gt;&gt;<i>  	fields[1].num_bits = 32;
+</I>&gt;&gt;<i>  	fields[1].out_value = outvalue;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>  	fields[1].in_value = invalue;
+</I>&gt;&gt;<i>  	fields[1].in_handler = NULL;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  	jtag_add_dr_scan(2, fields, TAP_INVALID);
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> @@ -113,33 +113,29 @@
+</I>&gt;&gt;<i>  	fields[0].num_bits = 3;
+</I>&gt;&gt;<i>  	buf_set_u32(&amp;out_addr_buf, 0, 3, ((reg_addr &gt;&gt; 1) &amp; 0x6) | (RnW &amp; 0x1));
+</I>&gt;&gt;<i>  	fields[0].out_value = &amp;out_addr_buf;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i>  	fields[0].in_value = ack;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i>  	fields[0].in_handler = NULL;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  	fields[1].tap = jtag_info-&gt;tap;
+</I>&gt;&gt;<i>  	fields[1].num_bits = 32;
+</I>&gt;&gt;<i>  	buf_set_u32(out_value_buf, 0, 32, outvalue);
+</I>&gt;&gt;<i>  	fields[1].out_value = out_value_buf;
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i>  	fields[1].in_value = NULL;
+</I>&gt;&gt;<i> +	fields[1].in_handler = NULL;
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>  	if (invalue)
+</I>&gt;&gt;<i>  	{
+</I>&gt;&gt;<i> -		fields[1].in_handler = arm_jtag_buf_to_u32; /* deprecated! invoke
+</I>&gt;&gt;<i> this from user code! */
+</I>&gt;&gt;<i> -		fields[1].in_handler_priv = invalue;
+</I>&gt;&gt;<i> -	}
+</I>&gt;&gt;<i> -	else
+</I>&gt;&gt;<i> +		u8 tmp[4];
+</I>&gt;&gt;<i> +		fields[1].in_value = tmp;
+</I>&gt;&gt;<i> +		jtag_add_dr_scan_now(2, fields, TAP_INVALID);
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> +		*invalue=flip_u32(le_to_h_u32(tmp), 32);
+</I>&gt;&gt;<i> +	} else
+</I>&gt;&gt;<i>  	{
+</I>&gt;&gt;<i> -		fields[1].in_handler = NULL;
+</I>&gt;&gt;<i> -		
+</I>&gt;&gt;<i> -	}
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i> -	
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> -	jtag_add_dr_scan(2, fields, TAP_INVALID);
+</I>&gt;&gt;<i> +		jtag_add_dr_scan(2, fields, TAP_INVALID);
+</I>&gt;&gt;<i> +	}
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  	return ERROR_OK;
+</I>&gt;&gt;<i>  }
+</I>&gt;&gt;<i> @@ -296,7 +292,7 @@
+</I>&gt;&gt;<i>  {
+</I>&gt;&gt;<i>  	return scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, reg_addr,
+</I>&gt;&gt;<i> DPAP_READ, 0, value);
+</I>&gt;&gt;<i>  }
+</I>&gt;&gt;<i> -
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>  int dap_ap_select(swjdp_common_t *swjdp,u8 apsel)
+</I>&gt;&gt;<i>  {
+</I>&gt;&gt;<i>  	u32 select;
+</I>&gt;&gt;<i> @@ -1012,7 +1008,7 @@
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  	u32 dbgbase,apid;
+</I>&gt;&gt;<i>  	int romtable_present = 0;
+</I>&gt;&gt;<i> -	u8 mem_ap;
+</I>&gt;&gt;<i> +	u8 mem_ap;
+</I>&gt;&gt;<i>  	u32 apselold;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  	apselold = swjdp-&gt;apsel;
+</I>&gt;&gt;<i> @@ -1028,23 +1024,23 @@
+</I>&gt;&gt;<i>  		switch (apid&amp;0x0F)
+</I>&gt;&gt;<i>  		{
+</I>&gt;&gt;<i>  			case 0:
+</I>&gt;&gt;<i> -				command_print(cmd_ctx, &quot;\tType is jtag-ap&quot;);		
+</I>&gt;&gt;<i> +				command_print(cmd_ctx, &quot;\tType is jtag-ap&quot;);
+</I>&gt;&gt;<i>  				break;
+</I>&gt;&gt;<i>  			case 1:
+</I>&gt;&gt;<i> -				command_print(cmd_ctx, &quot;\tType is mem-ap AHB&quot;);		
+</I>&gt;&gt;<i> +				command_print(cmd_ctx, &quot;\tType is mem-ap AHB&quot;);
+</I>&gt;&gt;<i>  				break;
+</I>&gt;&gt;<i>  			case 2:
+</I>&gt;&gt;<i> -				command_print(cmd_ctx, &quot;\tType is mem-ap APB&quot;);				
+</I>&gt;&gt;<i> +				command_print(cmd_ctx, &quot;\tType is mem-ap APB&quot;);
+</I>&gt;&gt;<i>  				break;
+</I>&gt;&gt;<i>  			default:
+</I>&gt;&gt;<i> -				command_print(cmd_ctx, &quot;\tUnknown AP-type&quot;);	
+</I>&gt;&gt;<i> +				command_print(cmd_ctx, &quot;\tUnknown AP-type&quot;);
+</I>&gt;&gt;<i>  			break;
+</I>&gt;&gt;<i>  		}
+</I>&gt;&gt;<i>  		command_print(cmd_ctx, &quot;ap debugbase 0x%8.8x&quot;, dbgbase);
+</I>&gt;&gt;<i>  	}
+</I>&gt;&gt;<i>  	else
+</I>&gt;&gt;<i>  	{
+</I>&gt;&gt;<i> -		command_print(cmd_ctx, &quot;No AP found at this apsel 0x%x&quot;, apsel);	
+</I>&gt;&gt;<i> +		command_print(cmd_ctx, &quot;No AP found at this apsel 0x%x&quot;, apsel);
+</I>&gt;&gt;<i>  	}
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  	romtable_present = ((mem_ap)&amp;&amp;(dbgbase != 0xFFFFFFFF));
+</I>&gt;&gt;<i> @@ -1062,11 +1058,11 @@
+</I>&gt;&gt;<i>  			command_print(cmd_ctx, &quot;\tROM table in legacy format&quot; );
+</I>&gt;&gt;<i>  		}
+</I>&gt;&gt;<i>  		/* Now we read ROM table ID registers, ref. ARM IHI 0029B sec  */
+</I>&gt;&gt;<i> -		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFF0, &amp;cid0);		
+</I>&gt;&gt;<i> -		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFF4, &amp;cid1);		
+</I>&gt;&gt;<i> -		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFF8, &amp;cid2);		
+</I>&gt;&gt;<i> -		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFFC, &amp;cid3);		
+</I>&gt;&gt;<i> -		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFCC, &amp;memtype);		
+</I>&gt;&gt;<i> +		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFF0, &amp;cid0);
+</I>&gt;&gt;<i> +		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFF4, &amp;cid1);
+</I>&gt;&gt;<i> +		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFF8, &amp;cid2);
+</I>&gt;&gt;<i> +		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFFC, &amp;cid3);
+</I>&gt;&gt;<i> +		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000)|0xFCC, &amp;memtype);
+</I>&gt;&gt;<i>  		swjdp_transaction_endcheck(swjdp);
+</I>&gt;&gt;<i>  		command_print(cmd_ctx, &quot;\tCID3 0x%x, CID2 0x%x, CID1 0x%x, CID0,
+</I>&gt;&gt;<i> 0x%x&quot;,cid3,cid2,cid1,cid0);
+</I>&gt;&gt;<i>  		if (memtype&amp;0x01)
+</I>&gt;&gt;<i> @@ -1077,10 +1073,10 @@
+</I>&gt;&gt;<i>  		{
+</I>&gt;&gt;<i>  			command_print(cmd_ctx, &quot;\tMEMTYPE system memory not present.
+</I>&gt;&gt;<i> Dedicated debug bus&quot; );
+</I>&gt;&gt;<i>  		}
+</I>&gt;&gt;<i> -		
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i>  		/* Now we read ROM table entries from dbgbase&amp;0xFFFFF000)|0x000
+</I>&gt;&gt;<i> until we get 0x00000000 */
+</I>&gt;&gt;<i>  		entry_offset = 0;
+</I>&gt;&gt;<i> -		do
+</I>&gt;&gt;<i> +		do
+</I>&gt;&gt;<i>  		{
+</I>&gt;&gt;<i>  			mem_ap_read_atomic_u32(swjdp, (dbgbase&amp;0xFFFFF000)|entry_offset, &amp;romentry);
+</I>&gt;&gt;<i>  			command_print(cmd_ctx, &quot;\tROMTABLE[0x%x] = 0x%x&quot;,entry_offset,romentry);
+</I>&gt;&gt;<i> @@ -1107,16 +1103,16 @@
+</I>&gt;&gt;<i>  			else
+</I>&gt;&gt;<i>  			{
+</I>&gt;&gt;<i>  				if (romentry)
+</I>&gt;&gt;<i> -					command_print(cmd_ctx, &quot;\t\tComponent not present&quot;);		
+</I>&gt;&gt;<i> +					command_print(cmd_ctx, &quot;\t\tComponent not present&quot;);
+</I>&gt;&gt;<i>  				else
+</I>&gt;&gt;<i> -					command_print(cmd_ctx, &quot;\t\tEnd of ROM table&quot;);							
+</I>&gt;&gt;<i> +					command_print(cmd_ctx, &quot;\t\tEnd of ROM table&quot;);
+</I>&gt;&gt;<i>  			}
+</I>&gt;&gt;<i>  			entry_offset += 4;
+</I>&gt;&gt;<i>  		} while (romentry&gt;0);
+</I>&gt;&gt;<i>  	}
+</I>&gt;&gt;<i>  	else
+</I>&gt;&gt;<i>  	{
+</I>&gt;&gt;<i> -		command_print(cmd_ctx, &quot;\tNo ROM table present&quot;);		
+</I>&gt;&gt;<i> +		command_print(cmd_ctx, &quot;\tNo ROM table present&quot;);
+</I>&gt;&gt;<i>  	}
+</I>&gt;&gt;<i>  	dap_ap_select(swjdp, apselold);
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006188.html">[Openocd-development] Remove in_handler usage in arm_adi_v5.c
+</A></li>
+	<LI>Next message: <A HREF="006194.html">[Openocd-development] Remove in_handler usage in arm_adi_v5.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6191">[ date ]</a>
+              <a href="thread.html#6191">[ thread ]</a>
+              <a href="subject.html#6191">[ subject ]</a>
+              <a href="author.html#6191">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

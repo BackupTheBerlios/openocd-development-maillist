@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] cortex a8: add timeouts waiting for	restart, prepare and halt
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex%20a8%3A%20add%20timeouts%20waiting%20for%0A%09restart%2C%20prepare%20and%20halt&In-Reply-To=%3C1277122523-1659-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015926.html">
+   <LINK REL="Next"  HREF="015929.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] cortex a8: add timeouts waiting for	restart, prepare and halt</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex%20a8%3A%20add%20timeouts%20waiting%20for%0A%09restart%2C%20prepare%20and%20halt&In-Reply-To=%3C1277122523-1659-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] cortex a8: add timeouts waiting for	restart, prepare and halt">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jun 21 14:15:23 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015926.html">[Openocd-development] [PATCH] arm_adi_v5: error propagation fixes
+</A></li>
+        <LI>Next message: <A HREF="015929.html">[Openocd-development] [PATCH] cortex a8: print message that locking	debug access succeeded on second try
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15927">[ date ]</a>
+              <a href="thread.html#15927">[ thread ]</a>
+              <a href="subject.html#15927">[ subject ]</a>
+              <a href="author.html#15927">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>It would previously sit in an infinite loop rather
+than reporting an error.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/cortex_a8.c |   42 ++++++++++++++++++++++++++++++++++++------
+ 1 files changed, 36 insertions(+), 6 deletions(-)
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 1577c26..c39dba3 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -39,6 +39,7 @@
+ #include &quot;target_request.h&quot;
+ #include &quot;target_type.h&quot;
+ #include &quot;arm_opcodes.h&quot;
++#include &lt;helper/time_support.h&gt;
+ 
+ static int cortex_a8_poll(struct target *target);
+ static int cortex_a8_debug_entry(struct target *target);
+@@ -364,13 +365,22 @@ static int cortex_a8_dpm_prepare(struct arm_dpm *dpm)
+ 	int retval;
+ 
+ 	/* set up invariant:  INSTR_COMP is set after ever DPM operation */
+-	do {
++	long long then = timeval_ms();
++	for (;;)
++	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				a8-&gt;armv7a_common.debug_base + CPUDBG_DSCR,
+ 				&amp;dscr);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+-	} while ((dscr &amp; DSCR_INSTR_COMP) == 0);
++		if ((dscr &amp; DSCR_INSTR_COMP) != 0)
++			break;
++		if (timeval_ms() &gt; then + 1000)
++		{
++			LOG_ERROR(&quot;Timeout waiting for dpm prepare&quot;);
++			return ERROR_FAIL;
++		}
++	}
+ 
+ 	/* this &quot;should never happen&quot; ... */
+ 	if (dscr &amp; DSCR_DTR_RX_FULL) {
+@@ -668,12 +678,23 @@ static int cortex_a8_halt(struct target *target)
+ 	if (retval != ERROR_OK)
+ 		goto out;
+ 
+-	do {
++	long long then = timeval_ms();
++	for (;;)
++	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+ 		if (retval != ERROR_OK)
+ 			goto out;
+-	} while ((dscr &amp; DSCR_CORE_HALTED) == 0);
++		if ((dscr &amp; DSCR_CORE_HALTED) != 0)
++		{
++			break;
++		}
++		if (timeval_ms() &gt; then + 1000)
++		{
++			LOG_ERROR(&quot;Timeout waiting for halt&quot;);
++			return ERROR_FAIL;
++		}
++	}
+ 
+ 	target-&gt;debug_reason = DBG_REASON_DBGRQ;
+ 
+@@ -776,12 +797,21 @@ static int cortex_a8_resume(struct target *target, int current,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	do {
++	long long then = timeval_ms();
++	for (;;)
++	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+-	} while ((dscr &amp; DSCR_CORE_RESTARTED) == 0);
++		if ((dscr &amp; DSCR_CORE_RESTARTED) != 0)
++			break;
++		if (timeval_ms() &gt; then + 1000)
++		{
++			LOG_ERROR(&quot;Timeout waiting for resume&quot;);
++			return ERROR_FAIL;
++		}
++	}
+ 
+ 	target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+ 	target-&gt;state = TARGET_RUNNING;
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015926.html">[Openocd-development] [PATCH] arm_adi_v5: error propagation fixes
+</A></li>
+	<LI>Next message: <A HREF="015929.html">[Openocd-development] [PATCH] cortex a8: print message that locking	debug access succeeded on second try
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15927">[ date ]</a>
+              <a href="thread.html#15927">[ thread ]</a>
+              <a href="subject.html#15927">[ subject ]</a>
+              <a href="author.html#15927">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

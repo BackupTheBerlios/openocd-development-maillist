@@ -1,0 +1,247 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 11/20] nand: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2011/20%5D%20nand%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100314-14391-12-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012874.html">
+   <LINK REL="Next"  HREF="012869.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 11/20] nand: use register_commands()</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2011/20%5D%20nand%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100314-14391-12-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 11/20] nand: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:05 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012874.html">[Openocd-development] [PATCH 05/22] arm926ejs: use	register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012869.html">[Openocd-development] [PATCH 11/11] remove register_callbacks from	jtag interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12828">[ date ]</a>
+              <a href="thread.html#12828">[ thread ]</a>
+              <a href="subject.html#12828">[ subject ]</a>
+              <a href="author.html#12828">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Eliminates 'nand_cmd' global variable.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/nand.c |  145 ++++++++++++++++++++++++++++++++++++-----------------
+ 1 files changed, 98 insertions(+), 47 deletions(-)
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 2438ddd..bc0e350 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -63,7 +63,6 @@ static struct nand_flash_controller *nand_flash_controllers[] =
+ 
+ /* configured NAND devices and NAND Flash command handler */
+ static struct nand_device *nand_devices = NULL;
+-static struct command *nand_cmd;
+ 
+ /*	Chip ID list
+  *
+@@ -279,19 +278,34 @@ COMMAND_HANDLER(handle_nand_device_command)
+ 	return CALL_COMMAND_HANDLER(handle_nand_list_drivers);
+ }
+ 
++static const struct command_registration nand_config_command_handlers[] = {
++	{
++		.name = &quot;device&quot;,
++		.handler = &amp;handle_nand_device_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;defines a new NAND bank&quot;,
++	},
++	{
++		.name = &quot;drivers&quot;,
++		.handler = &amp;handle_nand_list_drivers,
++		.mode = COMMAND_ANY,
++		.help = &quot;lists available NAND drivers&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration nand_command_handlers[] = {
++	{
++		.name = &quot;nand&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;NAND flash command group&quot;,
++		.chain = nand_config_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ int nand_register_commands(struct command_context *cmd_ctx)
+ {
+-	nand_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;nand&quot;,
+-			NULL, COMMAND_ANY, &quot;NAND specific commands&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;device&quot;,
+-			&amp;handle_nand_device_command, COMMAND_CONFIG,
+-			&quot;defines a new NAND bank&quot;);
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;drivers&quot;,
+-			&amp;handle_nand_list_drivers, COMMAND_ANY,
+-			&quot;lists available NAND drivers&quot;);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, nand_command_handlers);
+ }
+ 
+ struct nand_device *get_nand_device_by_name(const char *name)
+@@ -1700,43 +1714,80 @@ COMMAND_HANDLER(handle_nand_raw_access_command)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration nand_exec_command_handlers[] = {
++	{
++		.name = &quot;list&quot;,
++		.handler = &amp;handle_nand_list_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;list configured NAND flash devices&quot;,
++	},
++	{
++		.name = &quot;info&quot;,
++		.handler = &amp;handle_nand_info_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt;&quot;,
++		.help = &quot;print info about a NAND flash device&quot;,
++	},
++	{
++		.name = &quot;probe&quot;,
++		.handler = &amp;handle_nand_probe_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt;&quot;,
++		.help = &quot;identify NAND flash device &lt;num&gt;&quot;,
++
++	},
++	{
++		.name = &quot;check_bad_blocks&quot;,
++		.handler = &amp;handle_nand_check_bad_blocks_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; [&lt;offset&gt; &lt;length&gt;]&quot;,
++		.help = &quot;check NAND flash device &lt;num&gt; for bad blocks&quot;,
++	},
++	{
++		.name = &quot;erase&quot;,
++		.handler = &amp;handle_nand_erase_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; [&lt;offset&gt; &lt;length&gt;]&quot;,
++		.help = &quot;erase blocks on NAND flash device&quot;,
++	},
++	{
++		.name = &quot;dump&quot;,
++		.handler = &amp;handle_nand_dump_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;filename&gt; &lt;offset&gt; &lt;length&gt; &quot;
++			&quot;[oob_raw | oob_only]&quot;,
++		.help = &quot;dump from NAND flash device&quot;,
++	},
++	{
++		.name = &quot;verify&quot;,
++		.handler = &amp;handle_nand_verify_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;filename&gt; &lt;offset&gt; &quot;
++			&quot;[oob_raw | oob_only | oob_softecc | oob_softecc_kw]&quot;,
++		.help = &quot;verify NAND flash device&quot;,
++	},
++	{
++		.name = &quot;write&quot;,
++		.handler = &amp;handle_nand_write_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;filename&gt; &lt;offset&gt; &quot;
++			&quot;[oob_raw | oob_only | oob_softecc | oob_softecc_kw]&quot;,
++		.help = &quot;write to NAND flash device&quot;,
++	},
++	{
++		.name = &quot;raw_access&quot;,
++		.handler = &amp;handle_nand_raw_access_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;num&gt; ['enable'|'disable']&quot;,
++		.help = &quot;raw access to NAND flash device&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ int nand_init(struct command_context *cmd_ctx)
+ {
+ 	if (!nand_devices)
+ 		return ERROR_OK;
+-
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;list&quot;,
+-			handle_nand_list_command, COMMAND_EXEC,
+-			&quot;list configured NAND flash devices&quot;);
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;info&quot;,
+-			handle_nand_info_command, COMMAND_EXEC,
+-			&quot;print info about NAND flash device &lt;num&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;probe&quot;,
+-			handle_nand_probe_command, COMMAND_EXEC,
+-			&quot;identify NAND flash device &lt;num&gt;&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;check_bad_blocks&quot;,
+-			handle_nand_check_bad_blocks_command, COMMAND_EXEC,
+-			&quot;check NAND flash device &lt;num&gt; for bad blocks [&lt;offset&gt; &lt;length&gt;]&quot;);
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;erase&quot;,
+-			handle_nand_erase_command, COMMAND_EXEC,
+-			&quot;erase blocks on NAND flash device &lt;num&gt; [&lt;offset&gt; &lt;length&gt;]&quot;);
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;dump&quot;,
+-			handle_nand_dump_command, COMMAND_EXEC,
+-			&quot;dump from NAND flash device &lt;num&gt; &lt;filename&gt; &quot;
+-			 &quot;&lt;offset&gt; &lt;length&gt; [oob_raw | oob_only]&quot;);
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;verify&quot;,
+-			&amp;handle_nand_verify_command, COMMAND_EXEC,
+-			&quot;verify NAND flash device &lt;num&gt; &lt;filename&gt; &lt;offset&gt; &quot;
+-			&quot;[oob_raw | oob_only | oob_softecc | oob_softecc_kw]&quot;);
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;write&quot;,
+-			handle_nand_write_command, COMMAND_EXEC,
+-			&quot;write to NAND flash device &lt;num&gt; &lt;filename&gt; &lt;offset&gt; &quot;
+-			&quot;[oob_raw | oob_only | oob_softecc | oob_softecc_kw]&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;raw_access&quot;,
+-			handle_nand_raw_access_command, COMMAND_EXEC,
+-			&quot;raw access to NAND flash device &lt;num&gt; ['enable'|'disable']&quot;);
+-
+-	return ERROR_OK;
++	struct command *parent = command_find_in_context(cmd_ctx, &quot;nand&quot;);
++	return register_commands(cmd_ctx, parent, nand_exec_command_handlers);
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012874.html">[Openocd-development] [PATCH 05/22] arm926ejs: use	register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012869.html">[Openocd-development] [PATCH 11/11] remove register_callbacks from	jtag interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12828">[ date ]</a>
+              <a href="thread.html#12828">[ thread ]</a>
+              <a href="subject.html#12828">[ subject ]</a>
+              <a href="author.html#12828">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

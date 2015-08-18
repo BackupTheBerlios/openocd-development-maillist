@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH 2/2] ARM semihosting: win32 and cygwin fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%202/2%5D%20ARM%20semihosting%3A%20win32%20and%20cygwin%20fixes&In-Reply-To=%3Cmailman.108.1331735954.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014430.html">
+   <LINK REL="Next"  HREF="014429.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH 2/2] ARM semihosting: win32 and cygwin fixes</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%202/2%5D%20ARM%20semihosting%3A%20win32%20and%20cygwin%20fixes&In-Reply-To=%3Cmailman.108.1331735954.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH 2/2] ARM semihosting: win32 and cygwin fixes">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 27 22:26:21 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014430.html">[PATCH 1/2] ARM semihosting: fix writing to stdout
+</A></li>
+        <LI>Next message: <A HREF="014429.html">[Openocd-development] [PATCH 1/2] ARM semihosting: fix writing to	stdout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14432">[ date ]</a>
+              <a href="thread.html#14432">[ thread ]</a>
+              <a href="subject.html#14432">[ subject ]</a>
+              <a href="author.html#14432">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Cygwin would fail to reopen a previously written file if the mode is
+not given.
+
+Simplified converting the open flags and made sure the win32 O_BINARY
+bit is set.
+
+Added define for systems that do not support O_BINARY.
+
+Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+ src/helper/replacements.h    |    6 ++++++
+ src/target/arm_semihosting.c |   36 +++++++++++++++++++++---------------
+ 2 files changed, 27 insertions(+), 15 deletions(-)
+
+diff --git a/src/helper/replacements.h b/src/helper/replacements.h
+index 2b3ea73..3598dd9 100644
+--- a/src/helper/replacements.h
++++ b/src/helper/replacements.h
+@@ -40,6 +40,12 @@
+ #define ENOTSUP 134		/* Not supported */
+ #endif
+ 
++/* for systems that do not support O_BINARY
++ * linux being one of them */
++#ifndef O_BINARY
++#define O_BINARY 0
++#endif
++
+ #ifndef HAVE_SYS_TIME_H
+ 
+ #ifndef _TIMEVAL_DEFINED
+diff --git a/src/target/arm_semihosting.c b/src/target/arm_semihosting.c
+index 1d0acd6..be90702 100644
+--- a/src/target/arm_semihosting.c
++++ b/src/target/arm_semihosting.c
+@@ -2,6 +2,9 @@
+  *   Copyright (C) 2009 by Marvell Technology Group Ltd.                   *
+  *   Written by Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">nico at marvell.com</A>&gt;                           *
+  *                                                                         *
++ *   Copyright (C) 2010 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -41,6 +44,20 @@
+ #include &lt;helper/binarybuffer.h&gt;
+ #include &lt;helper/log.h&gt;
+ 
++static int open_modeflags[12] = {
++	O_RDONLY,
++	O_RDONLY | O_BINARY,
++	O_RDWR,
++	O_RDWR | O_BINARY,
++	O_WRONLY | O_CREAT | O_TRUNC,
++	O_WRONLY | O_CREAT | O_TRUNC | O_BINARY,
++	O_RDWR | O_CREAT | O_TRUNC,
++	O_RDWR | O_CREAT | O_TRUNC | O_BINARY,
++	O_WRONLY | O_CREAT | O_APPEND,
++	O_WRONLY | O_CREAT | O_APPEND | O_BINARY,
++	O_RDWR | O_CREAT | O_APPEND,
++	O_RDWR | O_CREAT | O_APPEND | O_BINARY
++};
+ 
+ static int do_semihosting(struct target *target)
+ {
+@@ -72,28 +89,17 @@ static int do_semihosting(struct target *target)
+ 			uint32_t l = target_buffer_get_u32(target, params+8);
+ 			if (l &lt;= 255 &amp;&amp; m &lt;= 11) {
+ 				uint8_t fn[256];
+-				int mode;
+ 				retval = target_read_memory(target, a, 1, l, fn);
+ 				if (retval != ERROR_OK)
+ 					return retval;
+ 				fn[l] = 0;
+-				if (m &amp; 0x2)
+-					mode = O_RDWR;
+-				else if (m &amp; 0xc)
+-					mode = O_WRONLY;
+-				else
+-					mode = O_RDONLY;
+-				if (m &gt;= 8)
+-					mode |= O_CREAT|O_APPEND;
+-				else if (m &gt;= 4)
+-					mode |= O_CREAT|O_TRUNC;
+ 				if (strcmp((char *)fn, &quot;:tt&quot;) == 0) {
+-					if ((mode &amp; 3) == 0)
+-						result = dup(0);
++					if (m &lt; 4)
++						result = STDIN_FILENO;
+ 					else
+-						result = dup(1);
++						result = STDOUT_FILENO;
+ 				} else
+-					result = open((char *)fn, mode);
++					result = open((char *)fn, open_modeflags[m], 0644);
+ 				armv4_5-&gt;semihosting_errno =  errno;
+ 			} else {
+ 				result = -1;
+-- 
+1.6.5.1.1367.gcd48
+
+
+--------------070804070800010304070305--
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014430.html">[PATCH 1/2] ARM semihosting: fix writing to stdout
+</A></li>
+	<LI>Next message: <A HREF="014429.html">[Openocd-development] [PATCH 1/2] ARM semihosting: fix writing to	stdout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14432">[ date ]</a>
+              <a href="thread.html#14432">[ thread ]</a>
+              <a href="subject.html#14432">[ subject ]</a>
+              <a href="author.html#14432">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

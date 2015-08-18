@@ -1,0 +1,119 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3Cc09652430911201005q2412f18fx422bb27e60021576%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012603.html">
+   <LINK REL="Next"  HREF="012622.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3Cc09652430911201005q2412f18fx422bb27e60021576%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Nov 20 19:05:01 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012603.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+        <LI>Next message: <A HREF="012622.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12605">[ date ]</a>
+              <a href="thread.html#12605">[ thread ]</a>
+              <a href="subject.html#12605">[ subject ]</a>
+              <a href="author.html#12605">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> Just to clarify the whole issue once more, my proposal was actually
+</I>&gt;<i> three different things:
+</I>&gt;<i>
+</I>&gt;<i> 1. Making the use of scan_field safer by providing standard handlers
+</I>&gt;<i> for the most common cases.
+</I>&gt;<i>
+</I>&gt;<i> This not only helps with the readability and reduces trivial
+</I>&gt;<i> copy&amp;paste errors. It also makes it much simpler to rewire the
+</I>&gt;<i> underlying scan_field in a later step.
+</I>
+We can relatively easily do away with the scanfields entirely
+rather than putting lipstick on it... See the branch I was working on
+or jtag_add_dr_out() API for which I'm looking into adding a in_value
+as well as the existing &quot;out_value&quot; that it takes today.
+
+&gt;<i> 2. Eliminating the global variable jtag_command_queue.
+</I>&gt;<i>
+</I>&gt;<i> The existing jtag_add_... commands would remain similar but would
+</I>&gt;<i> operate on a local copy of the queue. jtag_execute_queue then receives
+</I>&gt;<i> the pointer to that local copy as parameter instead of using
+</I>&gt;<i> jtag_command_queue. The last user then disposes of the command queue.
+</I>
+This assumes that there is a queue at all. It should be up to the interface
+to implement a queue if that is what is needed.
+
+The current JTAG calls should be invoked on the interface rather
+than assuming a single global instance. This is covered by todo.txt
+section today as an architectural improvement.
+
+&gt;<i> 3. Break up jtag_add_dr_scan etc.
+</I>&gt;<i>
+</I>&gt;<i> This works best in tandem with (2). The general idea is not to pass
+</I>&gt;<i> one array of scan fields but to pass them in separate function calls
+</I>&gt;<i> (which would mimic, but replace the ones in (1)). To output a 7 bit
+</I>&gt;<i> field the caller just hands the value to the function and doesn't
+</I>&gt;<i> bother about allocating space. To turn jtag_add_?r_scan inside out
+</I>&gt;<i> like this requires its states to be kept somewhere so that
+</I>&gt;<i> plausibility checks and bypassing can be done. The local copy of the
+</I>&gt;<i> jtag_command_queue would be ideal for that (although it would also
+</I>&gt;<i> work by adding even more global variables). The caller then does
+</I>&gt;<i> something like this:
+</I>&gt;<i>
+</I>&gt;<i> jtag_queue_t * q = jq_alloc_queue();
+</I>
+I'm very much against *forcing* interfaces to implement a queue
+in memory. It should be possible to execute the commands
+synchronously. The existance of a queue would make the code
+*much* less efficient on embedded devices.
+
+
+Did you look at jtag_add_dr_out() which exists today?
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012603.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+	<LI>Next message: <A HREF="012622.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12605">[ date ]</a>
+              <a href="thread.html#12605">[ thread ]</a>
+              <a href="subject.html#12605">[ subject ]</a>
+              <a href="author.html#12605">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

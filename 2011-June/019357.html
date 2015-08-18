@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3C4DECC3B5.2030406%40amontec.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019386.html">
+   <LINK REL="Next"  HREF="019370.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred</H1>
+    <B>Laurent Gauch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3C4DECC3B5.2030406%40amontec.com%3E"
+       TITLE="[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred">laurent.gauch at amontec.com
+       </A><BR>
+    <I>Mon Jun  6 14:10:29 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019386.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+        <LI>Next message: <A HREF="019370.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19357">[ date ]</a>
+              <a href="thread.html#19357">[ thread ]</a>
+              <a href="subject.html#19357">[ subject ]</a>
+              <a href="author.html#19357">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>
+</I>&gt;<i> Hello again :-)
+</I>&gt;<i>
+</I>&gt;<i> I have reviewed the patch.
+</I>&gt;<i>
+</I>&gt;<i> The old source code had 3 functions ft2232_init() that can call
+</I>&gt;<i> ft2232_init_libftdi() or ft2232_init_ftd2xx() depending on a ft2232
+</I>&gt;<i> ftdi communication library available. This is pretty simple and
+</I>&gt;<i> coherent.
+</I>&gt;<i>   
+</I>Yes simple, but bugged !!!
+
+&gt;<i> The new source code (after patching)  have 6 functions doing almost
+</I>&gt;<i> the same: ft2232_init_ftd2xx(), ft2232_open_ftd2xx(),
+</I>&gt;<i> ft2232_init_libftdi(), ft2232_open_libftdi(),  ft2232_init_sub(void),
+</I>&gt;<i> ft2232_init() and the header update ;-)
+</I>&gt;<i>   
+</I>Yes, this is to decouple the open and init (open the handle, init the 
+associated specific layout).
+(more smaller function ... as good OO coding !)
+
+The ft2232_init_sub(void) and ft2232_init() could be merged again in a 
+ft2232_open if needed
+
+But yes, we have all different point of view regarding what is open what 
+is init ...
+
+The objective is to have something like :
+
+ open
+   init
+   deinit
+ close
+
+and not as the actual
+ init
+ quit
+
+
+&gt;<i> As I understand the problem is with the ft2232_buffer=malloc() within
+</I>&gt;<i> ft2232_init() that can fail after malloc causing function return
+</I>&gt;<i> without ft2232_buffer=free().
+</I>&gt;<i> The current behavior is as follows: Program returns error and finish
+</I>&gt;<i> execution because it cannot run without interface. Operating system
+</I>&gt;<i> makes memory page free on process termination.
+</I>&gt;<i> The proposed solution is to free() allocated memory before
+</I>&gt;<i> ft2232_init() returns.
+</I>&gt;<i>
+</I>&gt;<i> I can understand that leaving allocated memory is bad. However there
+</I>&gt;<i> is a simpler solution to the problem (patch attached) by only changing
+</I>&gt;<i> few lines of existing code and leaving driver infrastructure/layout
+</I>&gt;<i> common for all source code:
+</I>&gt;<i>
+</I>&gt;<i>      ft2232_buffer_size = 0;
+</I>&gt;<i>      ft2232_buffer = malloc(FT2232_BUFFER_SIZE); &lt;-- this is the bad malloc
+</I>&gt;<i>
+</I>&gt;<i> *     for (;;){
+</I>&gt;<i>
+</I>&gt;<i> *        if (layout-&gt;init() != ERROR_OK) break; &lt;-- we jump out on failure
+</I>&gt;<i>
+</I>&gt;<i>           if (ft2232_device_is_highspeed())
+</I>&gt;<i>           {
+</I>&gt;<i> #ifndef BUILD_FT2232_HIGHSPEED
+</I>&gt;<i>  #if BUILD_FT2232_FTD2XX == 1
+</I>&gt;<i>                LOG_WARNING(&quot;High Speed device found - You need a newer
+</I>&gt;<i> FTD2XX driver (version 2.04.16 or later)&quot;);
+</I>&gt;<i>  #elif BUILD_FT2232_LIBFTDI == 1
+</I>&gt;<i>                LOG_WARNING(&quot;High Speed device found - You need a newer
+</I>&gt;<i> libftdi version (0.16 or later)&quot;);
+</I>&gt;<i>  #endif
+</I>&gt;<i> #endif
+</I>&gt;<i>                /* make sure the legacy mode is disabled */
+</I>&gt;<i> *               if (ft2232h_ft4232h_clk_divide_by_5(false) !=
+</I>&gt;<i> ERROR_OK) break;
+</I>&gt;<i>           }
+</I>&gt;<i>
+</I>&gt;<i>           buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+</I>&gt;<i>           if ((retval = ft2232_write(buf, 1, &amp;bytes_written)) !=
+</I>&gt;<i> ERROR_OK)
+</I>&gt;<i>           {
+</I>&gt;<i>                LOG_ERROR(&quot;couldn't write to FT2232 to disable
+</I>&gt;<i> loopback&quot;);
+</I>&gt;<i> *               break;
+</I>&gt;<i>           }
+</I>&gt;<i>
+</I>&gt;<i> #if BUILD_FT2232_FTD2XX == 1
+</I>&gt;<i>           retval = ft2232_purge_ftd2xx();
+</I>&gt;<i> #elif BUILD_FT2232_LIBFTDI == 1
+</I>&gt;<i>           retval = ft2232_purge_libftdi();
+</I>&gt;<i> #endif
+</I>&gt;<i> *          if (retval != ERROR_OK) break;
+</I>&gt;<i>
+</I>&gt;<i> *          return ERROR_OK; &lt;-- do not run infinite loop, return ok if no error
+</I>&gt;<i>      }
+</I>&gt;<i>
+</I>&gt;<i>  *    free(ft2232_buffer); &lt;-- and land here with freeing bad memory
+</I>&gt;<i>  *    return ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i>
+</I>&gt;<i> In my opinion patch brings only unnecessary confusion and source code
+</I>&gt;<i> complication, sorry, there is simpler solution. This program does not
+</I>&gt;<i> need doubling function number and making code even more difficult to
+</I>&gt;<i> read and understand as it is already enough complicated. Using more
+</I>&gt;<i> function(void) and global structures only make things worst :-(
+</I>&gt;<i>
+</I>&gt;<i> %./openocd -f interface/kt-link.cfg -f board/stm3210b_eval.cfg
+</I>&gt;<i> Open On-Chip Debugger 0.5.0-dev-00895-g796086c-dirty (2011-06-01-20:16)
+</I>&gt;<i> Licensed under GNU GPL v2
+</I>&gt;<i> For bug reports, read
+</I>&gt;<i> 	<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+</I>&gt;<i> Info : only one transport option; autoselect 'jtag'
+</I>&gt;<i> 1000 kHz
+</I>&gt;<i> adapter_nsrst_delay: 100
+</I>&gt;<i> jtag_ntrst_delay: 100
+</I>&gt;<i> cortex_m3 reset_config sysresetreq
+</I>&gt;<i> Info : max TCK change to: 30000 kHz
+</I>&gt;<i> Info : clock speed 1000 kHz
+</I>&gt;<i> Info : JTAG tap: stm32.cpu tap/device found: 0x3ba00477 (mfg: 0x23b,
+</I>&gt;<i> part: 0xba00, ver: 0x3)
+</I>&gt;<i> Info : JTAG tap: stm32.bs tap/device found: 0x16410041 (mfg: 0x020,
+</I>&gt;<i> part: 0x6410, ver: 0x1)
+</I>&gt;<i> Info : stm32.cpu: hardware has 6 breakpoints, 4 watchpoints
+</I>&gt;<i>
+</I>&gt;<i> %./openocd -f interface/jtagkey2p.cfg -f board/stm3210b_eval.cfg
+</I>&gt;<i> Open On-Chip Debugger 0.5.0-dev-00895-g796086c-dirty (2011-06-01-20:16)
+</I>&gt;<i> Licensed under GNU GPL v2
+</I>&gt;<i> For bug reports, read
+</I>&gt;<i> 	<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+</I>&gt;<i> Info : only one transport option; autoselect 'jtag'
+</I>&gt;<i> 1000 kHz
+</I>&gt;<i> 1000 kHz
+</I>&gt;<i> adapter_nsrst_delay: 100
+</I>&gt;<i> jtag_ntrst_delay: 100
+</I>&gt;<i> cortex_m3 reset_config sysresetreq
+</I>&gt;<i> Info : max TCK change to: 30000 kHz
+</I>&gt;<i> Info : clock speed 1000 kHz
+</I>&gt;<i> Info : JTAG tap: stm32.cpu tap/device found: 0x3ba00477 (mfg: 0x23b,
+</I>&gt;<i> part: 0xba00, ver: 0x3)
+</I>&gt;<i> Info : JTAG tap: stm32.bs tap/device found: 0x16410041 (mfg: 0x020,
+</I>&gt;<i> part: 0x6410, ver: 0x1)
+</I>&gt;<i> Info : stm32.cpu: hardware has 6 breakpoints, 4 watchpoints
+</I>&gt;<i> ^C
+</I>&gt;<i>
+</I>&gt;<i> It would be nice however to add Ctrl+C signal capture to gracefully
+</I>&gt;<i> shutdown the program with proper deinitialization... maybe simple tcl
+</I>&gt;<i> &quot;quit&quot; mapping would do the job :-)
+</I>&gt;<i>   
+</I>The shutdown at upper level already exist and works great, but the quit 
+in ft2232 is bugged ! Sebastien has patch to correct this too .
+TCL will not do the job here. This should be corrected in the ft2232.c 
+directly.
+&gt;<i> Best regards :-)
+</I>&gt;<i> Tomek
+</I>&gt;<i>   
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019386.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+	<LI>Next message: <A HREF="019370.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19357">[ date ]</a>
+              <a href="thread.html#19357">[ thread ]</a>
+              <a href="subject.html#19357">[ subject ]</a>
+              <a href="author.html#19357">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

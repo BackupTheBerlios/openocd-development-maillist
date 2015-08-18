@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 6/9] server: use register_commands
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/9%5D%20server%3A%20use%20register_commands&In-Reply-To=%3C1259100300-14279-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012813.html">
+   <LINK REL="Next"  HREF="012822.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 6/9] server: use register_commands</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/9%5D%20server%3A%20use%20register_commands&In-Reply-To=%3C1259100300-14279-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 6/9] server: use register_commands">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:04:57 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012813.html">[Openocd-development] [PATCH 03/11] at91rm9200: use	register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012822.html">[Openocd-development] [PATCH 03/20] avrf: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12814">[ date ]</a>
+              <a href="thread.html#12814">[ thread ]</a>
+              <a href="subject.html#12814">[ subject ]</a>
+              <a href="author.html#12814">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Converts server directory to use new command registration paradigm.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/server/gdb_server.c    |   72 ++++++++++++++++++++++++++++++-------------
+ src/server/server.c        |   19 +++++++----
+ src/server/tcl_server.c    |   17 ++++++++--
+ src/server/telnet_server.c |   32 ++++++++++++-------
+ 4 files changed, 95 insertions(+), 45 deletions(-)
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index be1f8db..cb14cc3 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2326,27 +2326,55 @@ COMMAND_HANDLER(handle_gdb_breakpoint_override_command)
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_register_commands(struct command_context *command_context)
++static const struct command_registration gdb_command_handlers[] = {
++	{
++		.name = &quot;gdb_sync&quot;,
++		.handler = &amp;handle_gdb_sync_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;next stepi will return immediately allowing &quot;
++			&quot;GDB to fetch register state without affecting &quot;
++			&quot;target state&quot;,
++	},
++	{
++		.name = &quot;gdb_port&quot;,
++		.handler = &amp;handle_gdb_port_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;daemon configuration command gdb_port&quot;,
++		.usage = &quot;&lt;port&gt;&quot;,
++	},
++	{
++		.name = &quot;gdb_memory_map&quot;,
++		.handler = &amp;handle_gdb_memory_map_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;enable or disable memory map&quot;,
++		.usage = &quot;enable|disable&quot;
++	},
++	{
++		.name = &quot;gdb_flash_program&quot;,
++		.handler = &amp;handle_gdb_flash_program_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;enable or disable flash program&quot;,
++		.usage = &quot;enable|disable&quot;
++	},
++	{
++		.name = &quot;gdb_report_data_abort&quot;,
++		.handler = &amp;handle_gdb_report_data_abort_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;enable or disable reporting data aborts&quot;,
++		.usage = &quot;enable|disable&quot;
++	},
++	{
++		.name = &quot;gdb_breakpoint_override&quot;,
++		.handler = &amp;handle_gdb_breakpoint_override_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;force type of breakpoint &quot;
++			&quot;used by gdb 'break' commands.&quot;,
++		.usage = &quot;hard|soft|disable&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++int gdb_register_commands(struct command_context *cmd_ctx)
+ {
+-	COMMAND_REGISTER(command_context, NULL, &quot;gdb_sync&quot;,
+-			handle_gdb_sync_command, COMMAND_ANY,
+-			&quot;next stepi will return immediately allowing GDB to &quot;
+-			&quot;fetch register state without affecting target state&quot;);
+-	COMMAND_REGISTER(command_context, NULL, &quot;gdb_port&quot;,
+-			handle_gdb_port_command, COMMAND_ANY,
+-			&quot;daemon configuration command gdb_port&quot;);
+-	COMMAND_REGISTER(command_context, NULL, &quot;gdb_memory_map&quot;,
+-			handle_gdb_memory_map_command, COMMAND_CONFIG,
+-			&quot;enable or disable memory map&quot;);
+-	COMMAND_REGISTER(command_context, NULL, &quot;gdb_flash_program&quot;,
+-			handle_gdb_flash_program_command, COMMAND_CONFIG,
+-			&quot;enable or disable flash program&quot;);
+-	COMMAND_REGISTER(command_context, NULL, &quot;gdb_report_data_abort&quot;,
+-			handle_gdb_report_data_abort_command, COMMAND_CONFIG,
+-			&quot;enable or disable reporting data aborts&quot;);
+-	COMMAND_REGISTER(command_context, NULL, &quot;gdb_breakpoint_override&quot;,
+-			handle_gdb_breakpoint_override_command, COMMAND_EXEC,
+-			&quot;hard/soft/disable - force type of breakpoint &quot;
+-			&quot;used by gdb 'break' commands.&quot;);
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, gdb_command_handlers);
+ }
+diff --git a/src/server/server.c b/src/server/server.c
+index 5be1316..50bc00e 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -539,16 +539,21 @@ COMMAND_HANDLER(handle_shutdown_command)
+ 	return ERROR_COMMAND_CLOSE_CONNECTION;
+ }
+ 
+-int server_register_commands(struct command_context *context)
++static const struct command_registration server_command_handlers[] = {
++	{
++		.name = &quot;shutdown&quot;,
++		.handler = &amp;handle_shutdown_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;shut the server down&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++int server_register_commands(struct command_context *cmd_ctx)
+ {
+-	COMMAND_REGISTER(context, NULL, &quot;shutdown&quot;,
+-			handle_shutdown_command, COMMAND_ANY,
+-			&quot;shut the server down&quot;);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, server_command_handlers);
+ }
+ 
+-
+ SERVER_PORT_COMMAND()
+ {
+ 	switch (CMD_ARGC) {
+diff --git a/src/server/tcl_server.c b/src/server/tcl_server.c
+index a12176e..22469a4 100644
+--- a/src/server/tcl_server.c
++++ b/src/server/tcl_server.c
+@@ -175,10 +175,19 @@ COMMAND_HANDLER(handle_tcl_port_command)
+ 	return CALL_COMMAND_HANDLER(server_port_command, &amp;tcl_port);
+ }
+ 
++static const struct command_registration tcl_command_handlers[] = {
++	{
++		.name = &quot;tcl_port&quot;,
++		.handler = &amp;handle_tcl_port_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;port on which to listen &quot;
++			&quot;for incoming TCL syntax&quot;,
++		.usage = &quot;&lt;port&gt;&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ int tcl_register_commands(struct command_context *cmd_ctx)
+ {
+-	COMMAND_REGISTER(cmd_ctx, NULL, &quot;tcl_port&quot;,
+-			handle_tcl_port_command, COMMAND_CONFIG,
+-			&quot;port on which to listen for incoming TCL syntax&quot;);
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, tcl_command_handlers);
+ }
+diff --git a/src/server/telnet_server.c b/src/server/telnet_server.c
+index c52119d..8a86efa 100644
+--- a/src/server/telnet_server.c
++++ b/src/server/telnet_server.c
+@@ -616,17 +616,25 @@ COMMAND_HANDLER(handle_exit_command)
+ 	return ERROR_COMMAND_CLOSE_CONNECTION;
+ }
+ 
+-int telnet_register_commands(struct command_context *command_context)
++static const struct command_registration telnet_command_handlers[] = {
++	{
++		.name = &quot;exit&quot;,
++		.handler = &amp;handle_exit_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;exit telnet session&quot;,
++	},
++	{
++		.name = &quot;telnet_port&quot;,
++		.handler = &amp;handle_telnet_port_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;port on which to listen &quot;
++			&quot;for incoming telnet connections&quot;,
++		.usage = &quot;&lt;port&gt;&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++int telnet_register_commands(struct command_context *cmd_ctx)
+ {
+-	COMMAND_REGISTER(command_context, NULL, &quot;exit&quot;,
+-			&amp;handle_exit_command, COMMAND_EXEC,
+-			&quot;exit telnet session&quot;);
+-
+-	COMMAND_REGISTER(command_context, NULL, &quot;telnet_port&quot;,
+-			&amp;handle_telnet_port_command, COMMAND_ANY,
+-			&quot;port on which to listen for incoming telnet connections&quot;);
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, telnet_command_handlers);
+ }
+-
+-
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012813.html">[Openocd-development] [PATCH 03/11] at91rm9200: use	register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012822.html">[Openocd-development] [PATCH 03/20] avrf: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12814">[ date ]</a>
+              <a href="thread.html#12814">[ thread ]</a>
+              <a href="subject.html#12814">[ subject ]</a>
+              <a href="author.html#12814">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

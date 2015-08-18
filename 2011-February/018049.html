@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] cortex_a9: fix dap_ap_select() usage
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex_a9%3A%20fix%20dap_ap_select%28%29%20usage&In-Reply-To=%3C1296695174-5382-1-git-send-email-aaronc%40cse.unsw.edu.au%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018057.html">
+   <LINK REL="Next"  HREF="018052.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] cortex_a9: fix dap_ap_select() usage</H1>
+    <B>Aaron Carroll</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex_a9%3A%20fix%20dap_ap_select%28%29%20usage&In-Reply-To=%3C1296695174-5382-1-git-send-email-aaronc%40cse.unsw.edu.au%3E"
+       TITLE="[Openocd-development] [PATCH] cortex_a9: fix dap_ap_select() usage">aaronc at cse.unsw.edu.au
+       </A><BR>
+    <I>Thu Feb  3 02:06:14 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018057.html">[Openocd-development] [PATCH] 24bit buffer support
+</A></li>
+        <LI>Next message: <A HREF="018052.html">[Openocd-development] [PATCH] cortex_a9: fix dap_ap_select()	usage
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18049">[ date ]</a>
+              <a href="thread.html#18049">[ thread ]</a>
+              <a href="subject.html#18049">[ subject ]</a>
+              <a href="author.html#18049">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Save, select and restore AP in cortex_a9_step and cortex_a9_init_debug_access.
+Fixes a bug where the wrong AP is selected after a reset.
+
+Signed-off-by: Aaron Carroll &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">aaronc at cse.unsw.edu.au</A>&gt;
+---
+ src/target/cortex_a9.c |   26 ++++++++++++++++++++------
+ 1 files changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/src/target/cortex_a9.c b/src/target/cortex_a9.c
+index 0ede1d5..d35e8d1 100644
+--- a/src/target/cortex_a9.c
++++ b/src/target/cortex_a9.c
+@@ -81,10 +81,13 @@ static int cortex_a9_init_debug_access(struct target *target)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	uint8_t saved_apsel = dap_ap_get_select(swjdp);
+ 
+ 	int retval;
+ 	uint32_t dummy;
+ 
++	dap_ap_select(swjdp, swjdp_debugap);
++
+ 	LOG_DEBUG(&quot; &quot;);
+ 
+ 	/* Unlocking the debug registers for modification */
+@@ -100,12 +103,12 @@ static int cortex_a9_init_debug_access(struct target *target)
+ 		}
+ 	}
+ 	if (retval != ERROR_OK)
+-		return retval;
++		goto out;
+ 	/* Clear Sticky Power Down status Bit in PRSR to enable access to
+ 	   the registers in the Core Power Domain */
+ 	retval = mem_ap_read_atomic_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_PRSR, &amp;dummy);
+ 	if (retval != ERROR_OK)
+-		return retval;
++		goto out;
+ 
+ 	/* Enabling of instruction execution in debug mode is done in debug_entry code */
+ 
+@@ -114,6 +117,8 @@ static int cortex_a9_init_debug_access(struct target *target)
+ 	/* Since this is likely called from init or reset, update target state information*/
+ 	retval = cortex_a9_poll(target);
+ 
++ out:
++	dap_ap_select(swjdp, saved_apsel);
+ 	return retval;
+ }
+ 
+@@ -1129,10 +1134,12 @@ static int cortex_a9_step(struct target *target, int current, uint32_t address,
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	struct breakpoint *breakpoint = NULL;
+ 	struct breakpoint stepbreakpoint;
+ 	struct reg *r;
+ 	int retval;
++	uint8_t saved_apsel = dap_ap_get_select(swjdp);
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -1140,6 +1147,8 @@ static int cortex_a9_step(struct target *target, int current, uint32_t address,
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
++	dap_ap_select(swjdp, swjdp_debugap);
++
+ 	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
+ 	r = armv4_5-&gt;pc;
+ 	if (!current)
+@@ -1176,18 +1185,19 @@ static int cortex_a9_step(struct target *target, int current, uint32_t address,
+ 
+ 	retval = cortex_a9_resume(target, 1, address, 0, 0);
+ 	if (retval != ERROR_OK)
+-		return retval;
++		goto out;
+ 
+ 	long long then = timeval_ms();
+ 	while (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		retval = cortex_a9_poll(target);
+ 		if (retval != ERROR_OK)
+-			return retval;
++			goto out;
+ 		if (timeval_ms() &gt; then + 1000)
+ 		{
+ 			LOG_ERROR(&quot;timeout waiting for target halt&quot;);
+-			return ERROR_FAIL;
++			retval = ERROR_FAIL;
++			goto out;
+ 		}
+ 	}
+ 
+@@ -1201,7 +1211,11 @@ static int cortex_a9_step(struct target *target, int current, uint32_t address,
+ 	if (target-&gt;state != TARGET_HALTED)
+ 		LOG_DEBUG(&quot;target stepped&quot;);
+ 
+-	return ERROR_OK;
++	retval = ERROR_OK;
++
++ out:
++	dap_ap_select(swjdp, saved_apsel);
++	return retval;
+ }
+ 
+ static int cortex_a9_restore_context(struct target *target, bool bpwp)
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018057.html">[Openocd-development] [PATCH] 24bit buffer support
+</A></li>
+	<LI>Next message: <A HREF="018052.html">[Openocd-development] [PATCH] cortex_a9: fix dap_ap_select()	usage
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18049">[ date ]</a>
+              <a href="thread.html#18049">[ thread ]</a>
+              <a href="subject.html#18049">[ subject ]</a>
+              <a href="author.html#18049">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

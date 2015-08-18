@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] jtag_speed and auto_probe
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_speed%20and%20auto_probe&In-Reply-To=%3C48812677.8040801%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002657.html">
+   <LINK REL="Next"  HREF="002675.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] jtag_speed and auto_probe</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_speed%20and%20auto_probe&In-Reply-To=%3C48812677.8040801%40duaneellis.com%3E"
+       TITLE="[Openocd-development] jtag_speed and auto_probe">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Jul 19 01:25:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002657.html">[Openocd-development] jtag_speed and auto_probe
+</A></li>
+        <LI>Next message: <A HREF="002675.html">[Openocd-development] jtag_speed and auto_probe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2671">[ date ]</a>
+              <a href="thread.html#2671">[ thread ]</a>
+              <a href="subject.html#2671">[ subject ]</a>
+              <a href="author.html#2671">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Short version is this:
+
+You *MUST* be able to change the JTAG clock frequency - *at*least* by 
+hand.... to any value - at any time using a command.
+
+The Long version - with explanation follows
+
+Pieter&gt; The AT91SAM9260's JTAG speed must always be 6 times lower than 
+its clock speed.
+
+The true problem is - many jtag controllers do not support RTCK - or the 
+chip implementor choose not to hook the F-ing pin up. the pin is 
+*REQUIRED* on many &quot;S&quot; type cores from ARM - but ... well not always 
+there. Chip companies sometimes skimp. Board makers do not understand  
+and skimp.
+
+It is called &quot;adaptive clocking&quot; see this:
+
+<A HREF="http://www.arm.com/support/faqdev/4170.html">http://www.arm.com/support/faqdev/4170.html</A>
+
+Example - ARM7TDMI-S - found in a number of chips.
+See: <A HREF="http://infocenter.arm.com/help/topic/com.arm.doc.ddi0234b/DDI0234.pdf">http://infocenter.arm.com/help/topic/com.arm.doc.ddi0234b/DDI0234.pdf</A>
+Page 5-10 &amp; 5-11, Section 5.3.5
+
+FYI - there are two types of arm7tdmi - &quot;hard macro cell&quot; - or 
+&quot;synthesize-able aka: S core&quot;.
+The S type, has 2 rules:  6x slower - or use RTCK. The hard macro cell - 
+I think is 6x slower.
+
+Example: ARM966 - (aka: STR9 parts)
+<A HREF="http://infocenter.arm.com/help/topic/com.arm.doc.ddi0213e/ARM966E-S_TRM.pdf">http://infocenter.arm.com/help/topic/com.arm.doc.ddi0213e/ARM966E-S_TRM.pdf</A>
+Pages 7-1 - section 7.1.2
+
+Example: ARM946
+<A HREF="http://infocenter.arm.com/help/topic/com.arm.doc.ddi0201d/DDI0201D_arm946es_r1p1_trm.pdf">http://infocenter.arm.com/help/topic/com.arm.doc.ddi0201d/DDI0201D_arm946es_r1p1_trm.pdf</A>
+Pages 9-3, section 9.1.3
+
+I am surprised to find the 926ej-s TRM does not state anything about the 
+RTCK signal. Nor does the ARM968.  However - reading that part of the 
+TRMs signal description I suspect they require it - but perhaps did not 
+document it as clearly as they should have (they probably do - in 'nda' 
+type documents)
+
+While Pieter says 6x slower - ST says 10x slower - (STR9 data sheet 
+section 3.15, 3rd paragraph
+Perhaps ST does something more we do not know about.
+<A HREF="http://www.st.com/stonline/products/literature/ds/13495.pdf">http://www.st.com/stonline/products/literature/ds/13495.pdf</A>
+
+There are others - like XILINX who want 12x slower, 32/12 =&gt; 1.x khz - I 
+can probably only program even multiples so it is 1khz clock YUCK!
+
+PIETER&gt;   Let's say one was busy with a debugging session where the 
+AT91SAM9260's clock speed was 100 MHz and the JTAG Speed set to 6 MHz.
+
+I'll give you a worse situation - battery powered system, CPU runs @ 100 
+mhz, update the LCD, set LCD &amp; SDRAM to self refresh, turn off all 
+clocks and run on the 32khz clock.
+and wait for the user to press a button. Or maybe &quot;hibernate&quot; or &quot;off&quot; 
+mode - So - the CPU dynamically switches between 32khz - and 100mhz - 
+lighting fast.
+
+So for normal debugging I am going to run at 5khz Jtag? Oh please!!!!!! 
+SHOOT ME NOW! This is very true if you are debugging ultra low power and 
+&quot;wakeup after sleep&quot; or &quot;hibernate&quot; problems.
+
+I have done that before - what a pain in the ass!.
+
+You *MUST* be able to change the JTAG clock frequency - *at*least* by 
+hand.... to any value - at any time.
+
+Or - the JTAG interface *MUST* support RTCK - in a reasonable way. (I 
+know a commercial JTAG box - that had mental issues - with ultra slow 
+jtag clocks)
+
+I sure wish FTDI - would have supported RTCK... what a loss.
+
+I suspect - (because the Cortex debug TRM debug manual states: &quot;Arm 
+Limited recommends that RTCK is not implemented on an arm debug 
+interface&quot;) it will never happen on cortex.
+
+Perhaps - there is something new - about cortex - I do not know.
+
+-Duane.
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002657.html">[Openocd-development] jtag_speed and auto_probe
+</A></li>
+	<LI>Next message: <A HREF="002675.html">[Openocd-development] jtag_speed and auto_probe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2671">[ date ]</a>
+              <a href="thread.html#2671">[ thread ]</a>
+              <a href="subject.html#2671">[ subject ]</a>
+              <a href="author.html#2671">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

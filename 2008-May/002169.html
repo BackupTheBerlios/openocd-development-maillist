@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Segmentation fault when trying enable turbo on str9xpec
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Segmentation%20fault%20when%20trying%20enable%0A%20turbo%20on%20str9xpec&In-Reply-To=%3COFFECF2C31.1D81B61A-ONC1257451.00240D2B-C1257451.002648D7%40securitasdirect.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002164.html">
+   <LINK REL="Next"  HREF="002172.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Segmentation fault when trying enable turbo on str9xpec</H1>
+    <B>Fredrik Hederstierna</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Segmentation%20fault%20when%20trying%20enable%0A%20turbo%20on%20str9xpec&In-Reply-To=%3COFFECF2C31.1D81B61A-ONC1257451.00240D2B-C1257451.002648D7%40securitasdirect.se%3E"
+       TITLE="[Openocd-development] Segmentation fault when trying enable turbo on str9xpec">fredrik.hederstierna at securitas-direct.com
+       </A><BR>
+    <I>Thu May 22 08:58:01 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002164.html">[Openocd-development] Segmentation fault when trying enable	turbo on str9xpec
+</A></li>
+        <LI>Next message: <A HREF="002172.html">[Openocd-development] Segmentation fault when trying enable	turbo on str9xpec
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2169">[ date ]</a>
+              <a href="thread.html#2169">[ thread ]</a>
+              <a href="subject.html#2169">[ subject ]</a>
+              <a href="author.html#2169">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We built our openocd using this:
+
+-------------------------------------
+svn co -r672 <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk">http://svn.berlios.de/svnroot/repos/openocd/trunk</A>
+cd trunk
+./bootstrap
+./configure --enable-ft2232_libftdi
+sudo make install 
+-------------------------------------
+
+Our board is the STR910-Eval from ST. It has the STR912FA MCU.
+JTAG interface is Amontec JTAG Key. We are using Linux Ubuntu/Kubuntu 7/8 
+distribution.
+We try to make MCU boot from flash bank 1 by setting a specific register 
+only accessible from JTAG.
+
+OpenOCD-Script is like this:
+
+-------------------------------------
+telnet_port 4444
+gdb_port 3333
+
+interface ft2232
+ft2232_device_desc &quot;Amontec JTAGkey&quot;
+ft2232_layout jtagkey
+ft2232_vid_pid 0x0403 0xcff8
+jtag_speed 1
+
+jtag_nsrst_delay 100
+jtag_ntrst_delay 100
+
+reset_config trst_and_srst
+
+jtag_device 8 0x1 0x1 0xfe
+jtag_device 4 0x1 0xf 0xe
+jtag_device 5 0x1 0x1 0x1e
+
+daemon_startup reset
+
+target arm966e little reset_halt 1 arm966e
+run_and_halt_time 0 30
+
+working_area 0 0x50000000 16384 nobackup
+
+flash bank str9xpec 0x00000000 0x00080000 0 0 0
+
+str9xpec enable_turbo 0
+str9xpec options_read 0
+str9xpec options_cmap 0 bank 1
+str9xpec options_write 0
+-------------------------------------
+
+
+Running OpenOCD with our script using GDB including stack back trace:
+-------------------------------------
+
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">fredrikh at pong</A>:~/openocd_head_debug/trunk/doc$ gdb --args ../src/openocd 
+--debug 3 -f str912_jtagkey.cfg
+GNU gdb 6.6-debian
+Copyright (C) 2006 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you 
+are
+welcome to change it and/or distribute copies of it under certain 
+conditions.
+Type &quot;show copying&quot; to see the conditions.
+There is absolutely no warranty for GDB.  Type &quot;show warranty&quot; for 
+details.
+This GDB was configured as &quot;i486-linux-gnu&quot;...
+Using host libthread_db library &quot;/lib/tls/i686/cmov/libthread_db.so.1&quot;.
+(gdb) run
+Starting program: /home/fredrikh/openocd_head_debug/trunk/src/openocd 
+--debug 3 -f str912_jtagkey.cfg
+Open On-Chip Debugger 1.0 (2008-05-22-09:35) svn:672
+$URL: <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c">http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c</A> $
+Debug:   3 1 command.c:430 command_run_line(): script str912_jtagkey.cfg
+Debug:   4 1 configuration.c:87 open_file_from_path(): opened 
+str912_jtagkey.cfg
+Debug:   5 1 command.c:430 command_run_line(): telnet_port 4444
+Debug:   6 1 command.c:430 command_run_line(): gdb_port 3333
+Debug:   7 1 command.c:430 command_run_line(): interface ft2232
+Debug:   8 1 command.c:430 command_run_line(): ft2232_device_desc &quot;Amontec 
+JTAGkey&quot;
+Debug:   9 1 command.c:430 command_run_line(): ft2232_layout jtagkey
+Debug:   10 1 command.c:430 command_run_line(): ft2232_vid_pid 0x0403 
+0xcff8
+Debug:   11 1 command.c:430 command_run_line(): jtag_speed 1
+Debug:   12 1 jtag.c:1857 handle_jtag_speed_command(): handle jtag speed
+Info:    13 1 options.c:50 configuration_output_handler(): jtag_speed: 1, 
+1
+Debug:   14 1 command.c:430 command_run_line(): jtag_nsrst_delay 100
+Debug:   15 1 command.c:430 command_run_line(): jtag_ntrst_delay 100
+Debug:   16 1 command.c:430 command_run_line(): reset_config trst_and_srst
+Debug:   17 1 command.c:430 command_run_line(): jtag_device 8 0x1 0x1 0xfe
+Debug:   18 1 command.c:430 command_run_line(): jtag_device 4 0x1 0xf 0xe
+Debug:   19 1 command.c:430 command_run_line(): jtag_device 5 0x1 0x1 0x1e
+Debug:   20 1 command.c:430 command_run_line(): daemon_startup reset
+Info:    21 1 options.c:50 configuration_output_handler(): Open On-Chip 
+Debugger 1.0 (2008-05-22-09:35) svn:672
+Debug:   22 1 command.c:430 command_run_line(): target arm966e little 
+reset_halt 1 arm966e
+Debug:   23 1 arm966e.c:141 arm966e_target_command(): chain_pos: 1, 
+variant: arm966e
+Debug:   24 1 command.c:430 command_run_line(): run_and_halt_time 0 30
+Debug:   25 2 command.c:430 command_run_line(): working_area 0 0x50000000 
+16384 nobackup
+Debug:   26 2 command.c:430 command_run_line(): flash bank str9xpec 
+0x00000000 0x00080000 0 0 0
+Debug:   27 2 command.c:430 command_run_line(): str9xpec enable_turbo 0
+Debug:   28 2 jtag.c:326 jtag_call_event_callbacks(): jtag event: JTAG 
+controller reset(tms or TRST)
+Debug:   29 2 jtag.c:1289 jtag_reset_callback(): -
+Debug:   30 2 jtag.c:1289 jtag_reset_callback(): -
+Debug:   31 2 jtag.c:1289 jtag_reset_callback(): -
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0808ad3c in interface_jtag_execute_queue () at jtag.c:1264
+1264            retval = jtag-&gt;execute_queue();
+(gdb) bt
+#0  0x0808ad3c in interface_jtag_execute_queue () at jtag.c:1264
+#1  0x0808ad7b in jtag_execute_queue () at jtag.c:1276
+#2  0x080adb17 in str9xpec_handle_flash_enable_turbo_command 
+(cmd_ctx=0x80ea328, cmd=0x80ec388 &quot;enable_turbo&quot;, args=0xbf984354, argc=1)
+    at str9xpec.c:1293
+#3  0x0809437f in find_and_run_command (context=0x80ea328, commands=0x0, 
+words=0xbf98434c, num_words=2, start_word=1) at command.c:372
+#4  0x0809459c in command_run_line (context=0x80ea328, line=0x80ea550 
+&quot;str9xpec enable_turbo 0&quot;) at command.c:435
+#5  0x08094731 in command_run_file (context=0x80ea328, file=0x80ea3e8, 
+mode=COMMAND_CONFIG) at command.c:487
+#6  0x0809326a in handle_script_command (cmd_ctx=0x80ea328, cmd=0x80e9d50 
+&quot;script&quot;, args=0xbf984620, argc=1) at interpreter.c:232
+#7  0x0809437f in find_and_run_command (context=0x80ea328, commands=0x0, 
+words=0xbf98461c, num_words=2, start_word=0) at command.c:372
+#8  0x0809459c in command_run_line (context=0x80ea328, line=0x80ea360 
+&quot;script str912_jtagkey.cfg&quot;) at command.c:435
+#9  0x08092b7e in parse_config_file (cmd_ctx=0x80ea328) at 
+configuration.c:104
+#10 0x08049808 in main (argc=5, argv=0xbf984924) at openocd.c:211
+(gdb) q
+
+-------------------------------------
+
+
+We've tried several versions and we cannot either get OpenOCD work 
+properly for this matter nor get STR912 boot from flash bank 1.
+Do anyone have the exact proceedure including scripts for via JTAG setup 
+FMI for booting either from bank 0 either bank 1 for STR912?
+
+Best Regards
+Fredrik Hederstierna
+
+
+
+
+
+
+&quot;&#216;yvind Harboe&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt; 
+Sent by: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvindharboe at gmail.com</A>
+05/22/2008 08:20 AM
+
+To
+&quot;Fredrik Hederstierna&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">fredrik.hederstierna at securitas-direct.com</A>&gt;
+cc
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+Subject
+Re: [Openocd-development] Segmentation fault when trying enable turbo on 
+str9xpec
+
+
+
+
+
+
+If you can provide the following information it would be of great help.
+
+There is a good chance that once you've done the debugging below
+that the problem can be easily fixed.
+
+<A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080522/91b08582/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080522/91b08582/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002164.html">[Openocd-development] Segmentation fault when trying enable	turbo on str9xpec
+</A></li>
+	<LI>Next message: <A HREF="002172.html">[Openocd-development] Segmentation fault when trying enable	turbo on str9xpec
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2169">[ date ]</a>
+              <a href="thread.html#2169">[ thread ]</a>
+              <a href="subject.html#2169">[ subject ]</a>
+              <a href="author.html#2169">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

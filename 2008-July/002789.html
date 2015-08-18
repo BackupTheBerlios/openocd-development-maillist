@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Oddities in target.c &amp; gdb_server.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Oddities%20in%20target.c%20%26%20gdb_server.c&In-Reply-To=%3Cc09652430807260041x4eb6f970lf79ce8dc4a8b39b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002788.html">
+   <LINK REL="Next"  HREF="002790.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Oddities in target.c &amp; gdb_server.c</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Oddities%20in%20target.c%20%26%20gdb_server.c&In-Reply-To=%3Cc09652430807260041x4eb6f970lf79ce8dc4a8b39b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Oddities in target.c &amp; gdb_server.c">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sat Jul 26 09:41:16 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002788.html">[Openocd-development] Oddities in target.c &amp; gdb_server.c
+</A></li>
+        <LI>Next message: <A HREF="002790.html">[Openocd-development] Some question about the new OpenOCD
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2789">[ date ]</a>
+              <a href="thread.html#2789">[ thread ]</a>
+              <a href="subject.html#2789">[ subject ]</a>
+              <a href="author.html#2789">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, Jul 26, 2008 at 1:59 AM, Duane Ellis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd at duaneellis.com</A>&gt; wrote:
+&gt;<i> Hello - I 've come across a few things that make no sense and seem wrong.
+</I>
+There is a lot of history here and I think that there could be some cleanup
+and simplifications now that a targets responsibilities have crystalized more.
+
+Also, there is some desire to make targets more instruction set independent
+in their definition.
+
+There is a desire to stay away from C/C++, but of course object oriented
+ideas w/inheritance comes to mind w/polymorphism.
+
+A target can be a CPU(different instruction sets and subtypes of instruction
+sets), non-CPU families, flash chips, FPGAs, etc.
+
+Other contributors are *not* keen on C/C++. See earlier discussion.
+
+Here is a thought: lets try to strip down the target definitions and
+push more into scripting :-) That way we at least get a crisper
+definition of targets. This should be good in terms of adding
+support for non-ARM targets too.
+
+
+&gt;<i>
+</I>&gt;<i> ===========================
+</I>&gt;<i> (a)   example - top part of &quot;target.c' - target_init()
+</I>&gt;<i>
+</I>&gt;<i>    does this:
+</I>&gt;<i>                target-&gt;type-&gt;examined = 0;
+</I>&gt;<i>
+</I>&gt;<i>    Generally, the idea of &quot;type&quot; is a C version of a C++ method table.
+</I>&gt;<i>    (or what ever its you call it)
+</I>&gt;<i>
+</I>&gt;<i>    That I would think - should be *READONLY* - because
+</I>&gt;<i>          target-&gt;type-&gt;examined
+</I>&gt;<i>    is for *ALL* targets of that type.
+</I>&gt;<i>
+</I>&gt;<i>    *NOT* the specific target in question.
+</I>&gt;<i>
+</I>&gt;<i>    I would have expected:   target-&gt;examined instead.
+</I>&gt;<i>
+</I>&gt;<i>    In effect, &quot;target_type_t&quot; should be a CONST... should it not?
+</I>
+I would like target to be a straight C++ class, so we could use
+inheritance, resource tracking &amp; exceptions. :-)
+
+&gt;<i>
+</I>&gt;<i> ===========================
+</I>&gt;<i> (b) I have been burned by this a few times - GDB goes out in La-La Land..
+</I>&gt;<i>
+</I>&gt;<i>    In src/server/gdbserver.c - gdb_read_memory_packet()
+</I>&gt;<i>
+</I>&gt;<i>    If the requested address + the length causes it to wrap... GDB is
+</I>&gt;<i> generally lost and should be told to pound sand.
+</I>&gt;<i>
+</I>&gt;<i>    This is really true @ startup - if the program counter is some how
+</I>&gt;<i> reported as -2
+</I>&gt;<i>    (Why it is - I do not know.... but it happens some times for me - I
+</I>&gt;<i> wish i knew)
+</I>&gt;<i>
+</I>&gt;<i>    And at that point - GCC appears to proceed to try to disassemble
+</I>&gt;<i> 4gig of memory...
+</I>
+Nice... GDB is clearly busted here.
+
+Perhaps GDB will work, if we fail to read that memory?
+
+The right place to fix this would be in target_read/write_memory though...
+
+How's the attached patch?
+
+&gt;<i>
+</I>&gt;<i> I added this - it seems to help - but I am sure about it. If it is
+</I>&gt;<i> obvious - I suggest someone fix it.
+</I>&gt;<i>
+</I>&gt;<i>    // about line 1050 in gdb_server.c
+</I>&gt;<i>    if( (addr+len) &lt; addr ){
+</I>&gt;<i>        /* memory wraps! */
+</I>&gt;<i>        retval == ERROR_TARGET_DATA_ABORT;
+</I>&gt;<i>    } else {
+</I>&gt;<i>        retval = target_read_buffer(target, addr, len, buffer);
+</I>&gt;<i>    }
+</I>
+I want this fixed in target_read/write_buffer()...
+
+Note that we *have to* fail the packet if the requested amount of memory
+is more than a couple of k's. GDB has code to split up memory read/write
+packets, so anything above this fragmentation limit really is a pathological
+sign.
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: targetreadwritecheck.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080726/ca3ca37c/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20080726/ca3ca37c/attachment.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002788.html">[Openocd-development] Oddities in target.c &amp; gdb_server.c
+</A></li>
+	<LI>Next message: <A HREF="002790.html">[Openocd-development] Some question about the new OpenOCD
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2789">[ date ]</a>
+              <a href="thread.html#2789">[ thread ]</a>
+              <a href="subject.html#2789">[ subject ]</a>
+              <a href="author.html#2789">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

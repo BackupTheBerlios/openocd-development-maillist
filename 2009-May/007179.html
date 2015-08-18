@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Correct script to flash the lpc-2148
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Correct%20script%20to%20flash%20the%20lpc-2148&In-Reply-To=%3CJLEAKDMELBINENLADICFCEDGDDAA.fischermi%40t-online.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007261.html">
+   <LINK REL="Next"  HREF="007182.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Correct script to flash the lpc-2148</H1>
+    <B>Michael Fischer</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Correct%20script%20to%20flash%20the%20lpc-2148&In-Reply-To=%3CJLEAKDMELBINENLADICFCEDGDDAA.fischermi%40t-online.de%3E"
+       TITLE="[Openocd-development] Correct script to flash the lpc-2148">fischermi at t-online.de
+       </A><BR>
+    <I>Sun May 24 13:03:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007261.html">[Openocd-development] Correct script to flash the lpc-2148
+</A></li>
+        <LI>Next message: <A HREF="007182.html">[Openocd-development] Correct script to flash the lpc-2148
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7179">[ date ]</a>
+              <a href="thread.html#7179">[ thread ]</a>
+              <a href="subject.html#7179">[ subject ]</a>
+              <a href="author.html#7179">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello list,
+
+now I could reproduce the problem here with the original
+Olimex BLINK example. It will not work, the problem is the
+checksum.
+
+The startup code looks like:
+
+_vectors:       ldr     PC, Reset_Addr
+                ldr     PC, Undef_Addr
+                ldr     PC, SWI_Addr
+                ldr     PC, PAbt_Addr
+                ldr     PC, DAbt_Addr
+                nop	/* Reserved Vector (holds Philips ISP checksum) */
+
+In this case the bootloader will start, and not the application.
+Now I take a look in the openocd manual and found the following
+information:
+
+13.2.2.1 lpc2000 options
+flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0 &lt;target&gt; &lt;variant&gt; &lt;clock&gt; [calc
+checksum]
+
+...and the optional keyword calc checksum, telling the
+driver to calculate a valid checksum for the exception vector table.
+
+If I use now the calc_checksum options in my cfg file:
+
+flash bank lpc2000 0x0 0x7d000 0 0 0 lpc2000_v2 14765 calc_checksum
+
+I got the following output from OpenOCD:
+
+&gt;<i> flash write_image main.hex 0x0
+</I>Verification will fail since checksum in image(0xe1a00000) written to flash
+was
+different from calculated vector checksum(0xb9205f84).
+To remove this warning modify build tools on developer PC to inject correct
+LPC
+vector checksum.
+wrote 756 byte from file main.hex in 0.171875s (4.295455 kb/s)
+
+The new checksum was calculated, and the program is working.
+
+An other solution is, to change the startup code like:
+
+_vectors:       ldr     PC, Reset_Addr
+                ldr     PC, Undef_Addr
+                ldr     PC, SWI_Addr
+                ldr     PC, PAbt_Addr
+                ldr     PC, DAbt_Addr
+                .word 0xb9205f84
+
+In this case the correct checksum is set, and the program should work too.
+
+Attached is the main.hex file which should work with the lpc2148 without
+the calc_checksum key. LED1 and LED2 are flashing.
+
+Best regards,
+
+Michael
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: main.hex
+Type: application/octet-stream
+Size: 2100 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090524/2f8e3919/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20090524/2f8e3919/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007261.html">[Openocd-development] Correct script to flash the lpc-2148
+</A></li>
+	<LI>Next message: <A HREF="007182.html">[Openocd-development] Correct script to flash the lpc-2148
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7179">[ date ]</a>
+              <a href="thread.html#7179">[ thread ]</a>
+              <a href="subject.html#7179">[ subject ]</a>
+              <a href="author.html#7179">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS EJTAG ROM monitor or HALT mode	debugging
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20EJTAG%20ROM%20monitor%20or%20HALT%20mode%0A%09debugging&In-Reply-To=%3CAANLkTin21pTbiWVvXDAZFA_w7JgNj1HHZu5YdgLWTJ2T%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017863.html">
+   <LINK REL="Next"  HREF="017865.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS EJTAG ROM monitor or HALT mode	debugging</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20EJTAG%20ROM%20monitor%20or%20HALT%20mode%0A%09debugging&In-Reply-To=%3CAANLkTin21pTbiWVvXDAZFA_w7JgNj1HHZu5YdgLWTJ2T%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] MIPS EJTAG ROM monitor or HALT mode	debugging">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Fri Jan  7 19:50:24 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017863.html">[Openocd-development] MIPS EJTAG ROM monitor or HALT mode debugging
+</A></li>
+        <LI>Next message: <A HREF="017865.html">[Openocd-development] LPC2xxx scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17876">[ date ]</a>
+              <a href="thread.html#17876">[ thread ]</a>
+              <a href="subject.html#17876">[ subject ]</a>
+              <a href="author.html#17876">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+reading more MIPS documentation I came to certain assumptions how JTAG
+debugging works with these cores (EJTAG), so I'll try to answer myself
+for the future reference, but also as a possible motivation for
+someone to comment on these :
+
+On Fri, Jan 7, 2011 at 4:06 PM, Drasko DRASKOVIC
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+&gt;<i> HI all,
+</I>&gt;<i> I have a simple question for anyone worked with MIPS (EJTAG) before -
+</I>&gt;<i> does it support &quot;halt&quot; mode debugging, or ROM monitor mode is only
+</I>&gt;<i> option ?
+</I>Core will not be literary in &quot;halt&quot; mode, but it will enter DEBUG mode
+(chapter 1.3.1 Debug Exception and Debug Mode of the MIPS EJTAG
+Specification), a special mode with no restrictions on access to
+co-processors, memory areas, etc., and where usual exceptions like
+address error and interrupt are masked. The debug exception handler is
+executed in Debug Mode and provided by the debug system. It can be
+executed from the probe through a processor access, or may also reside
+in the application code if the developer chooses to use a debug task
+in the application.
+
+In the other words, it will be some kind of monitor debugging, but
+with Monitor ROM code that can be passed dynamically by the GDB via
+OpenOCD (via JTAG probe).
+
+&gt;<i>
+</I>&gt;<i> Coming from the ARM world, I am looking for &quot;halt&quot; mode debugging, as
+</I>&gt;<i> I am very limited on chip surface to add additional ROM.
+</I>
+No additional memory place will be taken for &quot;Monitor ROM&quot; (if we can
+call it like that, because it is not real Monitor ROM) instructions,
+as it will not residue in on-chip ROM, nor as a section of RAM loaded
+ELF. These instructions will be put dynamically (during debug time) by
+the debugger (GDB) in the memory mapped (i.e. virtual) space called
+DMSEG (please refer to the chapter 5.2.2 Debug Mode Address Space of
+the MIPS EJTAG Specification document) .
+
+&gt;<i>
+</I>&gt;<i> 1)
+</I>&gt;<i> I read in one document :
+</I>&gt;<i> In addition to providing a standard debug I/O interface, EJTAG
+</I>&gt;<i> provides the following new
+</I>&gt;<i> capabilities for software and system debug:
+</I>&gt;<i> - Off-board EJTAG memory - A MIPS processor in Debug Mode sees EJTAG
+</I>&gt;<i> memory mapped
+</I>&gt;<i> as physical memory, but references to this memory are converted into
+</I>&gt;<i> transactions on the
+</I>&gt;<i> TAP interface. Both instructions and data can be accessed in EJTAG
+</I>&gt;<i> memory, which allows
+</I>&gt;<i> debugging of systems without requiring the presence of a ROM monitor
+</I>&gt;<i> or debugger scratch
+</I>&gt;<i> pad RAM.
+</I>&gt;<i>
+</I>&gt;<i> Would that mean that all CPU-s internal state can be explored using
+</I>&gt;<i> TAP and without monitor ROM ?
+</I>
+Well, yes and no. Not by the ARM way, but using MIPS ASM instructions
+passed via DMSEG memory, which is virtual and is mapped on EJTAG. So,
+these instructions are passed transparently from developer, via
+OpenOCD.
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> 2)
+</I>&gt;<i> In Software Users Manual it is written :
+</I>&gt;<i> The TAP modules support handling of fetches, loads and stores from the
+</I>&gt;<i> CPU through the dmseg segment, whereby
+</I>&gt;<i> the TAP module can operate like a slave unit connected to the on-chip
+</I>&gt;<i> bus. The core can then execute code taken
+</I>&gt;<i> from the EJTAG Probe and it can access data (via a load or store)
+</I>&gt;<i> which is located on the EJTAG Probe. This occurs
+</I>&gt;<i> in a serial way through the EJTAG interface: the core can thus execute
+</I>&gt;<i> instructions e.g. debug monitor code, without
+</I>&gt;<i> occupying the memory.
+</I>&gt;<i>
+</I>&gt;<i> What would that say, I do not quite get... That ROM monitor is finally
+</I>&gt;<i> necessary, and there is no &quot;halt&quot; mode debugging ?
+</I>
+This &quot;ROM Monitor&quot; code is however passed dynamically in debug time,
+and transparently from developer who issues high-level debugging
+request in GDB, which are internally in OpenOCD translated to a series
+of MIPS ASM instructions (ROM Monitor code) :
+<A HREF="http://openocd.git.sourceforge.net/git/gitweb.cgi?p=openocd/openocd;a=blob_plain;f=src/target/mips32_pracc.c;hb=94fa8fd30ae5fd29529f401e123864565591e2ed.">http://openocd.git.sourceforge.net/git/gitweb.cgi?p=openocd/openocd;a=blob_plain;f=src/target/mips32_pracc.c;hb=94fa8fd30ae5fd29529f401e123864565591e2ed.</A>
+This is so called &quot;PrAcc&quot; mode.
+
+Otherways, there is so called &quot;DMA&quot; mode which resembles more ARM
+debugging. CPU will still enter the DEBUG exception, and DMSEG will be
+become visible. But this time we will not pass MIPS ASM instructions
+via DMSEG for CPU to execute them and read/write memory, but will
+instruct DMA to do so (faster). This is also transparent for
+developer, as it issues high level mem read/write in GDB, and DMA
+commands are transparently handled by OpenOCD :
+<A HREF="http://openocd.git.sourceforge.net/git/gitweb.cgi?p=openocd/openocd;a=blob_plain;f=src/target/mips32_dmaacc.c;hb=94fa8fd30ae5fd29529f401e123864565591e2ed.">http://openocd.git.sourceforge.net/git/gitweb.cgi?p=openocd/openocd;a=blob_plain;f=src/target/mips32_dmaacc.c;hb=94fa8fd30ae5fd29529f401e123864565591e2ed.</A>
+
+&gt;<i>
+</I>&gt;<i> 3)
+</I>&gt;<i> Here : <A HREF="http://www.linux-mips.org/wiki/JTAG">http://www.linux-mips.org/wiki/JTAG</A> is written :
+</I>&gt;<i> MIPS EJTAG has two modes, one is &quot;DMA&quot; mode where the JTAG can cause
+</I>&gt;<i> CPU bus cycles directly, the other &quot;PrAcc&quot; is where the JTAG interface
+</I>&gt;<i> is used to respond to CPU memory accesses in a special range of memory
+</I>&gt;<i> (DMSEG, 0xFF200000) and you have to write little bits of MIPS code to
+</I>&gt;<i> do what you want and emulate that memory on the host side. All systems
+</I>&gt;<i> support PrAcc mode by nature. The DMA mode is optional and not as
+</I>&gt;<i> widely supported as the normal mode. The presence of DMA mode is noted
+</I>&gt;<i> in the IMPCODE register.
+</I>&gt;<i>
+</I>&gt;<i> Can anyone explain me what this would say &quot; JTAG can cause CPU bus
+</I>&gt;<i> cycles directly&quot; ?
+</I>I do not get this sentence quite even now... What did writer wanted to
+say with this, no idea
+
+&gt;<i>
+</I>&gt;<i> Can anyone confirm me that &quot; 'PrAcc' is where the JTAG interface is
+</I>&gt;<i> used to respond to CPU memory accesses in a special range of memory
+</I>&gt;<i> (DMSEG, 0xFF200000) &quot;, which I do not quite get, &#160;would actually say
+</I>&gt;<i> that &quot; ROM monitor is called when breakpoint exception is hit &quot;
+</I>Not quite, because :
+1) executed code is not exception handler, but MIPS ASM instructions
+passed by GDB/OpenOCD
+2) code is not read from exception vector space, but from DMSEG
+(virtual mem space, which is mapped to EJTAG, i.e. JTAG probe).
+
+&gt;<i> and
+</I>&gt;<i> explain what &quot;emulate that memory on the host side&quot; would say (I have
+</I>&gt;<i> no idea)...
+</I>Still no idea about this. What this &quot;emulation&quot; is supposed to be ?
+
+Hope that this will be useful, and that some MIPS guru will also
+comment and give additional clarifications.
+
+
+Best regards,
+Drasko
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017863.html">[Openocd-development] MIPS EJTAG ROM monitor or HALT mode debugging
+</A></li>
+	<LI>Next message: <A HREF="017865.html">[Openocd-development] LPC2xxx scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17876">[ date ]</a>
+              <a href="thread.html#17876">[ thread ]</a>
+              <a href="subject.html#17876">[ subject ]</a>
+              <a href="author.html#17876">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

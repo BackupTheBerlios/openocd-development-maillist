@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Removing unecessary code after jtag_xxx()	changes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Removing%20unecessary%20code%20after%20jtag_xxx%28%29%0A%09changes&In-Reply-To=%3Cc09652430801201303q66129461jfa5e2cf9c974187d%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000674.html">
+   <LINK REL="Next"  HREF="000677.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Removing unecessary code after jtag_xxx()	changes</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Removing%20unecessary%20code%20after%20jtag_xxx%28%29%0A%09changes&In-Reply-To=%3Cc09652430801201303q66129461jfa5e2cf9c974187d%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Removing unecessary code after jtag_xxx()	changes">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sun Jan 20 22:03:44 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000674.html">[Openocd-development] openocd + olimex on Ubuntu 7.10 problem
+</A></li>
+        <LI>Next message: <A HREF="000677.html">[Openocd-development] some minor xscale fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#676">[ date ]</a>
+              <a href="thread.html#676">[ thread ]</a>
+              <a href="subject.html#676">[ subject ]</a>
+              <a href="author.html#676">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There is now a fair amount of of unecessary code that
+can be deleted w/the latest jtag_xxx() changes.  Deleting
+this code will have no other effect than reduce the length
+of the application.
+
+- in_check_mask/value and in_handler_data are assumed to
+have undefined values in the case where in_handler is == NULL.
+Therefore it is not necessary to set them to NULL. This
+will remove ca. 500 lines of code total.
+- there are now lots of NULL pointers passed to jtag_xxx()
+functions that previously took a pointer to an error handler.
+
+The attached patch is only for illustrative purposes, it won't
+compile.
+
+However, rather than modifying that old code I'm thinking
+that it might make more sense to introduce a new
+jtag_xxxx() function to handle the most common case
+of jtag_add_dr/ir_scan(), leaving the existing functions
+as is(they cover more complex cases).
+
+What's a common case?
+
+	fields[0].device = jtag_info-&gt;chain_pos;
+	fields[0].num_bits = 1;
+	fields[0].out_value = &amp;access_type_buf;
+	fields[0].out_mask = NULL;
+	fields[0].in_value = NULL;
+	fields[0].in_check_value = NULL;
+	fields[0].in_check_mask = NULL;
+	fields[0].in_handler = NULL;
+	fields[0].in_handler_priv = NULL;
+
+- num_bits is almost *always* &lt; 32 bits.
+- device # is passed in
+- in_value is relatively often read back
+
+Something like(the names suck, haven't thought about that much
+and C doesn't support function argument overloading):
+
+void jtag_add_dr_scanCommon(int device, u32 out, int bits);
+
+u32 jtag_add_dr_scanCommonRead(int device, u32 out, int bits);
+
+
+To get the use of the primary return value back,
+jtag_execute() would be modified to return an error
+if jtag_add_xxx() fails, which is in line with the current
+API definition.
+
+The above should be trivial to implement for those sw + hw
+implementations that implement the entire jtag_xxx() layer
+in hw + sw.
+
+
+Then on the other hand there is bigger fish to fry. The point
+is that there is a lot of code can be deleted/simplified if
+anyone should feel the urge. :-)
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA  developer kit
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: removeunecessarycode.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080120/0e155131/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20080120/0e155131/attachment.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000674.html">[Openocd-development] openocd + olimex on Ubuntu 7.10 problem
+</A></li>
+	<LI>Next message: <A HREF="000677.html">[Openocd-development] some minor xscale fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#676">[ date ]</a>
+              <a href="thread.html#676">[ thread ]</a>
+              <a href="subject.html#676">[ subject ]</a>
+              <a href="author.html#676">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

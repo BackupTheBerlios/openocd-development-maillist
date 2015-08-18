@@ -1,0 +1,110 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] feroceon: tighten error checking in	bulk_write
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20feroceon%3A%20tighten%20error%20checking%20in%0A%09bulk_write&In-Reply-To=%3Calpine.LFD.2.00.0909110041220.6044%40xanadu.home%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010499.html">
+   <LINK REL="Next"  HREF="010486.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] feroceon: tighten error checking in	bulk_write</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20feroceon%3A%20tighten%20error%20checking%20in%0A%09bulk_write&In-Reply-To=%3Calpine.LFD.2.00.0909110041220.6044%40xanadu.home%3E"
+       TITLE="[Openocd-development] [PATCH] feroceon: tighten error checking in	bulk_write">nico at cam.org
+       </A><BR>
+    <I>Fri Sep 11 06:44:13 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010499.html">[Openocd-development] [PATCH] Dragonite support
+</A></li>
+        <LI>Next message: <A HREF="010486.html">[Openocd-development] [PATCH] feroceon: tighten error checking	in bulk_write
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10481">[ date ]</a>
+              <a href="thread.html#10481">[ thread ]</a>
+              <a href="subject.html#10481">[ subject ]</a>
+              <a href="author.html#10481">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Make sure the target is actually halted at the end of the transfer and
+confirm from the target's r0 content that the right amount of data was
+actually received.
+-------------- next part --------------
+feroceon: tighten error checking in bulk_write
+
+---
+ src/target/feroceon.c |   19 +++++++++++++++----
+ 1 files changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/src/target/feroceon.c b/src/target/feroceon.c
+index 5bbf72c..6a673b7 100644
+--- a/src/target/feroceon.c
++++ b/src/target/feroceon.c
+@@ -634,9 +634,20 @@ int feroceon_bulk_write_memory(target_t *target, uint32_t address, uint32_t coun
+ 		buffer += 4;
+ 	}
+ 
+-	target_halt(target);
+-	while (target-&gt;state != TARGET_HALTED)
+-		target_poll(target);
++	retval = target_halt(target);
++	if (retval == ERROR_OK)
++		retval = target_wait_state(target, TARGET_HALTED, 500);
++	if (retval == ERROR_OK) {
++                uint32_t endaddress =
++			buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[0].value, 0, 32);
++		if (endaddress != address + count*4) {
++			LOG_ERROR(&quot;DCC write failed,&quot;
++				&quot; expected end address 0x%08&quot; PRIx32
++				&quot; got 0x%0&quot; PRIx32 &quot;&quot;,
++			       	address + count*4, endaddress);
++			retval = ERROR_FAIL;
++		}
++	}
+ 
+ 	/* restore target state */
+ 	for (i = 0; i &lt;= 5; i++)
+@@ -650,7 +661,7 @@ int feroceon_bulk_write_memory(target_t *target, uint32_t address, uint32_t coun
+ 	armv4_5-&gt;core_cache-&gt;reg_list[15].dirty = 1;
+ 	armv4_5-&gt;core_state = core_state;
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ int feroceon_init_target(struct command_context_s *cmd_ctx, struct target_s *target)
+-- 
+1.6.5.rc0.164.g5f6b0
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010499.html">[Openocd-development] [PATCH] Dragonite support
+</A></li>
+	<LI>Next message: <A HREF="010486.html">[Openocd-development] [PATCH] feroceon: tighten error checking	in bulk_write
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10481">[ date ]</a>
+              <a href="thread.html#10481">[ thread ]</a>
+              <a href="subject.html#10481">[ subject ]</a>
+              <a href="author.html#10481">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

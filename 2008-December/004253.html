@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Beagleboard, reproducing recent status
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Beagleboard%2C%20reproducing%20recent%20status&In-Reply-To=%3C49572F6D.1070905%40googlemail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004252.html">
+   <LINK REL="Next"  HREF="004214.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Beagleboard, reproducing recent status</H1>
+    <B>Dirk Behme</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Beagleboard%2C%20reproducing%20recent%20status&In-Reply-To=%3C49572F6D.1070905%40googlemail.com%3E"
+       TITLE="[Openocd-development] Beagleboard, reproducing recent status">dirk.behme at googlemail.com
+       </A><BR>
+    <I>Sun Dec 28 08:49:01 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004252.html">[Openocd-development] Beagleboard, reproducing recent status
+</A></li>
+        <LI>Next message: <A HREF="004214.html">[Openocd-development] Beagleboard, reproducing recent status
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4253">[ date ]</a>
+              <a href="thread.html#4253">[ thread ]</a>
+              <a href="subject.html#4253">[ subject ]</a>
+              <a href="author.html#4253">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Duane Ellis wrote:
+&gt;<i> Dirk/Rick,
+</I>&gt;<i> 
+</I>&gt;<i> I know the two of you have been messing with Beagle board more then I...
+</I>&gt;<i> 
+</I>&gt;<i> Dust has settled here and I'm in a position to start messing with it...
+</I>
+:<i>)
+</I>
+Help from the experts is always welcome. Great!
+
+While Rick already answered most of your questions, here my style of 
+the answers, maybe they help you, too:
+
+&gt;<i> Some questions:
+</I>&gt;<i> 1) Is there anything pending - SVN wise? or is that up to date?
+</I>
+SVN top is fine. I'm using 1285 from yesterday.
+
+&gt;<i> 2) A copy of a recent config file you guys are using would be helpful.
+</I>
+Please find them in attachment. In omap3530.txt there are some 
+different options to try:
+
+Regarding jtag newtap:
+
+For jrc the -ircapture 0x1 -irmask 0xf one we started with. Then we 
+found that jrc ID code is at 0x4 and I switched to -ircapture 0x4 
+-irmask 0x0 as proposed by Rick. Maybe you like to review this.
+
+Regarding cpu tap-enable:
+
+There are three versions. The first one is the 'original' one which 
+circulated here at the mailing list, nobody can remember where it 
+comes from. I then compared this 'original' one with
+
+<A HREF="http://elinux.org/BeagleBoardJTAG#BDI_config">http://elinux.org/BeagleBoardJTAG#BDI_config</A>
+
+and found to replace 0x81002148 at the third drscan with 0x81000081. 
+We don't know what these commands are doing, though.
+
+Then looking at
+
+<A HREF="http://elinux.org/OMAP3530_ICEPICK">http://elinux.org/OMAP3530_ICEPICK</A>
+
+what is from TI's document resulted in the third configuration. There, 
+I'm not sure about the &quot;Embed the port address 0x0f000000 value 3&quot; in 
+TI's documentation.
+
+&gt;<i> 3) A short summary - of the *LONG* chain of emails would be helpful.
+</I>&gt;<i>  Where are you, what is known, unknown, etc.
+</I>
+Independent of which of the above configurations you use, the status 
+is always the same for me (see log below, too):
+
+* starting OpenOCD, doing a
+
+irscan omap3530.jrc 4
+drscan omap3530.jrc 32 0x0
+
+returns jrc IdCode.
+
+* Doing then a
+
+jtag tapenable omap3530.cpu
+
+and afterwards jrc IdCode isn't acessible any more with above commands.
+
+* Doing a hack in OpenOCD in jtag.c in JTAG_CMD_TAPENABLE by disabling 
+&quot;t-&gt;enabled&quot;:
+
+case JTAG_CMD_TAPENABLE:
+  jtag_tap_handle_event( t, JTAG_TAP_EVENT_ENABLE);
+  e = 1;
+  //t-&gt;enabled = e; // &lt;====== !!
+  break;
+
+results in jrc IdCode readable even after tapenable (not in the log 
+below, see mail history from yesterday).
+
+* In TI doc
+
+<A HREF="http://elinux.org/OMAP3530_ICEPICK">http://elinux.org/OMAP3530_ICEPICK</A>
+
+there is a
+
+## Function  : Wait for a minimum number of TCLK pulses.
+    Parameter : The count of TCLK pulses is '10'.
+
+At the moment we 'emulate' this by runtest 10. As I understand it, we 
+are not sure if this correct as it touches state machine while it 
+isn't ready yet. What I understand we might need a new OpenOCD 
+function &quot;wait 10 TCKs without touching anything&quot;.
+
+* Once we have omap3530.cpu working correctly, we assume IdCode at IR 
+0xE. So we assume
+
+irscan omap3530.cpu 0xe
+drscan omap3530.cpu 32 0x0
+
+returning a Coresight ID should be the final goal to prove that we can 
+access it.
+
+* At the moment we discuss to get an better idea how the scan chain 
+might be configured after tapenable (didn't read last mail from Rick 
+yet). This is the discussion with 0x55aa55aa.
+
+That's it for the moment.
+
+Best regards
+
+Dirk
+
+-- cut --
+ &gt; scan_chain
+      TapName            | Enabled |   IdCode      Expected    IrLen 
+IrCap  IrMask Instr
+---|--------------------|---------|------------|------------|------|------|------|-------- 
+              -
+  0 | omap3530.jrc       |    Y    | 0x0b7ae02f | 0x0b7ae02f | 0x06 | 
+0x04 | 0x00 | 0x3f
+  1 | omap3530.cpu       |    n    | 0x00000000 | 0xffffffff | 0x04 | 
+0x01 | 0x00 | 0x0f
+
+ &gt; irscan omap3530.jrc 0
+ &gt; drscan omap3530.jrc 32 0x0
+00000000
+ &gt; irscan omap3530.jrc 4
+ &gt; drscan omap3530.jrc 32 0x0
+0b7ae02f
+ &gt; irscan omap3530.jrc 4
+ &gt; drscan  omap3530.jrc 32 0x55aa55aa
+0b7ae02f
+ &gt; jtag tapenable omap3530.cpu
+Enabling Cortex-A8 @ OMAP3
+Cortex-A8 @ OMAP3 enabled
+1
+ &gt; irscan omap3530.jrc 4
+ &gt; drscan omap3530.jrc 32 0x0
+00000000
+ &gt; irscan omap3530.jrc 4
+ &gt; drscan  omap3530.jrc 32 0x55aa55aa
+00000000
+-- cut --
+
+
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: omap3530.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081228/954887f3/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20081228/954887f3/attachment.txt</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: openocd.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081228/954887f3/attachment-0001.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20081228/954887f3/attachment-0001.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004252.html">[Openocd-development] Beagleboard, reproducing recent status
+</A></li>
+	<LI>Next message: <A HREF="004214.html">[Openocd-development] Beagleboard, reproducing recent status
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4253">[ date ]</a>
+              <a href="thread.html#4253">[ thread ]</a>
+              <a href="subject.html#4253">[ subject ]</a>
+              <a href="author.html#4253">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

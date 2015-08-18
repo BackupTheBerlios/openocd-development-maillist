@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/2] Cortex-A8: basic watchpoint	support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20Cortex-A8%3A%20basic%20watchpoint%0A%09support&In-Reply-To=%3C200912012141.58589.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013201.html">
+   <LINK REL="Next"  HREF="013203.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/2] Cortex-A8: basic watchpoint	support</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20Cortex-A8%3A%20basic%20watchpoint%0A%09support&In-Reply-To=%3C200912012141.58589.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/2] Cortex-A8: basic watchpoint	support">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Dec  2 06:41:58 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013201.html">[Openocd-development] [patch 1/2] ARM: core DPM support for	watchpoints
+</A></li>
+        <LI>Next message: <A HREF="013203.html">[Openocd-development] s3c2410 nand operations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13200">[ date ]</a>
+              <a href="thread.html#13200">[ thread ]</a>
+              <a href="subject.html#13200">[ subject ]</a>
+              <a href="author.html#13200">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Actually this should handle both breakpoints and watchpoints ... but
+the DPM framework only handles watchpoints for now.  Works on Beagle.
+---
+ src/target/cortex_a8.c |   66 +++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 66 insertions(+)
+
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -460,6 +460,66 @@ static int cortex_a8_instr_read_data_r0(
+ 	return cortex_a8_read_dcc(a8, data, &amp;dscr);
+ }
+ 
++static int cortex_a8_bpwp_enable(struct arm_dpm *dpm, unsigned index,
++		uint32_t addr, uint32_t control)
++{
++	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
++	uint32_t vr = a8-&gt;armv7a_common.debug_base;
++	uint32_t cr = a8-&gt;armv7a_common.debug_base;
++	int retval;
++
++	switch (index) {
++	case 0 ... 15:		/* breakpoints */
++		vr += CPUDBG_BVR_BASE;
++		cr += CPUDBG_BCR_BASE;
++		break;
++	case 16 ... 31:		/* watchpoints */
++		vr += CPUDBG_WVR_BASE;
++		cr += CPUDBG_WCR_BASE;
++		index -= 16;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++	vr += 4 * index;
++	cr += 4 * index;
++
++	LOG_DEBUG(&quot;A8: bpwp enable, vr %08x cr %08x&quot;,
++			(unsigned) vr, (unsigned) cr);
++
++	retval = cortex_a8_dap_write_memap_register_u32(dpm-&gt;arm-&gt;target,
++			vr, addr);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cortex_a8_dap_write_memap_register_u32(dpm-&gt;arm-&gt;target,
++			cr, control);
++	return retval;
++}
++
++static int cortex_a8_bpwp_disable(struct arm_dpm *dpm, unsigned index)
++{
++	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
++	uint32_t cr;
++
++	switch (index) {
++	case 0 ... 15:
++		cr = a8-&gt;armv7a_common.debug_base + CPUDBG_BCR_BASE;
++		break;
++	case 16 ... 31:
++		cr = a8-&gt;armv7a_common.debug_base + CPUDBG_WCR_BASE;
++		index -= 16;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++	cr += 4 * index;
++
++	LOG_DEBUG(&quot;A8: bpwp disable, cr %08x&quot;, (unsigned) cr);
++
++	/* clear control register */
++	return cortex_a8_dap_write_memap_register_u32(dpm-&gt;arm-&gt;target, cr, 0);
++}
++
+ static int cortex_a8_dpm_setup(struct cortex_a8_common *a8, uint32_t didr)
+ {
+ 	struct arm_dpm *dpm = &amp;a8-&gt;armv7a_common.dpm;
+@@ -477,6 +537,9 @@ static int cortex_a8_dpm_setup(struct co
+ 	dpm-&gt;instr_read_data_dcc = cortex_a8_instr_read_data_dcc;
+ 	dpm-&gt;instr_read_data_r0 = cortex_a8_instr_read_data_r0;
+ 
++	dpm-&gt;bpwp_enable = cortex_a8_bpwp_enable;
++	dpm-&gt;bpwp_disable = cortex_a8_bpwp_disable;
++
+ 	return arm_dpm_setup(dpm);
+ }
+ 
+@@ -745,6 +808,7 @@ static int cortex_a8_debug_entry(struct 
+ 		case 5:		/* vector catch */
+ 			target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
+ 			break;
++		case 2:		/* asynch watchpoint */
+ 		case 10:	/* precise watchpoint */
+ 			target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
+ 			/* REVISIT could collect WFAR later, to see just
+@@ -1276,6 +1340,8 @@ static int cortex_a8_write_memory(struct
+ 		 *
+ 		 * For both ICache and DCache, walk all cache lines in the
+ 		 * address range. Cortex-A8 has fixed 64 byte line length.
++		 *
++		 * REVISIT per ARMv7, these may trigger watchpoints ...
+ 		 */
+ 
+ 		/* invalidate I-Cache */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013201.html">[Openocd-development] [patch 1/2] ARM: core DPM support for	watchpoints
+</A></li>
+	<LI>Next message: <A HREF="013203.html">[Openocd-development] s3c2410 nand operations
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13200">[ date ]</a>
+              <a href="thread.html#13200">[ thread ]</a>
+              <a href="subject.html#13200">[ subject ]</a>
+              <a href="author.html#13200">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

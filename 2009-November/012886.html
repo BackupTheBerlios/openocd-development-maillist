@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/4] Cortex-A8: minor cleanup
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20Cortex-A8%3A%20minor%20cleanup&In-Reply-To=%3C200911241446.11934.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012889.html">
+   <LINK REL="Next"  HREF="012902.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/4] Cortex-A8: minor cleanup</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20Cortex-A8%3A%20minor%20cleanup&In-Reply-To=%3C200911241446.11934.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/4] Cortex-A8: minor cleanup">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Nov 24 23:46:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012889.html">[Openocd-development] [patch 4/4] Cortex-A8: avoid DSCR reads
+</A></li>
+        <LI>Next message: <A HREF="012902.html">[Openocd-development] Flash Code for ADI's ADUC706x
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12886">[ date ]</a>
+              <a href="thread.html#12886">[ thread ]</a>
+              <a href="subject.html#12886">[ subject ]</a>
+              <a href="author.html#12886">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Make various functions static, add some comments, report
+vector catch as a flavor of DBG_REASON_BREAKPOINT, get
+rid of needless/undesirable ARMV4_5_CORE_REG_MODE, etc.
+---
+ src/target/cortex_a8.c |   54 ++++++++++++++++++++++++++++-------------------
+ src/target/cortex_a8.h |    7 +-----
+ 2 files changed, 35 insertions(+), 26 deletions(-)
+
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -89,7 +89,12 @@ static int cortex_a8_init_debug_access(s
+ 	return retval;
+ }
+ 
+-int cortex_a8_exec_opcode(struct target *target, uint32_t opcode)
++/* FIXME we waste a *LOT* of round-trips with needless DSCR reads, which
++ * slows down operations considerably.  One good way to start reducing
++ * them would pass current values into and out of this routine.  That
++ * should also help synch DCC read/write.
++ */
++static int cortex_a8_exec_opcode(struct target *target, uint32_t opcode)
+ {
+ 	uint32_t dscr;
+ 	int retval;
+@@ -592,6 +597,12 @@ static int cortex_a8_debug_entry(struct 
+ 	/* Enable the ITR execution once we are in debug mode */
+ 	mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
++
++	/* REVISIT see A8 TRM 12.11.4 steps 2..3 -- make sure that any
++	 * imprecise data aborts get discarded by issuing a Data
++	 * Synchronization Barrier:  ARMV4_5_MCR(15, 0, 0, 7, 10, 4).
++	 */
++
+ 	dscr |= (1 &lt;&lt; DSCR_EXT_INT_EN);
+ 	retval = mem_ap_write_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DSCR, dscr);
+@@ -599,22 +610,28 @@ static int cortex_a8_debug_entry(struct 
+ 	/* Examine debug reason */
+ 	switch ((cortex_a8-&gt;cpudbg_dscr &gt;&gt; 2)&amp;0xF)
+ 	{
+-		case 0:
+-		case 4:
++		case 0:		/* DRCR[0] write */
++		case 4:		/* EDBGRQ */
+ 			target-&gt;debug_reason = DBG_REASON_DBGRQ;
+ 			break;
+-		case 1:
+-		case 3:
++		case 1:		/* HW breakpoint */
++		case 3:		/* SW BKPT */
++		case 5:		/* vector catch */
+ 			target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
+ 			break;
+-		case 10:
++		case 10:	/* precise watchpoint */
+ 			target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
++			/* REVISIT could collect WFAR later, to see just
++			 * which instruction triggered the watchpoint.
++			 */
+ 			break;
+ 		default:
+ 			target-&gt;debug_reason = DBG_REASON_UNDEFINED;
+ 			break;
+ 	}
+ 
++	/* REVISIT fast_reg_read is never set ... */
++
+ 	/* Examine target state and mode */
+ 	if (cortex_a8-&gt;fast_reg_read)
+ 		target_alloc_working_area(target, 64, &amp;regfile_working_area);
+@@ -738,6 +755,7 @@ static int cortex_a8_step(struct target 
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+ 	struct breakpoint *breakpoint = NULL;
+ 	struct breakpoint stepbreakpoint;
++	struct reg *r;
+ 
+ 	int timeout = 100;
+ 
+@@ -748,17 +766,14 @@ static int cortex_a8_step(struct target 
+ 	}
+ 
+ 	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
++	r = armv4_5-&gt;core_cache-&gt;reg_list + 15;
+ 	if (!current)
+ 	{
+-		buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-					armv4_5-&gt;core_mode, ARM_PC).value,
+-				0, 32, address);
++		buf_set_u32(r-&gt;value, 0, 32, address);
+ 	}
+ 	else
+ 	{
+-		address = buf_get_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-					armv4_5-&gt;core_mode, ARM_PC).value,
+-				0, 32);
++		address = buf_get_u32(r-&gt;value, 0, 32);
+ 	}
+ 
+ 	/* The front-end may request us not to handle breakpoints.
+@@ -767,11 +782,7 @@ static int cortex_a8_step(struct target 
+ 	 */
+ 	handle_breakpoints = 1;
+ 	if (handle_breakpoints) {
+-		breakpoint = breakpoint_find(target,
+-				buf_get_u32(ARMV4_5_CORE_REG_MODE(
+-					armv4_5-&gt;core_cache,
+-					armv4_5-&gt;core_mode, 15).value,
+-			0, 32));
++		breakpoint = breakpoint_find(target, address);
+ 		if (breakpoint)
+ 			cortex_a8_unset_breakpoint(target, breakpoint);
+ 	}
+@@ -1235,7 +1246,8 @@ static int cortex_a8_unset_breakpoint(st
+ 	return ERROR_OK;
+ }
+ 
+-int cortex_a8_add_breakpoint(struct target *target, struct breakpoint *breakpoint)
++static int cortex_a8_add_breakpoint(struct target *target,
++		struct breakpoint *breakpoint)
+ {
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 
+@@ -1346,7 +1358,7 @@ static int cortex_a8_read_memory(struct 
+ 	return retval;
+ }
+ 
+-int cortex_a8_write_memory(struct target *target, uint32_t address,
++static int cortex_a8_write_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+@@ -1591,7 +1603,7 @@ static int cortex_a8_init_target(struct 
+ 	return ERROR_OK;
+ }
+ 
+-int cortex_a8_init_arch_info(struct target *target,
++static int cortex_a8_init_arch_info(struct target *target,
+ 		struct cortex_a8_common *cortex_a8, struct jtag_tap *tap)
+ {
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+@@ -1605,7 +1617,7 @@ int cortex_a8_init_arch_info(struct targ
+ 	/* prepare JTAG information for the new target */
+ 	cortex_a8-&gt;jtag_info.tap = tap;
+ 	cortex_a8-&gt;jtag_info.scann_size = 4;
+-LOG_DEBUG(&quot; &quot;);
++
+ 	swjdp-&gt;dp_select_value = -1;
+ 	swjdp-&gt;ap_csw_value = -1;
+ 	swjdp-&gt;ap_tar_value = -1;
+--- a/src/target/cortex_a8.h
++++ b/src/target/cortex_a8.h
+@@ -85,7 +85,7 @@ struct cortex_a8_brp
+ 	int type;
+ 	uint32_t value;
+ 	uint32_t control;
+-	uint8_t 	BRPn;
++	uint8_t BRPn;
+ };
+ 
+ struct cortex_a8_wrp
+@@ -94,7 +94,7 @@ struct cortex_a8_wrp
+ 	int type;
+ 	uint32_t value;
+ 	uint32_t control;
+-	uint8_t 	WRPn;
++	uint8_t WRPn;
+ };
+ 
+ struct cortex_a8_common
+@@ -140,7 +140,4 @@ target_to_cortex_a8(struct target *targe
+ 			armv7a_common.armv4_5_common);
+ }
+ 
+-int cortex_a8_init_arch_info(struct target *target,
+-		struct cortex_a8_common *cortex_a8, struct jtag_tap *tap);
+-
+ #endif /* CORTEX_A8_H */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012889.html">[Openocd-development] [patch 4/4] Cortex-A8: avoid DSCR reads
+</A></li>
+	<LI>Next message: <A HREF="012902.html">[Openocd-development] Flash Code for ADI's ADUC706x
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12886">[ date ]</a>
+              <a href="thread.html#12886">[ thread ]</a>
+              <a href="subject.html#12886">[ subject ]</a>
+              <a href="author.html#12886">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

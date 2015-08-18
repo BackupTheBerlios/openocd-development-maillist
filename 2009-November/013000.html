@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [RFC] proposal to fix another regression
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20proposal%20to%20fix%20another%20regression&In-Reply-To=%3C1259367840.5314.2207.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012999.html">
+   <LINK REL="Next"  HREF="013004.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [RFC] proposal to fix another regression</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20proposal%20to%20fix%20another%20regression&In-Reply-To=%3C1259367840.5314.2207.camel%40localhost%3E"
+       TITLE="[Openocd-development] [RFC] proposal to fix another regression">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Nov 28 01:24:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012999.html">[Openocd-development] [PATCH] fix regression causing duplicated	output
+</A></li>
+        <LI>Next message: <A HREF="013004.html">[Openocd-development] [PATCH 1/2] add 'command type' introspective	handler
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13000">[ date ]</a>
+              <a href="thread.html#13000">[ thread ]</a>
+              <a href="subject.html#13000">[ subject ]</a>
+              <a href="author.html#13000">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Well, drat.  The patch that I pushed had some unintended consequences.
+Any Jim subcommand handlers' output now gets suppressed too, which
+negatively affected my recently posted series to split apart the
+top-level Jim handlers.
+
+While I am impacted severely, most everything that worked before my
+refactoring should work again with only a couple of minor exceptions
+(e.g. 'flash banks').  At the moment, any Jim-based subcommands will
+appear to be broken; this can be overcome by prefixing the first command
+verb with 'ocd_'  (e.g. 'flash banks' works fine as 'ocd_flash banks').
+This is a feeble temporary workaround, until I can put a more lasting
+solution into place; however, there are few such handlers at present.
+
+My proposed solution would be to update the &quot;catcher&quot; script to check
+whether the ocd_ variant needs to be wrapped, which depends on the last
+command verb.  I am thinking about implementing this by introducing a
+new 'command type' built-in, which would return 'jim' or 'handler' for a
+given command invocation.
+
+All 'handler' commands would continue to use the 'catch' block to
+capture and consume the output, while 'jim' commands would pass their
+output unmolested.   The use of the 'command' verb paves the way to
+support other useful introspective actions, but those features would
+come in a subsequent patch series.
+
+Incidentally, I am allowing for the future extension of a 'script' type,
+which would allow calling another Jim function as a subcommand.  Thus,
+users might add their own subcommands in any part of the command tree,
+using only Jim commands to do so.  This also suggests a Jim event for
+registering context-specific Jim commands (e.g. 'foo.cpu mycommand') or
+updating the event system to define handlers as 'script' subcommands.
+
+Thoughts?
+
+--Z
+
+On Fri, 2009-11-27 at 14:52 -0800, Zach Welch wrote:
+&gt;<i> I just pushed a slightly improved version of the patch, which improves
+</I>&gt;<i> the fallback logic.  It also uses the same trick for the help fallback,
+</I>&gt;<i> which was broken in the original version below.
+</I>&gt;<i> 
+</I>&gt;<i> --Z
+</I>&gt;<i> 
+</I>&gt;<i> On Fri, 2009-11-27 at 14:08 -0800, Zachary T Welch wrote:
+</I>&gt;<i> &gt; The command refactoring caused subcommand handlers to produce duplicate
+</I>&gt;<i> &gt; output when run.  The problem was introduced by failing to ensure all
+</I>&gt;<i> &gt; such invocations went through a top-level &quot;catcher&quot; script, prefixing
+</I>&gt;<i> &gt; the command name with the 'ocd_' prefix and consuming its results.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; The fix is to ensure such a top-level &quot;catcher&quot; script gets created
+</I>&gt;<i> &gt; for each top-level command, regardless of whether it has a handler.
+</I>&gt;<i> &gt; Indeed, this patch removes all command registrations for sub-commands,
+</I>&gt;<i> &gt; which would not have worked in the new registration scheme anyway.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; For now, dispatch of subcommands continues to be handled by the new
+</I>&gt;<i> &gt; 'unknown' command handler, which gets fixed here to strip the 'ocd_'
+</I>&gt;<i> &gt; prefix if searching for the top-level command name fails initially.
+</I>&gt;<i> &gt; Some Jim commands may be registered with this prefix, and that situation
+</I>&gt;<i> &gt; seems to require the current fallback approach.  Otherwise, that prefix
+</I>&gt;<i> &gt; could be stripped unconditionally and the logic made a little simpler.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Overall, the command dispatching remains more complicated than desired,
+</I>&gt;<i> &gt; but this patch fixes the immediate regressions.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+</I>&gt;<i> &gt; ---
+</I>&gt;<i> &gt;  src/helper/command.c |   45 +++++++++++++++++++++++++++++++--------------
+</I>&gt;<i> &gt;  1 files changed, 31 insertions(+), 14 deletions(-)
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; diff --git a/src/helper/command.c b/src/helper/command.c
+</I>&gt;<i> &gt; index 62fb487..135cd3f 100644
+</I>&gt;<i> &gt; --- a/src/helper/command.c
+</I>&gt;<i> &gt; +++ b/src/helper/command.c
+</I>&gt;<i> &gt; @@ -44,6 +44,9 @@
+</I>&gt;<i> &gt;  #include &quot;jim-eventloop.h&quot;
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; +/* nice short description of source file */
+</I>&gt;<i> &gt; +#define __THIS__FILE__ &quot;command.c&quot;
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt;  Jim_Interp *interp = NULL;
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  static int run_command(struct command_context *context,
+</I>&gt;<i> &gt; @@ -185,8 +188,12 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+</I>&gt;<i> &gt;  	return script_command_run(interp, argc, argv, c, true);
+</I>&gt;<i> &gt;  }
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt; -/* nice short description of source file */
+</I>&gt;<i> &gt; -#define __THIS__FILE__ &quot;command.c&quot;
+</I>&gt;<i> &gt; +static struct command *command_root(struct command *c)
+</I>&gt;<i> &gt; +{
+</I>&gt;<i> &gt; +	while (NULL != c-&gt;parent)
+</I>&gt;<i> &gt; +		c = c-&gt;parent;
+</I>&gt;<i> &gt; +	return c;
+</I>&gt;<i> &gt; +}
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  /**
+</I>&gt;<i> &gt;   * Find a command by name from a list of commands.
+</I>&gt;<i> &gt; @@ -296,19 +303,22 @@ static int register_command_handler(struct command *c)
+</I>&gt;<i> &gt;  	if (NULL == full_name)
+</I>&gt;<i> &gt;  		return retval;
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt; -	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
+</I>&gt;<i> &gt; -	if (NULL == full_name)
+</I>&gt;<i> &gt; -		goto free_full_name;
+</I>&gt;<i> &gt; +	if (NULL != c-&gt;handler)
+</I>&gt;<i> &gt; +	{
+</I>&gt;<i> &gt; +		const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
+</I>&gt;<i> &gt; +		if (NULL == full_name)
+</I>&gt;<i> &gt; +			goto free_full_name;
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt; -	Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
+</I>&gt;<i> &gt; -	free((void *)ocd_name);
+</I>&gt;<i> &gt; +		Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
+</I>&gt;<i> &gt; +		free((void *)ocd_name);
+</I>&gt;<i> &gt; +	}
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  	/* we now need to add an overrideable proc */
+</I>&gt;<i> &gt;  	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
+</I>&gt;<i> &gt;  			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
+</I>&gt;<i> &gt;  			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
+</I>&gt;<i> &gt;  			full_name, full_name);
+</I>&gt;<i> &gt; -	if (NULL == full_name)
+</I>&gt;<i> &gt; +	if (NULL == override_name)
+</I>&gt;<i> &gt;  		goto free_full_name;
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
+</I>&gt;<i> &gt; @@ -343,7 +353,7 @@ struct command* register_command(struct command_context *context,
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  	if (NULL != c-&gt;handler)
+</I>&gt;<i> &gt;  	{
+</I>&gt;<i> &gt; -		int retval = register_command_handler(c);
+</I>&gt;<i> &gt; +		int retval = register_command_handler(command_root(c));
+</I>&gt;<i> &gt;  		if (ERROR_OK != retval)
+</I>&gt;<i> &gt;  		{
+</I>&gt;<i> &gt;  			unregister_command(context, parent, name);
+</I>&gt;<i> &gt; @@ -875,15 +885,22 @@ COMMAND_HANDLER(handle_help_command)
+</I>&gt;<i> &gt;  }
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+</I>&gt;<i> &gt; -		struct command *head, struct command **out)
+</I>&gt;<i> &gt; +		struct command *head, struct command **out, bool top_level)
+</I>&gt;<i> &gt;  {
+</I>&gt;<i> &gt;  	if (0 == argc)
+</I>&gt;<i> &gt;  		return argc;
+</I>&gt;<i> &gt; -	struct command *c = command_find(head, Jim_GetString(argv[0], NULL));
+</I>&gt;<i> &gt; +	const char *cmd_name = Jim_GetString(argv[0], NULL);
+</I>&gt;<i> &gt; +	struct command *c = command_find(head, cmd_name);
+</I>&gt;<i> &gt;  	if (NULL == c)
+</I>&gt;<i> &gt; -		return argc;
+</I>&gt;<i> &gt; +	{
+</I>&gt;<i> &gt; +		if (top_level &amp;&amp; strncmp(cmd_name, &quot;ocd_&quot;, 4) == 0)
+</I>&gt;<i> &gt; +			c = command_find(head, cmd_name + 4);
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +		if (NULL == c)
+</I>&gt;<i> &gt; +			return argc;
+</I>&gt;<i> &gt; +	}
+</I>&gt;<i> &gt;  	*out = c;
+</I>&gt;<i> &gt; -	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out);
+</I>&gt;<i> &gt; +	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out, false);
+</I>&gt;<i> &gt;  }
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+</I>&gt;<i> &gt; @@ -893,7 +910,7 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+</I>&gt;<i> &gt;  
+</I>&gt;<i> &gt;  	struct command_context *cmd_ctx = current_command_context();
+</I>&gt;<i> &gt;  	struct command *c = cmd_ctx-&gt;commands;
+</I>&gt;<i> &gt; -	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c);
+</I>&gt;<i> &gt; +	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c, true);
+</I>&gt;<i> &gt;  	// if nothing could be consumed, then it's really an unknown command
+</I>&gt;<i> &gt;  	if (remaining == argc - 1)
+</I>&gt;<i> &gt;  	{
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012999.html">[Openocd-development] [PATCH] fix regression causing duplicated	output
+</A></li>
+	<LI>Next message: <A HREF="013004.html">[Openocd-development] [PATCH 1/2] add 'command type' introspective	handler
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13000">[ date ]</a>
+              <a href="thread.html#13000">[ thread ]</a>
+              <a href="subject.html#13000">[ subject ]</a>
+              <a href="author.html#13000">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] cortex_a :smp feature
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20cortex_a%20%3Asmp%20feature&In-Reply-To=%3CA3217089E06965468FCEC60ADC3A8F9255FE3F8928%40EXDCVYMBSTM006.EQ1STM.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018870.html">
+   <LINK REL="Next"  HREF="018872.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] cortex_a :smp feature</H1>
+    <B>Michel JAOUEN</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20cortex_a%20%3Asmp%20feature&In-Reply-To=%3CA3217089E06965468FCEC60ADC3A8F9255FE3F8928%40EXDCVYMBSTM006.EQ1STM.local%3E"
+       TITLE="[Openocd-development] cortex_a :smp feature">michel.jaouen at stericsson.com
+       </A><BR>
+    <I>Tue Apr 19 11:24:17 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018870.html">[Openocd-development] cortex_a :smp feature
+</A></li>
+        <LI>Next message: <A HREF="018872.html">[Openocd-development] cortex_a :smp feature
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18871">[ date ]</a>
+              <a href="thread.html#18871">[ thread ]</a>
+              <a href="subject.html#18871">[ subject ]</a>
+              <a href="author.html#18871">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+Here is some documentation.
+
+
+1.OPENOCD NEW COMMAND 
+
+1.1 TARGET NEW COMMAND 
+smp command in target, allows to group the target working in smp. 
+
+target smp  targetname1 targetname2 targetname3 ...
+
+all target have different coreid
+targetname1 has coreid 0 
+targetname2 has coreid 1
+targetname3 has coreid 2
+...
+With this command only one gdb session is created for the list of target.
+
+1.2 CORTEX_A NEW COMMAND
+
+As follow, here is the list of additional commands for target cortex_A 
+(This commands apply to the current target (cortex_a8))
+
+1.2.1 cortex_a8 smp_on 
+following this command, the behavior is as follow.
+- the set of hardware breakpoint =&gt; the same hardware break point is set on all target list.
+- halt command =&gt; trigger the halt of the other target
+- resume command =&gt; trigger the write of context of all target in the list, the restart of current target launch the restart of the other.
+- a dedicated gdb command is implemented for switching the target displayed by the gdb session see 2. 
+- following a breakpoint: the target stopped by the breakpoint is displayed to the gdb session. 
+
+1.2.2 cortex_a8 smp_off
+The current target is the one displayed in the gdb session, only this target is controlled, this behavior is needed during 
+system boot (u-boot for instance)
+
+1.2.3 cortex_a8 smp_gdb 
+Display/fix the target number displayed in gdb instance
+This command is mainly for testing.
+example : 
+&gt;<i>cortex_a8 smp_gdb 
+</I>gdb coreid  0 -&gt; -1  
+
+0 : coreid 0 is displayed to gdb ,-&gt; -1 : next resume triggers a real resume
+
+&gt;<i> cortex_a8 smp_gdb 1
+</I>gdb coreid  0 -&gt; 1   
+
+0 :coreid 0 is displayed to gdb ,-&gt;1  : next resume displays coreid 1 to gdb 
+
+&gt;<i> resume
+</I>&gt;<i> cortex_a8 smp_gdb  
+</I>gdb coreid  1 -&gt; 1
+1 :coreid 1 is displayed to gdb ,-&gt;1 : next resume displays coreid 1 to gdb
+&gt;<i> cortex_a8 smp_gdb -1
+</I>gdb coreid  1 -&gt; -1
+1 :coreid 1 is displayed to gdb, -1 : next resume triggers a real resume
+
+
+2.GDB PROTOCOL ADDSON FOR DISPLAYING OTHER CORE CONTEXT
+
+It is a copy paste of explanations from src/target/smp.c
+/*  implementation of new packet in gdb interface for smp feature          */
+/*                                                                         */
+/*   j : smp  status request                                               */
+/*   J : smp  set request                                                  */
+/*                                                                         */
+/*   jc :read core id displayed by gdb connection                          */
+/*   reply XXXXXXXX core id is int32_t , 8 hex digits                      */
+/*                                                                         */
+/*   Reply ENN error not supported (target not smp)                        */
+/*                                                                         */
+/*   JcXX  set core id displayed at next gdb continue                      */
+/*   maximum 8 bytes described core id int32_t (8 hex digits)              */
+/*  (core id -1 , reserved for returning to normal continue mode) */
+/*  Reply ENN error not supported(target not smp,core id out of range)     */
+/*  Reply OK : for success                                                 */
+/*                                                                         */
+/*  handling of this packet within gdb can be done by the creation         */
+/*  internal variable by mean of function allocate_computed_value          */
+/*  set $_core 1 =&gt; Jc01 packet is sent                                    */
+/*  print $_core =&gt; jc packet is sent and result is affected in $          */
+/*  Another way to test this packet is the usage of maintenance packet     */
+/*  maint packet Jc01                                                      */
+/*  maint packet jc       
+
+Example in a .gdbscript for a target with 2 core having id 0 and 1 (u8500)
+/* force the display of coreid 0 */
+define toggle0
+maint packet Jc0
+continue
+maint packet Jc-1
+end
+/* force the display of coreid 1 */
+define toggle1
+mmaintenance packet Jc1
+continue
+maintenance packet Jc-1
+maint packet jc
+end
+
+3. GDB RESET PACKET USAGE
+
+Example of script for resetting target in gdb (u8500)
+define reset
+maintenance packet R
+maintenance packet Jc0
+continue
+maintenance packet Jc-1
+end
+
+
+-----Original Message-----
+From: &#216;yvind Harboe [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>] 
+Sent: Tuesday, April 19, 2011 10:11 AM
+To: Michel JAOUEN
+Cc: Tomek CEDRO; luca ellero; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+Subject: Re: [Openocd-development] cortex_a :smp feature
+
+Hi Michel,
+
+thanks for the effort here!
+
+Could you write some documentation?
+
+I'd like to let these patches cool off and leave some time for feedback.
+
+-- 
+&#216;yvind Harboe
+
+Can Zylin Consulting help on your project?
+
+US toll free 1-866-980-3434 / International +47 51 87 40 27
+
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018870.html">[Openocd-development] cortex_a :smp feature
+</A></li>
+	<LI>Next message: <A HREF="018872.html">[Openocd-development] cortex_a :smp feature
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18871">[ date ]</a>
+              <a href="thread.html#18871">[ thread ]</a>
+              <a href="subject.html#18871">[ subject ]</a>
+              <a href="author.html#18871">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

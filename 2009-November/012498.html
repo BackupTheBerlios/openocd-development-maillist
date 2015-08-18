@@ -1,0 +1,378 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/3] ARM: only use one set of dummy	FPA registers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM%3A%20only%20use%20one%20set%20of%20dummy%0A%09FPA%20registers&In-Reply-To=%3C200911171543.09479.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012503.html">
+   <LINK REL="Next"  HREF="012499.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/3] ARM: only use one set of dummy	FPA registers</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/3%5D%20ARM%3A%20only%20use%20one%20set%20of%20dummy%0A%09FPA%20registers&In-Reply-To=%3C200911171543.09479.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/3] ARM: only use one set of dummy	FPA registers">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Nov 18 00:43:09 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012503.html">[Openocd-development] [patch 4/3] ARM: rework ARMv7-A register init
+</A></li>
+        <LI>Next message: <A HREF="012499.html">[Openocd-development] [patch 2/3] ARM: add arm_mode_name()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12498">[ date ]</a>
+              <a href="thread.html#12498">[ thread ]</a>
+              <a href="subject.html#12498">[ subject ]</a>
+              <a href="author.html#12498">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>All ARM cores need to provide obsolete FPA registers in their
+GDB register dumps.  (Even though cores with floating point
+support now generally use some version of VFP...)
+
+Clean up that support a bit by sharing the same dummy registers,
+and removing the duplicate copies.  Eventually we shouldn't need
+to export those dummies.
+
+(This makes the ARMv7-M support include the armv4_5 header, and
+cleans up related #includes, but doesn't yet use anything from
+there except those dummies.)
+---
+ src/flash/lpc2000.c    |    1 -
+ src/target/arm11.c     |   41 +++--------------------------------------
+ src/target/armv4_5.c   |   45 ++++++++++++++++++++++++++++-----------------
+ src/target/armv4_5.h   |    2 ++
+ src/target/armv7a.c    |   15 ---------------
+ src/target/armv7m.c    |   37 ++-----------------------------------
+ src/target/armv7m.h    |    1 +
+ src/target/cortex_m3.c |    3 +++
+ src/target/cortex_m3.h |    1 -
+ 9 files changed, 39 insertions(+), 107 deletions(-)
+
+--- a/src/flash/lpc2000.c
++++ b/src/flash/lpc2000.c
+@@ -26,7 +26,6 @@
+ #endif
+ 
+ #include &quot;lpc2000.h&quot;
+-#include &quot;armv4_5.h&quot;
+ #include &quot;armv7m.h&quot;
+ #include &quot;binarybuffer.h&quot;
+ #include &quot;algorithm.h&quot;
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -246,36 +246,6 @@ enum arm11_regcache_ids
+ 
+ #define ARM11_GDB_REGISTER_COUNT	26
+ 
+-/* FIXME these are *identical* to the ARMv4_5 dummies ...  except
+- * for their names, and being static vs global, and having different
+- * addresses.  Ditto ARMv7a and ARMv7m dummies.
+- */
+-
+-static uint8_t arm11_gdb_dummy_fp_value[12];
+-
+-static struct reg arm11_gdb_dummy_fp_reg =
+-{
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = arm11_gdb_dummy_fp_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 96,
+-	.arch_info = NULL,
+-};
+-
+-static uint8_t arm11_gdb_dummy_fps_value[4];
+-
+-static struct reg arm11_gdb_dummy_fps_reg =
+-{
+-	.name = &quot;GDB dummy floating-point status register&quot;,
+-	.value = arm11_gdb_dummy_fps_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 32,
+-	.arch_info = NULL,
+-};
+-
+-
+ static int arm11_on_enter_debug_state(struct arm11_common *arm11);
+ static int arm11_step(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints);
+@@ -1265,12 +1235,10 @@ static int arm11_get_gdb_reg_list(struct
+ 	*reg_list_size	= ARM11_GDB_REGISTER_COUNT;
+ 	*reg_list		= malloc(sizeof(struct reg*) * ARM11_GDB_REGISTER_COUNT);
+ 
++	/* nine unused legacy FPA registers are expected by GDB */
+ 	for (size_t i = 16; i &lt; 24; i++)
+-	{
+-		(*reg_list)[i] = &amp;arm11_gdb_dummy_fp_reg;
+-	}
+-
+-	(*reg_list)[24] = &amp;arm11_gdb_dummy_fps_reg;
++		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
++	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+ 
+ 	for (size_t i = 0; i &lt; ARM11_REGCACHE_COUNT; i++)
+ 	{
+@@ -1954,9 +1922,6 @@ static int arm11_build_reg_cache(struct 
+ 	NEW(struct reg,				reg_list,			ARM11_REGCACHE_COUNT);
+ 	NEW(struct arm11_reg_state,	arm11_reg_states,	ARM11_REGCACHE_COUNT);
+ 
+-	register_init_dummy(&amp;arm11_gdb_dummy_fp_reg);
+-	register_init_dummy(&amp;arm11_gdb_dummy_fps_reg);
+-
+ 	arm11-&gt;reg_list	= reg_list;
+ 
+ 	/* Build the process context cache */
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -189,30 +189,44 @@ int armv4_5_core_reg_map[7][17] =
+ 	}
+ };
+ 
+-uint8_t armv4_5_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++static const uint8_t arm_gdb_dummy_fp_value[12];
+ 
+-struct reg armv4_5_gdb_dummy_fp_reg =
++/**
++ * Dummy FPA registers are required to support GDB on ARM.
++ * Register packets require eight obsolete FPA register values.
++ * Modern ARM cores use Vector Floating Point (VFP), if they
++ * have any floating point support.  VFP is not FPA-compatible.
++ */
++struct reg arm_gdb_dummy_fp_reg =
+ {
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = armv4_5_gdb_dummy_fp_value,
+-	.dirty = 0,
++	.name = &quot;GDB dummy FPA register&quot;,
++	.value = (uint8_t *) arm_gdb_dummy_fp_value,
+ 	.valid = 1,
+ 	.size = 96,
+-	.arch_info = NULL,
+ };
+ 
+-uint8_t armv4_5_gdb_dummy_fps_value[] = {0, 0, 0, 0};
++static const uint8_t arm_gdb_dummy_fps_value[4];
+ 
+-struct reg armv4_5_gdb_dummy_fps_reg =
++/**
++ * Dummy FPA status registers are required to support GDB on ARM.
++ * Register packets require an obsolete FPA status register.
++ */
++struct reg arm_gdb_dummy_fps_reg =
+ {
+-	.name = &quot;GDB dummy floating-point status register&quot;,
+-	.value = armv4_5_gdb_dummy_fps_value,
+-	.dirty = 0,
++	.name = &quot;GDB dummy FPA status register&quot;,
++	.value = (uint8_t *) arm_gdb_dummy_fps_value,
+ 	.valid = 1,
+ 	.size = 32,
+-	.arch_info = NULL,
+ };
+ 
++static void arm_gdb_dummy_init(void) __attribute__ ((constructor));
++
++static void arm_gdb_dummy_init(void)
++{
++	register_init_dummy(&amp;arm_gdb_dummy_fp_reg);
++	register_init_dummy(&amp;arm_gdb_dummy_fps_reg);
++}
++
+ int armv4_5_get_core_reg(struct reg *reg)
+ {
+ 	int retval;
+@@ -313,9 +327,6 @@ struct reg_cache* armv4_5_build_reg_cach
+ 	cache-&gt;reg_list = reg_list;
+ 	cache-&gt;num_regs = num_regs;
+ 
+-	register_init_dummy(&amp;armv4_5_gdb_dummy_fp_reg);
+-	register_init_dummy(&amp;armv4_5_gdb_dummy_fps_reg);
+-
+ 	for (i = 0; i &lt; 37; i++)
+ 	{
+ 		arch_info[i] = armv4_5_core_reg_list_arch_info[i];
+@@ -550,10 +561,10 @@ int armv4_5_get_gdb_reg_list(struct targ
+ 
+ 	for (i = 16; i &lt; 24; i++)
+ 	{
+-		(*reg_list)[i] = &amp;armv4_5_gdb_dummy_fp_reg;
++		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
+ 	}
+ 
+-	(*reg_list)[24] = &amp;armv4_5_gdb_dummy_fps_reg;
++	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+ 	(*reg_list)[25] = &amp;armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR];
+ 
+ 	return ERROR_OK;
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -158,6 +158,8 @@ int arm_checksum_memory(struct target *t
+ int arm_blank_check_memory(struct target *target,
+ 		uint32_t address, uint32_t count, uint32_t *blank);
+ 
++extern struct reg arm_gdb_dummy_fp_reg;
++extern struct reg arm_gdb_dummy_fps_reg;
+ 
+ /* ARM mode instructions
+  */
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -144,21 +144,6 @@ int armv7a_core_reg_map[8][17] =
+ 	}
+ };
+ 
+-/* FIXME this dummy is IDENTICAL to the armv4_5, arm11, and armv7m
+- * ones... except for naming/scoping
+- */
+-uint8_t armv7a_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+-
+-struct reg armv7a_gdb_dummy_fp_reg =
+-{
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = armv7a_gdb_dummy_fp_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 96,
+-	.arch_info = NULL,
+-};
+-
+ void armv7a_show_fault_registers(struct target *target)
+ {
+ 	uint32_t dfsr, ifsr, dfar, ifar;
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -35,7 +35,6 @@
+ #endif
+ 
+ #include &quot;breakpoints.h&quot;
+-#include &quot;target.h&quot;
+ #include &quot;armv7m.h&quot;
+ #include &quot;algorithm.h&quot;
+ #include &quot;register.h&quot;
+@@ -59,33 +58,6 @@ static char *armv7m_exception_strings[] 
+ 	&quot;DebugMonitor&quot;, &quot;RESERVED&quot;, &quot;PendSV&quot;, &quot;SysTick&quot;
+ };
+ 
+-/* FIXME these dummies are IDENTICAL to the armv4_5, arm11, and armv7a
+- * ones... except for naming/scoping
+- */
+-static uint8_t armv7m_gdb_dummy_fp_value[12];
+-
+-static struct reg armv7m_gdb_dummy_fp_reg =
+-{
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = armv7m_gdb_dummy_fp_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 96,
+-	.arch_info = NULL,
+-};
+-
+-static uint8_t armv7m_gdb_dummy_fps_value[4];
+-
+-static struct reg armv7m_gdb_dummy_fps_reg =
+-{
+-	.name = &quot;GDB dummy floating-point status register&quot;,
+-	.value = armv7m_gdb_dummy_fps_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 32,
+-	.arch_info = NULL,
+-};
+-
+ #ifdef ARMV7_GDB_HACKS
+ uint8_t armv7m_gdb_dummy_cpsr_value[] = {0, 0, 0, 0};
+ 
+@@ -316,11 +288,8 @@ int armv7m_get_gdb_reg_list(struct targe
+ 	}
+ 
+ 	for (i = 16; i &lt; 24; i++)
+-	{
+-		(*reg_list)[i] = &amp;armv7m_gdb_dummy_fp_reg;
+-	}
+-
+-	(*reg_list)[24] = &amp;armv7m_gdb_dummy_fps_reg;
++		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
++	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+ 
+ #ifdef ARMV7_GDB_HACKS
+ 	/* use dummy cpsr reg otherwise gdb may try and set the thumb bit */
+@@ -553,11 +522,9 @@ struct reg_cache *armv7m_build_reg_cache
+ 	struct armv7m_core_reg *arch_info = calloc(num_regs, sizeof(struct armv7m_core_reg));
+ 	int i;
+ 
+-	register_init_dummy(&amp;armv7m_gdb_dummy_fps_reg);
+ #ifdef ARMV7_GDB_HACKS
+ 	register_init_dummy(&amp;armv7m_gdb_dummy_cpsr_reg);
+ #endif
+-	register_init_dummy(&amp;armv7m_gdb_dummy_fp_reg);
+ 
+ 	/* Build the process context cache */
+ 	cache-&gt;name = &quot;arm v7m registers&quot;;
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -27,6 +27,7 @@
+ #define ARMV7M_COMMON_H
+ 
+ #include &quot;arm_adi_v5.h&quot;
++#include &quot;armv4_5.h&quot;
+ 
+ /* define for enabling armv7 gdb workarounds */
+ #if 1
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -334,6 +334,9 @@ static int cortex_m3_debug_entry(struct 
+ 	xPSR = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32);
+ 
+ #ifdef ARMV7_GDB_HACKS
++	/* FIXME this breaks on scan chains with more than one Cortex-M3.
++	 * Instead, each CM3 should have its own dummy value...
++	 */
+ 	/* copy real xpsr reg for gdb, setting thumb bit */
+ 	buf_set_u32(armv7m_gdb_dummy_cpsr_value, 0, 32, xPSR);
+ 	buf_set_u32(armv7m_gdb_dummy_cpsr_value, 5, 1, 1);
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -26,7 +26,6 @@
+ #ifndef CORTEX_M3_H
+ #define CORTEX_M3_H
+ 
+-#include &quot;target.h&quot;
+ #include &quot;armv7m.h&quot;
+ 
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012503.html">[Openocd-development] [patch 4/3] ARM: rework ARMv7-A register init
+</A></li>
+	<LI>Next message: <A HREF="012499.html">[Openocd-development] [patch 2/3] ARM: add arm_mode_name()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12498">[ date ]</a>
+              <a href="thread.html#12498">[ thread ]</a>
+              <a href="subject.html#12498">[ subject ]</a>
+              <a href="author.html#12498">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

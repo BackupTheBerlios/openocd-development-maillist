@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 10/12] refactor script_command context	grabbing
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2010/12%5D%20refactor%20script_command%20context%0A%09grabbing&In-Reply-To=%3C1259100296-14219-11-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012807.html">
+   <LINK REL="Next"  HREF="012808.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 10/12] refactor script_command context	grabbing</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2010/12%5D%20refactor%20script_command%20context%0A%09grabbing&In-Reply-To=%3C1259100296-14219-11-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 10/12] refactor script_command context	grabbing">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:04:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012807.html">[Openocd-development] [PATCH 2/9] demonstrate chaining with foo	commands
+</A></li>
+        <LI>Next message: <A HREF="012808.html">[Openocd-development] [PATCH 3/9] openocd: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12802">[ date ]</a>
+              <a href="thread.html#12802">[ thread ]</a>
+              <a href="subject.html#12802">[ subject ]</a>
+              <a href="author.html#12802">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Move command context acquisition to current_command_context() for re-use.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   28 ++++++++++++++++------------
+ 1 files changed, 16 insertions(+), 12 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index b81d2d1..af481cd 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -108,11 +108,24 @@ static const char **script_command_args_alloc(
+ 	return words;
+ }
+ 
++static struct command_context *current_command_context(void)
++{
++	/* grab the command context from the associated data */
++	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (NULL == cmd_ctx)
++	{
++		/* Tcl can invoke commands directly instead of via command_run_line(). This would
++		 * happen when the Jim Tcl interpreter is provided by eCos.
++		 */
++		cmd_ctx = global_cmd_ctx;
++	}
++	return cmd_ctx;
++}
++
+ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	/* the private data is stashed in the interp structure */
+ 	struct command *c;
+-	struct command_context *context;
+ 	int retval;
+ 
+ 	/* DANGER!!!! be careful what we invoke here, since interp-&gt;cmdPrivData might
+@@ -136,16 +149,6 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	if (NULL == words)
+ 		return JIM_ERR;
+ 
+-	/* grab the command context from the associated data */
+-	context = Jim_GetAssocData(interp, &quot;context&quot;);
+-	if (context == NULL)
+-	{
+-		/* Tcl can invoke commands directly instead of via command_run_line(). This would
+-		 * happen when the Jim Tcl interpreter is provided by eCos.
+-		 */
+-		context = global_cmd_ctx;
+-	}
+-
+ 	/* capture log output and return it */
+ 	Jim_Obj *tclOutput = Jim_NewStringObj(interp, &quot;&quot;, 0);
+ 	/* a garbage collect can happen, so we need a reference count to this object */
+@@ -153,7 +156,8 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	log_add_callback(tcl_output, tclOutput);
+ 
+-	retval = run_command(context, c, (const char **)words, nwords);
++	struct command_context *cmd_ctx = current_command_context();
++	retval = run_command(cmd_ctx, c, (const char **)words, nwords);
+ 
+ 	log_remove_callback(tcl_output, tclOutput);
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012807.html">[Openocd-development] [PATCH 2/9] demonstrate chaining with foo	commands
+</A></li>
+	<LI>Next message: <A HREF="012808.html">[Openocd-development] [PATCH 3/9] openocd: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12802">[ date ]</a>
+              <a href="thread.html#12802">[ thread ]</a>
+              <a href="subject.html#12802">[ subject ]</a>
+              <a href="author.html#12802">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

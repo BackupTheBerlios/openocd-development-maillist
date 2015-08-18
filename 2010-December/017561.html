@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/7] cfi: calculate correct timeouts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/7%5D%20cfi%3A%20calculate%20correct%20timeouts&In-Reply-To=%3C1291839973-3860-5-git-send-email-spen%40spen-soft.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017562.html">
+   <LINK REL="Next"  HREF="017563.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/7] cfi: calculate correct timeouts</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/7%5D%20cfi%3A%20calculate%20correct%20timeouts&In-Reply-To=%3C1291839973-3860-5-git-send-email-spen%40spen-soft.co.uk%3E"
+       TITLE="[Openocd-development] [PATCH 4/7] cfi: calculate correct timeouts">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Wed Dec  8 21:26:10 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017562.html">[Openocd-development] [PATCH 1/7] cfi: whitespace and long line	cleanup
+</A></li>
+        <LI>Next message: <A HREF="017563.html">[Openocd-development] [PATCH 6/7] cfi: disable buffer writes for	M29W128G
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17561">[ date ]</a>
+              <a href="thread.html#17561">[ thread ]</a>
+              <a href="subject.html#17561">[ subject ]</a>
+              <a href="author.html#17561">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+
+The existing code used incorrect timeout values for the various cfi
+operations. We now calculate the timeouts and convert to
+msecs if necessary.
+
+Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+ src/flash/nor/cfi.c |   39 +++++++++++++++++++++++----------------
+ src/flash/nor/cfi.h |    6 ++++++
+ 2 files changed, 29 insertions(+), 16 deletions(-)
+
+diff --git a/src/flash/nor/cfi.c b/src/flash/nor/cfi.c
+index 477fefc..7f2d0a5 100644
+--- a/src/flash/nor/cfi.c
++++ b/src/flash/nor/cfi.c
+@@ -880,8 +880,7 @@ static int cfi_intel_erase(struct flash_bank *bank, int first, int last)
+ 		}
+ 
+ 		uint8_t status;
+-		retval = cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ),
+-				&amp;status);
++		retval = cfi_intel_wait_status_busy(bank, cfi_info-&gt;block_erase_timeout, &amp;status);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+@@ -947,8 +946,7 @@ static int cfi_spansion_erase(struct flash_bank *bank, int first, int last)
+ 			return retval;
+ 		}
+ 
+-		if (cfi_spansion_wait_status_busy(bank,
+-				1000 * (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ)) == ERROR_OK)
++		if (cfi_spansion_wait_status_busy(bank, cfi_info-&gt;block_erase_timeout) == ERROR_OK)
+ 		{
+ 			bank-&gt;sectors[i].is_erased = 1;
+ 		}
+@@ -1787,8 +1785,7 @@ static int cfi_intel_write_word(struct flash_bank *bank, uint8_t *word, uint32_t
+ 	}
+ 
+ 	uint8_t status;
+-	retval = cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max),
+-			&amp;status);
++	retval = cfi_intel_wait_status_busy(bank, cfi_info-&gt;word_write_timeout, &amp;status);
+ 	if (retval != 0x80)
+ 	{
+ 		if ((retval = cfi_send_command(bank, 0xff, flash_address(bank, 0, 0x0))) != ERROR_OK)
+@@ -1844,8 +1841,7 @@ static int cfi_intel_write_words(struct flash_bank *bank, uint8_t *word,
+ 		return retval;
+ 	}
+ 	uint8_t status;
+-	retval = cfi_intel_wait_status_busy(bank,
+-			1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max), &amp;status);
++	retval = cfi_intel_wait_status_busy(bank, cfi_info-&gt;buf_write_timeout, &amp;status);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 	if (status != 0x80)
+@@ -1878,8 +1874,7 @@ static int cfi_intel_write_words(struct flash_bank *bank, uint8_t *word,
+ 		return retval;
+ 	}
+ 
+-	retval = cfi_intel_wait_status_busy(bank,
+-			1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max), &amp;status);
++	retval = cfi_intel_wait_status_busy(bank, cfi_info-&gt;buf_write_timeout, &amp;status);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -1930,8 +1925,7 @@ static int cfi_spansion_write_word(struct flash_bank *bank, uint8_t *word, uint3
+ 		return retval;
+ 	}
+ 
+-	if (cfi_spansion_wait_status_busy(bank,
+-			1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != ERROR_OK)
++	if (cfi_spansion_wait_status_busy(bank, cfi_info-&gt;word_write_timeout) != ERROR_OK)
+ 	{
+ 		if ((retval = cfi_send_command(bank, 0xf0, flash_address(bank, 0, 0x0))) != ERROR_OK)
+ 		{
+@@ -1998,8 +1992,7 @@ static int cfi_spansion_write_words(struct flash_bank *bank, uint8_t *word,
+ 	}
+ 
+ 	/* Write buffer wordcount-1 and data words */
+-	if ((retval = cfi_send_command(bank,
+-			bufferwsize-1, address)) != ERROR_OK)
++	if ((retval = cfi_send_command(bank, bufferwsize-1, address)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -2016,8 +2009,7 @@ static int cfi_spansion_write_words(struct flash_bank *bank, uint8_t *word,
+ 		return retval;
+ 	}
+ 
+-	if (cfi_spansion_wait_status_busy(bank,
+-			1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != ERROR_OK)
++	if (cfi_spansion_wait_status_busy(bank, cfi_info-&gt;buf_write_timeout) != ERROR_OK)
+ 	{
+ 		if ((retval = cfi_send_command(bank, 0xf0,
+ 				flash_address(bank, 0, 0x0))) != ERROR_OK)
+@@ -2570,6 +2562,21 @@ static int cfi_probe(struct flash_bank *bank)
+ 				(1 &lt;&lt; cfi_info-&gt;block_erase_timeout_max) * (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ),
+ 				(1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_max) * (1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_typ));
+ 
++		/* convert timeouts to real values in ms */
++		cfi_info-&gt;word_write_timeout = DIV_ROUND_UP((1 &lt;&lt; cfi_info-&gt;word_write_timeout_typ) *
++						(1 &lt;&lt; cfi_info-&gt;word_write_timeout_max), 1000);
++		cfi_info-&gt;buf_write_timeout = DIV_ROUND_UP((1 &lt;&lt; cfi_info-&gt;buf_write_timeout_typ) *
++				(1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max), 1000);
++		cfi_info-&gt;block_erase_timeout = (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ) *
++				(1 &lt;&lt; cfi_info-&gt;block_erase_timeout_max);
++		cfi_info-&gt;chip_erase_timeout = (1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_typ) *
++				(1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_max);
++
++		LOG_DEBUG(&quot;calculated word write timeout: %u ms, buf write timeout: %u ms, &quot;
++				&quot;block erase timeout: %u ms, chip erase timeout: %u ms&quot;,
++				cfi_info-&gt;word_write_timeout, cfi_info-&gt;buf_write_timeout,
++				cfi_info-&gt;block_erase_timeout, cfi_info-&gt;chip_erase_timeout);
++
+ 		uint8_t data;
+ 		retval = cfi_query_u8(bank, 0, 0x27, &amp;data);
+ 		if (retval != ERROR_OK)
+diff --git a/src/flash/nor/cfi.h b/src/flash/nor/cfi.h
+index e2ff808..099a613 100644
+--- a/src/flash/nor/cfi.h
++++ b/src/flash/nor/cfi.h
+@@ -68,6 +68,12 @@ struct cfi_flash_bank
+ 
+ 	void *pri_ext;
+ 	void *alt_ext;
++
++	/* calculated timeouts */
++	unsigned word_write_timeout;
++	unsigned buf_write_timeout;
++	unsigned block_erase_timeout;
++	unsigned chip_erase_timeout;
+ };
+ 
+ /* Intel primary extended query table
+-- 
+1.7.1
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017562.html">[Openocd-development] [PATCH 1/7] cfi: whitespace and long line	cleanup
+</A></li>
+	<LI>Next message: <A HREF="017563.html">[Openocd-development] [PATCH 6/7] cfi: disable buffer writes for	M29W128G
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17561">[ date ]</a>
+              <a href="thread.html#17561">[ thread ]</a>
+              <a href="subject.html#17561">[ subject ]</a>
+              <a href="author.html#17561">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

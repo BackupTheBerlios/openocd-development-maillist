@@ -1,0 +1,352 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 3/4] ETM: more ETM_CTRL bit cleanup
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/4%5D%20ETM%3A%20more%20ETM_CTRL%20bit%20cleanup&In-Reply-To=%3C200912191247.53973.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013726.html">
+   <LINK REL="Next"  HREF="013727.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 3/4] ETM: more ETM_CTRL bit cleanup</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%203/4%5D%20ETM%3A%20more%20ETM_CTRL%20bit%20cleanup&In-Reply-To=%3C200912191247.53973.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 3/4] ETM: more ETM_CTRL bit cleanup">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec 19 21:47:53 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013726.html">[Openocd-development] [patch 2/4] ETM: start cleaning up ETM_CTRL	bit handling
+</A></li>
+        <LI>Next message: <A HREF="013727.html">[Openocd-development] [patch 4/4] ETM: add &quot;etm trigger_debug&quot;	command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13725">[ date ]</a>
+              <a href="thread.html#13725">[ thread ]</a>
+              <a href="subject.html#13725">[ subject ]</a>
+              <a href="author.html#13725">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Change handling of the CYCLE_ACCURATE, BRANCH_OUTPUT, and
+TRACE_* flags; also the CONTEXTID size values.
+
+ - Convert to symbols matching the actual register bits, instead of
+   some random *other* bits (and then correcting that abuse).
+
+ - Get rid of a now-needless enum.
+ 
+ - Keep those values in etm-&gt;control, and remove etm-&gt;tracemode.
+
+These values all affect the trace data that's recorded by a trace
+pod or in the ETB.  I modified the file format used to dump ETB
+data; since it's fairly clear nobody can use this mechanism now,
+this can't cause anyone trouble.
+---
+ src/target/etm.c |   75 ++++++++++++++++++++++++++++-------------------------
+ src/target/etm.h |   30 ++++++---------------
+ 2 files changed, 49 insertions(+), 56 deletions(-)
+
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1059,7 +1059,7 @@ static int etmv1_analyze_trace(struct et
+ 				ctx-&gt;data_half = old_data_half;
+ 			}
+ 
+-			if (ctx-&gt;tracemode &amp; ETMV1_TRACE_ADDR)
++			if (ctx-&gt;control &amp; ETM_CTRL_TRACE_ADDR)
+ 			{
+ 				uint8_t packet;
+ 				int shift = 0;
+@@ -1081,7 +1081,7 @@ static int etmv1_analyze_trace(struct et
+ 				}
+ 			}
+ 
+-			if (ctx-&gt;tracemode &amp; ETMV1_TRACE_DATA)
++			if (ctx-&gt;control &amp; ETM_CTRL_TRACE_DATA)
+ 			{
+ 				if ((instruction.type == ARM_LDM) || (instruction.type == ARM_STM))
+ 				{
+@@ -1141,7 +1141,7 @@ static int etmv1_analyze_trace(struct et
+ 			/* if the trace was captured with cycle accurate tracing enabled,
+ 			 * output the number of cycles since the last executed instruction
+ 			 */
+-			if (ctx-&gt;tracemode &amp; ETMV1_CYCLE_ACCURATE)
++			if (ctx-&gt;control &amp; ETM_CTRL_CYCLE_ACCURATE)
+ 			{
+ 				snprintf(cycles_text, 32, &quot; (%i %s)&quot;,
+ 					 (int)cycles,
+@@ -1178,13 +1178,13 @@ static COMMAND_HELPER(handle_etm_tracemo
+ 
+ 	/* what parts of data access are traced? */
+ 	if (strcmp(CMD_ARGV[0], &quot;none&quot;) == 0)
+-		tracemode = ETMV1_TRACE_NONE;
++		tracemode = 0;
+ 	else if (strcmp(CMD_ARGV[0], &quot;data&quot;) == 0)
+-		tracemode = ETMV1_TRACE_DATA;
++		tracemode = ETM_CTRL_TRACE_DATA;
+ 	else if (strcmp(CMD_ARGV[0], &quot;address&quot;) == 0)
+-		tracemode = ETMV1_TRACE_ADDR;
++		tracemode = ETM_CTRL_TRACE_ADDR;
+ 	else if (strcmp(CMD_ARGV[0], &quot;all&quot;) == 0)
+-		tracemode = ETMV1_TRACE_DATA | ETMV1_TRACE_ADDR;
++		tracemode = ETM_CTRL_TRACE_DATA | ETM_CTRL_TRACE_ADDR;
+ 	else
+ 	{
+ 		command_print(CMD_CTX, &quot;invalid option '%s'&quot;, CMD_ARGV[0]);
+@@ -1196,16 +1196,16 @@ static COMMAND_HELPER(handle_etm_tracemo
+ 	switch (context_id)
+ 	{
+ 	case 0:
+-		tracemode |= ETMV1_CONTEXTID_NONE;
++		tracemode |= ETM_CTRL_CONTEXTID_NONE;
+ 		break;
+ 	case 8:
+-		tracemode |= ETMV1_CONTEXTID_8;
++		tracemode |= ETM_CTRL_CONTEXTID_8;
+ 		break;
+ 	case 16:
+-		tracemode |= ETMV1_CONTEXTID_16;
++		tracemode |= ETM_CTRL_CONTEXTID_16;
+ 		break;
+ 	case 32:
+-		tracemode |= ETMV1_CONTEXTID_32;
++		tracemode |= ETM_CTRL_CONTEXTID_32;
+ 		break;
+ 	default:
+ 		command_print(CMD_CTX, &quot;invalid option '%s'&quot;, CMD_ARGV[1]);
+@@ -1215,12 +1215,12 @@ static COMMAND_HELPER(handle_etm_tracemo
+ 	bool etmv1_cycle_accurate;
+ 	COMMAND_PARSE_ENABLE(CMD_ARGV[2], etmv1_cycle_accurate);
+ 	if (etmv1_cycle_accurate)
+-		tracemode |= ETMV1_CYCLE_ACCURATE;
++		tracemode |= ETM_CTRL_CYCLE_ACCURATE;
+ 
+ 	bool etmv1_branch_output;
+ 	COMMAND_PARSE_ENABLE(CMD_ARGV[3], etmv1_branch_output);
+ 	if (etmv1_branch_output)
+-		tracemode |= ETMV1_BRANCH_OUTPUT;
++		tracemode |= ETM_CTRL_BRANCH_OUTPUT;
+ 
+ 	/* IGNORED:
+ 	 *  - CPRT tracing (coprocessor register transfers)
+@@ -1249,7 +1249,7 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	uint32_t tracemode = etm-&gt;tracemode;
++	uint32_t tracemode = etm-&gt;control;
+ 
+ 	switch (CMD_ARGC)
+ 	{
+@@ -1272,39 +1272,39 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 
+ 	command_print(CMD_CTX, &quot;current tracemode configuration:&quot;);
+ 
+-	switch (tracemode &amp; ETMV1_TRACE_MASK)
++	switch (tracemode &amp; ETM_CTRL_TRACE_MASK)
+ 	{
+-		case ETMV1_TRACE_NONE:
++		default:
+ 			command_print(CMD_CTX, &quot;data tracing: none&quot;);
+ 			break;
+-		case ETMV1_TRACE_DATA:
++		case ETM_CTRL_TRACE_DATA:
+ 			command_print(CMD_CTX, &quot;data tracing: data only&quot;);
+ 			break;
+-		case ETMV1_TRACE_ADDR:
++		case ETM_CTRL_TRACE_ADDR:
+ 			command_print(CMD_CTX, &quot;data tracing: address only&quot;);
+ 			break;
+-		case ETMV1_TRACE_DATA | ETMV1_TRACE_ADDR:
++		case ETM_CTRL_TRACE_DATA | ETM_CTRL_TRACE_ADDR:
+ 			command_print(CMD_CTX, &quot;data tracing: address and data&quot;);
+ 			break;
+ 	}
+ 
+-	switch (tracemode &amp; ETMV1_CONTEXTID_MASK)
++	switch (tracemode &amp; ETM_CTRL_CONTEXTID_MASK)
+ 	{
+-		case ETMV1_CONTEXTID_NONE:
++		case ETM_CTRL_CONTEXTID_NONE:
+ 			command_print(CMD_CTX, &quot;contextid tracing: none&quot;);
+ 			break;
+-		case ETMV1_CONTEXTID_8:
++		case ETM_CTRL_CONTEXTID_8:
+ 			command_print(CMD_CTX, &quot;contextid tracing: 8 bit&quot;);
+ 			break;
+-		case ETMV1_CONTEXTID_16:
++		case ETM_CTRL_CONTEXTID_16:
+ 			command_print(CMD_CTX, &quot;contextid tracing: 16 bit&quot;);
+ 			break;
+-		case ETMV1_CONTEXTID_32:
++		case ETM_CTRL_CONTEXTID_32:
+ 			command_print(CMD_CTX, &quot;contextid tracing: 32 bit&quot;);
+ 			break;
+ 	}
+ 
+-	if (tracemode &amp; ETMV1_CYCLE_ACCURATE)
++	if (tracemode &amp; ETM_CTRL_CYCLE_ACCURATE)
+ 	{
+ 		command_print(CMD_CTX, &quot;cycle-accurate tracing enabled&quot;);
+ 	}
+@@ -1313,7 +1313,7 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 		command_print(CMD_CTX, &quot;cycle-accurate tracing disabled&quot;);
+ 	}
+ 
+-	if (tracemode &amp; ETMV1_BRANCH_OUTPUT)
++	if (tracemode &amp; ETM_CTRL_BRANCH_OUTPUT)
+ 	{
+ 		command_print(CMD_CTX, &quot;full branch address output enabled&quot;);
+ 	}
+@@ -1322,8 +1322,15 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 		command_print(CMD_CTX, &quot;full branch address output disabled&quot;);
+ 	}
+ 
++#define TRACEMODE_MASK ( \
++	  ETM_CTRL_CONTEXTID_MASK \
++	| ETM_CTRL_BRANCH_OUTPUT \
++	| ETM_CTRL_CYCLE_ACCURATE \
++	| ETM_CTRL_TRACE_MASK \
++	)
++
+ 	/* only update ETM_CTRL register if tracemode changed */
+-	if (etm-&gt;tracemode != tracemode)
++	if ((etm-&gt;control &amp; TRACEMODE_MASK) != tracemode)
+ 	{
+ 		struct reg *etm_ctrl_reg;
+ 
+@@ -1333,13 +1340,11 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 
+ 		etm_get_reg(etm_ctrl_reg);
+ 
+-		buf_set_u32(etm_ctrl_reg-&gt;value, 2, 2, tracemode &amp; ETMV1_TRACE_MASK);
+-		buf_set_u32(etm_ctrl_reg-&gt;value, 14, 2, (tracemode &amp; ETMV1_CONTEXTID_MASK) &gt;&gt; 4);
+-		buf_set_u32(etm_ctrl_reg-&gt;value, 12, 1, (tracemode &amp; ETMV1_CYCLE_ACCURATE) &gt;&gt; 8);
+-		buf_set_u32(etm_ctrl_reg-&gt;value, 8, 1, (tracemode &amp; ETMV1_BRANCH_OUTPUT) &gt;&gt; 9);
+-		etm_store_reg(etm_ctrl_reg);
++		etm-&gt;control &amp;= ~TRACEMODE_MASK;
++		etm-&gt;control |= tracemode &amp; TRACEMODE_MASK;
+ 
+-		etm-&gt;tracemode = tracemode;
++		buf_set_u32(etm_ctrl_reg-&gt;value, 0, 32, etm-&gt;control);
++		etm_store_reg(etm_ctrl_reg);
+ 
+ 		/* invalidate old trace data */
+ 		etm-&gt;capture_status = TRACE_IDLE;
+@@ -1351,6 +1356,8 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 		etm-&gt;trace_depth = 0;
+ 	}
+ 
++#undef TRACEMODE_MASK
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -1825,7 +1832,6 @@ COMMAND_HANDLER(handle_etm_dump_command)
+ 
+ 	fileio_write_u32(&amp;file, etm_ctx-&gt;capture_status);
+ 	fileio_write_u32(&amp;file, etm_ctx-&gt;control);
+-	fileio_write_u32(&amp;file, etm_ctx-&gt;tracemode);
+ 	fileio_write_u32(&amp;file, etm_ctx-&gt;trace_depth);
+ 
+ 	for (i = 0; i &lt; etm_ctx-&gt;trace_depth; i++)
+@@ -1897,7 +1903,6 @@ COMMAND_HANDLER(handle_etm_load_command)
+ 	  uint32_t tmp;
+ 	  fileio_read_u32(&amp;file, &amp;tmp); etm_ctx-&gt;capture_status = tmp;
+ 	  fileio_read_u32(&amp;file, &amp;tmp); etm_ctx-&gt;control = tmp;
+-	  fileio_read_u32(&amp;file, &amp;tmp); etm_ctx-&gt;tracemode = tmp;
+ 	  fileio_read_u32(&amp;file, &amp;etm_ctx-&gt;trace_depth);
+ 	}
+ 	etm_ctx-&gt;trace_data = malloc(sizeof(struct etmv1_trace_data) * etm_ctx-&gt;trace_depth);
+--- a/src/target/etm.h
++++ b/src/target/etm.h
+@@ -89,7 +89,10 @@ enum
+ 	ETM_CTRL_POWERDOWN	= (1 &lt;&lt; 0),
+ 	ETM_CTRL_MONITOR_CPRT	= (1 &lt;&lt; 1),
+ 
+-	// bits 3:2 == trace type (ETMV1_TRACE_* &lt;&lt; 2)
++	/* bits 3:2 == trace type */
++	ETM_CTRL_TRACE_DATA	= (1 &lt;&lt; 2),
++	ETM_CTRL_TRACE_ADDR	= (2 &lt;&lt; 2),
++	ETM_CTRL_TRACE_MASK	= (3 &lt;&lt; 2),
+ 
+ 	/* Port width (bits 21 and 6:4) */
+ 	ETM_PORT_4BIT		= 0x00,
+@@ -116,7 +119,11 @@ enum
+ 	ETM_PORT_CLOCK_MASK	= (1 &lt;&lt; 13),
+ 
+ 	// bits 15:14 == context ID size used in tracing
+-	// ETMV1_CONTEXTID_* &lt;&lt; 8
++	ETM_CTRL_CONTEXTID_NONE	= (0 &lt;&lt; 14),
++	ETM_CTRL_CONTEXTID_8	= (1 &lt;&lt; 14),
++	ETM_CTRL_CONTEXTID_16	= (2 &lt;&lt; 14),
++	ETM_CTRL_CONTEXTID_32	= (3 &lt;&lt; 14),
++	ETM_CTRL_CONTEXTID_MASK	= (3 &lt;&lt; 14),
+ 
+ 	/* Port modes -- bits 17:16, tied to clocking mode */
+ 	ETM_PORT_NORMAL		= (0 &lt;&lt; 16),
+@@ -127,24 +134,6 @@ enum
+ 	// bits 31:18 defined in v3.0 and later (e.g. ARM11+)
+ };
+ 
+-enum
+-{
+-	/* Data trace */
+-	ETMV1_TRACE_NONE	 = 0x00,
+-	ETMV1_TRACE_DATA     = 0x01,
+-	ETMV1_TRACE_ADDR     = 0x02,
+-	ETMV1_TRACE_MASK     = 0x03,
+-	/* ContextID */
+-	ETMV1_CONTEXTID_NONE = 0x00,
+-	ETMV1_CONTEXTID_8    = 0x10,
+-	ETMV1_CONTEXTID_16   = 0x20,
+-	ETMV1_CONTEXTID_32   = 0x30,
+-	ETMV1_CONTEXTID_MASK = 0x30,
+-	/* Misc */
+-	ETMV1_CYCLE_ACCURATE = 0x100,
+-	ETMV1_BRANCH_OUTPUT = 0x200
+-};
+-
+ /* forward-declare ETM context */
+ struct etm_context;
+ 
+@@ -187,7 +176,6 @@ struct etm_context
+ 	struct etmv1_trace_data *trace_data;	/* trace data */
+ 	uint32_t trace_depth;		/* number of cycles to be analyzed, 0 if no data available */
+ 	uint32_t control;	/* shadow of ETM_CTRL */
+-	uint32_t tracemode;	/* type of info trace contains */
+ 	int /*arm_state*/ core_state;	/* current core state */
+ 	struct image *image;		/* source for target opcodes */
+ 	uint32_t pipe_index;		/* current trace cycle */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013726.html">[Openocd-development] [patch 2/4] ETM: start cleaning up ETM_CTRL	bit handling
+</A></li>
+	<LI>Next message: <A HREF="013727.html">[Openocd-development] [patch 4/4] ETM: add &quot;etm trigger_debug&quot;	command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13725">[ date ]</a>
+              <a href="thread.html#13725">[ thread ]</a>
+              <a href="subject.html#13725">[ subject ]</a>
+              <a href="author.html#13725">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

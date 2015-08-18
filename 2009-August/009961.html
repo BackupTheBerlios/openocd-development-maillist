@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] don't display invalid register	values
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20don%27t%20display%20invalid%20register%0A%09values&In-Reply-To=%3C200908172250.06620.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009898.html">
+   <LINK REL="Next"  HREF="009978.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] don't display invalid register	values</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20don%27t%20display%20invalid%20register%0A%09values&In-Reply-To=%3C200908172250.06620.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] don't display invalid register	values">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Aug 18 07:50:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009898.html">[Openocd-development] [patch] don't display invalid register	values
+</A></li>
+        <LI>Next message: <A HREF="009978.html">[Openocd-development] [patch] don't display invalid register	values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9961">[ date ]</a>
+              <a href="thread.html#9961">[ thread ]</a>
+              <a href="subject.html#9961">[ subject ]</a>
+              <a href="author.html#9961">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Friday 07 August 2009, Spencer Oliver wrote:
+&gt;<i> 
+</I>&gt;<i> Just wondering what the general concensus is on this?
+</I>
+*MY* concensus is that it should merge.  ;)
+
+
+&gt;<i> Do we need also need a 'reg all' when you do want to see all the regsiters
+</I>
+On an ARM9 with EmbeddedICE, ETM, and ETB there are over 160 registers;
+showing &quot;all&quot; would be nasty.  &quot;reg r0 r3 r8 sp&quot; would be nice; in fact
+it's surprising (and unfriendly) to need to ask for them one at a time.
+
+I think register caching needs attention.  I was debugging something
+recently at 30 KHz clock and the pointless refreshing of the small CM3
+register cache was a big slowdown (design goofage); better to refresh
+selectively (design fix) and not be so sloppy about caching (lots of
+implementation goofs all over).  I like to think this patch would be
+a step in the right direction.
+
+- Dave
+
+========= CUT HERE
+Simplify dumping of register lists by only printing cached values
+if they are marked as valid.  Most of the time, they are invalid;
+so printing *any* value is just misleading.
+
+Note that for ARM7 and ARM9 most EmbeddedICE registers (except for
+debug status) could be cached most of the time; and their register
+cache isn't maintained properly (many accesses seem to bypass that
+cache code).
+---
+ src/target/target.c |   31 +++++++++++++++++++++----------
+ 1 file changed, 21 insertions(+), 10 deletions(-)
+
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1741,17 +1741,28 @@ static int handle_reg_command(struct com
+ 		while (cache)
+ 		{
+ 			int i;
+-			for (i = 0; i &lt; cache-&gt;num_regs; i++)
++
++			for (i = 0, reg = cache-&gt;reg_list;
++					i &lt; cache-&gt;num_regs;
++					i++, reg++, count++)
+ 			{
+-				value = buf_to_str(cache-&gt;reg_list[i].value, cache-&gt;reg_list[i].size, 16);
+-				command_print(cmd_ctx, &quot;(%i) %s (/%i): 0x%s (dirty: %i, valid: %i)&quot;,
+-							  count++,
+-							  cache-&gt;reg_list[i].name,
+-							  (int)(cache-&gt;reg_list[i].size),
+-							  value,
+-							  cache-&gt;reg_list[i].dirty,
+-							  cache-&gt;reg_list[i].valid);
+-				free(value);
++				/* only print cached values if they are valid */
++				if (reg-&gt;valid) {
++					value = buf_to_str(reg-&gt;value,
++							reg-&gt;size, 16);
++					command_print(cmd_ctx,
++							&quot;(%i) %s (/%u): 0x%s%s&quot;,
++							count, reg-&gt;name,
++							reg-&gt;size, value,
++							reg-&gt;dirty
++								? &quot; (dirty)&quot;
++								: &quot;&quot;);
++					free(value);
++				} else {
++					command_print(cmd_ctx, &quot;(%i) %s (/%u)&quot;,
++							  count, reg-&gt;name,
++							  reg-&gt;size) ;
++				}
+ 			}
+ 			cache = cache-&gt;next;
+ 		}
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: reg.patch
+Type: text/x-diff
+Size: 1640 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090817/08936f35/attachment.patch">https://lists.berlios.de/pipermail/openocd-development/attachments/20090817/08936f35/attachment.patch</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009898.html">[Openocd-development] [patch] don't display invalid register	values
+</A></li>
+	<LI>Next message: <A HREF="009978.html">[Openocd-development] [patch] don't display invalid register	values
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9961">[ date ]</a>
+              <a href="thread.html#9961">[ thread ]</a>
+              <a href="subject.html#9961">[ subject ]</a>
+              <a href="author.html#9961">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

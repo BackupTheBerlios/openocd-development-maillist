@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Data register lengths and the scan chain
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Data%20register%20lengths%20and%20the%20scan%20chain&In-Reply-To=%3CAANLkTikp8VXBWJ4BBYbsHnE7myZzcTyb12DzSqVNm%3DGy%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016648.html">
+   <LINK REL="Next"  HREF="016650.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Data register lengths and the scan chain</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Data%20register%20lengths%20and%20the%20scan%20chain&In-Reply-To=%3CAANLkTikp8VXBWJ4BBYbsHnE7myZzcTyb12DzSqVNm%3DGy%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Data register lengths and the scan chain">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Fri Oct  1 11:12:46 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016648.html">[Openocd-development] Generic support for named and anonymous	pipes
+</A></li>
+        <LI>Next message: <A HREF="016650.html">[Openocd-development] Dummy bits for BAYPASSed TAPs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16649">[ date ]</a>
+              <a href="thread.html#16649">[ thread ]</a>
+              <a href="subject.html#16649">[ subject ]</a>
+              <a href="author.html#16649">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+I have question regarding functionality of OpenOCD related to data
+register of the TAP that is somewhere in the middle of the scan chain.
+
+In the manual I can see this :
+
+Warning: OpenOCD does not record information about data register
+lengths, so it is important that you get the bit field lengths right.
+Remember that different JTAG instructions refer to different data
+registers, which may have different lengths. Moreover, those lengths
+may not be fixed; the SCAN_N instruction can change the length of the
+register accessed by the INTEST instruction (by connecting a different
+scan chain)
+
+
+My write log shows this :
+
+###&gt;&gt;&gt; data_in = 0x40
+Debug: 729 9455 ft2232.c:1888 ft2232_execute_scan(): DRSCAN type:2
+Debug: 730 9455 commands.c:189 jtag_build_buffer(): DRSCAN num_fields: 7
+Debug: 731 9455 commands.c:211 jtag_build_buffer(): fields[0].out_value[1]: NULL
+Debug: 732 9455 commands.c:211 jtag_build_buffer(): fields[1].out_value[1]: NULL
+Debug: 733 9455 commands.c:211 jtag_build_buffer(): fields[2].out_value[1]: NULL
+Debug: 734 9455 commands.c:211 jtag_build_buffer(): fields[3].out_value[1]: NULL
+Debug: 735 9455 commands.c:202 jtag_build_buffer():
+fields[4].out_value[12]: 0x0040
+Debug: 736 9455 commands.c:211 jtag_build_buffer(): fields[5].out_value[1]: NULL
+Debug: 737 9455 commands.c:211 jtag_build_buffer(): fields[6].out_value[1]: NULL
+Debug: 738 9455 ft2232.c:964 ft2232_add_scan():
+Debug: 740 9455 ft2232.c:480 move_to_state(): start=RUN/IDLE goal=DRSHIFT
+Debug: 741 9455 ft2232.c:419 clock_tms(): mpsse cmd=4b, tms_bits =
+0x00000001, bit_count=3
+Debug: 742 9455 ft2232.c:429 clock_tms(): tap_set_state(DRSELECT)
+Debug: 743 9455 ft2232.c:429 clock_tms(): tap_set_state(DRCAPTURE)
+Debug: 744 9455 ft2232.c:429 clock_tms(): tap_set_state(DRSHIFT)
+Debug: 745 9455 ft2232.c:1107 ft2232_add_scan(): finish without read
+Debug: 746 9455 ft2232.c:419 clock_tms(): mpsse cmd=4b, tms_bits =
+0x00000003, bit_count=3
+Debug: 747 9455 ft2232.c:429 clock_tms(): tap_set_state(DREXIT1)
+Debug: 748 9455 ft2232.c:429 clock_tms(): tap_set_state(DRUPDATE)
+Debug: 749 9455 ft2232.c:429 clock_tms(): tap_set_state(RUN/IDLE)
+Debug: 750 9455 ft2232.c:1929 ft2232_execute_scan(): DR scan, 18 bits,
+end in RUN/IDLE
+Debug: 751 9455 ft2232.c:790 ft2232_send_and_recv(): write buffer (size 14):
+Debug: 752 9455 ft2232.c:771 ft2232_debug_dump_buffer(): 4b 02 01 19
+01 00 00 04 1b 00 00 4b 02 03
+
+
+So, basically I'd like to put number 0x40 to data reg in the TAP[4].
+Questions are following :
+
+1) Why DR scan is 18 bits long ? This does not seem correct, if we are
+shifting the 18 bits we will not shift wanted content up to the wanted
+data reg (in the TAP we want).
+This is because other TAPs that come before in the scan chain have
+data registers wider than 1 bit. Why is OpenOCD presuming that these
+TAPs are 1 bit wide, and more over it is adding overall number of TAPs
+(12 bits + 6 other TAPS), acting like our TAP is in the end of the
+scan chain, and all other TAPs have data registers 1 bit wide.
+
+2) How to thell OpenOCD the size of the data registers of the TAPs in
+the chain before our TAP, so it can shift appropriate number of dummy
+bits to push our content far enough in the scan chain to reach and
+properly fill our data reg in out TAP ?
+Do we have to pre-calculate this and put it in our fileds.num_bits ?
+
+Best regards,
+Drasko
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016648.html">[Openocd-development] Generic support for named and anonymous	pipes
+</A></li>
+	<LI>Next message: <A HREF="016650.html">[Openocd-development] Dummy bits for BAYPASSed TAPs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16649">[ date ]</a>
+              <a href="thread.html#16649">[ thread ]</a>
+              <a href="subject.html#16649">[ subject ]</a>
+              <a href="author.html#16649">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

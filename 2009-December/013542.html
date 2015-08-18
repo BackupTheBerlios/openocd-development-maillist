@@ -1,0 +1,227 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] arm11 srst behavior
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm11%20srst%20behavior&In-Reply-To=%3C200912131501.35122.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013568.html">
+   <LINK REL="Next"  HREF="013558.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] arm11 srst behavior</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm11%20srst%20behavior&In-Reply-To=%3C200912131501.35122.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] arm11 srst behavior">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Dec 14 00:01:34 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013568.html">[Openocd-development] [patch/rfc] jtag: add '-ignore-version'	option
+</A></li>
+        <LI>Next message: <A HREF="013558.html">[Openocd-development] arm11 srst behavior
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13542">[ date ]</a>
+              <a href="thread.html#13542">[ thread ]</a>
+              <a href="subject.html#13542">[ subject ]</a>
+              <a href="author.html#13542">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 30 November 2009, &#216;yvind Harboe wrote:
+&gt;<i> I believe the problem with iMX31 is that it misbehaves after receiving
+</I>&gt;<i> a TAP reset...
+</I>
+I tried restoring the workaround for that (TLR) and added a comment
+about that being IMX-specific.  Could you give this patch a try?
+
+- dave
+
+
+=================== CUT HERE
+Teach ARM11 how to use:
+
+ - the new &quot;reset-assert&quot; event
+ - vector catch to implement &quot;reset halt&quot;
+ - SRST more like other cores do
+ - ... including leaving post-SRST delays up to config scripts
+
+Tested on OMAP2420, where it seems to work ok with the reset-assert
+case, but not yet with SRST ... not clear what's up with that.
+(Reset doesn't work there AT ALL without this patch.)
+
+&gt;<i> reset halt
+</I>...
+target state: halted
+target halted in ARM state due to breakpoint, current mode: Supervisor
+cpsr: 0x000001d3 pc: 0x00000000
+&gt;<i> 
+</I>---
+ src/target/arm11.c |  103 +++++++++++++++++++++++++++------------------------
+ 1 file changed, 55 insertions(+), 48 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -355,7 +355,9 @@ static int arm11_poll(struct target *tar
+ 				return retval;
+ 
+ 			target_call_event_callbacks(target,
+-				old_state == TARGET_DEBUG_RUNNING ? TARGET_EVENT_DEBUG_HALTED : TARGET_EVENT_HALTED);
++				(old_state == TARGET_DEBUG_RUNNING)
++					? TARGET_EVENT_DEBUG_HALTED
++					: TARGET_EVENT_HALTED);
+ 		}
+ 	}
+ 	else
+@@ -732,67 +734,72 @@ static int arm11_step(struct target *tar
+ 
+ static int arm11_assert_reset(struct target *target)
+ {
+-	int retval;
+ 	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+-	retval = arm11_check_init(arm11);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	target-&gt;state = TARGET_UNKNOWN;
++	/* optionally catch reset vector */
++	if (target-&gt;reset_halt &amp;&amp; !(arm11_vcr &amp; 1))
++		arm11_sc7_set_vcr(arm11, arm11_vcr | 1);
+ 
+-	/* we would very much like to reset into the halted, state,
+-	 * but resetting and halting is second best... */
+-	if (target-&gt;reset_halt)
+-	{
+-		CHECK_RETVAL(target_halt(target));
++	/* Issue some kind of warm reset. */
++	if (target_has_event_action(target, TARGET_EVENT_RESET_ASSERT)) {
++		target_handle_event(target, TARGET_EVENT_RESET_ASSERT);
++	} else if (jtag_get_reset_config() &amp; RESET_HAS_SRST) {
++		/* REVISIT handle &quot;pulls&quot; cases, if there's
++		 * hardware that needs them to work.
++		 */
++		jtag_add_reset(0, 1);
++	} else {
++		LOG_ERROR(&quot;%s: how to reset?&quot;, target_name(target));
++		return ERROR_FAIL;
+ 	}
+ 
++	/* registers are now invalid */
++	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+-	/* srst is funny. We can not do *anything* else while it's asserted
+-	 * and it has unkonwn side effects. Make sure no other code runs
+-	 * meanwhile.
+-	 *
+-	 * Code below assumes srst:
+-	 *
+-	 * - Causes power-on-reset (but of what parts of the system?). Bug
+-	 * in arm11?
+-	 *
+-	 * - Messes us TAP state without asserting trst.
+-	 *
+-	 * - There is another bug in the arm11 core. When you generate an access to
+-	 * external logic (for example ddr controller via AHB bus) and that block
+-	 * is not configured (perhaps it is still held in reset), that transaction
+-	 * will never complete. This will hang arm11 core but it will also hang
+-	 * JTAG controller. Nothing, short of srst assertion will bring it out of
+-	 * this.
+-	 *
+-	 * Mysteries:
+-	 *
+-	 * - What should the PC be after an srst reset when starting in the halted
+-	 * state?
+-	 */
++	target-&gt;state = TARGET_RESET;
+ 
+-	jtag_add_reset(0, 1);
+-	jtag_add_reset(0, 0);
++	return ERROR_OK;
++}
+ 
+-	/* How long do we have to wait? */
+-	jtag_add_sleep(5000);
++/*
++ * - There is another bug in the arm11 core.  (iMX31 specific again?
++ *   When you generate an access to external logic (for example DDR
++ *   controller via AHB bus) and that block is not configured (perhaps
++ *   it is still held in reset), that transaction will never complete.
++ *   This will hang arm11 core but it will also hang JTAG controller.
++ *   Nothing short of srst assertion will bring it out of this.
++ */
+ 
+-	/* un-mess up TAP state */
++static int arm11_deassert_reset(struct target *target)
++{
++	struct arm11_common *arm11 = target_to_arm11(target);
++	int retval;
++
++	/* be certain SRST is off */
++	jtag_add_reset(0, 0);
++
++	/* WORKAROUND i.MX31 problems:  SRST goofs the TAP, and maybe
++	 * more.  OMAP24xx doesn't show that problem, though SRST-only
++	 * reset seems to be problematic for other reasons.  (On-chip
++	 * boot ROM interactions being likely!)
++	 */
+ 	jtag_add_tlr();
+ 
+-	retval = jtag_execute_queue();
+-	if (retval != ERROR_OK)
+-	{
+-		return retval;
++	retval = arm11_poll(target);
++
++	if (target-&gt;reset_halt) {
++		if (target-&gt;state != TARGET_HALTED) {
++			LOG_WARNING(&quot;%s: ran after reset and before halt ...&quot;,
++					target_name(target));
++			if ((retval = target_halt(target)) != ERROR_OK)
++				return retval;
++		}
+ 	}
+ 
+-	return ERROR_OK;
+-}
++	/* maybe restore vector catch config */
++	if (target-&gt;reset_halt &amp;&amp; !(arm11_vcr &amp; 1))
++		arm11_sc7_set_vcr(arm11, arm11_vcr);
+ 
+-static int arm11_deassert_reset(struct target *target)
+-{
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013568.html">[Openocd-development] [patch/rfc] jtag: add '-ignore-version'	option
+</A></li>
+	<LI>Next message: <A HREF="013558.html">[Openocd-development] arm11 srst behavior
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13542">[ date ]</a>
+              <a href="thread.html#13542">[ thread ]</a>
+              <a href="subject.html#13542">[ subject ]</a>
+              <a href="author.html#13542">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

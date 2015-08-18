@@ -1,0 +1,243 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] cleanup TAP ircapture/irmask
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20cleanup%20TAP%20ircapture/irmask&In-Reply-To=%3C200909252311.26174.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010810.html">
+   <LINK REL="Next"  HREF="010826.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] cleanup TAP ircapture/irmask</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20cleanup%20TAP%20ircapture/irmask&In-Reply-To=%3C200909252311.26174.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] cleanup TAP ircapture/irmask">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Sep 26 08:11:26 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010810.html">[Openocd-development]  works on amd64 but not i386
+</A></li>
+        <LI>Next message: <A HREF="010826.html">[Openocd-development] [patch/rfc] cleanup TAP ircapture/irmask
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10824">[ date ]</a>
+              <a href="thread.html#10824">[ thread ]</a>
+              <a href="subject.html#10824">[ subject ]</a>
+              <a href="author.html#10824">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>JTAG IR scans are a bit wierd ... you can't read instructions,
+you get some bitstring with 01 as two LSBs.  Or so (I'm told)
+says the IEEE spec.  (Note that if all higher bits were zero
+too, it would be possible to autoconfigure IR length...)
+
+Change the handling of the &quot;-ircapture&quot; and &quot;-irmask&quot; parameters
+to be slightly more sensible, given that expected behavior:
+
+ - First, provide and use default values that satisfy the IEEE spec.
+   Existing TAP configs will override the defaults, but those parms
+   are no longer required.
+
+ - Second, warn if any TAP gets set up to violate the JTAG spec.
+   It's likely a bug, but maybe not; else this should be an error.
+   Improve the related diagnostics to say which TAP is affected.
+
+And minor fixes:  get rid of a memory leak, shrink a line'o'code,
+fix dangerous macro, add note re allocating extra bytes.
+---
+REQUEST:  someone with the IEEE JTAG spec, please verify that
+entry to IR_Capture state is required to load the shift register
+with xxxxx01 bits (as I'm told it does).
+
+Regardless, I suspect I'll commit this soonish unless someone
+explains why I shouldn't...
+
+ doc/openocd.texi          |   22 ++++++++++++----------
+ src/helper/binarybuffer.h |    2 +-
+ src/jtag/core.c           |    5 ++++-
+ src/jtag/tcl.c            |   34 ++++++++++++++++++++++------------
+ 4 files changed, 39 insertions(+), 24 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2309,19 +2309,9 @@ a JTAG TAP; that TAP should be named @co
+ Every TAP requires at least the following @var{configparams}:
+ 
+ @itemize @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> @code{-ircapture} @var{NUMBER}
+-@*The bit pattern loaded by the TAP into the JTAG shift register
+-on entry to the @sc{ircapture} state, such as 0x01.
+-JTAG requires the two LSBs of this value to be 01.
+-The value is used to verify that instruction scans work correctly.
+ @item @code{-irlen} @var{NUMBER}
+ @*The length in bits of the
+ instruction register, such as 4 or 5 bits.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> @code{-irmask} @var{NUMBER}
+-@*A mask for the IR register.
+-For some devices, there are bits in the IR that aren't used.
+-This lets OpenOCD mask them off when doing IDCODE comparisons.
+-In general, this should just be all ones for the size of the IR.
+ @end itemize
+ 
+ A TAP may also provide optional @var{configparams}:
+@@ -2340,6 +2330,18 @@ found when the JTAG chain is examined.
+ These codes are not required by all JTAG devices.
+ @emph{Repeat the option} as many times as required if more than one
+ ID code could appear (for example, multiple versions).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @code{-ircapture} @var{NUMBER}
++@*The bit pattern loaded by the TAP into the JTAG shift register
++on entry to the @sc{ircapture} state, such as 0x01.
++JTAG requires the two LSBs of this value to be 01.
++By default, @code{-ircapture} and @code{-irmask} are set
++up to verify that two-bit value; but you may provide
++additional bits, if you know them.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @code{-irmask} @var{NUMBER}
++@*A mask used with @code{-ircapture}
++to verify that instruction scans work correctly.
++Such scans are not used by OpenOCD except to verify that
++there seems to be no problems with JTAG scan chain operations.
+ @end itemize
+ @end deffn
+ 
+--- a/src/helper/binarybuffer.h
++++ b/src/helper/binarybuffer.h
+@@ -86,7 +86,7 @@ extern char* buf_to_str(const uint8_t *b
+ struct scan_field_s;
+ extern int buf_to_u32_handler(uint8_t *in_buf, void *priv, struct scan_field_s *field);
+ 
+-#define CEIL(m, n)	((m + n - 1) / n)
++#define CEIL(m, n)	(((m) + (n) - 1) / (n))
+ 
+ /* read a uint32_t from a buffer in target memory endianness */
+ static inline uint32_t fast_target_buffer_get_u32(const uint8_t *buffer, int little)
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1115,6 +1115,7 @@ void jtag_tap_init(jtag_tap_t *tap)
+ {
+ 	assert(0 != tap-&gt;ir_length);
+ 
++	/// @todo fix, this allocates one byte per bit for all three fields!
+ 	tap-&gt;expected = malloc(tap-&gt;ir_length);
+ 	tap-&gt;expected_mask = malloc(tap-&gt;ir_length);
+ 	tap-&gt;cur_instr = malloc(tap-&gt;ir_length);
+@@ -1132,7 +1133,8 @@ void jtag_tap_init(jtag_tap_t *tap)
+ 	LOG_DEBUG(&quot;Created Tap: %s @ abs position %d, &quot;
+ 			&quot;irlen %d, capture: 0x%x mask: 0x%x&quot;, tap-&gt;dotted_name,
+ 				tap-&gt;abs_chain_position, tap-&gt;ir_length,
+-			  (unsigned int)(tap-&gt;ir_capture_value), (unsigned int)(tap-&gt;ir_capture_mask));
++				(unsigned) tap-&gt;ir_capture_value,
++				(unsigned) tap-&gt;ir_capture_mask);
+ 	jtag_tap_add(tap);
+ }
+ 
+@@ -1141,6 +1143,7 @@ void jtag_tap_free(jtag_tap_t *tap)
+ 	jtag_unregister_event_callback(&amp;jtag_reset_callback, tap);
+ 
+ 	/// @todo is anything missing? no memory leaks please
++	free((void *)tap-&gt;expected);
+ 	free((void *)tap-&gt;expected_ids);
+ 	free((void *)tap-&gt;chip);
+ 	free((void *)tap-&gt;tapname);
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -242,13 +242,15 @@ static int jim_newtap_cmd(Jim_GetOptInfo
+ 	LOG_DEBUG(&quot;Creating New Tap, Chip: %s, Tap: %s, Dotted: %s, %d params&quot;,
+ 			  pTap-&gt;chip, pTap-&gt;tapname, pTap-&gt;dotted_name, goi-&gt;argc);
+ 
+-	/* deal with options */
+-#define NTREQ_IRLEN      1
+-#define NTREQ_IRCAPTURE  2
+-#define NTREQ_IRMASK     4
++	/* IEEE specifies that the two LSBs of an IR scan are 01, so make
++	 * that the default.  The &quot;-irlen&quot; and &quot;-irmask&quot; options are only
++	 * needed to cope with nonstandard TAPs, or to specify more bits.
++	 */
++	pTap-&gt;ir_capture_mask = 0x03;
++	pTap-&gt;ir_capture_value = 0x01;
+ 
+-	/* clear them as we find them */
+-	reqbits = (NTREQ_IRLEN | NTREQ_IRCAPTURE | NTREQ_IRMASK);
++	/* clear flags for &quot;required options&quot; them as we find them */
++	reqbits = 1;
+ 
+ 	while (goi-&gt;argc) {
+ 		e = Jim_GetOpt_Nvp(goi, opts, &amp;n);
+@@ -308,31 +310,39 @@ static int jim_newtap_cmd(Jim_GetOptInfo
+ 			switch (n-&gt;value) {
+ 			case NTAP_OPT_IRLEN:
+ 				if (w &gt; (jim_wide) (8 * sizeof(pTap-&gt;ir_capture_value)))
+-					LOG_WARNING(&quot;huge IR length %d&quot;, (int) w);
++					LOG_WARNING(&quot;%s: huge IR length %d&quot;,
++							pTap-&gt;dotted_name,
++							(int) w);
+ 				pTap-&gt;ir_length = w;
+-				reqbits &amp;= (~(NTREQ_IRLEN));
++				reqbits = 0;
+ 				break;
+ 			case NTAP_OPT_IRMASK:
+ 				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;IR mask %x too big&quot;,
++					LOG_ERROR(&quot;%s: IR mask %x too big&quot;,
++							pTap-&gt;dotted_name,
+ 							(int) w);
+ 					free((void *)pTap-&gt;dotted_name);
+ 					free(pTap);
+ 					return ERROR_FAIL;
+ 				}
++				if ((w &amp; 3) != 3)
++					LOG_WARNING(&quot;%s: nonstandard IR mask&quot;,
++							pTap-&gt;dotted_name);
+ 				pTap-&gt;ir_capture_mask = w;
+-				reqbits &amp;= (~(NTREQ_IRMASK));
+ 				break;
+ 			case NTAP_OPT_IRCAPTURE:
+ 				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;IR capture %x too big&quot;,
++					LOG_ERROR(&quot;%s: IR capture %x too big&quot;,
++							pTap-&gt;dotted_name,
+ 							(int) w);
+ 					free((void *)pTap-&gt;dotted_name);
+ 					free(pTap);
+ 					return ERROR_FAIL;
+ 				}
++				if ((w &amp; 3) != 1)
++					LOG_WARNING(&quot;%s: nonstandard IR value&quot;,
++							pTap-&gt;dotted_name);
+ 				pTap-&gt;ir_capture_value = w;
+-				reqbits &amp;= (~(NTREQ_IRCAPTURE));
+ 				break;
+ 			}
+ 		} /* switch (n-&gt;value) */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010810.html">[Openocd-development]  works on amd64 but not i386
+</A></li>
+	<LI>Next message: <A HREF="010826.html">[Openocd-development] [patch/rfc] cleanup TAP ircapture/irmask
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10824">[ date ]</a>
+              <a href="thread.html#10824">[ thread ]</a>
+              <a href="subject.html#10824">[ subject ]</a>
+              <a href="author.html#10824">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

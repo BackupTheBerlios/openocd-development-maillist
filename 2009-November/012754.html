@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] improve alloc_vprintf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20improve%20alloc_vprintf&In-Reply-To=%3C1259023841.20337.3290.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012750.html">
+   <LINK REL="Next"  HREF="012783.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] improve alloc_vprintf</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20improve%20alloc_vprintf&In-Reply-To=%3C1259023841.20337.3290.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH] improve alloc_vprintf">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 01:50:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012750.html">[Openocd-development] [PATCH] improve alloc_vprintf
+</A></li>
+        <LI>Next message: <A HREF="012783.html">[Openocd-development] [PATCH] improve alloc_vprintf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12754">[ date ]</a>
+              <a href="thread.html#12754">[ thread ]</a>
+              <a href="subject.html#12754">[ subject ]</a>
+              <a href="author.html#12754">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Looks great, but one minor comment below....
+
+On Tue, 2009-11-24 at 00:37 +0100, Andreas Fritiofson wrote:
+&gt;<i> The previous implementation was unnecessarily complex. Get rid of the loops,
+</I>&gt;<i> let vsnprintf() tell us directly how much storage we need and allocate that. A
+</I>&gt;<i> second pass writes the actual string. Also add a va_end() that was missing.
+</I>&gt;<i> This should be much faster for large strings and less wasteful for small ones.
+</I>&gt;<i> 
+</I>&gt;<i> A quirk that has been retained is that some callers patch in a newline at the
+</I>&gt;<i> end of the returned string and depend on alloc_vprintf to allocate at least
+</I>&gt;<i> one byte extra.
+</I>&gt;<i> 
+</I>&gt;<i> Signed-off-by: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>&gt;
+</I>&gt;<i> ---
+</I>&gt;<i>  src/helper/log.c |   43 ++++++++++++++++---------------------------
+</I>&gt;<i>  1 files changed, 16 insertions(+), 27 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> diff --git a/src/helper/log.c b/src/helper/log.c
+</I>&gt;<i> index caaed42..6869d2e 100644
+</I>&gt;<i> --- a/src/helper/log.c
+</I>&gt;<i> +++ b/src/helper/log.c
+</I>&gt;<i> @@ -395,37 +395,26 @@ int log_remove_callback(log_callback_fn fn, void *priv)
+</I>&gt;<i>  /* return allocated string w/printf() result */
+</I>&gt;<i>  char *alloc_vprintf(const char *fmt, va_list ap)
+</I>&gt;<i>  {
+</I>&gt;<i> -	/* no buffer at the beginning, force realloc to do the job */
+</I>&gt;<i> -	char *string = NULL;
+</I>&gt;<i> -
+</I>&gt;<i> -	/* start with buffer size suitable for typical messages */
+</I>&gt;<i> -	int size = 128;
+</I>&gt;<i> -
+</I>&gt;<i> -	for (;;)
+</I>&gt;<i> -	{
+</I>&gt;<i> -		char *t = string;
+</I>&gt;<i> -		va_list ap_copy;
+</I>&gt;<i> -		int ret;
+</I>&gt;<i> -		string = realloc(string, size);
+</I>&gt;<i> -		if (string == NULL)
+</I>&gt;<i> -		{
+</I>&gt;<i> -			if (t != NULL)
+</I>&gt;<i> -				free(t);
+</I>&gt;<i> -			return NULL;
+</I>&gt;<i> -		}
+</I>&gt;<i> +	va_list ap_copy;
+</I>&gt;<i> +	int len;
+</I>&gt;<i> +	char *string;
+</I>&gt;<i>  
+</I>&gt;<i> -		va_copy(ap_copy, ap);
+</I>&gt;<i> +	/* determine the length of the buffer needed */
+</I>&gt;<i> +	va_copy(ap_copy, ap);
+</I>&gt;<i> +	len = vsnprintf(NULL, 0, fmt, ap_copy);
+</I>&gt;<i> +	va_end(ap_copy);
+</I>&gt;<i>  
+</I>&gt;<i> -		ret = vsnprintf(string, size, fmt, ap_copy);
+</I>&gt;<i> -		/* NB! The result of the vsnprintf() might be an *EMPTY* string! */
+</I>&gt;<i> -		if ((ret &gt;= 0) &amp;&amp; ((ret + 1) &lt; size))
+</I>&gt;<i> -			break;
+</I>&gt;<i> +	/* allocate and make room for terminating zero. */
+</I>&gt;<i> +	/* FIXME: The old version always allocated at least one byte extra and
+</I>&gt;<i> +	 * other code depend on that. They should be probably be fixed, but for
+</I>&gt;<i> +	 * now reserve the extra byte. */
+</I>&gt;<i> +	string = malloc(len + 2);
+</I>&gt;<i> +	if (string == NULL)
+</I>&gt;<i> +		return NULL;
+</I>&gt;<i>  
+</I>&gt;<i> -		/* there was just enough or not enough space, allocate more in the next round */
+</I>&gt;<i> -		size *= 2; /* double the buffer size */
+</I>&gt;<i> -	}
+</I>&gt;<i> +	/* do the real work */
+</I>&gt;<i> +	vsnprintf(string, len + 1, fmt, ap_copy);
+</I>
+I think you meant for this to be ap, not ap_copy.
+
+&gt;<i> -	/* the returned buffer is by principle guaranteed to be at least one character longer */
+</I>&gt;<i>  	return string;
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>
+Fix this minor detail, and I'll commit both of your patches.
+
+--Z
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012750.html">[Openocd-development] [PATCH] improve alloc_vprintf
+</A></li>
+	<LI>Next message: <A HREF="012783.html">[Openocd-development] [PATCH] improve alloc_vprintf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12754">[ date ]</a>
+              <a href="thread.html#12754">[ thread ]</a>
+              <a href="subject.html#12754">[ subject ]</a>
+              <a href="author.html#12754">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

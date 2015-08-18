@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STR9 Hitex comStick jtag lockup problem FIX, for Linux, suggested updateing openocd DOC's to help people not all into this trap
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STR9%20Hitex%20comStick%20jtag%20lockup%20problem%20FIX%2C%0A%20for%20Linux%2C%0A%20suggested%20updateing%20openocd%20DOC%27s%20to%20help%20people%20not%20all%20into%20this%20trap&In-Reply-To=%3CBLU144-W3A7AF959507673D2300ADC8D70%40phx.gbl%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010853.html">
+   <LINK REL="Next"  HREF="010854.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STR9 Hitex comStick jtag lockup problem FIX, for Linux, suggested updateing openocd DOC's to help people not all into this trap</H1>
+    <B>Lachlan Audas</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STR9%20Hitex%20comStick%20jtag%20lockup%20problem%20FIX%2C%0A%20for%20Linux%2C%0A%20suggested%20updateing%20openocd%20DOC%27s%20to%20help%20people%20not%20all%20into%20this%20trap&In-Reply-To=%3CBLU144-W3A7AF959507673D2300ADC8D70%40phx.gbl%3E"
+       TITLE="[Openocd-development] STR9 Hitex comStick jtag lockup problem FIX, for Linux, suggested updateing openocd DOC's to help people not all into this trap">lachlanaudas at hotmail.com
+       </A><BR>
+    <I>Sun Sep 27 22:14:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010853.html">[Openocd-development] srst pulls trst bug in ft2232
+</A></li>
+        <LI>Next message: <A HREF="010854.html">[Openocd-development] 2nd serial on FT2232 - was: STR9 Hitex	comStick...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10850">[ date ]</a>
+              <a href="thread.html#10850">[ thread ]</a>
+              <a href="subject.html#10850">[ subject ]</a>
+              <a href="author.html#10850">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Tittle: Fix for STR9 Hitex comStick(REV A2) evaluation board JTAG lockup.
+        under openocd, and FTDI libftd2xx V 4.16(maybe other versions to)
+
+The Symptom:
+    Comstick on board JTAG interface fail's, requiring the board to be
+    unplugged and reinserted, to gain control. (even this will fail!
+    fix the problem), could be other Symptom's too.
+
+The Problem: 
+    The hardware design of the str9 comStick board, use's a FT2232 usb chip in
+    JTAG mode. This chip has 5 power pin's, 2 VCC,1 AVCC,1 VCCIOA and 1 VCCIOB.
+    The power to the VCCIOA and VCCIOB is controlled by the FTDI PWREN# pin,
+    via a FET, and 3.3 volt reg. (this also powers the STR912 CPU)
+    While the 2 VCC pin's and AVCC is connected directly to the USB power from
+    the host computer. When the chip is reset, the power to the VCCIOA(B) and
+    CPU is turn off, This appears to mess up the FT2232 internal driver's powered
+    from the VCCIOA and VCCIOB pin's, this powers the JTAG interface and reset to
+    the str912 chip. The fault shows up as no JTAG clock, and low
+    logic HI voltage's on the FT2232 JTAG pin's.
+    Looking at the FTDI data sheet I see they don't give any examples of the
+    VCCIOA and VCCIOB used in the way Hitex comStick have used it.
+    FTDI examples shows VCCIOA,VCCIOB always power up/down the same time as
+    VCC and AVCC.
+
+The Software Fix: (no luck here sorry.. )
+    The FTDI  driver for Linux, always resets the FTDI chip on the board,
+    when the openEx() is call from the openocd program,
+    Which of course  turns the power off/on  to the VCCIOA(B) and if
+    lucky may works, but for me most of the time it screw's up.
+    The FTDI libftd2xx has a con-fig option which is supposed to disable the
+    reset too the FTDI chip, when you use the openEx() call,
+    but setting this option, had no affect. It still reset the FTDI chip on
+    openEx call.
+
+The Hardware Fix: (only one which works so far)
+    The FTDI site is not much help, no source etc.. it only left with
+    hardware fix option.
+    Solder a low (6.2 Ohms) value resistor or jumper across the power control
+    FET. Thus shorting the FET out and keeping power on to the VCCIOA(B) pin's.
+    If you use the 0 Ohms resistor jumper option you will get plug-in start up
+    current spike. Which may cause the USB current limit safety circuit to trip.
+    But for me, the 0 Ohms option work OK, I also tried 6.2 Ohms resistor jumper,
+    and that appeared to work OK to.
+    The jumper is placed bottom side of the PCB, where your see Ethernet
+    connector, bottom side. looking you will see 2 wide trace's.
+    Just to the NW of the Ethernet connector mount hole.
+    (Orientation is USB connector to host computer, on right and expansion
+    connectors, USB, Ethernet to the left bottom side)
+    Scratch off the solder resist, and solder jumper/resistor there to join
+    the two thick trace's,  I can post/email picture's of the mode, if the above
+    info is not helpful.
+
+On a side note, the FTDI serial port is not recognized by the Linux kernel
+so you can not use the serial port on the comStick to talk to the STR9 CPU,
+only fix for this is to add the VIP/PID too the ftdi_sio.c and ftdi_sio.h
+and also disable the disable the kernel from using the JTAG port as serial port.
+Recompile the kernel. I can post this patch if any one is interested.
+
+Good luck. Lachlan Audas
+
+ 		 	   		  
+_________________________________________________________________
+Lauren found her dream laptop. Find the PC that&#8217;s right for you.
+<A HREF="http://www.microsoft.com/windows/choosepc/?ocid=ftp_val_wl_290">http://www.microsoft.com/windows/choosepc/?ocid=ftp_val_wl_290</A>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090927/692e1fd1/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20090927/692e1fd1/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010853.html">[Openocd-development] srst pulls trst bug in ft2232
+</A></li>
+	<LI>Next message: <A HREF="010854.html">[Openocd-development] 2nd serial on FT2232 - was: STR9 Hitex	comStick...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10850">[ date ]</a>
+              <a href="thread.html#10850">[ thread ]</a>
+              <a href="subject.html#10850">[ subject ]</a>
+              <a href="author.html#10850">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

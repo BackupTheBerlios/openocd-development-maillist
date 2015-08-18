@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Add arm926ejs cp15 read/write timeout check
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Add%20arm926ejs%20cp15%20read/write%20timeout%20check&In-Reply-To=%3Cc09652430907060232h584842cl209dd4ee0305108b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009146.html">
+   <LINK REL="Next"  HREF="009152.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Add arm926ejs cp15 read/write timeout check</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Add%20arm926ejs%20cp15%20read/write%20timeout%20check&In-Reply-To=%3Cc09652430907060232h584842cl209dd4ee0305108b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Add arm926ejs cp15 read/write timeout check">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul  6 11:32:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009146.html">[Openocd-development] Simplify debug_reason check
+</A></li>
+        <LI>Next message: <A HREF="009152.html">[Openocd-development] arm926ejs is broken in 0.2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9147">[ date ]</a>
+              <a href="thread.html#9147">[ thread ]</a>
+              <a href="subject.html#9147">[ subject ]</a>
+              <a href="author.html#9147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+Add a timeout check(10ms) for read/write cp15.
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://www.zylin.com">http://www.zylin.com</A>
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/arm926ejs.c
+===================================================================
+--- src/target/arm926ejs.c	(revision 2460)
++++ src/target/arm926ejs.c	(working copy)
+@@ -159,8 +159,9 @@
+ 
+ 	jtag_add_dr_scan(4, fields, jtag_get_end_state());
+ 
+-	/*TODO: add timeout*/
+-	do
++	long long then = timeval_ms();
++
++	for (;;)
+ 	{
+ 		/* rescan with NOP, to wait for the access to complete */
+ 		access = 0;
+@@ -173,7 +174,19 @@
+ 		{
+ 			return retval;
+ 		}
+-	} while (buf_get_u32(&amp;access, 0, 1) != 1);
++		
++		if (buf_get_u32(&amp;access, 0, 1) == 1)
++		{
++			break;
++		}
++		
++		/* 10ms timeout */
++		if ((timeval_ms()-then)&gt;10)
++		{
++			LOG_ERROR(&quot;cp15 read operation timed out&quot;);
++			return ERROR_FAIL;
++		}
++	}
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, address, *value);
+@@ -228,8 +241,10 @@
+ 	fields[3].in_value = NULL;
+ 
+ 	jtag_add_dr_scan(4, fields, jtag_get_end_state());
+-	/*TODO: add timeout*/
+-	do
++
++	long long then = timeval_ms();
++
++	for (;;)
+ 	{
+ 		/* rescan with NOP, to wait for the access to complete */
+ 		access = 0;
+@@ -239,7 +254,19 @@
+ 		{
+ 			return retval;
+ 		}
+-	} while (buf_get_u32(&amp;access, 0, 1) != 1);
++
++		if (buf_get_u32(&amp;access, 0, 1) == 1)
++		{
++			break;
++		}
++
++		/* 10ms timeout */
++		if ((timeval_ms()-then)&gt;10)
++		{
++			LOG_ERROR(&quot;cp15 write operation timed out&quot;);
++			return ERROR_FAIL;
++		}
++	}
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, address, value);
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009146.html">[Openocd-development] Simplify debug_reason check
+</A></li>
+	<LI>Next message: <A HREF="009152.html">[Openocd-development] arm926ejs is broken in 0.2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9147">[ date ]</a>
+              <a href="thread.html#9147">[ thread ]</a>
+              <a href="subject.html#9147">[ subject ]</a>
+              <a href="author.html#9147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

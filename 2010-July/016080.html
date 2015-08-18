@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] cortex a8: added timeout handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex%20a8%3A%20added%20timeout%20handling&In-Reply-To=%3C1279534677-11568-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016079.html">
+   <LINK REL="Next"  HREF="016081.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] cortex a8: added timeout handling</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20cortex%20a8%3A%20added%20timeout%20handling&In-Reply-To=%3C1279534677-11568-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] cortex a8: added timeout handling">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul 19 12:17:57 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016079.html">[Openocd-development] [PATCH 2/2] arm: add error propagation for	enable/disable mmu caches
+</A></li>
+        <LI>Next message: <A HREF="016081.html">[Openocd-development] [PATCH] debug: debug entry error propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16080">[ date ]</a>
+              <a href="thread.html#16080">[ thread ]</a>
+              <a href="subject.html#16080">[ subject ]</a>
+              <a href="author.html#16080">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/cortex_a8.c |   33 ++++++++++++++++++++++++++++-----
+ 1 files changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 9a90180..76c3d37 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -136,6 +136,7 @@ static int cortex_a8_exec_opcode(struct target *target,
+ 	LOG_DEBUG(&quot;exec opcode 0x%08&quot; PRIx32, opcode);
+ 
+ 	/* Wait for InstrCompl bit to be set */
++	long long then = timeval_ms();
+ 	while ((dscr &amp; DSCR_INSTR_COMP) == 0)
+ 	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+@@ -145,12 +146,18 @@ static int cortex_a8_exec_opcode(struct target *target,
+ 			LOG_ERROR(&quot;Could not read DSCR register, opcode = 0x%08&quot; PRIx32, opcode);
+ 			return retval;
+ 		}
++		if (timeval_ms() &gt; then + 1000)
++		{
++			LOG_ERROR(&quot;Timeout waiting for cortex_a8_exec_opcode&quot;);
++			return ERROR_FAIL;
++		}
+ 	}
+ 
+ 	retval = mem_ap_write_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_ITR, opcode);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	then = timeval_ms();
+ 	do
+ 	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+@@ -160,6 +167,11 @@ static int cortex_a8_exec_opcode(struct target *target,
+ 			LOG_ERROR(&quot;Could not read DSCR register&quot;);
+ 			return retval;
+ 		}
++		if (timeval_ms() &gt; then + 1000)
++		{
++			LOG_ERROR(&quot;Timeout waiting for cortex_a8_exec_opcode&quot;);
++			return ERROR_FAIL;
++		}
+ 	}
+ 	while ((dscr &amp; DSCR_INSTR_COMP) == 0); /* Wait for InstrCompl bit to be set */
+ 
+@@ -248,12 +260,18 @@ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+ 	}
+ 
+ 	/* Wait for DTRRXfull then read DTRRTX */
++	long long then = timeval_ms();
+ 	while ((dscr &amp; DSCR_DTR_TX_FULL) == 0)
+ 	{
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
+ 		if (retval != ERROR_OK)
+ 			return retval;
++		if (timeval_ms() &gt; then + 1000)
++		{
++			LOG_ERROR(&quot;Timeout waiting for cortex_a8_exec_opcode&quot;);
++			return ERROR_FAIL;
++		}
+ 	}
+ 
+ 	retval = mem_ap_read_atomic_u32(swjdp,
+@@ -394,12 +412,18 @@ static int cortex_a8_read_dcc(struct cortex_a8_common *a8, uint32_t *data,
+ 		dscr = *dscr_p;
+ 
+ 	/* Wait for DTRRXfull */
++	long long then = timeval_ms();
+ 	while ((dscr &amp; DSCR_DTR_TX_FULL) == 0) {
+ 		retval = mem_ap_read_atomic_u32(swjdp,
+ 				a8-&gt;armv7a_common.debug_base + CPUDBG_DSCR,
+ 				&amp;dscr);
+ 		if (retval != ERROR_OK)
+ 			return retval;
++		if (timeval_ms() &gt; then + 1000)
++		{
++			LOG_ERROR(&quot;Timeout waiting for read dcc&quot;);
++			return ERROR_FAIL;
++		}
+ 	}
+ 
+ 	retval = mem_ap_read_atomic_u32(swjdp,
+@@ -1086,8 +1110,6 @@ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+ 	struct reg *r;
+ 	int retval;
+ 
+-	int timeout = 100;
+-
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_WARNING(&quot;target not halted&quot;);
+@@ -1132,12 +1154,13 @@ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	long long then = timeval_ms();
+ 	while (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		retval = cortex_a8_poll(target);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+-		if (--timeout == 0)
++		if (timeval_ms() &gt; then + 1000)
+ 		{
+ 			LOG_ERROR(&quot;timeout waiting for target halt&quot;);
+ 			return ERROR_FAIL;
+@@ -1145,8 +1168,8 @@ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+ 	}
+ 
+ 	cortex_a8_unset_breakpoint(target, &amp;stepbreakpoint);
+-	if (timeout &gt; 0)
+-		target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
++
++	target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
+ 
+ 	if (breakpoint)
+ 		cortex_a8_set_breakpoint(target, breakpoint, 0);
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016079.html">[Openocd-development] [PATCH 2/2] arm: add error propagation for	enable/disable mmu caches
+</A></li>
+	<LI>Next message: <A HREF="016081.html">[Openocd-development] [PATCH] debug: debug entry error propagation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16080">[ date ]</a>
+              <a href="thread.html#16080">[ thread ]</a>
+              <a href="subject.html#16080">[ subject ]</a>
+              <a href="author.html#16080">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] another STM32 problems with RLink
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20another%20STM32%20problems%20with%20RLink&In-Reply-To=%3C20090311230749.GG10241%40gumby.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004990.html">
+   <LINK REL="Next"  HREF="004997.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] another STM32 problems with RLink</H1>
+    <B>lou.openocd012 at fixit.nospammail.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20another%20STM32%20problems%20with%20RLink&In-Reply-To=%3C20090311230749.GG10241%40gumby.local%3E"
+       TITLE="[Openocd-development] another STM32 problems with RLink">lou.openocd012 at fixit.nospammail.net
+       </A><BR>
+    <I>Thu Mar 12 00:07:49 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004990.html">[Openocd-development] another STM32 problems with RLink
+</A></li>
+        <LI>Next message: <A HREF="004997.html">[Openocd-development] another STM32 problems with RLink
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4995">[ date ]</a>
+              <a href="thread.html#4995">[ thread ]</a>
+              <a href="subject.html#4995">[ subject ]</a>
+              <a href="author.html#4995">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, Mar 11, 2009 at 09:57:57PM +0100, Freddie Chopin wrote:
+&gt;<i> ok than, I've done some more testing with real RLink this time. the 
+</I>&gt;<i> results are exactly the same as for Primer1 - so generaly RLink works 
+</I>&gt;<i> fine now...
+</I>
+Yay!  :)
+
+&gt;<i> 
+</I>&gt;<i> BTW - RLink is pretty slow... compared to my FT2232 based JTAG it is 
+</I>&gt;<i> exactly 5 times slower (i compare the time of 100k code upload, same 
+</I>&gt;<i> jtag_khz, same target - cortex-m3). with standard 1MHz speed, the upload 
+</I>&gt;<i> speed is about 1kB/s, and with FT2232 based interface it is 5-6kB/s.
+</I>
+The RLink as implemented can only actually operate at a certain number of
+speeds.  Specifically 375k, 2181.82k, 3000k, and 12000k.  Selecting another
+speed selects the next lower one.  So that's about half of your slowdown
+right there.  You think you're signalling at 1000k, but it's really 375k.
+
+And even that isn't the worst bottleneck.  The worst bottleneck comes
+from limitations imposed by the firmware in the ST7 chip in the RLink dongle,
+which is undocumented.  And then there are some pretty restrictive hardware
+limitations in the ST7 as well.  I have already done as much as I can
+to speed things up, and am actually doing some fancy stuff to make it as
+fast as it is, considering what is available to work with.  
+
+Slow is better than nothing, which is what we had before.  If anybody
+thinks they can do it better than I did, they are welcome to.  I just
+wanted to have a way to load an image into a Primer at all without having
+to run Windows or mess about with BOOT0 and the UART or desolder the RLink
+chip and flylead in a proper JTAG header.  Any other functionality (
+including standalone RLink support, which I was happy to add
+to make it more broadly useful), is gravy.
+
+&gt;<i> upload is just a minor issue, as you don't upload that much code with 
+</I>&gt;<i> JTAG that offen, but - stepping through code, or pausing the core is 
+</I>&gt;<i> pretty laggy too. what I mean is that 1 step usually takes about 5-10 
+</I>&gt;<i> (up to 20 sometimes while in ISRs) seconds with RLink (and that is 
+</I>&gt;<i> annoying), while with FT2232 it is 'a blink of the eye (which is not 
+</I>&gt;<i> annoying at all).
+</I>
+If anybody has an idea of what to look for, I'll look for it.  My hunch
+is that this is related to the above limitations.  Specifically, issuing
+any command buffer (instructions regarding what to shift out to or in
+from the TAP) requires explicit polling via USB to see when it is complete,
+and debugging seems to entail a lot of such commands.  It's more complex
+than that, but that conveys the basic idea.
+
+I agree that having to wait seconds to step is painful.  It would be an
+impetus to either use a different JTAG adapter or to use Raisonance's
+software.  The latter is obviously not an option for me, as I do not run
+Windows.
+
+&gt;<i> 
+</I>&gt;<i> i also get some mystical errors and warns almost all the time in the 
+</I>&gt;<i> background:
+</I>&gt;<i> 
+</I>&gt;<i> Error: SWJ-DP STICKY ERROR
+</I>&gt;<i> Error: dcb_dhcsr 0x30003, nvic_shcsr 0x20800, nvic_cfsr 0x0, nvic_bfar 
+</I>&gt;<i> 0xe000edf8
+</I>&gt;<i> Warn : Block read error address 0x4e306078, count 0x1
+</I>&gt;<i> 
+</I>&gt;<i> exactly the same code with the same target but with FT2232 gives the 
+</I>&gt;<i> same errors and warns all the time, but the steps take 4-5sec max 
+</I>&gt;<i> (usually about 2-3sec), and there is no significant difference when 
+</I>&gt;<i> stepping through the ISR.
+</I>
+If not for the fact that you get the same messages with another adapter,
+I'd be worried, since I got similar messages when things were broken
+during development.  Albeit earlier in the process.  Like during
+initialization.  Fortunately, whatever this is, is not peculiar to the
+rlink driver.
+
+The slowness has probably been explained above.
+
+&gt;<i> 
+</I>&gt;<i> Anyway - a great step has been made, as now both primer and real RLink 
+</I>&gt;<i> are supported and are operational!
+</I>
+Thanks for your help with that.  Tracing out the standalone RLink
+schematic was critically important for that success.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004990.html">[Openocd-development] another STM32 problems with RLink
+</A></li>
+	<LI>Next message: <A HREF="004997.html">[Openocd-development] another STM32 problems with RLink
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4995">[ date ]</a>
+              <a href="thread.html#4995">[ thread ]</a>
+              <a href="subject.html#4995">[ subject ]</a>
+              <a href="author.html#4995">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

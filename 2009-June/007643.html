@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] questions about irscan/drscan/etc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20questions%20about%20irscan/drscan/etc&In-Reply-To=%3C200906020011.48911.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007635.html">
+   <LINK REL="Next"  HREF="007647.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] questions about irscan/drscan/etc</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20questions%20about%20irscan/drscan/etc&In-Reply-To=%3C200906020011.48911.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] questions about irscan/drscan/etc">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Jun  2 09:11:48 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007635.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+        <LI>Next message: <A HREF="007647.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7643">[ date ]</a>
+              <a href="thread.html#7643">[ thread ]</a>
+              <a href="subject.html#7643">[ subject ]</a>
+              <a href="author.html#7643">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 01 June 2009, Duane Ellis wrote:
+&gt;<i> someone asked&gt;&gt;  [something like:  But what would a TCL user expect].
+</I>&gt;<i> 
+</I>&gt;<i> Hmm,
+</I>&gt;<i> 
+</I>&gt;<i> What does not happen to day, is the ability to &quot;scan out&quot; data bits and 
+</I>&gt;<i> capture them in TCL.
+</I>
+Hmm?  I thought I saw code returning the captured value of the
+data register ... is that not complete?  Or did I imagine it?
+
+What I didn't see was doing that for the *instruction* register.
+
+
+&gt;<i> I think the following would be helpful
+</I>&gt;<i> 
+</I>&gt;<i> # Goto this state by any means desired, via any random path, really only 
+</I>&gt;<i> good for RESET
+</I>&gt;<i>    jtag gotostate  STATENAME
+</I>
+If it's only good for RESET, shouldn't one of the reset primitives
+handle this?  (Maybe a new one?)  And guarantee all the relevant
+state transition hooks fire, as &#216;yvind mentioned earlier.
+
+
+&gt;<i> # Goto next state, must be exactly 1 clock/tms step away, can list 
+</I>&gt;<i> multiple states
+</I>&gt;<i>    jtag nextstate STATENAME  [... more STATENAMEs]
+</I>
+That is, just give a state path?  So for example part of a
+Zero-Bit Scan (ZBS) would be:
+
+	jtag nextstate DRSELECT DRCAPTURE DREXIT1 DRUPDATE
+
+I'd think that the rule I mentioned before -- about always
+needing to end in a non-SHIFT (and, per &#216;yvind, non-RESET)
+stable state -- should apply here too.  (UPDATE:  Hmm, not
+if you're proposing an entirely queued interface.  If the
+&quot;nextstate&quot; thing were immediate, it would apply.)
+	
+
+&gt;<i> # Tell this tap to do a specific scan type
+</I>&gt;<i> #  Tapstate must be CAPTUREDR or CAPTUREIR otherwise error
+</I>&gt;<i>    jtag  scan -type DR|IR   -bitlen NBITS -iarray  ARRAYNAME  -oarray 
+</I>&gt;<i> ARRAYNAME -endstate NAME
+</I>
+Hmm, now you're getting into rewriting the entire set of lowlevel
+JTAG calls.  :)
+ 
+
+&gt;<i> # Simplistic &quot;ir scans&quot; - of only a few bits
+</I>&gt;<i>    jtag  scan  -type IR   -bitlen  5  -value VALUE
+</I>&gt;<i> 
+</I>&gt;<i> # Run clocks in RESET,  IRPAUSE, DRPAUSE, or IDLE/RUN state
+</I>&gt;<i>     jtag  idleclocsk NCLOCKS
+</I>&gt;<i> 
+</I>&gt;<i> # Finally,
+</I>&gt;<i>     jtag execute
+</I>
+AH!!  This batched model I think I like.  Though I think I'd
+package it differently, and in a more TCLish way.
+
+Instead of queueing a bunch of JTAG operations *inside* the
+OpenOCD engine ... have a array representation of them, which
+can be saved and then interpreted by &quot;jtag execute $saved&quot;.
+
+
+
+&gt;<i> # NOTE: The above commands are &quot;global&quot;
+</I>&gt;<i> #   and do not account for any tap in bypass, their view is
+</I>&gt;<i> #   effectively at the end of the dongle cable.
+</I>&gt;<i> 
+</I>&gt;<i> # Wiggle &quot;TRST&quot; and/or SRST pins
+</I>&gt;<i>    jtag set TRST  0
+</I>&gt;<i>    jtag set TRST  1
+</I>&gt;<i>    jtag set SRST  0
+</I>&gt;<i>    jtag set SRST  1
+</I>&gt;<i> 
+</I>&gt;<i> Examples
+</I>&gt;<i> 
+</I>&gt;<i>     jtag set TRST 0
+</I>&gt;<i>     jtag set SRST 0
+</I>&gt;<i>     sleep 500
+</I>&gt;<i>     jtag set TRST 1
+</I>&gt;<i>     jtag set SRST 1
+</I>
+All that stuff is doable with current interfaces.
+
+
+&gt;<i>     jtag   gotostate  RESET
+</I>&gt;<i>     jtag   gotostate SHIFTIR
+</I>&gt;<i> # ? not sure here, the idea is to put  the 5 bit value 0x0c in the IR 
+</I>&gt;<i> register
+</I>&gt;<i>     jtag   scan -type IR -bitlen 5 -value 0x0c -endstate EXITIR
+</I>&gt;<i> 
+</I>&gt;<i> # Scan out, 35 bits into MYBITS - with, TDI = 1 during the shift.
+</I>&gt;<i>     jtag  gotostate CAPTUREDR
+</I>&gt;<i>     jtag scan -type DR -bitlen  35 -tdi 1 -oarray MYBITS  -endstate EXITDR
+</I>
+Ditto, I think.  But -- no &quot;jtag execute&quot;?
+
+
+&gt;<i> 
+</I>&gt;<i> ==
+</I>&gt;<i> -Duane
+</I>&gt;<i> ==
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007635.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+	<LI>Next message: <A HREF="007647.html">[Openocd-development] questions about irscan/drscan/etc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7643">[ date ]</a>
+              <a href="thread.html#7643">[ thread ]</a>
+              <a href="subject.html#7643">[ subject ]</a>
+              <a href="author.html#7643">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

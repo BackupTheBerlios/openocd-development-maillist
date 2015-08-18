@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/9] NAND/TCL: prepare for common	&quot;target&quot; reference
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/9%5D%20NAND/TCL%3A%20prepare%20for%20common%0A%09%22target%22%20reference&In-Reply-To=%3C1293795969-6485-2-git-send-email-borneo.antonio%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017800.html">
+   <LINK REL="Next"  HREF="017802.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/9] NAND/TCL: prepare for common	&quot;target&quot; reference</H1>
+    <B>Antonio Borneo</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/9%5D%20NAND/TCL%3A%20prepare%20for%20common%0A%09%22target%22%20reference&In-Reply-To=%3C1293795969-6485-2-git-send-email-borneo.antonio%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/9] NAND/TCL: prepare for common	&quot;target&quot; reference">borneo.antonio at gmail.com
+       </A><BR>
+    <I>Fri Dec 31 12:46:01 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017800.html">[Openocd-development] [PATCH] reorganize NAND driver
+</A></li>
+        <LI>Next message: <A HREF="017802.html">[Openocd-development] [PATCH 2/9] NAND/AT91SAM9: remove private	&quot;target&quot; copy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17801">[ date ]</a>
+              <a href="thread.html#17801">[ thread ]</a>
+              <a href="subject.html#17801">[ subject ]</a>
+              <a href="author.html#17801">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Every NAND driver keeps private copy of &quot;target&quot;
+structure.
+Prepare infostructure to move private &quot;target&quot;
+copy in common/shared struct nand_device.
+
+Signed-off-by: Antonio Borneo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">borneo.antonio at gmail.com</A>&gt;
+---
+ src/flash/nand/core.h |    1 +
+ src/flash/nand/tcl.c  |   28 +++++++++++++++++++++++++---
+ 2 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/src/flash/nand/core.h b/src/flash/nand/core.h
+index 709c37b..73fd0ed 100644
+--- a/src/flash/nand/core.h
++++ b/src/flash/nand/core.h
+@@ -60,6 +60,7 @@ struct nand_ecclayout {
+ struct nand_device
+ {
+ 	const char *name;
++	struct target *target;
+ 	struct nand_flash_controller *controller;
+ 	void *controller_priv;
+ 	struct nand_manufacturer *manufacturer;
+diff --git a/src/flash/nand/tcl.c b/src/flash/nand/tcl.c
+index 70584ff..e4bfb4d 100644
+--- a/src/flash/nand/tcl.c
++++ b/src/flash/nand/tcl.c
+@@ -27,6 +27,7 @@
+ #include &quot;core.h&quot;
+ #include &quot;imp.h&quot;
+ #include &quot;fileio.h&quot;
++#include &lt;target/target.h&gt;
+ 
+ // to be removed
+ extern struct nand_device *nand_devices;
+@@ -537,16 +538,37 @@ COMMAND_HANDLER(handle_nand_list_drivers)
+ static COMMAND_HELPER(create_nand_device, const char *bank_name,
+ 		struct nand_flash_controller *controller)
+ {
++	struct nand_device *c;
++	struct target *target;
++	int retval;
++
++	if (CMD_ARGC &lt; 2)
++	{
++		LOG_ERROR(&quot;missing target&quot;);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++	target = get_target(CMD_ARGV[1]);
++	if (!target) {
++		LOG_ERROR(&quot;invalid target %s&quot;, CMD_ARGV[1]);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++
+ 	if (NULL != controller-&gt;commands)
+ 	{
+-		int retval = register_commands(CMD_CTX, NULL,
++		retval = register_commands(CMD_CTX, NULL,
+ 				controller-&gt;commands);
+ 		if (ERROR_OK != retval)
+ 			return retval;
+ 	}
+-	struct nand_device *c = malloc(sizeof(struct nand_device));
++	c = malloc(sizeof(struct nand_device));
++	if (c == NULL)
++	{
++		LOG_ERROR(&quot;End of memory&quot;);
++		return ERROR_FAIL;
++	}
+ 
+ 	c-&gt;name = strdup(bank_name);
++	c-&gt;target = target;
+ 	c-&gt;controller = controller;
+ 	c-&gt;controller_priv = NULL;
+ 	c-&gt;manufacturer = NULL;
+@@ -557,7 +579,7 @@ static COMMAND_HELPER(create_nand_device, const char *bank_name,
+ 	c-&gt;use_raw = 0;
+ 	c-&gt;next = NULL;
+ 
+-	int retval = CALL_COMMAND_HANDLER(controller-&gt;nand_device_command, c);
++	retval = CALL_COMMAND_HANDLER(controller-&gt;nand_device_command, c);
+ 	if (ERROR_OK != retval)
+ 	{
+ 		LOG_ERROR(&quot;'%s' driver rejected nand flash&quot;, controller-&gt;name);
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017800.html">[Openocd-development] [PATCH] reorganize NAND driver
+</A></li>
+	<LI>Next message: <A HREF="017802.html">[Openocd-development] [PATCH 2/9] NAND/AT91SAM9: remove private	&quot;target&quot; copy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17801">[ date ]</a>
+              <a href="thread.html#17801">[ thread ]</a>
+              <a href="subject.html#17801">[ subject ]</a>
+              <a href="author.html#17801">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

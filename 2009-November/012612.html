@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/8] factor help script command into	parts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/8%5D%20factor%20help%20script%20command%20into%0A%09parts&In-Reply-To=%3C1258742030-30859-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012608.html">
+   <LINK REL="Next"  HREF="012609.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/8] factor help script command into	parts</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/8%5D%20factor%20help%20script%20command%20into%0A%09parts&In-Reply-To=%3C1258742030-30859-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/8] factor help script command into	parts">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Nov 20 19:33:46 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012608.html">[Openocd-development] [PATCH 3/8] refactor command registration
+</A></li>
+        <LI>Next message: <A HREF="012609.html">[Openocd-development] [PATCH 5/8] improve 'help' command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12612">[ date ]</a>
+              <a href="thread.html#12612">[ thread ]</a>
+              <a href="subject.html#12612">[ subject ]</a>
+              <a href="author.html#12612">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Creates a helper function, cmd_help, which displays the help string
+for a single command.  Presently, it is called from the loop in help.
+
+The routine has been extended to allow indentation of command groups,
+so an improved help command can improve the display of information.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/startup.tcl |   62 ++++++++++++++++++++++++++---------------------
+ 1 files changed, 34 insertions(+), 28 deletions(-)
+
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index eefb690..30dc184 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -25,6 +25,39 @@ proc exit {} {
+ 	ocd_throw exit
+ }
+ 
++proc cmd_help {cmdname h indent} {
++	set indent [expr $indent * 2]
++
++	set fmt_str [format &quot;%%%ds%%-%ds %%s&quot; $indent [expr 25 - $indent]]
++	set w [expr 50 - $indent]
++	set n 0
++
++	while 1 {
++		if {$n &gt; [string length $h]} {break}
++
++		set next_a [expr $n + $w]
++		if {[string length $h] &gt; $n + $w} \
++		{
++			set xxxx [string range $h $n [expr $n + $w]]
++			for {set lastpos [expr [string length $xxxx] - 1]} \
++				{$lastpos &gt;= 0 &amp;&amp; [string compare \
++					[string range $xxxx $lastpos $lastpos] &quot; &quot;] != 0} \
++				{set lastpos [expr $lastpos - 1]} \
++			{
++			}
++			#set next_a -1
++			if {$lastpos != -1} {
++				set next_a [expr $lastpos + $n + 1]
++			}
++		}
++
++		puts [format $fmt_str &quot;&quot; $cmdname \
++				[string range $h $n [expr $next_a - 1]] ]
++		set cmdname &quot;&quot;
++		set n [expr $next_a]
++	}
++}
++
+ #Print help text for a command. Word wrap
+ #help text that is too wide inside column.
+ proc help {args} {
+@@ -35,34 +68,7 @@ proc help {args} {
+ 			[string first $cmd $a] != -1 || \
+ 			[string first $cmd [lindex $a 1]] != -1} \
+ 		{
+-			set w 50
+-			set cmdname [lindex $a 0]
+-			set h [lindex $a 1]
+-			set n 0
+-			while 1 {
+-				if {$n &gt; [string length $h]} {break}
+-
+-				set next_a [expr $n + $w]
+-				if {[string length $h] &gt; $n + $w} \
+-				{
+-					set xxxx [string range $h $n [expr $n + $w]]
+-					for {set lastpos [expr [string length $xxxx] - 1]} \
+-						{$lastpos &gt;= 0 &amp;&amp; [string compare \
+-							[string range $xxxx $lastpos $lastpos] &quot; &quot;] != 0} \
+-						{set lastpos [expr $lastpos - 1]} \
+-					{
+-					}
+-					#set next_a -1
+-					if {$lastpos != -1} {
+-						set next_a [expr $lastpos + $n + 1]
+-					}
+-				}
+-
+-				puts [format &quot;%-25s %s&quot; $cmdname \
+-						[string range $h $n [expr $next_a-1]] ]
+-				set cmdname &quot;&quot;
+-				set n [expr $next_a]
+-			}
++			cmd_help [lindex $a 0] [lindex $a 1] 0
+ 		}
+ 	}
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012608.html">[Openocd-development] [PATCH 3/8] refactor command registration
+</A></li>
+	<LI>Next message: <A HREF="012609.html">[Openocd-development] [PATCH 5/8] improve 'help' command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12612">[ date ]</a>
+              <a href="thread.html#12612">[ thread ]</a>
+              <a href="subject.html#12612">[ subject ]</a>
+              <a href="author.html#12612">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

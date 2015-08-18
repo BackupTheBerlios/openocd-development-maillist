@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] target: allow targets to override	memory alignment
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20target%3A%20allow%20targets%20to%20override%0A%09memory%20alignment&In-Reply-To=%3C1300367986-31621-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018401.html">
+   <LINK REL="Next"  HREF="018395.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] target: allow targets to override	memory alignment</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20target%3A%20allow%20targets%20to%20override%0A%09memory%20alignment&In-Reply-To=%3C1300367986-31621-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] target: allow targets to override	memory alignment">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Mar 17 14:19:46 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018401.html">[Openocd-development] MIPS (Big Endian) Questions
+</A></li>
+        <LI>Next message: <A HREF="018395.html">[Openocd-development] [PATCH] target: allow targets to override memory alignment
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18378">[ date ]</a>
+              <a href="thread.html#18378">[ thread ]</a>
+              <a href="subject.html#18378">[ subject ]</a>
+              <a href="author.html#18378">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kesmtp at freenet.de</A>&gt;
+
+Targets can implement read/write_buffer to handle
+alignment.
+---
+ src/target/target.c      |   30 ++++++++++++++++++++++++++----
+ src/target/target_type.h |    6 ++++++
+ 2 files changed, 32 insertions(+), 4 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index be42b33..13d358d 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -46,6 +46,10 @@
+ #include &quot;image.h&quot;
+ 
+ 
++static int target_read_buffer_default(struct target *target, uint32_t address,
++		uint32_t size, uint8_t *buffer);
++static int target_write_buffer_default(struct target *target, uint32_t address,
++		uint32_t size, uint8_t *buffer);
+ static int target_array2mem(Jim_Interp *interp, struct target *target,
+ 		int argc, Jim_Obj *const *argv);
+ static int target_mem2array(Jim_Interp *interp, struct target *target,
+@@ -865,6 +869,13 @@ static int target_init_one(struct command_context *cmd_ctx,
+ 		type-&gt;read_phys_memory = type-&gt;read_memory;
+ 		type-&gt;virt2phys = identity_virt2phys;
+ 	}
++
++	if (target-&gt;type-&gt;read_buffer == NULL)
++		target-&gt;type-&gt;read_buffer = target_read_buffer_default;
++
++	if (target-&gt;type-&gt;write_buffer == NULL)
++		target-&gt;type-&gt;write_buffer = target_write_buffer_default;
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -1333,7 +1344,6 @@ int target_arch_state(struct target *target)
+  */
+ int target_write_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
+ {
+-	int retval;
+ 	LOG_DEBUG(&quot;writing buffer of %i byte at 0x%8.8x&quot;,
+ 		  (int)size, (unsigned)address);
+ 
+@@ -1356,6 +1366,13 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+ 		return ERROR_FAIL;
+ 	}
+ 
++	return target-&gt;type-&gt;write_buffer(target, address, size, buffer);
++}
++
++static int target_write_buffer_default(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++{
++	int retval = ERROR_OK;
++
+ 	if (((address % 2) == 0) &amp;&amp; (size == 2))
+ 	{
+ 		return target_write_memory(target, address, 2, 1, buffer);
+@@ -1406,7 +1423,7 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+ 			return retval;
+ 	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ /* Single aligned words are guaranteed to use 16 or 32 bit access
+@@ -1415,7 +1432,6 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+  */
+ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
+ {
+-	int retval;
+ 	LOG_DEBUG(&quot;reading buffer of %i byte at 0x%8.8x&quot;,
+ 			  (int)size, (unsigned)address);
+ 
+@@ -1438,6 +1454,13 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
+ 		return ERROR_FAIL;
+ 	}
+ 
++	return target-&gt;type-&gt;read_buffer(target, address, size, buffer);
++}
++
++static int target_read_buffer_default(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++{
++	int retval = ERROR_OK;
++
+ 	if (((address % 2) == 0) &amp;&amp; (size == 2))
+ 	{
+ 		return target_read_memory(target, address, 2, 1, buffer);
+@@ -3695,7 +3718,6 @@ static Jim_Nvp nvp_config_opts[] = {
+ 	{ .name = &quot;-variant&quot;,          .value = TCFG_VARIANT },
+ 	{ .name = &quot;-coreid&quot;,           .value = TCFG_COREID },
+ 	{ .name = &quot;-chain-position&quot;,   .value = TCFG_CHAIN_POSITION },
+-
+ 	{ .name = NULL, .value = -1 }
+ };
+ 
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index bfa7f93..15598b2 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -119,6 +119,12 @@ struct target_type
+ 	 */
+ 	int (*write_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ 
++	/* Default implementation will do some fancy alignment to improve performance, target can override */
++	int (*read_buffer)(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer);
++
++	/* Default implementation will do some fancy alignment to improve performance, target can override */
++	int (*write_buffer)(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer);
++
+ 	/**
+ 	 * Write target memory in multiples of 4 bytes, optimized for
+ 	 * writing large quantities of data.  Do @b not call this
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018401.html">[Openocd-development] MIPS (Big Endian) Questions
+</A></li>
+	<LI>Next message: <A HREF="018395.html">[Openocd-development] [PATCH] target: allow targets to override memory alignment
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18378">[ date ]</a>
+              <a href="thread.html#18378">[ thread ]</a>
+              <a href="subject.html#18378">[ subject ]</a>
+              <a href="author.html#18378">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

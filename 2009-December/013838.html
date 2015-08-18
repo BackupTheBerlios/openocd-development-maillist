@@ -1,0 +1,270 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/fyi] ARM DPM: support adding/removing	HW breakpoints
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%5D%20ARM%20DPM%3A%20support%20adding/removing%0A%09HW%20breakpoints&In-Reply-To=%3C200912261224.45392.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013835.html">
+   <LINK REL="Next"  HREF="013843.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/fyi] ARM DPM: support adding/removing	HW breakpoints</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%5D%20ARM%20DPM%3A%20support%20adding/removing%0A%09HW%20breakpoints&In-Reply-To=%3C200912261224.45392.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/fyi] ARM DPM: support adding/removing	HW breakpoints">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec 26 21:24:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013835.html">[Openocd-development] Feature request: GDB 7.0 ARM register support
+</A></li>
+        <LI>Next message: <A HREF="013843.html">[Openocd-development] [patch] create tcl/board/dm365evm.cfg
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13838">[ date ]</a>
+              <a href="thread.html#13838">[ thread ]</a>
+              <a href="subject.html#13838">[ subject ]</a>
+              <a href="author.html#13838">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Generalize the core of watchpoint setup so that it can handle
+breakpoints too.  Create breakpoint add/remove routines which
+will use that, and hook them up to target types which don't
+provide their own breakpoint support (nothing, yet).
+
+This suffices for hardware-only breakpoint support.  The ARM11
+code will be able to use it without much trouble, since it doesn't
+yet handle software breakpoints.  Cortex-A8 support will be a bit
+more involved.
+---
+For the moment, I'm planning to hold this for the 0.5 merge,
+when it will presumably merge with an ARM11 patch to strip out
+most of it existing breakpoint support and use this instead.
+
+ src/target/arm_dpm.c |  142 ++++++++++++++++++++++++++++++++++++-------------
+ 1 file changed, 107 insertions(+), 35 deletions(-)
+
+--- a/src/target/arm_dpm.c
++++ b/src/target/arm_dpm.c
+@@ -651,43 +651,26 @@ done:
+  * fact isn't currently leveraged.
+  */
+ 
+-static int dpm_watchpoint_setup(struct arm_dpm *dpm, unsigned index,
+-		struct watchpoint *wp)
++static int dpm_bpwp_setup(struct arm_dpm *dpm, struct dpm_bpwp *xp,
++		uint32_t addr, uint32_t length)
+ {
+-	uint32_t addr = wp-&gt;address;
+ 	uint32_t control;
+ 
+-	/* this hardware doesn't support data value matching or masking */
+-	if (wp-&gt;value || wp-&gt;mask != ~(uint32_t)0) {
+-		LOG_DEBUG(&quot;watchpoint values and masking not supported&quot;);
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-	}
+-
+ 	control = (1 &lt;&lt; 0)	/* enable */
+ 		| (3 &lt;&lt; 1);	/* both user and privileged access */
+ 
+-	switch (wp-&gt;rw) {
+-	case WPT_READ:
+-		control |= 1 &lt;&lt; 3;
+-		break;
+-	case WPT_WRITE:
+-		control |= 2 &lt;&lt; 3;
+-		break;
+-	case WPT_ACCESS:
+-		control |= 3 &lt;&lt; 3;
+-		break;
+-	}
+-
+ 	/* Match 1, 2, or all 4 byte addresses in this word.
+ 	 *
+-	 * FIXME:  v7 hardware allows lengths up to 2 GB, and has eight
+-	 * byte address select bits.  Support larger wp-&gt;length, if addr
+-	 * is suitably aligned.
++	 * FIXME:  v7 hardware allows lengths up to 2 GB for BP and WP.
++	 * Support larger length, when addr is suitably aligned.  In
++	 * particular, allow watchpoints on 8 byte &quot;double&quot; values.
++	 *
++	 * REVISIT allow watchpoints on unaligned 2-bit values; and on
++	 * v7 hardware, unaligned 4-byte ones too.
+ 	 */
+-	switch (wp-&gt;length) {
++	switch (length) {
+ 	case 1:
+ 		control |= (1 &lt;&lt; (addr &amp; 3)) &lt;&lt; 5;
+-		addr &amp;= ~3;
+ 		break;
+ 	case 2:
+ 		/* require 2-byte alignment */
+@@ -704,26 +687,110 @@ static int dpm_watchpoint_setup(struct a
+ 		}
+ 		/* FALL THROUGH */
+ 	default:
+-		LOG_DEBUG(&quot;bad watchpoint length or alignment&quot;);
++		LOG_ERROR(&quot;unsupported {break,watch}point length/alignment&quot;);
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+ 
+-	/* other control bits:
+-	 * bits 9:12 == 0 ... only checking up to four byte addresses (v7 only)
++	/* other shared control bits:
+ 	 * bits 15:14 == 0 ... both secure and nonsecure states (v6.1+ only)
+ 	 * bit 20 == 0 ... not linked to a context ID
+ 	 * bit 28:24 == 0 ... not ignoring N LSBs (v7 only)
+ 	 */
+ 
+-	dpm-&gt;dwp[index].wp = wp;
+-	dpm-&gt;dwp[index].bpwp.address = addr &amp; ~3;
+-	dpm-&gt;dwp[index].bpwp.control = control;
+-	dpm-&gt;dwp[index].bpwp.dirty = true;
++	xp-&gt;address = addr &amp; ~3;
++	xp-&gt;control = control;
++	xp-&gt;dirty = true;
++
++	LOG_DEBUG(&quot;BPWP: addr %8.8x, control %x, number %d&quot;,
++			xp-&gt;address, control, xp-&gt;number);
+ 
+ 	/* hardware is updated in write_dirty_registers() */
+ 	return ERROR_OK;
+ }
+ 
++static int dpm_add_breakpoint(struct target *target, struct breakpoint *bp)
++{
++	struct arm *arm = target_to_arm(target);
++	struct arm_dpm *dpm = arm-&gt;dpm;
++	int retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++
++	if (bp-&gt;length &lt; 2)
++		return ERROR_INVALID_ARGUMENTS;
++	if (!dpm-&gt;bpwp_enable)
++		return retval;
++
++	/* FIXME we need a generic solution for software breakpoints. */
++	if (bp-&gt;type == BKPT_SOFT)
++		LOG_DEBUG(&quot;using HW bkpt, not SW...&quot;);
++
++	for (unsigned i = 0; i &lt; dpm-&gt;nbp; i++) {
++		if (!dpm-&gt;dbp[i].bp) {
++			retval = dpm_bpwp_setup(dpm, &amp;dpm-&gt;dbp[i].bpwp,
++					bp-&gt;address, bp-&gt;length);
++			if (retval == ERROR_OK)
++				dpm-&gt;dbp[i].bp = bp;
++			break;
++		}
++	}
++
++	return retval;
++}
++
++static int dpm_remove_breakpoint(struct target *target, struct breakpoint *bp)
++{
++	struct arm *arm = target_to_arm(target);
++	struct arm_dpm *dpm = arm-&gt;dpm;
++	int retval = ERROR_INVALID_ARGUMENTS;
++
++	for (unsigned i = 0; i &lt; dpm-&gt;nbp; i++) {
++		if (dpm-&gt;dbp[i].bp == bp) {
++			dpm-&gt;dbp[i].bp = NULL;
++			dpm-&gt;dbp[i].bpwp.dirty = true;
++
++			/* hardware is updated in write_dirty_registers() */
++			retval = ERROR_OK;
++			break;
++		}
++	}
++
++	return retval;
++}
++
++static int dpm_watchpoint_setup(struct arm_dpm *dpm, unsigned index,
++		struct watchpoint *wp)
++{
++	int retval;
++	struct dpm_wp *dwp = dpm-&gt;dwp + index;
++	uint32_t control;
++
++	/* this hardware doesn't support data value matching or masking */
++	if (wp-&gt;value || wp-&gt;mask != ~(uint32_t)0) {
++		LOG_DEBUG(&quot;watchpoint values and masking not supported&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	retval = dpm_bpwp_setup(dpm, &amp;dwp-&gt;bpwp, wp-&gt;address, wp-&gt;length);
++	if (retval != ERROR_OK)
++		return retval;
++
++	control = dwp-&gt;bpwp.control;
++	switch (wp-&gt;rw) {
++	case WPT_READ:
++		control |= 1 &lt;&lt; 3;
++		break;
++	case WPT_WRITE:
++		control |= 2 &lt;&lt; 3;
++		break;
++	case WPT_ACCESS:
++		control |= 3 &lt;&lt; 3;
++		break;
++	}
++	dwp-&gt;bpwp.control = control;
++
++	dpm-&gt;dwp[index].wp = wp;
++
++	return retval;
++}
+ 
+ static int dpm_add_watchpoint(struct target *target, struct watchpoint *wp)
+ {
+@@ -851,11 +918,16 @@ int arm_dpm_setup(struct arm_dpm *dpm)
+ 	arm-&gt;mrc = dpm_mrc;
+ 	arm-&gt;mcr = dpm_mcr;
+ 
+-	/* breakpoint and watchpoint setup */
++	/* breakpoint setup -- optional until it works everywhere */
++	if (!target-&gt;type-&gt;add_breakpoint) {
++		target-&gt;type-&gt;add_breakpoint = dpm_add_breakpoint;
++		target-&gt;type-&gt;remove_breakpoint = dpm_remove_breakpoint;
++	}
++
++	/* watchpoint setup */
+ 	target-&gt;type-&gt;add_watchpoint = dpm_add_watchpoint;
+ 	target-&gt;type-&gt;remove_watchpoint = dpm_remove_watchpoint;
+ 
+-	/* FIXME add breakpoint support */
+ 	/* FIXME add vector catch support */
+ 
+ 	dpm-&gt;nbp = 1 + ((dpm-&gt;didr &gt;&gt; 24) &amp; 0xf);
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013835.html">[Openocd-development] Feature request: GDB 7.0 ARM register support
+</A></li>
+	<LI>Next message: <A HREF="013843.html">[Openocd-development] [patch] create tcl/board/dm365evm.cfg
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13838">[ date ]</a>
+              <a href="thread.html#13838">[ thread ]</a>
+              <a href="subject.html#13838">[ subject ]</a>
+              <a href="author.html#13838">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] add new arm11 option for context	aware debugging
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20add%20new%20arm11%20option%20for%20context%0A%09aware%20debugging&In-Reply-To=%3C200911161159.29984.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012418.html">
+   <LINK REL="Next"  HREF="012473.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] add new arm11 option for context	aware debugging</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20add%20new%20arm11%20option%20for%20context%0A%09aware%20debugging&In-Reply-To=%3C200911161159.29984.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH] add new arm11 option for context	aware debugging">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Nov 16 20:59:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012418.html">[Openocd-development] [PATCH] add new arm11 option for context	aware debugging
+</A></li>
+        <LI>Next message: <A HREF="012473.html">[Openocd-development] [PATCH] add new arm11 option for context	aware debugging
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12438">[ date ]</a>
+              <a href="thread.html#12438">[ thread ]</a>
+              <a href="subject.html#12438">[ subject ]</a>
+              <a href="author.html#12438">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 16 November 2009, &#216;yvind Harboe wrote:
+&gt;<i> Does anyone thing this should not be committed? Sounds like
+</I>&gt;<i> a *neat* feature....
+</I>
+I'm wondering what an interface would look like that allowed
+other ARM cores -- not just ARM11 -- to do this.  And whether
+there shouldn't be a followon patch to make watchpoints use
+the same hardware mechanism...
+
+
+ARM11 seems to have this mechanism built into the core, while
+(if I didn't miss something important while skimming) older
+cores may not have this mechanism at all.
+
+But starting with ETMv2 (which includes ARM11!) the ETM may
+have up to three &quot;context ID&quot; comparators.  Combine one of
+those with an address comparator and use that to trigger
+entry to debug state, and you've just built a breakpoint
+that's *also* a &quot;context aware breakpoint&quot;.  (I think that
+with a richly-enough featured ETM, it could implement two
+such break-or-watch-points.)
+
+Can you clarify ...  coprocessor #15 register 13 access
+can give either the &quot;Fast Context Switch Extension PID&quot;
+or a &quot;Context ID&quot;.  The context you're exposing here is
+the low byte of the &quot;Context ID&quot;, right?
+
+Meaning there are *two* ways to implement this specific
+breakpoint functionality ... yes?  One of which is
+specific to ARM11, another of which is more generic.
+
+
+If that's true ... I suggest refactoring this just a bit,
+based on some patches I'm about to send:
+
+ - Have it be an &quot;arm asid [N]&quot; command, not &quot;arm11 asid&quot;,
+   and update a field in the &quot;struct arm&quot;.  Do something
+   sane for cores that don't support this mechanism,
+   like a clean failure.
+
+ - The ARM11 breakpoint code would presumably still work
+   like in your patch, but it'd collect state from a
+   different place (so the same command could work for
+   other cores with this functionality).
+
+Eventually the current notion of breakpoint/watchpoint
+may need to evolve, but doing it like I sketched above
+seems like it would help us get to that point sooner
+by allowing e.g. Cortex-A8, or possibly very modern ARM9
+cores, to implement this same mechanism.
+
+- Dave
+
+p.s. One thing that needs fixing in this patch:  it
+     shares &quot;arm11_asid&quot; between all ARM11 cores.
+     This should be a core-specific value.
+
+
+&gt;<i> [NOTE] setting one BRP to be compared against context id precludes it
+</I>&gt;<i> from &#160;being used as a regular breakpoint. For example on ARM1176zjf-s
+</I>&gt;<i> we have 6 BPR's including 2 context aware BPR's. This gives us 6
+</I>&gt;<i> breakpoints in total and only 5 when one set &#160;'arm asid &lt;num&gt;' to sth
+</I>&gt;<i> different than 0.
+</I>&gt;<i>
+</I>&gt;<i> [NOTE] ASID is not the same as PID on Linux platform. One cannot
+</I>&gt;<i> assume that 'arm asid 1020' will let him debug process with pid=1020.
+</I>&gt;<i> Instead one must expose to user land ASID - PID relation via procfs,
+</I>&gt;<i> sysfs or other means (patch can be posted on request).
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012418.html">[Openocd-development] [PATCH] add new arm11 option for context	aware debugging
+</A></li>
+	<LI>Next message: <A HREF="012473.html">[Openocd-development] [PATCH] add new arm11 option for context	aware debugging
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12438">[ date ]</a>
+              <a href="thread.html#12438">[ thread ]</a>
+              <a href="subject.html#12438">[ subject ]</a>
+              <a href="author.html#12438">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

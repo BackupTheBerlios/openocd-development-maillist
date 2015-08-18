@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 7/8] add support for naming NAND banks
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/8%5D%20add%20support%20for%20naming%20NAND%20banks&In-Reply-To=%3C1258541816-15339-8-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012513.html">
+   <LINK REL="Next"  HREF="012516.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 7/8] add support for naming NAND banks</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/8%5D%20add%20support%20for%20naming%20NAND%20banks&In-Reply-To=%3C1258541816-15339-8-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 7/8] add support for naming NAND banks">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 18 11:56:55 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012513.html">[Openocd-development] [PATCH 6/8] refactor	handle_nand_device_command
+</A></li>
+        <LI>Next message: <A HREF="012516.html">[Openocd-development] [PATCH 8/8] update 'nand device' usage in	scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12514">[ date ]</a>
+              <a href="thread.html#12514">[ thread ]</a>
+              <a href="subject.html#12514">[ subject ]</a>
+              <a href="author.html#12514">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Requires users to name their nand banks, allowing them to be used
+instead of bank numbers in script commands.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/nand.c |   13 ++++++++++---
+ src/flash/nand.h |    1 +
+ 2 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index a6f09ac..71938a0 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -212,7 +212,7 @@ COMMAND_HANDLER(handle_nand_list_drivers)
+ 	return ERROR_OK;
+ }
+ 
+-static COMMAND_HELPER(create_nand_device,
++static COMMAND_HELPER(create_nand_device, const char *bank_name,
+ 		struct nand_flash_controller *controller)
+ {
+ 	int retval = controller-&gt;register_commands(CMD_CTX);
+@@ -221,9 +221,9 @@ static COMMAND_HELPER(create_nand_device,
+ 		LOG_ERROR(&quot;couldn't register '%s' commands&quot;, controller-&gt;name);
+ 		return retval;
+ 	}
+-
+ 	struct nand_device *c = malloc(sizeof(struct nand_device));
+ 
++	c-&gt;name = strdup(bank_name);
+ 	c-&gt;controller = controller;
+ 	c-&gt;controller_priv = NULL;
+ 	c-&gt;manufacturer = NULL;
+@@ -260,6 +260,10 @@ COMMAND_HANDLER(handle_nand_device_command)
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+ 
++	// save name and increment (for compatibility) with drivers
++	const char *bank_name = *CMD_ARGV++;
++	CMD_ARGC--;
++
+ 	const char *driver_name = CMD_ARGV[0];
+ 	for (unsigned i = 0; nand_flash_controllers[i]; i++)
+ 	{
+@@ -267,7 +271,8 @@ COMMAND_HANDLER(handle_nand_device_command)
+ 		if (strcmp(driver_name, controller-&gt;name) != 0)
+ 			continue;
+ 
+-		return CALL_COMMAND_HANDLER(create_nand_device, controller);
++		return CALL_COMMAND_HANDLER(create_nand_device,
++				bank_name, controller);
+ 	}
+ 
+ 	LOG_ERROR(&quot;No valid NAND flash driver found (%s)&quot;, driver_name);
+@@ -297,6 +302,8 @@ struct nand_device *get_nand_device_by_name(const char *name)
+ 	struct nand_device *nand;
+ 	for (nand = nand_devices; NULL != nand; nand = nand-&gt;next)
+ 	{
++		if (strcmp(nand-&gt;name, name) == 0)
++			return nand;
+ 		if (!flash_driver_name_matches(nand-&gt;controller-&gt;name, name))
+ 			continue;
+ 		if (++found &lt; requested)
+diff --git a/src/flash/nand.h b/src/flash/nand.h
+index d38ed67..af52c77 100644
+--- a/src/flash/nand.h
++++ b/src/flash/nand.h
+@@ -75,6 +75,7 @@ struct nand_ecclayout {
+ 
+ struct nand_device
+ {
++	char *name;
+ 	struct nand_flash_controller *controller;
+ 	void *controller_priv;
+ 	struct nand_manufacturer *manufacturer;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012513.html">[Openocd-development] [PATCH 6/8] refactor	handle_nand_device_command
+</A></li>
+	<LI>Next message: <A HREF="012516.html">[Openocd-development] [PATCH 8/8] update 'nand device' usage in	scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12514">[ date ]</a>
+              <a href="thread.html#12514">[ thread ]</a>
+              <a href="subject.html#12514">[ subject ]</a>
+              <a href="author.html#12514">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

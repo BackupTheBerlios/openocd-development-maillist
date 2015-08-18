@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%20srst_pulls_trst%22%20case&In-Reply-To=%3C47FA738F.9000307%40asix.cz%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001730.html">
+   <LINK REL="Next"  HREF="001741.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case</H1>
+    <B>Pavel Chromy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20for%20%22reset_config%20srst_only%0A%20srst_pulls_trst%22%20case&In-Reply-To=%3C47FA738F.9000307%40asix.cz%3E"
+       TITLE="[Openocd-development] Fix for &quot;reset_config srst_only srst_pulls_trst&quot; case">chromy at asix.cz
+       </A><BR>
+    <I>Mon Apr  7 21:18:39 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001730.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+        <LI>Next message: <A HREF="001741.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1739">[ date ]</a>
+              <a href="thread.html#1739">[ thread ]</a>
+              <a href="subject.html#1739">[ subject ]</a>
+              <a href="author.html#1739">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Hello,
+
+&#216;yvind Harboe wrote:
+&gt;<i> The problem that I addressed below is that for targets with srst_only and
+</I>&gt;<i> srst_pulls_trst, asserting the trst line can have *bad* effects.
+</I>&gt;<i> 
+</I>&gt;<i> The driver layer would assert trst even if srst_only was specified, which is
+</I>&gt;<i> wrong.
+</I>
+Which should not harm anything... srst_only, as I understand it defines that only SRTS is connected to the device.
+If TRST is is floating in the air, it makes no harm. Anyway, this not the core of the question.
+
+
+&gt;<i> Drivers track the state internally and when srst is asserted with
+</I>&gt;<i> srst_pulls_trst,
+</I>&gt;<i> then the driver needs to update the tracked state of the JTAG TAP controller
+</I>&gt;<i> to TAP_TLR, which the bitbang &amp; ft drivers now do.
+</I>
+Actually, the driver needs not to do that, if such situation never occurs, see below.
+
+
+&gt;&gt;<i>  &gt; Do not assert trst in srst_only case even if srst_pulls_trst.
+</I>&gt;&gt;<i>  &gt; This requires drivers to update their record of cur_state when srst is
+</I>&gt;&gt;<i> asserted.
+</I>
+Better to signal this to the driver (the need to update cur_state) somewhere in the
+jtag reset command structure rather than let the driver deduce this (?).
+
+
+&gt;&gt;<i>  From what I read in the code, my assumption is that if
+</I>&gt;&gt;<i>  RESET_SRST_PULLS_TRST bit is set jtag_add reset _never_ enqueues command
+</I>&gt;&gt;<i>  with jtag_srst==1 and jtag_trst==0.
+</I>&gt;<i> 
+</I>&gt;<i> Correct. I don't think this happens with todays code.
+</I>
+Here we go... that is the core of the question, so the driver does not need
+to check RESET_SRST_PULLS_TRST as such situation never really effectively happens, right?
+What about defining the API so, rather than covering this impossible condition
+in the driver?
+
+
+&gt;<i> That would cause the clk to be driven while trst is asserted, that's an
+</I>&gt;<i> unintended side effect during reset, which is not nice.
+</I>
+Misunderstanding: I meant signal the driver to reset cur_state to TLR here.
+The current code requires driver to deduce this, which I consider unclean solution.
+
+
+&gt;<i> The driver has to track the state of the tap controller and when the
+</I>&gt;<i> srst is asserted for srst_pulls_trst, then the driver needs to update
+</I>&gt;<i> the tracked state to TAP_TLR.
+</I>
+That is it - signal the driver to do this explicitly is probably better,
+so that the driver does not need to check for srst_pulls_trst or whatever.
+Sorry if my previous post was confusing in this.
+
+
+&gt;&gt;<i>  By the way, jtag_add_reset asserts SRST first and then it moves to TLR
+</I>&gt;&gt;<i> state by TMS (trst_with_tms)
+</I>&gt;&gt;<i>  which is wrong for devices which stop JTAG clock when SRST is asserted
+</I>&gt;&gt;<i> (!!).
+</I>&gt;&gt;<i>  jtag_add_end_state(TAP_TLR) does not probably work in this case.
+</I>&gt;&gt;<i>  Should not this happen in opposite order?
+</I>&gt;<i> 
+</I>&gt;<i> I'm thinking that it looks like an increasingly good idea to forbid transition
+</I>&gt;<i> of srst &amp; trst in the same jtag_add_reset() call.
+</I>
+Or even better: to split it to two API function jtag_add_srst and jtag_add_tlr (?).
+
+
+Regards,
+   Pavel
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001730.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+	<LI>Next message: <A HREF="001741.html">[Openocd-development] Fix for &quot;reset_config srst_only	srst_pulls_trst&quot; case
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1739">[ date ]</a>
+              <a href="thread.html#1739">[ thread ]</a>
+              <a href="subject.html#1739">[ subject ]</a>
+              <a href="author.html#1739">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] trunk broken since rev 1730 (segfault)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20trunk%20broken%20since%20rev%201730%20%28segfault%29&In-Reply-To=%3Cc09652430905120017v6a29154dhbc8b8801fa9c6c9d%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006400.html">
+   <LINK REL="Next"  HREF="006410.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] trunk broken since rev 1730 (segfault)</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20trunk%20broken%20since%20rev%201730%20%28segfault%29&In-Reply-To=%3Cc09652430905120017v6a29154dhbc8b8801fa9c6c9d%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] trunk broken since rev 1730 (segfault)">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue May 12 09:17:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006400.html">[Openocd-development] trunk broken since rev 1730 (segfault)
+</A></li>
+        <LI>Next message: <A HREF="006410.html">[Openocd-development] trunk broken since rev 1730 (segfault)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6403">[ date ]</a>
+              <a href="thread.html#6403">[ thread ]</a>
+              <a href="subject.html#6403">[ subject ]</a>
+              <a href="author.html#6403">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I've committed a fix in 1753 for memory corruption introduced in 1730.
+
+Thanks for bisecting to the offending release. This is definitely a case
+of where numerous small commits saved my butt.
+
+Hopefully this covers the problem that you are seing, but I don't
+have your precise setup so I can't run the exact test case you
+are running...
+
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://consulting.zylin.com">http://consulting.zylin.com</A>
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/arm9tdmi.c
+===================================================================
+--- src/target/arm9tdmi.c	(revision 1743)
++++ src/target/arm9tdmi.c	(working copy)
+@@ -291,9 +291,9 @@
+ 
+ extern void arm_endianness(u8 *tmp, void *in, int size, int be, int flip);
+ 
+-static int arm9endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t dummy)
++static int arm9endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t captured)
+ {
+-	arm_endianness(in, in, (int)size, (int)be, 0);
++	arm_endianness((u8 *)captured, in, (int)size, (int)be, 0);
+ 	return ERROR_OK;
+ }
+ 
+@@ -317,7 +317,7 @@
+ 	fields[0].tap = jtag_info-&gt;tap;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+-	fields[0].in_value = (u8 *)in;
++	jtag_alloc_in_value32(&amp;fields[0]);
+ 
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 3;
+@@ -331,7 +331,7 @@
+ 
+ 	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+-	jtag_add_callback4(arm9endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, 0);
++	jtag_add_callback4(arm9endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)fields[0].in_value);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+Index: src/target/arm7tdmi.c
+===================================================================
+--- src/target/arm7tdmi.c	(revision 1750)
++++ src/target/arm7tdmi.c	(working copy)
+@@ -244,9 +244,9 @@
+ 	}
+ }
+ 
+-static int arm7endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t dummy)
++static int arm7endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t captured)
+ {
+-	arm_endianness(in, in, (int)size, (int)be, 1);
++	arm_endianness((u8 *)captured, in, (int)size, (int)be, 1);
+ 	return ERROR_OK;
+ }
+ 
+@@ -274,11 +274,11 @@
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = NULL;
+-	fields[1].in_value = (u8 *)in;
++	jtag_alloc_in_value32(&amp;fields[1]);
+ 
+ 	jtag_add_dr_scan(2, fields, TAP_INVALID);
+ 
+-	jtag_add_callback4(arm7endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)NULL);
++	jtag_add_callback4(arm7endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)fields[1].in_value);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006400.html">[Openocd-development] trunk broken since rev 1730 (segfault)
+</A></li>
+	<LI>Next message: <A HREF="006410.html">[Openocd-development] trunk broken since rev 1730 (segfault)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6403">[ date ]</a>
+              <a href="thread.html#6403">[ thread ]</a>
+              <a href="subject.html#6403">[ subject ]</a>
+              <a href="author.html#6403">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

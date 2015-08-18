@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 9/9] pld: use static registration	instead of callback
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%209/9%5D%20pld%3A%20use%20static%20registration%0A%09instead%20of%20callback&In-Reply-To=%3C1259100300-14279-10-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012823.html">
+   <LINK REL="Next"  HREF="012871.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 9/9] pld: use static registration	instead of callback</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%209/9%5D%20pld%3A%20use%20static%20registration%0A%09instead%20of%20callback&In-Reply-To=%3C1259100300-14279-10-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 9/9] pld: use static registration	instead of callback">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012823.html">[Openocd-development] [PATCH 06/20] flash: use register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012871.html">[Openocd-development] [PATCH 01/22] arm11: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12845">[ date ]</a>
+              <a href="thread.html#12845">[ thread ]</a>
+              <a href="subject.html#12845">[ subject ]</a>
+              <a href="author.html#12845">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Remove register_callbacks from pld_device structure, using an array
+of command_registration records instead.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/pld/pld.c     |   15 ++++++++++-----
+ src/pld/pld.h     |    2 +-
+ src/pld/virtex2.c |    7 +------
+ 3 files changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/src/pld/pld.c b/src/pld/pld.c
+index 421fc61..24afd07 100644
+--- a/src/pld/pld.c
++++ b/src/pld/pld.c
+@@ -74,17 +74,22 @@ COMMAND_HANDLER(handle_pld_device_command)
+ 			struct pld_device *p, *c;
+ 
+ 			/* register pld specific commands */
+-			if (pld_drivers[i]-&gt;register_commands(CMD_CTX) != ERROR_OK)
+-			{
+-				LOG_ERROR(&quot;couldn't register '%s' commands&quot;, CMD_ARGV[0]);
+-				exit(-1);
++			int retval;
++			if (pld_drivers[i]-&gt;commands) {
++				retval = register_commands(CMD_CTX, NULL, 
++						pld_drivers[i]-&gt;commands);
++				if (ERROR_OK != retval)
++				{
++					LOG_ERROR(&quot;couldn't register '%s' commands&quot;, CMD_ARGV[0]);
++					return ERROR_FAIL;
++				}
+ 			}
+ 
+ 			c = malloc(sizeof(struct pld_device));
+ 			c-&gt;driver = pld_drivers[i];
+ 			c-&gt;next = NULL;
+ 
+-			int retval = CALL_COMMAND_HANDLER(pld_drivers[i]-&gt;pld_device_command, c);
++			retval = CALL_COMMAND_HANDLER(pld_drivers[i]-&gt;pld_device_command, c);
+ 			if (ERROR_OK != retval)
+ 			{
+ 				LOG_ERROR(&quot;'%s' driver rejected pld device&quot;, CMD_ARGV[0]);
+diff --git a/src/pld/pld.h b/src/pld/pld.h
+index b183e3e..1ae775c 100644
+--- a/src/pld/pld.h
++++ b/src/pld/pld.h
+@@ -31,7 +31,7 @@ struct pld_driver
+ {
+ 	char *name;
+ 	__PLD_DEVICE_COMMAND((*pld_device_command));
+-	int (*register_commands)(struct command_context *cmd_ctx);
++	const struct command_registration *commands;
+ 	int (*load)(struct pld_device *pld_device, const char *filename);
+ };
+ 
+diff --git a/src/pld/virtex2.c b/src/pld/virtex2.c
+index 1025e61..77eb866 100644
+--- a/src/pld/virtex2.c
++++ b/src/pld/virtex2.c
+@@ -253,14 +253,9 @@ static const struct command_registration virtex2_command_handler[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-static int virtex2_register_commands(struct command_context *cmd_ctx)
+-{
+-	return register_commands(cmd_ctx, NULL, virtex2_command_handler);
+-}
+-
+ struct pld_driver virtex2_pld = {
+ 		.name = &quot;virtex2&quot;,
+-		.register_commands = &amp;virtex2_register_commands,
++		.commands = virtex2_command_handler,
+ 		.pld_device_command = &amp;virtex2_pld_device_command,
+ 		.load = &amp;virtex2_load,
+ 	};
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012823.html">[Openocd-development] [PATCH 06/20] flash: use register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012871.html">[Openocd-development] [PATCH 01/22] arm11: use register_commands()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12845">[ date ]</a>
+              <a href="thread.html#12845">[ thread ]</a>
+              <a href="subject.html#12845">[ subject ]</a>
+              <a href="author.html#12845">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

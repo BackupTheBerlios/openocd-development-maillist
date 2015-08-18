@@ -1,0 +1,964 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Further simplifications in jtag.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Further%20simplifications%20in%20jtag.c&In-Reply-To=%3C80e74c330905190146i72161a18q34f1d9f0cba6e859%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006866.html">
+   <LINK REL="Next"  HREF="006867.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Further simplifications in jtag.c</H1>
+    <B>Michael Bruck</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Further%20simplifications%20in%20jtag.c&In-Reply-To=%3C80e74c330905190146i72161a18q34f1d9f0cba6e859%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] Further simplifications in jtag.c">mbruck at digenius.de
+       </A><BR>
+    <I>Tue May 19 10:46:48 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006866.html">[Openocd-development] milestone strategy [3 of 4]
+</A></li>
+        <LI>Next message: <A HREF="006867.html">[Openocd-development] [PATCH] Further simplifications in jtag.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6810">[ date ]</a>
+              <a href="thread.html#6810">[ thread ]</a>
+              <a href="subject.html#6810">[ subject ]</a>
+              <a href="author.html#6810">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is a series of patches against r1834 that further simplify the
+code in jtag.c to make it more readable.
+
+patch 01 is a rather large one that renames the function arguments
+'num_fields' and 'fields' into 'in_num_fields' and 'in_fields'
+The rationale here is that almost all of these functions take some
+input fields and produce from that a new set of output fields. The
+patch sets the stage to later be able to use a local variable 'field'
+or 'fields' to refer to fields rather then the current endless
+repetitions of cmd-&gt;cmd.scan-&gt;fields[...] while at the same time
+making it clear which one is the input argument and which is the
+output data.
+
+patch 02 renames a local variable 'x' into 'num_taps' to describe what it means
+
+patches 03-10
+add a local variable 'scan_command_t * scan' to the functions to
+replace lengthy 'cmd-&gt;cmd.scan' with 'scan' to make the code more
+readable
+and move scan_size and a few loop variables into the local scope where
+they are actually used thus reducing clutter and potential for error.
+
+The patch files include a short commit message.
+
+Again none of these patches change any algorithm. They are all tested
+here and compile and run on arm11 (although not all of these functions
+are used in arm11).
+
+Michael
+-------------- next part --------------
+commit 7130b09dfccb1d93d68ae828e630fda3532f7bc9
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Sun May 17 13:44:44 2009 +0200
+
+    - rename input parameters 'num_fields' and 'fields' to 'in_num_fields' and 'in_fields' in all jtag.c interface functions
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index 4a11658..a4f5d51 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -37,8 +37,8 @@
+ 
+ int jtag_flush_queue_count; /* count # of flushes for profiling / debugging purposes */
+ 
+-static void jtag_add_scan_check(void (*jtag_add_scan)(int num_fields, scan_field_t *fields, tap_state_t state),
+-		int num_fields, scan_field_t *fields, tap_state_t state);
++static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state),
++		int in_num_fields, scan_field_t *in_fields, tap_state_t state);
+ 
+ /* note that this is not marked as static as it must be available from outside jtag.c for those
+    that implement the jtag_xxx() minidriver layer
+@@ -554,45 +554,44 @@ static void jtag_prelude(tap_state_t state)
+ 	cmd_queue_cur_state = cmd_queue_end_state;
+ }
+ 
+-void jtag_add_ir_scan_noverify(int num_fields, scan_field_t *fields, tap_state_t state)
++void jtag_add_ir_scan_noverify(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	int retval;
+ 	jtag_prelude(state);
+ 
+-	retval=interface_jtag_add_ir_scan(num_fields, fields, cmd_queue_end_state);
++	retval=interface_jtag_add_ir_scan(in_num_fields, in_fields, cmd_queue_end_state);
+ 	if (retval!=ERROR_OK)
+ 		jtag_error=retval;
+ 
+ }
+ 
+ 
+-void jtag_add_ir_scan(int num_fields, scan_field_t *fields, tap_state_t state)
++void jtag_add_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	if (jtag_verify&amp;&amp;jtag_verify_capture_ir)
+ 	{
+ 		/* 8 x 32 bit id's is enough for all invoations */
+-		int j;
+-		for (j = 0; j &lt; num_fields; j++)
++
++		for (int j = 0; j &lt; in_num_fields; j++)
+ 		{
+-			fields[j].check_value=NULL;
+-			fields[j].check_mask=NULL;
++			in_fields[j].check_value=NULL;
++			in_fields[j].check_mask=NULL;
+ 			/* if we are to run a verification of the ir scan, we need to get the input back.
+ 			 * We may have to allocate space if the caller didn't ask for the input back.
+ 			 */
+-			fields[j].check_value=fields[j].tap-&gt;expected;
+-			fields[j].check_mask=fields[j].tap-&gt;expected_mask;
++			in_fields[j].check_value=in_fields[j].tap-&gt;expected;
++			in_fields[j].check_mask=in_fields[j].tap-&gt;expected_mask;
+ 		}
+-		jtag_add_scan_check(jtag_add_ir_scan_noverify, num_fields, fields, state);
++		jtag_add_scan_check(jtag_add_ir_scan_noverify, in_num_fields, in_fields, state);
+ 	} else
+ 	{
+-		jtag_add_ir_scan_noverify(num_fields, fields, state);
++		jtag_add_ir_scan_noverify(in_num_fields, in_fields, state);
+ 	}
+ }
+ 
+-int MINIDRIVER(interface_jtag_add_ir_scan)(int num_fields, scan_field_t *fields, tap_state_t state)
++int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	jtag_tap_t *tap;
+-	int j;
+ 	int x;
+ 	int nth_tap;
+ 	int scan_size = 0;
+@@ -632,13 +631,13 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int num_fields, scan_field_t *fields,
+ 		cmd-&gt;cmd.scan-&gt;fields[nth_tap].in_value = NULL; /* do not collect input for tap's in bypass */
+ 
+ 		/* search the list */
+-		for (j = 0; j &lt; num_fields; j++)
++		for (int j = 0; j &lt; in_num_fields; j++)
+ 		{
+-			if (tap == fields[j].tap)
++			if (tap == in_fields[j].tap)
+ 			{
+ 				found = 1;
+-				cmd-&gt;cmd.scan-&gt;fields[nth_tap].in_value = fields[j].in_value;
+-				cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_cpy(fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				cmd-&gt;cmd.scan-&gt;fields[nth_tap].in_value = in_fields[j].in_value;
++				cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 
+ 				tap-&gt;bypass = 0;
+ 				break;
+@@ -660,18 +659,18 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int num_fields, scan_field_t *fields,
+ 	return ERROR_OK;
+ }
+ 
+-void jtag_add_plain_ir_scan(int num_fields, scan_field_t *fields, tap_state_t state)
++void jtag_add_plain_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	int retval;
+ 
+ 	jtag_prelude(state);
+ 
+-	retval=interface_jtag_add_plain_ir_scan(num_fields, fields, cmd_queue_end_state);
++	retval=interface_jtag_add_plain_ir_scan(in_num_fields, in_fields, cmd_queue_end_state);
+ 	if (retval!=ERROR_OK)
+ 		jtag_error=retval;
+ }
+ 
+-int MINIDRIVER(interface_jtag_add_plain_ir_scan)(int num_fields, scan_field_t *fields, tap_state_t state)
++int MINIDRIVER(interface_jtag_add_plain_ir_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	/* allocate memory for a new list member */
+ 
+@@ -684,30 +683,30 @@ int MINIDRIVER(interface_jtag_add_plain_ir_scan)(int num_fields, scan_field_t *f
+ 	/* allocate memory for ir scan command */
+ 	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+ 	cmd-&gt;cmd.scan-&gt;ir_scan = true;
+-	cmd-&gt;cmd.scan-&gt;num_fields = num_fields;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_fields * sizeof(scan_field_t));
++	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields;
++	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(in_num_fields * sizeof(scan_field_t));
+ 	cmd-&gt;cmd.scan-&gt;end_state = state;
+ 
+-	for (int i = 0; i &lt; num_fields; i++)
++	for (int i = 0; i &lt; in_num_fields; i++)
+ 	{
+-		int num_bits = fields[i].num_bits;
+-		int num_bytes = CEIL(fields[i].num_bits, 8);
+-		cmd-&gt;cmd.scan-&gt;fields[i].tap = fields[i].tap;
++		int num_bits = in_fields[i].num_bits;
++		int num_bytes = CEIL(in_fields[i].num_bits, 8);
++		cmd-&gt;cmd.scan-&gt;fields[i].tap = in_fields[i].tap;
+ 		cmd-&gt;cmd.scan-&gt;fields[i].num_bits = num_bits;
+-		cmd-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
+-		cmd-&gt;cmd.scan-&gt;fields[i].in_value = fields[i].in_value;
++		cmd-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
++		cmd-&gt;cmd.scan-&gt;fields[i].in_value = in_fields[i].in_value;
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-void jtag_add_dr_scan(int num_fields, scan_field_t *fields, tap_state_t state)
++void jtag_add_dr_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	int retval;
+ 
+ 	jtag_prelude(state);
+ 
+-	retval=interface_jtag_add_dr_scan(num_fields, fields, cmd_queue_end_state);
++	retval=interface_jtag_add_dr_scan(in_num_fields, in_fields, cmd_queue_end_state);
+ 	if (retval!=ERROR_OK)
+ 		jtag_error=retval;
+ }
+@@ -720,65 +719,68 @@ static int jtag_check_value_mask_callback(u8 *in, jtag_callback_data_t data1, jt
+ 	return jtag_check_value_inner(in, (u8 *)data1, (u8 *)data2, (int)data3);
+ }
+ 
+-static void jtag_add_scan_check(void (*jtag_add_scan)(int num_fields, scan_field_t *fields, tap_state_t state),
+-		int num_fields, scan_field_t *fields, tap_state_t state)
++static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state),
++		int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+-	for (int i=0; i&lt;num_fields; i++)
++	for (int i = 0; i &lt; in_num_fields; i++)
+ 	{
+-		fields[i].allocated=0;
+-		fields[i].modified=0;
+-		if ((fields[i].check_value!=NULL)&amp;&amp;(fields[i].in_value==NULL))
++		in_fields[i].allocated = 0;
++		in_fields[i].modified = 0;
++		if ((in_fields[i].check_value != NULL) &amp;&amp; (in_fields[i].in_value == NULL))
+ 		{
+-			fields[i].modified=1;
++			in_fields[i].modified = 1;
+ 			/* we need storage space... */
+ #ifdef HAVE_JTAG_MINIDRIVER_H
+-			if (fields[i].num_bits&lt;=32)
++			if (in_fields[i].num_bits &lt;= 32)
+ 			{
+ 				/* This is enough space and we're executing this synchronously */
+-				fields[i].in_value=fields[i].intmp;
++				in_fields[i].in_value = in_fields[i].intmp;
+ 			} else
+ 			{
+-				fields[i].in_value=(u8 *)malloc(CEIL(fields[i].num_bits, 8));
+-				fields[i].allocated=1;
++				in_fields[i].in_value = (u8 *)malloc(CEIL(in_fields[i].num_bits, 8));
++				in_fields[i].allocated = 1;
+ 			}
+ #else
+-			fields[i].in_value=(u8 *)cmd_queue_alloc(CEIL(fields[i].num_bits, 8));
++			in_fields[i].in_value = (u8 *)cmd_queue_alloc(CEIL(in_fields[i].num_bits, 8));
+ #endif
+ 		}
+ 	}
+ 
+-	jtag_add_scan(num_fields, fields, state);
++	jtag_add_scan(in_num_fields, in_fields, state);
+ 
+-	for (int i=0; i&lt;num_fields; i++)
++	for (int i = 0; i &lt; in_num_fields; i++)
+ 	{
+-		if ((fields[i].check_value!=NULL)&amp;&amp;(fields[i].in_value!=NULL))
++		if ((in_fields[i].check_value != NULL) &amp;&amp; (in_fields[i].in_value != NULL))
+ 		{
+ 			/* this is synchronous for a minidriver */
+-			jtag_add_callback4(jtag_check_value_mask_callback, fields[i].in_value, (jtag_callback_data_t)fields[i].check_value, (jtag_callback_data_t)fields[i].check_mask, (jtag_callback_data_t)fields[i].num_bits);
++			jtag_add_callback4(jtag_check_value_mask_callback, in_fields[i].in_value,
++				(jtag_callback_data_t)in_fields[i].check_value,
++				(jtag_callback_data_t)in_fields[i].check_mask,
++				(jtag_callback_data_t)in_fields[i].num_bits);
+ 		}
+-		if (fields[i].allocated)
++		if (in_fields[i].allocated)
+ 		{
+-			free(fields[i].in_value);
++			free(in_fields[i].in_value);
+ 		}
+-		if (fields[i].modified)
++		if (in_fields[i].modified)
+ 		{
+-			fields[i].in_value=NULL;
++			in_fields[i].in_value = NULL;
+ 		}
+ 	}
+ }
+ 
+-void jtag_add_dr_scan_check(int num_fields, scan_field_t *fields, tap_state_t state)
++void jtag_add_dr_scan_check(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	if (jtag_verify)
+ 	{
+-		jtag_add_scan_check(jtag_add_dr_scan, num_fields, fields, state);
++		jtag_add_scan_check(jtag_add_dr_scan, in_num_fields, in_fields, state);
+ 	} else
+ 	{
+-		jtag_add_dr_scan(num_fields, fields, state);
++		jtag_add_dr_scan(in_num_fields, in_fields, state);
+ 	}
+ }
+ 
+-int MINIDRIVER(interface_jtag_add_dr_scan)(int num_fields, scan_field_t *fields, tap_state_t state)
++int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	int j;
+ 	int nth_tap;
+@@ -812,8 +814,8 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int num_fields, scan_field_t *fields,
+ 	/* allocate memory for dr scan command */
+ 	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+ 	cmd-&gt;cmd.scan-&gt;ir_scan = false;
+-	cmd-&gt;cmd.scan-&gt;num_fields = num_fields + bypass_devices;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((num_fields + bypass_devices) * sizeof(scan_field_t));
++	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields + bypass_devices;
++	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
+ 	cmd-&gt;cmd.scan-&gt;end_state = state;
+ 
+ 	tap = NULL;
+@@ -827,15 +829,15 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int num_fields, scan_field_t *fields,
+ 		int found = 0;
+ 		cmd-&gt;cmd.scan-&gt;fields[field_count].tap = tap;
+ 
+-		for (j = 0; j &lt; num_fields; j++)
++		for (j = 0; j &lt; in_num_fields; j++)
+ 		{
+-			if (tap == fields[j].tap)
++			if (tap == in_fields[j].tap)
+ 			{
+ 				found = 1;
+-				scan_size = fields[j].num_bits;
++				scan_size = in_fields[j].num_bits;
+ 				cmd-&gt;cmd.scan-&gt;fields[field_count].num_bits = scan_size;
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = buf_cpy(fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = fields[j].in_value;
++				cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = in_fields[j].in_value;
+ 				field_count++;
+ 			}
+ 		}
+@@ -874,7 +876,7 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int num_fields, scan_field_t *fields,
+ }
+ 
+ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+-		int num_fields,
++		int in_num_fields,
+ 		const int *num_bits,
+ 		const u32 *value,
+ 		tap_state_t end_state)
+@@ -909,8 +911,8 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 	/* allocate memory for dr scan command */
+ 	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+ 	cmd-&gt;cmd.scan-&gt;ir_scan = false;
+-	cmd-&gt;cmd.scan-&gt;num_fields = num_fields + bypass_devices;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((num_fields + bypass_devices) * sizeof(scan_field_t));
++	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields + bypass_devices;
++	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
+ 	cmd-&gt;cmd.scan-&gt;end_state = end_state;
+ 
+ 	tap = NULL;
+@@ -934,7 +936,7 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 				exit(-1);
+ 			}
+ #endif
+-			for (j = 0; j &lt; num_fields; j++)
++			for (j = 0; j &lt; in_num_fields; j++)
+ 			{
+ 				u8 out_value[4];
+ 				scan_size = num_bits[j];
+@@ -963,18 +965,18 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 	}
+ }
+ 
+-void jtag_add_plain_dr_scan(int num_fields, scan_field_t *fields, tap_state_t state)
++void jtag_add_plain_dr_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	int retval;
+ 
+ 	jtag_prelude(state);
+ 
+-	retval=interface_jtag_add_plain_dr_scan(num_fields, fields, cmd_queue_end_state);
++	retval=interface_jtag_add_plain_dr_scan(in_num_fields, in_fields, cmd_queue_end_state);
+ 	if (retval!=ERROR_OK)
+ 		jtag_error=retval;
+ }
+ 
+-int MINIDRIVER(interface_jtag_add_plain_dr_scan)(int num_fields, scan_field_t *fields, tap_state_t state)
++int MINIDRIVER(interface_jtag_add_plain_dr_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	/* allocate memory for a new list member */
+ 	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+@@ -986,18 +988,18 @@ int MINIDRIVER(interface_jtag_add_plain_dr_scan)(int num_fields, scan_field_t *f
+ 	/* allocate memory for scan command */
+ 	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+ 	cmd-&gt;cmd.scan-&gt;ir_scan = false;
+-	cmd-&gt;cmd.scan-&gt;num_fields = num_fields;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_fields * sizeof(scan_field_t));
++	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields;
++	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(in_num_fields * sizeof(scan_field_t));
+ 	cmd-&gt;cmd.scan-&gt;end_state = state;
+ 
+-	for (int i = 0; i &lt; num_fields; i++)
++	for (int i = 0; i &lt; in_num_fields; i++)
+ 	{
+-		int num_bits = fields[i].num_bits;
+-		int num_bytes = CEIL(fields[i].num_bits, 8);
+-		cmd-&gt;cmd.scan-&gt;fields[i].tap = fields[i].tap;
++		int num_bits = in_fields[i].num_bits;
++		int num_bytes = CEIL(in_fields[i].num_bits, 8);
++		cmd-&gt;cmd.scan-&gt;fields[i].tap = in_fields[i].tap;
+ 		cmd-&gt;cmd.scan-&gt;fields[i].num_bits = num_bits;
+-		cmd-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
+-		cmd-&gt;cmd.scan-&gt;fields[i].in_value = fields[i].in_value;
++		cmd-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
++		cmd-&gt;cmd.scan-&gt;fields[i].in_value = in_fields[i].in_value;
+ 	}
+ 
+ 	return ERROR_OK;
+-------------- next part --------------
+commit 2c907cf689d13d7653cea03a0e58999b71b4645f
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Mon May 18 20:20:11 2009 +0200
+
+    - rename local variable x to num_taps in interface_jtag_add_ir_scan
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index a4f5d51..28eca80 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -592,10 +592,11 @@ void jtag_add_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t st
+ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	jtag_tap_t *tap;
+-	int x;
+ 	int nth_tap;
+ 	int scan_size = 0;
+ 
++	int num_taps = jtag_NumEnabledTaps();
++
+ 	/* allocate memory for a new list member */
+ 	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+ 	
+@@ -606,9 +607,8 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 	/* allocate memory for ir scan command */
+ 	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+ 	cmd-&gt;cmd.scan-&gt;ir_scan = true;
+-	x = jtag_NumEnabledTaps();
+-	cmd-&gt;cmd.scan-&gt;num_fields = x;	/* one field per device */
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(x  * sizeof(scan_field_t));
++	cmd-&gt;cmd.scan-&gt;num_fields = num_taps;	/* one field per device */
++	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_taps  * sizeof(scan_field_t));
+ 	cmd-&gt;cmd.scan-&gt;end_state = state;
+ 
+ 	nth_tap = -1;
+@@ -623,7 +623,7 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 		}
+ 		nth_tap++;
+ 
+-		assert(nth_tap &lt; x );
++		assert(nth_tap &lt; num_taps);
+ 
+ 		scan_size = tap-&gt;ir_length;
+ 		cmd-&gt;cmd.scan-&gt;fields[nth_tap].tap = tap;
+@@ -654,7 +654,8 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 		/* update device information */
+ 		buf_cpy(cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value, tap-&gt;cur_instr, scan_size);
+ 	}
+-	assert(nth_tap == (x-1));
++
++	assert(nth_tap == (num_taps - 1));
+ 
+ 	return ERROR_OK;
+ }
+-------------- next part --------------
+commit d98b8a00766995d1909799e26a574badcb210014
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Mon May 18 22:13:20 2009 +0200
+
+    - simplify code in interface_jtag_add_ir_scan() by adding a local variable 'scan' to hold the scan_command_t
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index 28eca80..1b503ec 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -589,6 +589,13 @@ void jtag_add_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t st
+ 	}
+ }
+ 
++/**
++ * Generate a list of scan fields with one entry for each TAP.
++ *
++ * If the input field list contains an instruction value for a TAP then that is used
++ * otherwise the TAP is set to bypass.
++ *
++ */
+ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	jtag_tap_t *tap;
+@@ -597,19 +604,18 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 
+ 	int num_taps = jtag_NumEnabledTaps();
+ 
+-	/* allocate memory for a new list member */
+-	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+-	
++	jtag_command_t * cmd	= cmd_queue_alloc(sizeof(jtag_command_t));
++	scan_command_t * scan	= cmd_queue_alloc(sizeof(scan_command_t));
++
+ 	jtag_queue_command(cmd);
+-	
+-	cmd-&gt;type = JTAG_SCAN;
+ 
+-	/* allocate memory for ir scan command */
+-	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	cmd-&gt;cmd.scan-&gt;ir_scan = true;
+-	cmd-&gt;cmd.scan-&gt;num_fields = num_taps;	/* one field per device */
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_taps  * sizeof(scan_field_t));
+-	cmd-&gt;cmd.scan-&gt;end_state = state;
++	cmd-&gt;type				= JTAG_SCAN;
++	cmd-&gt;cmd.scan			= scan;
++
++	scan-&gt;ir_scan			= true;
++	scan-&gt;num_fields		= num_taps;	/* one field per device */
++	scan-&gt;fields			= cmd_queue_alloc(num_taps  * sizeof(scan_field_t));
++	scan-&gt;end_state			= state;
+ 
+ 	nth_tap = -1;
+ 	tap = NULL;
+@@ -625,10 +631,10 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 
+ 		assert(nth_tap &lt; num_taps);
+ 
+-		scan_size = tap-&gt;ir_length;
+-		cmd-&gt;cmd.scan-&gt;fields[nth_tap].tap = tap;
+-		cmd-&gt;cmd.scan-&gt;fields[nth_tap].num_bits = scan_size;
+-		cmd-&gt;cmd.scan-&gt;fields[nth_tap].in_value = NULL; /* do not collect input for tap's in bypass */
++		scan_size						= tap-&gt;ir_length;
++		scan-&gt;fields[nth_tap].tap		= tap;
++		scan-&gt;fields[nth_tap].num_bits	= scan_size;
++		scan-&gt;fields[nth_tap].in_value	= NULL; /* do not collect input for tap's in bypass */
+ 
+ 		/* search the list */
+ 		for (int j = 0; j &lt; in_num_fields; j++)
+@@ -636,8 +642,8 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 			if (tap == in_fields[j].tap)
+ 			{
+ 				found = 1;
+-				cmd-&gt;cmd.scan-&gt;fields[nth_tap].in_value = in_fields[j].in_value;
+-				cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				scan-&gt;fields[nth_tap].in_value	= in_fields[j].in_value;
++				scan-&gt;fields[nth_tap].out_value	= buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 
+ 				tap-&gt;bypass = 0;
+ 				break;
+@@ -647,12 +653,12 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 		if (!found)
+ 		{
+ 			/* if a tap isn't listed, set it to BYPASS */
+-			cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_set_ones(cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++			scan-&gt;fields[nth_tap].out_value = buf_set_ones(cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 			tap-&gt;bypass = 1;
+ 		}
+ 
+ 		/* update device information */
+-		buf_cpy(cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value, tap-&gt;cur_instr, scan_size);
++		buf_cpy(scan-&gt;fields[nth_tap].out_value, tap-&gt;cur_instr, scan_size);
+ 	}
+ 
+ 	assert(nth_tap == (num_taps - 1));
+-------------- next part --------------
+commit 604aaca8ce1e941748fbd257bad47944fe8bc056
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Mon May 18 22:23:24 2009 +0200
+
+    - move scan_size in interface_jtag_add_ir_scan() into the scope of the inner loop and change it to unsigned
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index 1b503ec..a974cad 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -600,7 +600,6 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ {
+ 	jtag_tap_t *tap;
+ 	int nth_tap;
+-	int scan_size = 0;
+ 
+ 	int num_taps = jtag_NumEnabledTaps();
+ 
+@@ -631,7 +630,7 @@ int MINIDRIVER(interface_jtag_add_ir_scan)(int in_num_fields, scan_field_t *in_f
+ 
+ 		assert(nth_tap &lt; num_taps);
+ 
+-		scan_size						= tap-&gt;ir_length;
++		size_t scan_size				= tap-&gt;ir_length;
+ 		scan-&gt;fields[nth_tap].tap		= tap;
+ 		scan-&gt;fields[nth_tap].num_bits	= scan_size;
+ 		scan-&gt;fields[nth_tap].in_value	= NULL; /* do not collect input for tap's in bypass */
+-------------- next part --------------
+commit 3681cbc842a62d12b6b15be0f59d5ac74005d35b
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Tue May 19 09:11:48 2009 +0200
+
+    - simplify code in interface_jtag_add_plain_ir_scan() by adding a local variable 'scan' to hold the scan_command_t
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index a974cad..33205bd 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -678,29 +678,28 @@ void jtag_add_plain_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_stat
+ 
+ int MINIDRIVER(interface_jtag_add_plain_ir_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+-	/* allocate memory for a new list member */
+ 
+-	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	jtag_command_t * cmd	= cmd_queue_alloc(sizeof(jtag_command_t));
++	scan_command_t * scan	= cmd_queue_alloc(sizeof(scan_command_t));
+ 	
+ 	jtag_queue_command(cmd);
+ 
+-	cmd-&gt;type = JTAG_SCAN;
++	cmd-&gt;type				= JTAG_SCAN;
++	cmd-&gt;cmd.scan			= scan;
+ 
+-	/* allocate memory for ir scan command */
+-	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	cmd-&gt;cmd.scan-&gt;ir_scan = true;
+-	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(in_num_fields * sizeof(scan_field_t));
+-	cmd-&gt;cmd.scan-&gt;end_state = state;
++	scan-&gt;ir_scan			= true;
++	scan-&gt;num_fields		= in_num_fields;
++	scan-&gt;fields			= cmd_queue_alloc(in_num_fields * sizeof(scan_field_t));
++	scan-&gt;end_state			= state;
+ 
+ 	for (int i = 0; i &lt; in_num_fields; i++)
+ 	{
+ 		int num_bits = in_fields[i].num_bits;
+ 		int num_bytes = CEIL(in_fields[i].num_bits, 8);
+-		cmd-&gt;cmd.scan-&gt;fields[i].tap = in_fields[i].tap;
+-		cmd-&gt;cmd.scan-&gt;fields[i].num_bits = num_bits;
+-		cmd-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
+-		cmd-&gt;cmd.scan-&gt;fields[i].in_value = in_fields[i].in_value;
++		scan-&gt;fields[i].tap = in_fields[i].tap;
++		scan-&gt;fields[i].num_bits = num_bits;
++		scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
++		scan-&gt;fields[i].in_value = in_fields[i].in_value;
+ 	}
+ 
+ 	return ERROR_OK;
+-------------- next part --------------
+commit 007151e7dc619cf2089b4a85f835e30c4f2eaf9d
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Tue May 19 09:18:12 2009 +0200
+
+    - simplify code in interface_jtag_add_dr_scan() by adding a local variable 'scan' to hold the scan_command_t
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index 33205bd..066031d 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -808,20 +808,18 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_f
+ 		}
+ 	}
+ 
+-	/* allocate memory for a new list member */
+-	
+-	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	jtag_command_t * cmd	= cmd_queue_alloc(sizeof(jtag_command_t));
++	scan_command_t * scan	= cmd_queue_alloc(sizeof(scan_command_t));
+ 	
+ 	jtag_queue_command(cmd);
+ 	
+-	cmd-&gt;type = JTAG_SCAN;
++	cmd-&gt;type				= JTAG_SCAN;
++	cmd-&gt;cmd.scan			= scan;
+ 
+-	/* allocate memory for dr scan command */
+-	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	cmd-&gt;cmd.scan-&gt;ir_scan = false;
+-	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields + bypass_devices;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
+-	cmd-&gt;cmd.scan-&gt;end_state = state;
++	scan-&gt;ir_scan			= false;
++	scan-&gt;num_fields		= in_num_fields + bypass_devices;
++	scan-&gt;fields			= cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
++	scan-&gt;end_state			= state;
+ 
+ 	tap = NULL;
+ 	nth_tap = -1;
+@@ -832,7 +830,7 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_f
+ 			break;
+ 		}
+ 		int found = 0;
+-		cmd-&gt;cmd.scan-&gt;fields[field_count].tap = tap;
++		scan-&gt;fields[field_count].tap = tap;
+ 
+ 		for (j = 0; j &lt; in_num_fields; j++)
+ 		{
+@@ -840,9 +838,9 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_f
+ 			{
+ 				found = 1;
+ 				scan_size = in_fields[j].num_bits;
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].num_bits = scan_size;
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = in_fields[j].in_value;
++				scan-&gt;fields[field_count].num_bits	= scan_size;
++				scan-&gt;fields[field_count].out_value	= buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				scan-&gt;fields[field_count].in_value	= in_fields[j].in_value;
+ 				field_count++;
+ 			}
+ 		}
+@@ -857,9 +855,9 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_f
+ 			}
+ #endif
+ 			/* program the scan field to 1 bit length, and ignore it's value */
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].num_bits = 1;
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = NULL;
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = NULL;
++			scan-&gt;fields[field_count].num_bits		= 1;
++			scan-&gt;fields[field_count].out_value		= NULL;
++			scan-&gt;fields[field_count].in_value		= NULL;
+ 			field_count++;
+ 		}
+ 		else
+@@ -876,7 +874,7 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_f
+ 	}
+ 
+ 	/* field_count represents the true number of fields setup*/
+-	cmd-&gt;cmd.scan-&gt;num_fields = field_count;
++	scan-&gt;num_fields = field_count;
+ 	return ERROR_OK;
+ }
+ 
+-------------- next part --------------
+commit c5c33a2a70877e5f757e5bce20ba79a188f3f8cb
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Tue May 19 09:19:23 2009 +0200
+
+    - move scan_size in interface_jtag_add_dr_scan() into the scope of the inner loop and change it to unsigned
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index 066031d..3da409c 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -791,7 +791,6 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_f
+ 	int nth_tap;
+ 	int bypass_devices = 0;
+ 	int field_count = 0;
+-	int scan_size;
+ 
+ 	jtag_tap_t *tap;
+ 
+@@ -837,7 +836,7 @@ int MINIDRIVER(interface_jtag_add_dr_scan)(int in_num_fields, scan_field_t *in_f
+ 			if (tap == in_fields[j].tap)
+ 			{
+ 				found = 1;
+-				scan_size = in_fields[j].num_bits;
++				size_t scan_size = in_fields[j].num_bits;
+ 				scan-&gt;fields[field_count].num_bits	= scan_size;
+ 				scan-&gt;fields[field_count].out_value	= buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 				scan-&gt;fields[field_count].in_value	= in_fields[j].in_value;
+-------------- next part --------------
+commit 90c7f8477b55b74baff0f83c2a590cb20887262c
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Tue May 19 09:26:16 2009 +0200
+
+    - simplify code in interface_jtag_add_dr_out() by adding a local variable 'scan' to hold the scan_command_t
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index 3da409c..da61fd1 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -903,19 +903,18 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 		}
+ 	}
+ 
+-	/* allocate memory for a new list member */
+-	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	jtag_command_t * cmd	= cmd_queue_alloc(sizeof(jtag_command_t));
++	scan_command_t * scan	= cmd_queue_alloc(sizeof(scan_command_t));
+ 
+ 	jtag_queue_command(cmd);
+ 
+-	cmd-&gt;type = JTAG_SCAN;
++	cmd-&gt;type				= JTAG_SCAN;
++	cmd-&gt;cmd.scan			= scan;
+ 
+-	/* allocate memory for dr scan command */
+-	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	cmd-&gt;cmd.scan-&gt;ir_scan = false;
+-	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields + bypass_devices;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
+-	cmd-&gt;cmd.scan-&gt;end_state = end_state;
++	scan-&gt;ir_scan			= false;
++	scan-&gt;num_fields		= in_num_fields + bypass_devices;
++	scan-&gt;fields			= cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
++	scan-&gt;end_state			= end_state;
+ 
+ 	tap = NULL;
+ 	nth_tap = -1;
+@@ -925,7 +924,7 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 			break;
+ 		}
+ 		nth_tap++;
+-		cmd-&gt;cmd.scan-&gt;fields[field_count].tap = tap;
++		scan-&gt;fields[field_count].tap = tap;
+ 
+ 		if (tap == target_tap)
+ 		{
+@@ -943,9 +942,9 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 				u8 out_value[4];
+ 				scan_size = num_bits[j];
+ 				buf_set_u32(out_value, 0, scan_size, value[j]);
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].num_bits = scan_size;
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = buf_cpy(out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = NULL;
++				scan-&gt;fields[field_count].num_bits		= scan_size;
++				scan-&gt;fields[field_count].out_value		= buf_cpy(out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				scan-&gt;fields[field_count].in_value		= NULL;
+ 				field_count++;
+ 			}
+ 		} else
+@@ -959,9 +958,9 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 			}
+ #endif
+ 			/* program the scan field to 1 bit length, and ignore it's value */
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].num_bits = 1;
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = NULL;
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = NULL;
++			scan-&gt;fields[field_count].num_bits			= 1;
++			scan-&gt;fields[field_count].out_value			= NULL;
++			scan-&gt;fields[field_count].in_value			= NULL;
+ 			field_count++;
+ 		}
+ 	}
+-------------- next part --------------
+commit e666f0329ec76a53274962613c1de662c387fa61
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Tue May 19 09:28:54 2009 +0200
+
+    - move scan_size in interface_jtag_add_dr_out() into the scope of the inner loop and change it to unsigned
+    - move loop variable j into for scope
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index da61fd1..baff66c 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -885,7 +885,6 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ {
+ 	int nth_tap;
+ 	int field_count = 0;
+-	int scan_size;
+ 	int bypass_devices = 0;
+ 
+ 	jtag_tap_t *tap;
+@@ -928,7 +927,6 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 
+ 		if (tap == target_tap)
+ 		{
+-			int j;
+ #ifdef _DEBUG_JTAG_IO_
+ 			/* if a device is listed, the BYPASS register must not be selected */
+ 			if (tap-&gt;bypass)
+@@ -937,10 +935,10 @@ void MINIDRIVER(interface_jtag_add_dr_out)(jtag_tap_t *target_tap,
+ 				exit(-1);
+ 			}
+ #endif
+-			for (j = 0; j &lt; in_num_fields; j++)
++			for (int j = 0; j &lt; in_num_fields; j++)
+ 			{
+ 				u8 out_value[4];
+-				scan_size = num_bits[j];
++				size_t scan_size = num_bits[j];
+ 				buf_set_u32(out_value, 0, scan_size, value[j]);
+ 				scan-&gt;fields[field_count].num_bits		= scan_size;
+ 				scan-&gt;fields[field_count].out_value		= buf_cpy(out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-------------- next part --------------
+commit 2c457b19f676e4097fe107f72fab3e98aaf2adfb
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mbruck at digenius.de</A>&gt;
+Date:   Tue May 19 09:33:07 2009 +0200
+
+    - simplify code in interface_jtag_add_plain_dr_scan() by adding a local variable 'scan' to hold the scan_command_t
+
+diff --git a/src/jtag/jtag.c b/src/jtag/jtag.c
+index baff66c..e912401 100644
+--- a/src/jtag/jtag.c
++++ b/src/jtag/jtag.c
+@@ -977,28 +977,27 @@ void jtag_add_plain_dr_scan(int in_num_fields, scan_field_t *in_fields, tap_stat
+ 
+ int MINIDRIVER(interface_jtag_add_plain_dr_scan)(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+-	/* allocate memory for a new list member */
+-	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	jtag_command_t * cmd	= cmd_queue_alloc(sizeof(jtag_command_t));
++	scan_command_t * scan	= cmd_queue_alloc(sizeof(scan_command_t));
+ 
+ 	jtag_queue_command(cmd);
+ 
+-	cmd-&gt;type = JTAG_SCAN;
++	cmd-&gt;type				= JTAG_SCAN;
++	cmd-&gt;cmd.scan			= scan;
+ 
+-	/* allocate memory for scan command */
+-	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	cmd-&gt;cmd.scan-&gt;ir_scan = false;
+-	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(in_num_fields * sizeof(scan_field_t));
+-	cmd-&gt;cmd.scan-&gt;end_state = state;
++	scan-&gt;ir_scan			= false;
++	scan-&gt;num_fields		= in_num_fields;
++	scan-&gt;fields			= cmd_queue_alloc(in_num_fields * sizeof(scan_field_t));
++	scan-&gt;end_state			= state;
+ 
+ 	for (int i = 0; i &lt; in_num_fields; i++)
+ 	{
+ 		int num_bits = in_fields[i].num_bits;
+ 		int num_bytes = CEIL(in_fields[i].num_bits, 8);
+-		cmd-&gt;cmd.scan-&gt;fields[i].tap = in_fields[i].tap;
+-		cmd-&gt;cmd.scan-&gt;fields[i].num_bits = num_bits;
+-		cmd-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
+-		cmd-&gt;cmd.scan-&gt;fields[i].in_value = in_fields[i].in_value;
++		scan-&gt;fields[i].tap = in_fields[i].tap;
++		scan-&gt;fields[i].num_bits = num_bits;
++		scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
++		scan-&gt;fields[i].in_value = in_fields[i].in_value;
+ 	}
+ 
+ 	return ERROR_OK;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006866.html">[Openocd-development] milestone strategy [3 of 4]
+</A></li>
+	<LI>Next message: <A HREF="006867.html">[Openocd-development] [PATCH] Further simplifications in jtag.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6810">[ date ]</a>
+              <a href="thread.html#6810">[ thread ]</a>
+              <a href="subject.html#6810">[ subject ]</a>
+              <a href="author.html#6810">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

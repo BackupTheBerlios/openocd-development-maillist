@@ -1,0 +1,97 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] Cortex-M3: report lockup, and recover
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Cortex-M3%3A%20report%20lockup%2C%20and%20recover&In-Reply-To=%3C201001271405.08768.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014441.html">
+   <LINK REL="Next"  HREF="014433.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] Cortex-M3: report lockup, and recover</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Cortex-M3%3A%20report%20lockup%2C%20and%20recover&In-Reply-To=%3C201001271405.08768.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] Cortex-M3: report lockup, and recover">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Jan 27 23:05:08 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014441.html">[Openocd-development] [PATCH 2/2] ARM semihosting: win32 and cygwin fixes
+</A></li>
+        <LI>Next message: <A HREF="014433.html">[Openocd-development] invoking a procedure defined in cfg file from	a commandline
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14434">[ date ]</a>
+              <a href="thread.html#14434">[ thread ]</a>
+              <a href="subject.html#14434">[ subject ]</a>
+              <a href="author.html#14434">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>ARMv7-M defines a &quot;lockup&quot; state that's entered in certain double
+fault sequences which can't be recovered from without external help.
+OpenOCD has previously ignored this.
+
+Issue a diagnostic saying the chip has locked up, and force exit
+from this state by halting the core.  It's not clear this is the
+best way to handle lockup; but there should now be less confusion.
+---
+I merged this ... minimally, the diagnostic will help, even if
+there's some issue with clearing the lockup (awkeward to reproduce
+for testing).
+
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -416,6 +416,21 @@ static int cortex_m3_poll(struct target 
+ 		return retval;
+ 	}
+ 
++	/* Recover from lockup.  See ARMv7-M architecture spec,
++	 * section B1.5.15 &quot;Unrecoverable exception cases&quot;.
++	 *
++	 * REVISIT Is there a better way to report and handle this?
++	 */
++	if (cortex_m3-&gt;dcb_dhcsr &amp; S_LOCKUP) {
++		LOG_WARNING(&quot;%s -- clearing lockup after double fault&quot;,
++				target_name(target));
++		cortex_m3_write_debug_halt_mask(target, C_HALT, 0);
++		target-&gt;debug_reason = DBG_REASON_DBGRQ;
++
++		/* refresh status bits */
++		mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	}
++
+ 	if (cortex_m3-&gt;dcb_dhcsr &amp; S_RESET_ST)
+ 	{
+ 		/* check if still in reset */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014441.html">[Openocd-development] [PATCH 2/2] ARM semihosting: win32 and cygwin fixes
+</A></li>
+	<LI>Next message: <A HREF="014433.html">[Openocd-development] invoking a procedure defined in cfg file from	a commandline
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14434">[ date ]</a>
+              <a href="thread.html#14434">[ thread ]</a>
+              <a href="subject.html#14434">[ subject ]</a>
+              <a href="author.html#14434">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

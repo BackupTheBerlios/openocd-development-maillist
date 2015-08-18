@@ -1,0 +1,118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD ticket 34 / usb_bulk_read failed
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20ticket%2034%20/%20usb_bulk_read%20failed&In-Reply-To=%3C4E26882B.6020600%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020340.html">
+   <LINK REL="Next"  HREF="020341.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD ticket 34 / usb_bulk_read failed</H1>
+    <B>Simon Barner</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20ticket%2034%20/%20usb_bulk_read%20failed&In-Reply-To=%3C4E26882B.6020600%40gmx.de%3E"
+       TITLE="[Openocd-development] OpenOCD ticket 34 / usb_bulk_read failed">barner at gmx.de
+       </A><BR>
+    <I>Wed Jul 20 09:47:55 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020340.html">[Openocd-development] ARM-JTAG-EW set JTAG speed (was: OpenOCD ticket 34 / usb_bulk_read failed)
+</A></li>
+        <LI>Next message: <A HREF="020341.html">[Openocd-development] OpenOCD ticket 34 / usb_bulk_read failed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20339">[ date ]</a>
+              <a href="thread.html#20339">[ thread ]</a>
+              <a href="subject.html#20339">[ subject ]</a>
+              <a href="author.html#20339">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+&gt;&gt;<i> I can see one change that the referred commit introduced
+</I>&gt;&gt;<i> to the ARM-JTAG-EW driver. It is that a speed setting in
+</I>&gt;&gt;<i> the init script now actually is executed. Any such setting
+</I>&gt;&gt;<i> was previously silently ignored.
+</I>&gt;<i> 
+</I>&gt;<i> Do you mean the following in jtag/core.c?
+</I>&gt;<i> 
+</I>&gt;<i> +       retval = jtag-&gt;speed(jtag_speed_var);
+</I>&gt;<i> +       if (retval != ERROR_OK)
+</I>&gt;<i> +               return retval;
+</I>&gt;<i> 
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The log shows that it is the speed setting that result in
+</I>&gt;&gt;<i> the crash.
+</I>
+I did some further investigations and noticed the following:
+
+When setting the speed in armjtagew_speed(), the length of
+the outgoing message is obviously 5 not 4 (command + 4 bytes
+of length information). Getting this right, fixes the error
+when establishing the JTAG connection.
+
+However, when I try to upload an image (size ~50kb), the upload fails
+with the following error (full log as attachment to the ticket).
+
+Debug: 46257 35631 arm-jtag-ew.c:815 armjtagew_usb_read():
+armjtagew_usb_read, result = -116
+Error: 46258 35631 arm-jtag-ew.c:775 armjtagew_usb_message():
+usb_bulk_read failed (requested=1631, result=-116)
+Error: 46259 35631 arm-jtag-ew.c:717 armjtagew_tap_execute():
+armjtagew_tap_execute, wrong result -1, expected 1627
+
+However, when the CMD_SET_TCK_FREQUENCY command is not executed, *and*
+the subsequent CMD_GET_TCK_FREQUENCY, everything works fine (see patch).
+
+The reported JTAG speed is 5867kHz most of the time, sometimes also
+weird speeds are reported (including negativ ones), so there seems to be
+a problem with this command, too.
+
+The actual speed seems to be slower since flashing the 50kb takes about 80s.
+
+The tests where performed using an Olimex ARM-JTAG-EW, firmware version
+1.0.6.0, Olimex drivers (=libusb-win32-1.2.2.0), HEAD version of OpenOCD
+built against libusb-win32-1.2.2.0 on Windows 7/x64.
+
+My suggestion is to commit the attached workaround for the 0.5.0 release
+in order to unbreak the ARM-JTAG-EW, and to investigate on the source of
+the problems in a second step.
+
+Best regards,
+ Simon
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: arm-jtag-ew-workaround-set-speed.patch
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110720/c10fda7c/attachment.ksh">https://lists.berlios.de/pipermail/openocd-development/attachments/20110720/c10fda7c/attachment.ksh</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020340.html">[Openocd-development] ARM-JTAG-EW set JTAG speed (was: OpenOCD ticket 34 / usb_bulk_read failed)
+</A></li>
+	<LI>Next message: <A HREF="020341.html">[Openocd-development] OpenOCD ticket 34 / usb_bulk_read failed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20339">[ date ]</a>
+              <a href="thread.html#20339">[ thread ]</a>
+              <a href="subject.html#20339">[ subject ]</a>
+              <a href="author.html#20339">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

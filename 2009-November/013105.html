@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/4] add 'module' helper module
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20add%20%27module%27%20helper%20module&In-Reply-To=%3C200911301438.26072.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013080.html">
+   <LINK REL="Next"  HREF="013082.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/4] add 'module' helper module</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20add%20%27module%27%20helper%20module&In-Reply-To=%3C200911301438.26072.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH 1/4] add 'module' helper module">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Nov 30 23:38:25 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013080.html">[Openocd-development] [PATCH 1/4] add 'module' helper module
+</A></li>
+        <LI>Next message: <A HREF="013082.html">[Openocd-development] [PATCH 2/4] produce stack traces on segfaults
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13105">[ date ]</a>
+              <a href="thread.html#13105">[ thread ]</a>
+              <a href="subject.html#13105">[ subject ]</a>
+              <a href="author.html#13105">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 30 November 2009, Zachary T Welch wrote:
+&gt;<i> Adds a fully-documented API for dynamically loading libraries and
+</I>&gt;<i> looking up symbols or addresses in them.
+</I>
+Seems to me I've seen one or two or three or four of these
+before ... must there be another??  I know that portability
+of such things to non-UNIXey environments has been painful.
+
+I'm used to seeing systems either stick to the &quot;libdl&quot; stuff,
+or use some multiplatform beast which tracks all of the
+platform-specific annoyances.
+
+Also, I'm a bit uneasy at the notion of adding this, so I hope
+this doesn't merge unless it gets a lot better understood.
+
+What's the intended change which will have us loading
+modules?  What modules  would be loaded?
+
+
+Plus:
+
+&gt;<i> +struct module_symbol *module_symbol_by_addr(void *addr)
+</I>&gt;<i> +{
+</I>&gt;<i> +	struct module_symbol *sym = calloc(1, sizeof(*sym));
+</I>&gt;<i> +	if (NULL == sym)
+</I>&gt;<i> +		return NULL;
+</I>&gt;<i> +
+</I>&gt;<i> +	Dl_info info;
+</I>&gt;<i> +	int retval = dladdr(addr, &amp;info);
+</I>
+As noted, not very portable ...
+
+
+&gt;<i> +	if (0 == retval)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		free(sym);
+</I>&gt;<i> +		return NULL;
+</I>&gt;<i> +	}
+</I>&gt;<i> +
+</I>&gt;<i> +	sym-&gt;so_name = info.dli_fname;
+</I>&gt;<i> +	sym-&gt;so_addr = info.dli_fbase;
+</I>&gt;<i> +	sym-&gt;sym_name = info.dli_sname;
+</I>&gt;<i> +	if (NULL != sym-&gt;sym_name) {
+</I>&gt;<i> +		sym-&gt;sym_addr = info.dli_saddr;
+</I>&gt;<i> +		sym-&gt;sym_offset = addr - sym-&gt;sym_addr;
+</I>&gt;<i> +	} else {
+</I>&gt;<i> +		sym-&gt;sym_addr = addr;
+</I>&gt;<i> +		sym-&gt;sym_offset = 0;
+</I>
+This looks wrong/dangerous.  Surely better to just fail?
+
+
+&gt;<i> +	}
+</I>&gt;<i> +
+</I>&gt;<i> +	if (NULL == sym-&gt;so_name)
+</I>&gt;<i> +		sym-&gt;so_name =  &quot;&lt;unknown&gt;&quot;;
+</I>&gt;<i> +	if (NULL == sym-&gt;sym_name)
+</I>&gt;<i> +		sym-&gt;sym_name = &quot;&lt;unknown&gt;&quot;;
+</I>
+... and this even more so; those names aren't valid.
+
+
+&gt;<i> +	return sym;
+</I>&gt;<i> +}
+</I>&gt;<i> +
+</I>&gt;<i> +struct module_symbol *module_symbol_by_name(struct module_instance *module,
+</I>&gt;<i> +		const char *name)
+</I>&gt;<i> +{
+</I>&gt;<i> +	void *addr = dlsym(module-&gt;dlhandle, name);
+</I>
+But dlsym can fail...
+
+&gt;<i> +	return module_symbol_by_addr(addr);
+</I>&gt;<i> +}
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013080.html">[Openocd-development] [PATCH 1/4] add 'module' helper module
+</A></li>
+	<LI>Next message: <A HREF="013082.html">[Openocd-development] [PATCH 2/4] produce stack traces on segfaults
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13105">[ date ]</a>
+              <a href="thread.html#13105">[ thread ]</a>
+              <a href="subject.html#13105">[ subject ]</a>
+              <a href="author.html#13105">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

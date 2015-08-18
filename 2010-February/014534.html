@@ -1,0 +1,145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] flash/str7x: After reset init	the flash is unlocked
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20flash/str7x%3A%20After%20reset%20init%0A%09the%20flash%20is%20unlocked&In-Reply-To=%3C201002011309.08514.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014576.html">
+   <LINK REL="Next"  HREF="014545.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] flash/str7x: After reset init	the flash is unlocked</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20flash/str7x%3A%20After%20reset%20init%0A%09the%20flash%20is%20unlocked&In-Reply-To=%3C201002011309.08514.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] flash/str7x: After reset init	the flash is unlocked">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Feb  1 22:09:08 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014576.html">[Openocd-development] [PATCH 2/2] flash/str7x: After reset init the flash is unlocked
+</A></li>
+        <LI>Next message: <A HREF="014545.html">[Openocd-development] [PATCH 2/2] flash/str7x: After reset init the	flash is unlocked
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14534">[ date ]</a>
+              <a href="thread.html#14534">[ thread ]</a>
+              <a href="subject.html#14534">[ subject ]</a>
+              <a href="author.html#14534">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 01 February 2010, Edgar Grimberg wrote:
+&gt;<i> The default state of the flash after a reset init is unlocked.
+</I>&gt;<i> The information in the flash driver reflects this.
+</I>&gt;<i> 
+</I>&gt;<i> The information about the lock status cannot be read from the
+</I>&gt;<i> flash chip, so the user is informed that flash info might not
+</I>&gt;<i> contain accurate information.
+</I>
+Looks like this will address the issue, but see comments below.
+
+
+&gt;<i> Signed-off-by: Edgar Grimberg &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">edgar.grimberg at zylin.com</A>&gt;
+</I>&gt;<i> ---
+</I>&gt;<i>  src/flash/nor/str7x.c |    5 +++--
+</I>&gt;<i>  tcl/target/str710.cfg |    6 +++++-
+</I>&gt;<i>  2 files changed, 8 insertions(+), 3 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> diff --git a/src/flash/nor/str7x.c b/src/flash/nor/str7x.c
+</I>&gt;<i> index 040097a..0745496 100644
+</I>&gt;<i> --- a/src/flash/nor/str7x.c
+</I>&gt;<i> +++ b/src/flash/nor/str7x.c
+</I>&gt;<i> @@ -93,7 +93,7 @@ static int str7x_build_block_list(struct flash_bank *bank)
+</I>&gt;<i>  		bank-&gt;sectors[num_sectors].offset = mem_layout_str7bank0[i].sector_start;
+</I>&gt;<i>  		bank-&gt;sectors[num_sectors].size = mem_layout_str7bank0[i].sector_size;
+</I>&gt;<i>  		bank-&gt;sectors[num_sectors].is_erased = -1;
+</I>&gt;<i> -		bank-&gt;sectors[num_sectors].is_protected = 1;
+</I>&gt;<i> +		bank-&gt;sectors[num_sectors].is_protected = 0;
+</I>
+This is *unlike* most other flash chips, which mark protect
+status as &quot;unknown&quot; (-1) as they initialize.  So a comment
+here would be a good addition:  you're setting up for the
+hardware &quot;after reset&quot; status (yes?) but the device firmware
+may change it.
+
+
+&gt;<i>  		str7x_info-&gt;sector_bits[num_sectors++] = mem_layout_str7bank0[i].sector_bit;
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i> @@ -102,7 +102,7 @@ static int str7x_build_block_list(struct flash_bank *bank)
+</I>&gt;<i>  		bank-&gt;sectors[num_sectors].offset = mem_layout_str7bank1[i].sector_start;
+</I>&gt;<i>  		bank-&gt;sectors[num_sectors].size = mem_layout_str7bank1[i].sector_size;
+</I>&gt;<i>  		bank-&gt;sectors[num_sectors].is_erased = -1;
+</I>&gt;<i> -		bank-&gt;sectors[num_sectors].is_protected = 1;
+</I>&gt;<i> +		bank-&gt;sectors[num_sectors].is_protected = 0;
+</I>
+... same ...
+
+&gt;<i>  		str7x_info-&gt;sector_bits[num_sectors++] = mem_layout_str7bank1[i].sector_bit;
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i> @@ -600,6 +600,7 @@ COMMAND_HANDLER(str7x_handle_part_id_command)
+</I>&gt;<i>  static int str7x_info(struct flash_bank *bank, char *buf, int buf_size)
+</I>&gt;<i>  {
+</I>&gt;<i>  	snprintf(buf, buf_size, &quot;str7x flash driver info&quot;);
+</I>&gt;<i> +	LOG_WARNING(&quot;STR7x protect information is not reliable.&quot;);
+</I>
+Similar -- comment about why not.  Plus, maybe instead of saying
+just &quot;not reliable&quot;, finger the hardware limitation.
+
+
+&gt;<i>  	return ERROR_OK;
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i> diff --git a/tcl/target/str710.cfg b/tcl/target/str710.cfg
+</I>&gt;<i> index 9da69ac..10307e8 100644
+</I>&gt;<i> --- a/tcl/target/str710.cfg
+</I>&gt;<i> +++ b/tcl/target/str710.cfg
+</I>&gt;<i> @@ -30,7 +30,11 @@ set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i>  target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position $_TARGETNAME -variant arm7tdmi
+</I>&gt;<i>  
+</I>&gt;<i>  $_TARGETNAME configure -event reset-start { jtag_khz 10 }
+</I>&gt;<i> -$_TARGETNAME configure -event reset-init { jtag_khz 6000 }
+</I>&gt;<i> +$_TARGETNAME configure -event reset-init { 
+</I>&gt;<i> +	jtag_khz 6000 
+</I>&gt;<i> +	flash protect 0 0 last off
+</I>&gt;<i> +	flash protect 1 0 last off
+</I>
+Same as above:  add a comment to explain why this strangeness exists.
+
+&gt;<i> +}
+</I>&gt;<i>  $_TARGETNAME configure -event gdb-flash-erase-start {
+</I>&gt;<i>  	flash protect 0 0 7 off
+</I>&gt;<i>  	flash protect 1 0 1 off
+</I>&gt;<i> 
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014576.html">[Openocd-development] [PATCH 2/2] flash/str7x: After reset init the flash is unlocked
+</A></li>
+	<LI>Next message: <A HREF="014545.html">[Openocd-development] [PATCH 2/2] flash/str7x: After reset init the	flash is unlocked
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14534">[ date ]</a>
+              <a href="thread.html#14534">[ thread ]</a>
+              <a href="subject.html#14534">[ subject ]</a>
+              <a href="author.html#14534">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

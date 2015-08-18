@@ -1,0 +1,116 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Crash in OpenOCD while stepping over some	thumb code
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Crash%20in%20OpenOCD%20while%20stepping%20over%20some%0A%09thumb%20code&In-Reply-To=%3Cd48b39750902030823v3d3aac23p27296e6ebe04ae30%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004643.html">
+   <LINK REL="Next"  HREF="004642.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Crash in OpenOCD while stepping over some	thumb code</H1>
+    <B>Francois Lorrain</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Crash%20in%20OpenOCD%20while%20stepping%20over%20some%0A%09thumb%20code&In-Reply-To=%3Cd48b39750902030823v3d3aac23p27296e6ebe04ae30%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Crash in OpenOCD while stepping over some	thumb code">francois.lorrain at gmail.com
+       </A><BR>
+    <I>Tue Feb  3 17:23:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004643.html">[Openocd-development] OpenOCD 0.1.0 released
+</A></li>
+        <LI>Next message: <A HREF="004642.html">[Openocd-development] FT2232 problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4641">[ date ]</a>
+              <a href="thread.html#4641">[ thread ]</a>
+              <a href="subject.html#4641">[ subject ]</a>
+              <a href="author.html#4641">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+I am using OpenOCD with an Olimex ARM-USB-OCD to debug an ARM7 platform.
+The OpenOCD is from Rev 1362 with some personal patches but unrelated
+to the code below ...
+
+OpenOCD is crashing on me at :
+
+bt
+#0  buf_get_u32 (buffer=0x73677261 &lt;Address 0x73677261 out of bounds&gt;,
+first=0, num=32) at ../../src/helper/binarybuffer.h:58
+#1  0x004261da in arm_simulate_step (target=0xd44468,
+dry_run_pc=0x22fd08) at arm_simulator.c:418
+#2  0x0041627a in arm7_9_step (target=0xd44468, current=1, address=0,
+handle_breakpoints=0) at arm7_9_common.c:1788
+#3  0x004660dd in gdb_input_inner (connection=0xd6e190) at gdb_server.c:2111
+#4  0x00466108 in gdb_input (connection=0xd6e190) at gdb_server.c:2175
+#5  0x00461a60 in server_loop (command_context=0xf25888) at server.c:443
+#6  0x00401650 in openocd_main (argc=5, argv=0xf25928) at openocd.c:274
+#7  0x004013f7 in main (argc=Cannot access memory at address 0x20
+
+And this is while stepping the thumb code at address 0x5D6 :
+
+0x000005d2 &lt;iso_commands+126&gt;:  b.n     0x56e &lt;iso_commands+26&gt;
+0x000005d4 &lt;iso_commands+128&gt;:  svc     7
+0x000005d6 &lt;iso_commands+130&gt;:  movs    r1, #2   &lt;== here
+0x000005d8 &lt;iso_commands+132&gt;:  adds    r0, r1, #0
+0x000005da &lt;iso_commands+134&gt;:  svc     1
+0x000005dc &lt;iso_commands+136&gt;:  b.n     0x5c6 &lt;iso_commands+114&gt;
+0x000005de &lt;iso_commands+138&gt;:  adds    r2, r3, #0
+0x000005e0 &lt;iso_commands+140&gt;:  b.n     0x5b8 &lt;iso_commands+100&gt;
+
+It seems to be in this code in arm_simulator.c :
+
+	/* data processing instructions, except compare instructions (CMP,
+CMN, TST, TEQ) */
+	else if (((instruction.type &gt;= ARM_AND) &amp;&amp; (instruction.type &lt;= ARM_RSC))
+			|| ((instruction.type &gt;= ARM_ORR) &amp;&amp; (instruction.type &lt;= ARM_MVN)))
+	{
+		u32 Rd, Rn, shifter_operand;
+		u8 C = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 29, 1);
+		u8 carry_out;
+		
+		Rd = 0x0;
+==&gt;		Rn = buf_get_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+armv4_5-&gt;core_mode, instruction.info.data_proc.Rn).value, 0, 32);
+		shifter_operand = arm_shifter_operand(armv4_5,
+instruction.info.data_proc.variant,
+instruction.info.data_proc.shifter_operand, &amp;carry_out);
+
+Does somebody understands this code better than me ?
+
+Regards
+
+Francois
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004643.html">[Openocd-development] OpenOCD 0.1.0 released
+</A></li>
+	<LI>Next message: <A HREF="004642.html">[Openocd-development] FT2232 problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4641">[ date ]</a>
+              <a href="thread.html#4641">[ thread ]</a>
+              <a href="subject.html#4641">[ subject ]</a>
+              <a href="author.html#4641">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

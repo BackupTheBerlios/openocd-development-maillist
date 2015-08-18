@@ -1,0 +1,542 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Is there code for TPIU and ITM config for	SWO trace port?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Is%20there%20code%20for%20TPIU%20and%20ITM%20config%20for%0A%09SWO%20trace%20port%3F&In-Reply-To=%3C201001221221.03370.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014369.html">
+   <LINK REL="Next"  HREF="014375.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Is there code for TPIU and ITM config for	SWO trace port?</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Is%20there%20code%20for%20TPIU%20and%20ITM%20config%20for%0A%09SWO%20trace%20port%3F&In-Reply-To=%3C201001221221.03370.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Is there code for TPIU and ITM config for	SWO trace port?">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Jan 22 21:21:03 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014369.html">[Openocd-development] Is there code for TPIU and ITM config for SWO	trace port?
+</A></li>
+        <LI>Next message: <A HREF="014375.html">[Openocd-development] svf patch[1/2]: insert space before '(' and	after ')'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14370">[ date ]</a>
+              <a href="thread.html#14370">[ thread ]</a>
+              <a href="subject.html#14370">[ subject ]</a>
+              <a href="author.html#14370">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Friday 22 January 2010, simon qian wrote:
+&gt;<i> Hi,
+</I>&gt;<i> I plan to add trace support for Cortex-M3 to Versaloon.
+</I>&gt;<i> Hardware is ready, first trace port is SWO configured in UART mode.
+</I>
+Do you have a CM3 where that doesn't require SWD support to
+be working?  The chips I've looked at so far use the option
+where one pin is either TDO (for JTAG) or SWO (trace) ... and
+that seems to be ARM's specified preference on both mini-10pin
+and standard-20pin ARM JTAG/SWD headers.
+
+
+&gt;<i> Is there codes in OpenOCD available to configure the TPIU and ITM module for
+</I>&gt;<i> SWO trace output?
+</I>
+It's kind of waiting for SWD to work first.  :)
+
+
+&gt;<i> Or implement it by add the configuration operations into config file of
+</I>&gt;<i> STM32?
+</I>
+For early debug, that's what I would do.  Longer term, at least
+trace configuration should IMO be integrated into OpenOCD.  Trace
+output should, I currently think, be managed separately ... e.g.
+by a GUI that can graph profiling data or display messaging in
+something like real-time.
+
+In case it helps ... I append a patch which I hope, someday, will
+be deciphering the SWO trace output.  Untested.
+
+- Dave
+
+=========== CUT HERE
+---
+ contrib/itmdump.c |  441 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 441 insertions(+)
+
+--- /dev/null
++++ b/contrib/itmdump.c
+@@ -0,0 +1,441 @@
++/*
++ * Copyright (C) 2010 by David Brownell
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or (at
++ * your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++ */
++
++/*
++ * Simple utility to parse and dump ARM Cortex-M3 SWO trace output.  Once the
++ * mechanisms work right, this information can be used for various purposes
++ * including profiling (particularly easy for flat PC-sample profiles) and
++ * for debugging.
++ *
++ * SWO is the Single Wire Output found on some ARM cores, most notably on the
++ * Cortex-M3.  It combines data from several sources:
++ *
++ *  - Software trace (ITM):  so-called &quot;printf-style&quot; application messaging
++ *    using &quot;ITM stimulus ports&quot;; and differential timestamps.
++ *  - Hardware trace (DWT):  for profiling counters and comparator matches.
++ *  - TPIU may issue sync packets.
++ *
++ * The trace data format is defined in Appendix E, &quot;Debug ITM and DWT packet
++ * protocol&quot;, of the ARMv7-M Architecture Reference Manual (DDI 0403C).  It
++ * is a superset of the ITM data format from the Coresight TRM.
++ *
++ * The trace data has two encodings.  The working assumption is that data
++ * gets into this program using the UART encoding.
++ */
++
++#include &lt;errno.h&gt;
++#include &lt;libgen.h&gt;
++#include &lt;stdio.h&gt;
++#include &lt;stdbool.h&gt;
++#include &lt;string.h&gt;
++#include &lt;unistd.h&gt;
++
++
++/* Example ITM trace word (0xWWXXYYZZ) parsing for task events, sent
++ * on port 31.
++ *   WWXX: event code (0..3 pre-assigned, 4..15 reserved)
++ *   YY:   task priority
++ *   ZZ:   task number
++ *
++ * NOTE that this specific encoding could be space-optimized; and that
++ * trace data streams could also be history-sensitive.
++ */
++static void show_task(int port, unsigned data)
++{
++	unsigned code = data &gt;&gt; 16;
++	char buf[16];
++
++	switch (code) {
++	case 0:
++		strcpy(buf, &quot;run&quot;);
++		break;
++	case 1:
++		strcpy(buf, &quot;block&quot;);
++		break;
++	case 2:
++		strcpy(buf, &quot;create&quot;);
++		break;
++	case 3:
++		strcpy(buf, &quot;destroy&quot;);
++		break;
++	/* 4..15 reserved for other infrastructure ops */
++	default:
++		sprintf(buf, &quot;code %d&quot;, code);
++		break;
++	}
++	printf(&quot;TASK %d, pri %d: %s&quot;,
++		(data &gt;&gt; 0) &amp; 0xff,
++		(data &gt;&gt; 8) &amp; 0xff,
++		buf);
++}
++
++static void show_reserved(FILE *f, char *label, int c)
++{
++	unsigned i;
++
++	printf(&quot;%s - %#02x&quot;, label, c);
++
++	for (i = 0; (c &amp; 0x80) &amp;&amp; i &lt; 4; i++) {
++		c = fgetc(f);
++		if (c == EOF) {
++			printf(&quot;(ERROR %d - %s) &quot;, errno, strerror(errno));
++			break;
++		}
++		printf(&quot; %#02x&quot;, c);
++	}
++
++	printf(&quot;\n&quot;);
++}
++
++static bool read_varlen(FILE *f, int c, unsigned *value)
++{
++	unsigned size;
++	unsigned char buf[4];
++	unsigned i;
++
++	*value = 0;
++
++	switch (c &amp; 3) {
++	case 3:
++		size = 4;
++		break;
++	case 2:
++		size = 2;
++		break;
++	case 1:
++		size = 1;
++		break;
++	default:
++		printf(&quot;INVALID SIZE\n&quot;);
++		return false;
++	}
++
++	memset(buf, 0, sizeof buf);
++	if (fread(buf, 1, size, f) != size)
++		goto err;
++
++	*value =  (buf[3] &lt;&lt; 24)
++		+ (buf[2] &lt;&lt; 16)
++		+ (buf[2] &lt;&lt; 8)
++		+ (buf[0] &lt;&lt; 0);
++	return true;
++
++err:
++	printf(&quot;(ERROR %d - %s)\n&quot;, errno, strerror(errno));
++	return;
++}
++
++static void show_hard(FILE *f, int c)
++{
++	unsigned type = c &gt;&gt; 3;
++	unsigned value;
++	unsigned size;
++	char *label;
++
++	printf(&quot;DWT - &quot;, type);
++
++	if (!read_varlen(f, c, &amp;value))
++		return;
++	printf(&quot;%#x&quot;, value);
++
++	switch (type) {
++	case 0:				/* event counter wrapping */
++		printf(&quot;overflow %s%s%s%s%s%s&quot;,
++			(value &amp; (1 &lt;&lt; 5)) ? &quot;cyc &quot; : &quot;&quot;,
++			(value &amp; (1 &lt;&lt; 4)) ? &quot;fold &quot; : &quot;&quot;,
++			(value &amp; (1 &lt;&lt; 3)) ? &quot;lsu &quot; : &quot;&quot;,
++			(value &amp; (1 &lt;&lt; 2)) ? &quot;slp &quot; : &quot;&quot;,
++			(value &amp; (1 &lt;&lt; 1)) ? &quot;exc &quot; : &quot;&quot;,
++			(value &amp; (1 &lt;&lt; 0)) ? &quot;cpi &quot; : &quot;&quot;);
++		break;
++	case 1:				/* exception tracing */
++		switch (value &gt;&gt; 12) {
++		case 1:
++			label = &quot;entry to&quot;;
++			break;
++		case 2:
++			label = &quot;exit from&quot;;
++			break;
++		case 3:
++			label = &quot;return to&quot;;
++			break;
++		default:
++			label = &quot;?&quot;;
++			break;
++		}
++		printf(&quot;%s exception %d&quot;, label, value &amp; 0x1ff);
++		break;
++	case 2:				/* PC sampling */
++		if (c == 0x15)
++			printf(&quot;PC - sleep&quot;);
++		else
++			printf(&quot;PC - %#08x&quot;, value);
++		break;
++	case 8:				/* data tracing, pc value */
++	case 10:
++	case 12:
++	case 14:
++		printf(&quot;Data trace %d, PC %#08x&quot;, (c &gt;&gt; 4) &amp; 3, value);
++		/* optionally followed by data value */
++		break;
++	case 9:				/* data tracing, address offset */
++	case 11:
++	case 13:
++	case 15:
++		printf(&quot;Data trace %d, address offset %#04x&quot;,
++				(c &gt;&gt; 4) &amp; 3, value);
++		/* always followed by data value */
++		break;
++	case 16 ... 23:			/* data tracing, data value */
++		printf(&quot;Data trace %d, &quot;, (c &gt;&gt; 4) &amp; 3);
++		label = (c &amp; 0x8) ? &quot;write&quot; : &quot;read&quot;;
++		switch (c &amp; 3) {
++		case 3:
++			printf(&quot;word %s, value %#08x&quot;, label, value);
++			break;
++		case 2:
++			printf(&quot;halfword %s, value %#04x&quot;, label, value);
++			break;
++		case 1:
++			printf(&quot;byte %s, value %#02x&quot;, label, value);
++			break;
++		}
++		break;
++	default:
++		printf(&quot;UNDEFINED&quot;);
++		break;
++	}
++
++	printf(&quot;\n&quot;);
++	return;
++}
++
++/*
++ * Table of SWIT (SoftWare InstrumentTation) message dump formats, for
++ * ITM port 0..31 application data.
++ *
++ * Eventually this should be customizable; all usage is application defined.
++ *
++ * REVISIT there can be up to 256 trace ports, via &quot;ITM Extension&quot; packets
++ */
++struct {
++	int port;
++	void (*show)(int port, unsigned data);
++} format[] = {
++	{ .port = 31,  .show = show_task, },
++};
++
++static void show_swit(FILE *f, int c)
++{
++	unsigned size;
++	unsigned port = c &gt;&gt; 3;
++	unsigned char buf[4];
++	unsigned value = 0;
++	unsigned i;
++
++	printf(&quot;SWIT %u - &quot;, port);
++
++	if (!read_varlen(f, c, &amp;value))
++		return;
++	printf(&quot;%#08x&quot;, value);
++
++	for (i = 0; i &lt;= sizeof(format) / sizeof(format[0]); i++) {
++		if (format[i].port == port) {
++			printf(&quot;, &quot;);
++			format[i].show(port, value);
++			break;
++		}
++	}
++
++	printf(&quot;\n&quot;);
++	return;
++
++err:
++	printf(&quot;(ERROR %d - %s)\n&quot;, errno, strerror(errno));
++	return;
++}
++
++static void show_timestamp(FILE *f, int c)
++{
++	unsigned counter = 0;
++	char *label = &quot;&quot;;
++	bool delayed = false;
++
++	printf(&quot;TIMESTAMP - &quot;);
++
++	/* Format 2: header only */
++	if (!(c &amp; 0x80)) {
++		switch (c) {
++		case 0:		/* sync packet -- coding error! */
++		case 0x70:	/* overflow -- ditto! */
++			printf(&quot;ERROR - %#02x\n&quot;, c);
++			break;
++		default:
++			/* synchronous to ITM */
++			counter = c &gt;&gt; 4;
++			goto done;
++		}
++		return;
++	}
++
++	/* Format 1:  one to four bytes of data too */
++	switch (c) {
++	default:
++		label = &quot;, reserved control\n&quot;;
++		break;
++	case 0xc:
++		/* synchronous to ITM */
++		break;
++	case 0xd:
++		label = &quot;, timestamp delayed&quot;;
++		delayed = true;
++		break;
++	case 0xe:
++		label = &quot;, packet delayed&quot;;
++		delayed = true;
++		break;
++	case 0xf:
++		label = &quot;, packet and timetamp delayed&quot;;
++		delayed = true;
++		break;
++	}
++
++	c = fgetc(f);
++	if (c == EOF)
++		goto err;
++	counter = c &amp; 0x7f;
++	if (!(c &amp; 0x80))
++		goto done;
++
++	c = fgetc(f);
++	if (c == EOF)
++		goto err;
++	counter |= (c &amp; 0x7f) &lt;&lt; 7;
++	if (!(c &amp; 0x80))
++		goto done;
++
++	c = fgetc(f);
++	if (c == EOF)
++		goto err;
++	counter |= (c &amp; 0x7f) &lt;&lt; 14;
++	if (!(c &amp; 0x80))
++		goto done;
++
++	c = fgetc(f);
++	if (c == EOF)
++		goto err;
++	counter |= (c &amp; 0x7f) &lt;&lt; 21;
++
++done:
++	/* REVISIT should we try to convert from delta values?  */
++	printf(&quot;+%u%s\n&quot;, counter, label);
++	return;
++
++err:
++	printf(&quot;(ERROR %d - %s) &quot;, errno, strerror(errno));
++	goto done;
++}
++
++int main(int argc, char **argv)
++{
++	FILE *f = stdin;
++	int c;
++
++	/* parse arguments */
++	while ((c = getopt(argc, argv, &quot;f:&quot;)) != EOF) {
++		switch (c) {
++		case 'f':
++			/* e.g. from UART connected to /dev/ttyUSB0 */
++			f = fopen(optarg, &quot;r&quot;);
++			if (!f) {
++				perror(optarg);
++				return 1;
++			}
++			break;
++		default:
++usage:
++			fprintf(stderr, &quot;usage: %s [-f input]&quot;,
++				basename(argv[0]));
++			return 1;
++		}
++	}
++
++	/* Parse data ... records have a header then data bytes.
++	 * NOTE: we assume getc() deals in 8-bit bytes.
++	 */
++	bool overflow = false;
++
++	while ((c = getc(f)) != EOF) {
++
++		/* Sync packet ... 7 zeroes, 0x80 */
++		if (c == 0) {
++			int i;
++
++			for (i = 0; i &lt; 6; i++) {
++				c = fgetc(f);
++				if (c == EOF)
++					break;
++				if (c != 0)
++					goto bad_sync;
++			}
++			c = fgetc(f);
++			if (c == 0x80) {
++				printf(&quot;SYNC\n&quot;);
++				continue;
++			}
++bad_sync:
++			printf(&quot;BAD SYNC\n&quot;);
++			continue;
++		}
++
++		/* Overflow packet */
++		if (c == 0x70) {
++			/* REVISIT later, report just what overflowed!
++			 * Timestamp and SWIT can happen.  Non-ITM too?
++			 */
++			overflow = true;
++			printf(&quot;OVERFLOW ...\n&quot;);
++			continue;
++		}
++		overflow = false;
++
++		switch (c &amp; 0x0f) {
++		case 0x00:		/* Timestamp */
++			show_timestamp(f, c);
++			break;
++		case 0x04:		/* &quot;Reserved&quot; */
++			show_reserved(f, &quot;RESERVED&quot;, c);
++			break;
++		case 0x08:		/* ITM Extension */
++			/* FIXME someday, handle these ...  */
++			show_reserved(f, &quot;ITM EXT&quot;, c);
++			break;
++		case 0x0c:		/* DWT Extension */
++			show_reserved(f, &quot;DWT EXT&quot;, c);
++			break;
++		default:
++			if (c &amp; 4)
++				show_hard(f, c);
++			else
++				show_swit(f, c);
++			break;
++		}
++
++	}
++
++	return 0;
++}
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014369.html">[Openocd-development] Is there code for TPIU and ITM config for SWO	trace port?
+</A></li>
+	<LI>Next message: <A HREF="014375.html">[Openocd-development] svf patch[1/2]: insert space before '(' and	after ')'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14370">[ date ]</a>
+              <a href="thread.html#14370">[ thread ]</a>
+              <a href="subject.html#14370">[ subject ]</a>
+              <a href="author.html#14370">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

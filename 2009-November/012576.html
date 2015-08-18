@@ -1,0 +1,182 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/8] vsllink: rewrite to use	jtag_usb_open
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/8%5D%20vsllink%3A%20rewrite%20to%20use%0A%09jtag_usb_open&In-Reply-To=%3C1258671214-31773-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012574.html">
+   <LINK REL="Next"  HREF="012575.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/8] vsllink: rewrite to use	jtag_usb_open</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/8%5D%20vsllink%3A%20rewrite%20to%20use%0A%09jtag_usb_open&In-Reply-To=%3C1258671214-31773-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/8] vsllink: rewrite to use	jtag_usb_open">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 19 23:53:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012574.html">[Openocd-development] [PATCH 3/8] usbprog: use jtag_usb_open
+</A></li>
+        <LI>Next message: <A HREF="012575.html">[Openocd-development] [PATCH 5/8] rlink: eliminate spurious	indentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12576">[ date ]</a>
+              <a href="thread.html#12576">[ thread ]</a>
+              <a href="subject.html#12576">[ subject ]</a>
+              <a href="author.html#12576">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Rewrite vsllink_usb_open to use jtag_usb_open helper.
+
+Eliminates spurious calls to exit().
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/jtag/vsllink.c |   84 ++++++++++++++++++---------------------------------
+ 1 files changed, 30 insertions(+), 54 deletions(-)
+
+diff --git a/src/jtag/vsllink.c b/src/jtag/vsllink.c
+index 7962249..d28854d 100644
+--- a/src/jtag/vsllink.c
++++ b/src/jtag/vsllink.c
+@@ -28,9 +28,7 @@
+ 
+ #include &quot;interface.h&quot;
+ #include &quot;commands.h&quot;
+-
+-#include &lt;usb.h&gt;
+-
++#include &quot;usb_common.h&quot;
+ 
+ //#define _VSLLINK_IN_DEBUG_MODE_
+ 
+@@ -1703,64 +1701,42 @@ static int vsllink_tap_execute_dma(void)
+ 
+ static struct vsllink* vsllink_usb_open(void)
+ {
+-	struct usb_bus *busses;
+-	struct usb_bus *bus;
+-	struct usb_device *dev;
+-	int ret;
+-
+-	struct vsllink *result;
+-
+-	result = (struct vsllink*) malloc(sizeof(struct vsllink));
+-
+ 	usb_init();
+-	usb_find_busses();
+-	usb_find_devices();
+ 
+-	busses = usb_get_busses();
++	const uint16_t vids[] = { vsllink_usb_vid, 0 };
++	const uint16_t pids[] = { vsllink_usb_pid, 0 };
++	struct usb_dev_handle *dev;
++	if (jtag_usb_open(vids, pids, &amp;dev) != ERROR_OK)
++		return NULL;
+ 
+-	/* find vsllink device in usb bus */
+-
+-	for (bus = busses; bus; bus = bus-&gt;next)
++	/* usb_set_configuration required under win32 */
++	struct usb_device *udev = usb_device(dev);
++	int ret = usb_set_configuration(dev, udev-&gt;config[0].bConfigurationValue);
++	if (ret != 0)
+ 	{
+-		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+-		{
+-			if ((dev-&gt;descriptor.idVendor == vsllink_usb_vid) &amp;&amp; (dev-&gt;descriptor.idProduct == vsllink_usb_pid))
+-			{
+-				result-&gt;usb_handle = usb_open(dev);
+-				if (NULL == result-&gt;usb_handle)
+-				{
+-					LOG_ERROR(&quot;failed to open %04X:%04X, not enough permissions?&quot;, vsllink_usb_vid, vsllink_usb_pid);
+-					exit(-1);
+-				}
+-
+-				/* usb_set_configuration required under win32 */
+-				ret = usb_set_configuration(result-&gt;usb_handle, dev-&gt;config[0].bConfigurationValue);
+-				if (ret != 0)
+-				{
+-					LOG_ERROR(&quot;fail to set configuration to %d, %d returned, not enough permissions?&quot;, dev-&gt;config[0].bConfigurationValue, ret);
+-					exit(-1);
+-				}
+-				ret = usb_claim_interface(result-&gt;usb_handle, vsllink_usb_interface);
+-				if (ret != 0)
+-				{
+-					LOG_ERROR(&quot;fail to claim interface %d, %d returned&quot;, vsllink_usb_interface, ret);
+-					exit(-1);
+-				}
+-
++		LOG_ERROR(&quot;fail to set configuration to %d (error %d).&quot;
++				&quot;Not enough permissions for the device?&quot;,
++				udev-&gt;config[0].bConfigurationValue, ret);
++		return NULL;
++	}
++	ret = usb_claim_interface(dev, vsllink_usb_interface);
++	if (ret != 0)
++	{
++		LOG_ERROR(&quot;fail to claim interface %d, %d returned&quot;,
++				vsllink_usb_interface, ret);
++		return NULL;
++	}
+ #if 0
+-				/*
+-				 * This makes problems under Mac OS X. And is not needed
+-				 * under Windows. Hopefully this will not break a linux build
+-				 */
+-				usb_set_altinterface(result-&gt;usb_handle, 0);
++	/*
++	* This makes problems under Mac OS X. And is not needed
++	* under Windows. Hopefully this will not break a linux build
++	*/
++	usb_set_altinterface(dev, 0);
+ #endif
+-				return result;
+-			}
+-		}
+-	}
+ 
+-	free(result);
+-	return NULL;
++	struct vsllink *result = malloc(sizeof(struct vsllink));
++	result-&gt;usb_handle = dev;
++	return result;
+ }
+ 
+ static void vsllink_usb_close(struct vsllink *vsllink)
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012574.html">[Openocd-development] [PATCH 3/8] usbprog: use jtag_usb_open
+</A></li>
+	<LI>Next message: <A HREF="012575.html">[Openocd-development] [PATCH 5/8] rlink: eliminate spurious	indentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12576">[ date ]</a>
+              <a href="thread.html#12576">[ thread ]</a>
+              <a href="subject.html#12576">[ subject ]</a>
+              <a href="author.html#12576">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

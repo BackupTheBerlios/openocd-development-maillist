@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] segfault in cortex_m3_assert_reset
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20segfault%20in%20cortex_m3_assert_reset&In-Reply-To=%3CAANLkTimX--W5sOFEByDaWLDLpPapBJMaV%3DLA%3DSuTdP%3DM%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017986.html">
+   <LINK REL="Next"  HREF="018024.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] segfault in cortex_m3_assert_reset</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20segfault%20in%20cortex_m3_assert_reset&In-Reply-To=%3CAANLkTimX--W5sOFEByDaWLDLpPapBJMaV%3DLA%3DSuTdP%3DM%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] segfault in cortex_m3_assert_reset">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Tue Jan 25 14:17:59 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017986.html">[Openocd-development] segfault in cortex_m3_assert_reset
+</A></li>
+        <LI>Next message: <A HREF="018024.html">[Openocd-development] segfault in cortex_m3_assert_reset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17988">[ date ]</a>
+              <a href="thread.html#17988">[ thread ]</a>
+              <a href="subject.html#17988">[ subject ]</a>
+              <a href="author.html#17988">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Mathias:
+I built in a fresh out-of-tree directory, and reran bootstrap every
+time. See test.sh script. Anyway I found the bug, the patch I posted
+solves it for me. Since the stack was corrupted, technically, anything
+could have happened. It was just magically consistent during my
+bisection.
+
+All:
+Finding the bug got me thinking. All this error propagation code that
+is all over the place:
+retval = jtag_queue_foo(&amp;bar); if (retval != ERROR_OK) return retval;
+
+What happens if a queue operation fails and the function returns
+without having executed any previously queued reads? Those reads are
+often to stack allocated variables that goes out of scope if we
+return. Is the queue discarded if there's an error? Otherwise the will
+be massive stack corruption when a subsequent operation executes the
+queue.
+
+Also, what are the possible failure modes for the queue operations? Is
+there any way they can fail other than out-of-memory? Maybe it's not
+the best solution to error check every individual queue operation.
+Maybe the queue operations should be transactional, so that either all
+or none of a set of related operations are added to the queue. Only
+the transaction as a whole would need to be error checked.
+
+Regards,
+Andreas
+
+On Tue, Jan 25, 2011 at 9:11 AM, Mathias K. &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kesmtp at freenet.de</A>&gt; wrote:
+&gt;<i> Hello,
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> i had the same error a while ago. Try to clean your repository (make distclean) and recompile the
+</I>&gt;<i> source.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Regards,
+</I>&gt;<i>
+</I>&gt;<i> Mathias
+</I>&gt;<i>
+</I>&gt;<i> Am 24.01.2011 23:08, schrieb Andreas Fritiofson:
+</I>&gt;&gt;<i> Hi all,
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Has anyone else problem with segfaults on current git? As soon as I
+</I>&gt;&gt;<i> issue a reset, openocd dies. This is with a STM32 target. Same result
+</I>&gt;&gt;<i> with both rlink and a jtagkey interface. Bisection was successful and
+</I>&gt;&gt;<i> pointed to commit '8f93c0a3... target: do not expose error numbers to
+</I>&gt;&gt;<i> users' by &#216;yvind. Unfortunately, that patch seems very much unrelated.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I suspect it's a 64-bit issue, because I've traced it to rbx
+</I>&gt;&gt;<i> (containing a pointer) getting trashed (some of the high 32 bits set)
+</I>&gt;&gt;<i> during the call to mem_ap_read_atomic_u32 in cortex_m3_assert_reset
+</I>&gt;&gt;<i> (cortex_m3.c:932), which causes the segfault later when it
+</I>&gt;&gt;<i> dereferences the pointer.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> My setup is as follows:
+</I>&gt;&gt;<i> $ uname -srvm
+</I>&gt;&gt;<i> Linux 2.6.32-27-generic #49-Ubuntu SMP Thu Dec 2 00:51:09 UTC 2010 x86_64
+</I>&gt;&gt;<i> $ gcc -v
+</I>&gt;&gt;<i> gcc version 4.4.3 (Ubuntu 4.4.3-4ubuntu5)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I attach the git bisect test script that gave the following log:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> git bisect start
+</I>&gt;&gt;<i> # good: [c24087d33ec75144ec5f579142152d8eb5ce50c9] config: fix
+</I>&gt;&gt;<i> luminary jtag config
+</I>&gt;&gt;<i> git bisect good c24087d33ec75144ec5f579142152d8eb5ce50c9
+</I>&gt;&gt;<i> # bad: [a72741818431d693e48b0f016258be0fec1f79da] stellaris:
+</I>&gt;&gt;<i> automatically generate and update device IDs
+</I>&gt;&gt;<i> git bisect bad a72741818431d693e48b0f016258be0fec1f79da
+</I>&gt;&gt;<i> # good: [56d9ee779d5d744822e5957c98c0d61ce3fc44a9] flash: print flash
+</I>&gt;&gt;<i> bank name on flash info cmd
+</I>&gt;&gt;<i> git bisect good 56d9ee779d5d744822e5957c98c0d61ce3fc44a9
+</I>&gt;&gt;<i> # bad: [d356034f03eb60fd4e8b3537bd979d9e7e5e25f8] svf: implement sleep
+</I>&gt;&gt;<i> for RUNTEST min_time
+</I>&gt;&gt;<i> git bisect bad d356034f03eb60fd4e8b3537bd979d9e7e5e25f8
+</I>&gt;&gt;<i> # bad: [21a1c6ec33f87b6285e47ad6597cd49ad89a9485] NAND/TCL: fix
+</I>&gt;&gt;<i> segfault on syntax error
+</I>&gt;&gt;<i> git bisect bad 21a1c6ec33f87b6285e47ad6597cd49ad89a9485
+</I>&gt;&gt;<i> # bad: [eea91f71f918caa5e4ef571c76f60c579533b0f6] warning: fix warning
+</I>&gt;&gt;<i> where GCC didn't catch a doubly declared global structure
+</I>&gt;&gt;<i> git bisect bad eea91f71f918caa5e4ef571c76f60c579533b0f6
+</I>&gt;&gt;<i> # good: [7cd2617384f4ac620c468343c1f2009fbfa2fc79] initial SWD
+</I>&gt;&gt;<i> transport (SWD infrastructure #2)
+</I>&gt;&gt;<i> git bisect good 7cd2617384f4ac620c468343c1f2009fbfa2fc79
+</I>&gt;&gt;<i> # bad: [4f9a9b8ebae8425eda3a71ccb782789cd3b8f6b7] warnings: use more
+</I>&gt;&gt;<i> 'const' for char *
+</I>&gt;&gt;<i> git bisect bad 4f9a9b8ebae8425eda3a71ccb782789cd3b8f6b7
+</I>&gt;&gt;<i> # bad: [8f93c0a3fe29313945a63b3f2154baef70acd796] target: do not
+</I>&gt;&gt;<i> expose error numbers to users
+</I>&gt;&gt;<i> git bisect bad 8f93c0a3fe29313945a63b3f2154baef70acd796
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017986.html">[Openocd-development] segfault in cortex_m3_assert_reset
+</A></li>
+	<LI>Next message: <A HREF="018024.html">[Openocd-development] segfault in cortex_m3_assert_reset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17988">[ date ]</a>
+              <a href="thread.html#17988">[ thread ]</a>
+              <a href="subject.html#17988">[ subject ]</a>
+              <a href="author.html#17988">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

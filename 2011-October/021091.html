@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] software breakpoint with multicore	systems
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20software%20breakpoint%20with%20multicore%09systems&In-Reply-To=%3CA3217089E06965468FCEC60ADC3A8F92592C0A7DC3%40EXDCVYMBSTM006.EQ1STM.local%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021082.html">
+   <LINK REL="Next"  HREF="021083.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] software breakpoint with multicore	systems</H1>
+    <B>Michel JAOUEN</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20software%20breakpoint%20with%20multicore%09systems&In-Reply-To=%3CA3217089E06965468FCEC60ADC3A8F92592C0A7DC3%40EXDCVYMBSTM006.EQ1STM.local%3E"
+       TITLE="[Openocd-development] software breakpoint with multicore	systems">michel.jaouen at stericsson.com
+       </A><BR>
+    <I>Mon Oct  3 19:11:33 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021082.html">[Openocd-development] software breakpoint with multicore	systems
+</A></li>
+        <LI>Next message: <A HREF="021083.html">[Openocd-development] Typo in src/flash/nor/lpc2000.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21091">[ date ]</a>
+              <a href="thread.html#21091">[ thread ]</a>
+              <a href="subject.html#21091">[ subject ]</a>
+              <a href="author.html#21091">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello, 
+I have tried to follow your advice.
+And here are 2 patches , one changing breakpoint.c file (indentation, coding style)
+And the other solving the expected issue.
+
+Best regards
+
+-----Original Message-----
+From: Peter Stuge [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>] 
+Sent: Sunday, October 02, 2011 1:05 AM
+To: Michel JAOUEN
+Cc: James Zhao; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+Subject: Re: [Openocd-development] software breakpoint with multicore systems
+
+Hi,
+
+Michel JAOUEN wrote:
+&gt;<i> Here is a patch correcting this issue.
+</I>
+Content-Description: 0001-breakpoint-smp-software-breakpoint-correction.patch
+&gt;<i> From 5fc6a3e930bdfde679b50f00cee98ba1273b8ee9 Mon Sep 17 00:00:00 2001
+</I>&gt;<i> From: Michel Jaouen &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">michel.jaouen at stericsson.com</A>&gt;
+</I>&gt;<i> Date: Fri, 30 Sep 2011 18:42:52 +0200
+</I>&gt;<i> Subject: [PATCH] breakpoint : smp software breakpoint correction
+</I>&gt;<i> 
+</I>&gt;<i> ---
+</I>&gt;<i>  src/target/breakpoints.c |   14 +++++++++++---
+</I>&gt;<i>  src/target/target.c      |    7 +++++++
+</I>&gt;<i>  2 files changed, 18 insertions(+), 3 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> diff --git a/src/target/breakpoints.c b/src/target/breakpoints.c
+</I>&gt;<i> index 5a0fc40..d7acf00 100644
+</I>&gt;<i> --- a/src/target/breakpoints.c
+</I>&gt;<i> +++ b/src/target/breakpoints.c
+</I>&gt;<i> @@ -228,6 +228,8 @@ int retval = ERROR_OK;
+</I>&gt;<i>  		struct target_list *head;
+</I>&gt;<i>  		struct target *curr;
+</I>&gt;<i>  		head = target-&gt;head;
+</I>&gt;<i> +		if (type == BKPT_SOFT)  breakpoint_add_internal(head-&gt;target, address,length, type);
+</I>&gt;<i> +		else
+</I>&gt;<i>  		while(head != (struct target_list*)NULL)
+</I>&gt;<i>  		{
+</I>
+Sorry, but this is unacceptable. You are adding a new level of
+conditionals without changing indentation. Come on.
+
+I understand and very much appreciate the desire to touch as few
+lines of codes as possible, but that objective can not take
+precedence over correct indentation, which is absolutely fundamental
+for quality source code, which I guess we all want to work with.
+
+A suggestion is to correctly use goto, in order to avoid changing a
+very large block of code, if this makes sense. You might not need to
+use goto, but might be able to use return instead. I haven't looked
+into this function so I can't say for sure, but the above is in any
+case not OK.
+
+
+&gt;<i> @@ -330,15 +332,19 @@ void breakpoint_remove_internal(struct target *target, uint32_t address)
+</I>&gt;<i>  	if (breakpoint)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		breakpoint_free(target, breakpoint);
+</I>&gt;<i> +		return 1;
+</I>&gt;<i>  	}
+</I>&gt;<i>  	else
+</I>&gt;<i>  	{
+</I>&gt;<i> +		if (!target-&gt;smp)
+</I>&gt;<i>  		LOG_ERROR(&quot;no breakpoint at address 0x%8.8&quot; PRIx32 &quot; found&quot;, address);
+</I>&gt;<i> +        return 0;
+</I>&gt;<i>  	}
+</I>
+Same here about indentation. The added return line is also using
+the wrong indentation character, please check your editor settings
+and adjust it to the code style already used by the file. (I really
+like the feature of some editors to autodetect the indent style used
+in a file, but of course not all editors support this.)
+
+
+&gt;<i>  void breakpoint_remove(struct target *target, uint32_t address)
+</I>&gt;<i>  {
+</I>&gt;<i> -    if ((target-&gt;smp))
+</I>&gt;<i> +	int found = 0;
+</I>&gt;<i> +	if ((target-&gt;smp))
+</I>&gt;<i>  	{
+</I>
+Please avoid mixing whitespace changes with other changes. Send one
+patch which fixes all whitespace issues at once.
+
+
+&gt;<i> --- a/src/target/target.c
+</I>&gt;<i> +++ b/src/target/target.c
+</I>&gt;<i> @@ -3023,6 +3023,13 @@ COMMAND_HANDLER(handle_bp_command)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		case 0:
+</I>&gt;<i>  			return handle_bp_command_list(CMD_CTX);
+</I>&gt;<i> +		case 2:
+</I>&gt;<i> +			{
+</I>&gt;<i> +				asid = 0;
+</I>&gt;<i> +				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], addr);
+</I>&gt;<i> +				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
+</I>&gt;<i> +				return handle_bp_command_set(CMD_CTX, addr, asid, length, hw);
+</I>&gt;<i> +			}
+</I>
+Why are these {} added, and why have the variable when it isn't used?
+
+
+//Peter
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-breakpoint-indentation.patch
+Type: application/octet-stream
+Size: 7553 bytes
+Desc: 0001-breakpoint-indentation.patch
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20111003/092659aa/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20111003/092659aa/attachment.obj</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0002-breakpoint-smp-software-breakpoint-issue.patch
+Type: application/octet-stream
+Size: 2724 bytes
+Desc: 0002-breakpoint-smp-software-breakpoint-issue.patch
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20111003/092659aa/attachment-0001.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20111003/092659aa/attachment-0001.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021082.html">[Openocd-development] software breakpoint with multicore	systems
+</A></li>
+	<LI>Next message: <A HREF="021083.html">[Openocd-development] Typo in src/flash/nor/lpc2000.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21091">[ date ]</a>
+              <a href="thread.html#21091">[ thread ]</a>
+              <a href="subject.html#21091">[ subject ]</a>
+              <a href="author.html#21091">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

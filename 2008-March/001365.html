@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fixing random crashes due to	uninitialized memory
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fixing%20random%20crashes%20due%20to%0A%09uninitialized%20memory&In-Reply-To=%3C200803032135.26776.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001371.html">
+   <LINK REL="Next"  HREF="001347.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fixing random crashes due to	uninitialized memory</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fixing%20random%20crashes%20due%20to%0A%09uninitialized%20memory&In-Reply-To=%3C200803032135.26776.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] Fixing random crashes due to	uninitialized memory">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Mon Mar  3 21:35:26 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001371.html">[Openocd-development] Fixing random crashes due touninitialized	memory
+</A></li>
+        <LI>Next message: <A HREF="001347.html">[Openocd-development] Fixing random crashes due	to	uninitialized memory
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1365">[ date ]</a>
+              <a href="thread.html#1365">[ thread ]</a>
+              <a href="subject.html#1365">[ subject ]</a>
+              <a href="author.html#1365">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 03 March 2008 19:58:25 Dominic Rath wrote:
+&gt;<i> 450 ==7822== Syscall param ioctl(USBDEVFS_BULK).data points to
+</I>&gt;<i> uninitialised byte(s)
+</I>&gt;<i>
+</I>&gt;<i> This one could be interesting. Maybe the validate chain function doesn't
+</I>&gt;<i> initialize all the buffers like it should. I'll look into this.
+</I>
+It was a false positive - valgrind can't know that only the least significant 
+bits of a byte contain valid data. It complained about a TDI scan of 6 bits, 
+where bits 6 and 7 were left uninitialized. I've changed jtag_build_buffer to 
+mask out unnecessary tail bits.
+
+After changing the code to unmask tail bits another read of uninitialized 
+bytes turned up, this time because the code doesn't care to initialize bytes 
+from fields in a SCAN_OUT that don't have an out_value (other fields had an 
+out_value, hence the out_scan).
+
+The attached patch fixes both problems, but I'm not sure whether this should 
+really go in as it is. Maybe a compilation directive to enable the fix, 
+together with valgrind support calls that mark the buffer invalid on each 
+call to ft2232_execute_queue would be more appropriate.
+That would stop the false positives, would catch later accesses to the buffer 
+as well (soon enough all bits will be initialized at least once), and there 
+wouldn't be overhead during runtime, when the unitialized bits don't care 
+anyway.
+
+Regards,
+
+Dominic
+-------------- next part --------------
+Index: jtag/jtag.c
+===================================================================
+--- jtag/jtag.c	(revision 437)
++++ jtag/jtag.c	(working copy)
+@@ -1031,11 +1031,27 @@
+ 			DEBUG(&quot;fields[%i].out_value: 0x%s&quot;, i, char_buf);
+ 			free(char_buf);
+ #endif
++			bit_count += cmd-&gt;fields[i].num_bits;
+ 		}
+-		
+-		bit_count += cmd-&gt;fields[i].num_bits;
++		else
++		{
++			int j = cmd-&gt;fields[i].num_bits;
++
++			while (j &gt; 0)
++			{
++				buf_set_u32(*buffer, bit_count, (j &gt; 32) ? 32 : j, 0x0);
++
++				bit_count += (j &gt; 32) ? 32 : j;
++				j -= (j &gt; 32) ? 32 : j;
++			}
++		}
+ 	}
+ 
++	if (bit_count % 8)
++	{
++		(*buffer)[bit_count / 8] &amp;= (1 &lt;&lt; (bit_count % 8)) - 1;
++	}
++
+ 	return bit_count;
+ 
+ }
+Index: target/arm926ejs.c
+===================================================================
+--- target/arm926ejs.c	(revision 437)
++++ target/arm926ejs.c	(working copy)
+@@ -702,7 +702,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	arm926ejs_common_t *arm926ejs = malloc(sizeof(arm926ejs_common_t));
+-	memset(arm926ejs, 0, sizeof(*arm926ejs));
+ 	
+ 	if (argc &lt; 4)
+ 	{
+Index: target/xscale.c
+===================================================================
+--- target/xscale.c	(revision 437)
++++ target/xscale.c	(working copy)
+@@ -3145,7 +3145,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	xscale_common_t *xscale = malloc(sizeof(xscale_common_t));
+-	memset(xscale, 0, sizeof(*xscale));
+ 
+ 	if (argc &lt; 5)
+ 	{
+Index: target/arm966e.c
+===================================================================
+--- target/arm966e.c	(revision 437)
++++ target/arm966e.c	(working copy)
+@@ -125,7 +125,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	arm966e_common_t *arm966e = malloc(sizeof(arm966e_common_t));
+-	memset(arm966e, 0, sizeof(*arm966e));
+ 	
+ 	if (argc &lt; 4)
+ 	{
+Index: target/arm920t.c
+===================================================================
+--- target/arm920t.c	(revision 437)
++++ target/arm920t.c	(working copy)
+@@ -714,7 +714,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	arm920t_common_t *arm920t = malloc(sizeof(arm920t_common_t));
+-	memset(arm920t, 0, sizeof(*arm920t));
+ 	
+ 	if (argc &lt; 4)
+ 	{
+Index: target/arm7tdmi.c
+===================================================================
+--- target/arm7tdmi.c	(revision 437)
++++ target/arm7tdmi.c	(working copy)
+@@ -845,7 +845,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	arm7tdmi_common_t *arm7tdmi = malloc(sizeof(arm7tdmi_common_t));
+-	memset(arm7tdmi, 0, sizeof(*arm7tdmi));
+ 
+ 	if (argc &lt; 4)
+ 	{
+Index: target/arm9tdmi.c
+===================================================================
+--- target/arm9tdmi.c	(revision 437)
++++ target/arm9tdmi.c	(working copy)
+@@ -988,7 +988,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	arm9tdmi_common_t *arm9tdmi = malloc(sizeof(arm9tdmi_common_t));
+-	memset(arm9tdmi, 0, sizeof(*arm9tdmi));
+ 
+ 	if (argc &lt; 4)
+ 	{
+Index: target/feroceon.c
+===================================================================
+--- target/feroceon.c	(revision 437)
++++ target/feroceon.c	(working copy)
+@@ -609,7 +609,6 @@
+ 	armv4_5_common_t *armv4_5;
+ 	arm7_9_common_t *arm7_9;
+ 	arm926ejs_common_t *arm926ejs = malloc(sizeof(arm926ejs_common_t));
+-	memset(arm926ejs, 0, sizeof(*arm926ejs));
+ 	
+ 	if (argc &lt; 4)
+ 	{
+Index: target/cortex_m3.c
+===================================================================
+--- target/cortex_m3.c	(revision 437)
++++ target/cortex_m3.c	(working copy)
+@@ -1481,7 +1481,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	cortex_m3_common_t *cortex_m3 = malloc(sizeof(cortex_m3_common_t));
+-	memset(cortex_m3, 0, sizeof(*cortex_m3));
+ 
+ 	if (argc &lt; 4)
+ 	{
+Index: target/arm720t.c
+===================================================================
+--- target/arm720t.c	(revision 437)
++++ target/arm720t.c	(working copy)
+@@ -447,7 +447,6 @@
+ 	int chain_pos;
+ 	char *variant = NULL;
+ 	arm720t_common_t *arm720t = malloc(sizeof(arm720t_common_t));
+-	memset(arm720t, 0, sizeof(*arm720t));
+ 	
+ 	if (argc &lt; 4)
+ 	{
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001371.html">[Openocd-development] Fixing random crashes due touninitialized	memory
+</A></li>
+	<LI>Next message: <A HREF="001347.html">[Openocd-development] Fixing random crashes due	to	uninitialized memory
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1365">[ date ]</a>
+              <a href="thread.html#1365">[ thread ]</a>
+              <a href="subject.html#1365">[ subject ]</a>
+              <a href="author.html#1365">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

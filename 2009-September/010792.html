@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Target reset without SRST ... proposal
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Target%20reset%20without%20SRST%20...%20proposal&In-Reply-To=%3C200909231634.49266.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010790.html">
+   <LINK REL="Next"  HREF="010793.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Target reset without SRST ... proposal</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Target%20reset%20without%20SRST%20...%20proposal&In-Reply-To=%3C200909231634.49266.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Target reset without SRST ... proposal">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Sep 24 01:34:49 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010790.html">[Openocd-development] [patch] reset behaves with multiple targets
+</A></li>
+        <LI>Next message: <A HREF="010793.html">[Openocd-development] Esoteric idea for single stepping/tracing and	GDB GUI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10792">[ date ]</a>
+              <a href="thread.html#10792">[ thread ]</a>
+              <a href="subject.html#10792">[ subject ]</a>
+              <a href="author.html#10792">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday 23 September 2009, David Brownell wrote:
+&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;foreach t $targets {
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;$t invoke-event reset-assert-pre
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;}
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;foreach t $targets {
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;# C code needs to know if we expect to 'halt'
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;if {[jtag tapisenabled [$t cget -chain-position]]} {
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;$t arp_reset assert $halt
+</I>
+Where &quot;arp_reset assert ...&quot; maps to a target &quot;assert_reset&quot; method,
+which in turn basically does (a) setup for &quot;halt&quot;, likely using a
+vector_catch mechanism on ARM, then (b) trigger SRST.
+
+
+Problem: boards without SRST support.  BeagleBoard being one
+very accessible example of that ... but also anything else using
+the TI-14 pin JTAG adapter, which doesn't pass SRST.  Or in fact,
+any board accessed using just the minimal 4 JTAG signals.  And,
+hey, this DM365 board I've got where the SRST signal from the
+ARM-20 pin JTAG adapter goes into a CPLD, which ignores it when
+figuring whether to reset the CPU (sigh).  And ... surely more.
+
+Those boards support various other ways to trigger resets over
+JTAG links, including:
+
+ - Systems using TI chips include some reset mechanisms that
+   rely on docs that are not generally available: 
+    * ICEpick operations (JTAG router)
+    * ICEcrusher operations (ARM-side debug logic).
+
+ - Forcing a watchdog reset (which is FWIW what Linux does
+   on OMAP and DaVinci chips) ... it's likely that almost
+   any SoC can achieve this.
+
+In short, an arbitrary number of semi-custom JTAG sequences
+are needed to support target resets without using SRST.
+
+
+Proposed solution:
+
+  - Split the assert_reset() method in two, (a) for setup
+    and (b) for SRST (as above).
+
+  - Only call the (b) part for targets that don't provide
+    a new TBD event handler; use that handler instead of
+    (b) whenever it's provided.
+
+And that TBD handler would, at least on the boards I've
+seen with these problems, force a watchdog reset.  Some
+boards could probably use a default handler which just
+invokes &quot;jtag_reset 0 1&quot; ...
+
+Similarly for the deassert_reset() side of things.
+
+
+Comments?
+
+- Dave
+
+&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;}
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;}
+</I>&gt;<i> +&#160;&#160;&#160;&#160;&#160;&#160;&#160;foreach t $targets {
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;$t invoke-event reset-assert-post
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;}
+</I>
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010790.html">[Openocd-development] [patch] reset behaves with multiple targets
+</A></li>
+	<LI>Next message: <A HREF="010793.html">[Openocd-development] Esoteric idea for single stepping/tracing and	GDB GUI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10792">[ date ]</a>
+              <a href="thread.html#10792">[ thread ]</a>
+              <a href="subject.html#10792">[ subject ]</a>
+              <a href="author.html#10792">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

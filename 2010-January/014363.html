@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] imx31 breakpoints
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20imx31%20breakpoints&In-Reply-To=%3C201001212240.30803.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014354.html">
+   <LINK REL="Next"  HREF="014365.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] imx31 breakpoints</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20imx31%20breakpoints&In-Reply-To=%3C201001212240.30803.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] imx31 breakpoints">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Jan 22 07:40:30 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014354.html">[Openocd-development] imx31 breakpoints
+</A></li>
+        <LI>Next message: <A HREF="014365.html">[Openocd-development] imx31 breakpoints
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14363">[ date ]</a>
+              <a href="thread.html#14363">[ thread ]</a>
+              <a href="subject.html#14363">[ subject ]</a>
+              <a href="author.html#14363">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thursday 21 January 2010, Edgar Grimberg wrote:
+&gt;<i> &gt;&gt; and want to see what a bisection that skips known-incomplete stuff
+</I>&gt;<i> &gt;&gt; will turn up.
+</I>&gt;<i> 
+</I>&gt;<i> 5eb893ec41c8c6cf6499558b6fed826b65e18a16 is first bad commit
+</I>&gt;<i> commit 5eb893ec41c8c6cf6499558b6fed826b65e18a16
+</I>&gt;<i> Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+</I>&gt;<i> Date:   Tue Nov 24 01:27:16 2009 -0800
+</I>&gt;<i> 
+</I>&gt;<i>     ARM11: partial support for standard ARM register interfaces.
+</I>&gt;<i> 
+</I>&gt;<i>     This provides &quot;standard&quot; ARM register support -- with twenty or
+</I>&gt;<i>     more shadow registers on top of what this code now handles, but
+</I>&gt;<i>     properly associated with the various core modes -- parallel to
+</I>&gt;<i>     the current register code.  That is, the current code is still
+</I>&gt;<i>     managing the &quot;current&quot; registers; the new code shadows them.
+</I>&gt;<i> 
+</I>&gt;<i>     ...
+</I>&gt;<i> 
+</I>&gt;<i>     So it's not a full migration, there are warts -- every place that
+</I>&gt;<i>     touches the old register cache is a potential bug -- but it's a
+</I>&gt;<i>     small more-or-less-comprehensible step that's even somewhat useful.
+</I>&gt;<i>     Later patches complete the migration.
+</I>&gt;<i> 
+</I>&gt;<i>     Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Does this make more sense?
+</I>
+No.  There's still the basic &quot;that patch doesn't touch breakpoints&quot;
+issue, as in &quot;how could it even matter&quot;.   But more to the point,
+that doesn't skip &quot;known incomplete&quot; stuff, as noted in that last
+paragraph in the patch description ... on the theory that breakpoint
+code wraps one of those &quot;warts&quot;.
+
+The migration is finished by
+
+commit 3efc99b34a934cb4d657ec27a164769c46c10f28
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 01:27:29 2009 -0800
+
+    ARM11: remove old R0..R15/CPSR code
+    
+    This finishes the basic switchover to the new register code,
+    for everything except the debug registers.  (And maybe we
+    shouldn't have a cache for *those* which works this way...)
+    
+    The context save/restore code now uses the new code, but
+    it's in a slightly different sequence.  That should be fine
+    since the R0/PC/CPSR stuff is all that really matters (and
+    if we can update those, we can update the rest).
+    
+    Now there's no longer a way any code can be confused about
+    which copy of &quot;r1&quot; (etc) to use.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+
+which, again, doesn't touch the debug (breakpoint etc) registers.
+
+I hope, by the way, you were testing RC1+ with 
+
+commit 6c4a643d632c6cff647c5099bd450d1e417903ea
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Jan 15 12:53:26 2010 -0800
+
+    ARM DPM: disable some nyet-ready breakpoint code
+    
+    Until we manage breakpoints at runtime (patches not ready for 0.4)
+    the only way this code should touch them is to disable them at server
+    startup (a previous debug session may have left them active).
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+
+and not some older version of the tree.  That guards against
+potential glitches.
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014354.html">[Openocd-development] imx31 breakpoints
+</A></li>
+	<LI>Next message: <A HREF="014365.html">[Openocd-development] imx31 breakpoints
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14363">[ date ]</a>
+              <a href="thread.html#14363">[ thread ]</a>
+              <a href="subject.html#14363">[ subject ]</a>
+              <a href="author.html#14363">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

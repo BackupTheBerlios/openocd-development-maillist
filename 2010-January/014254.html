@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20regression%20-%20first%20%22load%22%20after%0A%09power-up%20fails&In-Reply-To=%3Cc09652431001172236i954e014q89d743c562980dfa%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014252.html">
+   <LINK REL="Next"  HREF="014227.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20regression%20-%20first%20%22load%22%20after%0A%09power-up%20fails&In-Reply-To=%3Cc09652431001172236i954e014q89d743c562980dfa%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jan 18 07:36:25 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014252.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+        <LI>Next message: <A HREF="014227.html">[Openocd-development] Development versions compiled for Windows
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14254">[ date ]</a>
+              <a href="thread.html#14254">[ thread ]</a>
+              <a href="subject.html#14254">[ subject ]</a>
+              <a href="author.html#14254">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;<i> target remote xxx
+</I>&gt;&gt;<i> # the target is not affected or queried by a gdb connnect. Dummy values are
+</I>&gt;&gt;<i> # returned and a white lie takes place w.r.t. that the target is halted.
+</I>&gt;<i>
+</I>&gt;<i> That &quot;white lie&quot; may be problematic. &#160;However, I've only looked
+</I>&gt;<i> a bit at the GDB remote protocol, and I suspect that it's causing
+</I>&gt;<i> some issues. &#160;It doesn't *require* clean target identification, as
+</I>&gt;<i> just one example ...
+</I>
+This white lie is a little bit problematic, however GDB will fail if we don't
+reply to the connect and then the second &quot;get registers&quot; packet, so
+we don't have a choice but to lie here.
+
+
+
+&gt;&gt;<i> # 1. start openocd
+</I>&gt;&gt;<i> # 2. hotplug a target we want to examine
+</I>&gt;&gt;<i> target remote xxxx
+</I>&gt;&gt;<i> # we're now connected to the GDB server, OpenOCD has not
+</I>&gt;&gt;<i> # talked to the target yet. GDB is &quot;halted&quot;, but really the target
+</I>&gt;&gt;<i> # could be running or halted, we don't know. The sync flag
+</I>&gt;&gt;<i> # is set upon connect, so &quot;stepi&quot; will not stepi, but wait for the target to be
+</I>&gt;&gt;<i> # halted, if it isn't already and then fetch a fresh set of registers
+</I>&gt;&gt;<i> stepi
+</I>&gt;&gt;<i> =&gt; press ctrl - c, if we're lucky, we can now debug the hot plugged target
+</I>&gt;<i>
+</I>&gt;<i> I guess I'm puzzled why &quot;stepi&quot; would be used instead of
+</I>&gt;<i> some kind of real &quot;halt&quot;.
+</I>
+you could issue a monitor halt  if you want, I wanted to illustrate
+the point that &quot;stepi&quot; will detect the target state and if the target is
+running, stepi will wait for it to halt, i.e. &quot;stepi&quot; will sync up to the
+target state.
+
+&gt;<i> Is the issue that GDB's &quot;remote&quot; protocol doesn't have a
+</I>&gt;<i> very good notion of target state init?
+</I>
+Worse than that. GUI's depending on GDB certainly don't have
+a notion of GDB being &quot;halted&quot; while the target state is unknown.
+
+The white lie is percolates all the way up to that GUI and things then
+&quot;just work&quot;.
+
+Never mind changing GDB, it would take *years* to get the GUIs to
+follow suit.
+
+
+&gt;&gt;<i> Now.... hotplugging *can* work on simpler CPUs, but anything reasonably
+</I>&gt;&gt;<i> complex(Cortex-A8, XScale, etc.), naive hotplugging is *very* unlikely to
+</I>&gt;&gt;<i> be of much use.
+</I>&gt;<i>
+</I>&gt;<i> XScale is kind of odd; it requires special magic to hotplug.
+</I>&gt;<i> In large part that is ISTR caused by its funky requirement to
+</I>&gt;<i> run with a baby debug monitor loaded into its mini-ICache.
+</I>&gt;<i>
+</I>&gt;<i> Other than that ... what do you mean by &quot;naive&quot;?
+</I>
+Hotplugging is a highly advanced feature to support robustly. JTAG
+doesn't really to start, but engineers have discovered that they
+can make a gamble on hotplugging working and getting a payoff
+in terms of shorter debug cycles here.
+
+
+
+-- 
+&#216;yvind Harboe
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014252.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+	<LI>Next message: <A HREF="014227.html">[Openocd-development] Development versions compiled for Windows
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14254">[ date ]</a>
+              <a href="thread.html#14254">[ thread ]</a>
+              <a href="subject.html#14254">[ subject ]</a>
+              <a href="author.html#14254">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

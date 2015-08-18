@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fwd: [PATCH] Start porting of usb jtag drivers to libusb-1.0 instead of libusb.0.1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fwd%3A%20%5BPATCH%5D%20Start%20porting%20of%20usb%20jtag%0A%20drivers%20to%20libusb-1.0%20instead%20of%20libusb.0.1&In-Reply-To=%3CCAGjSPUCmq-xojVGck%2BQnEtDAoRv7bi_nHrMEXGq1Kc81G9xM5A%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021151.html">
+   <LINK REL="Next"  HREF="021153.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fwd: [PATCH] Start porting of usb jtag drivers to libusb-1.0 instead of libusb.0.1</H1>
+    <B>Xiaofan Chen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fwd%3A%20%5BPATCH%5D%20Start%20porting%20of%20usb%20jtag%0A%20drivers%20to%20libusb-1.0%20instead%20of%20libusb.0.1&In-Reply-To=%3CCAGjSPUCmq-xojVGck%2BQnEtDAoRv7bi_nHrMEXGq1Kc81G9xM5A%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Fwd: [PATCH] Start porting of usb jtag drivers to libusb-1.0 instead of libusb.0.1">xiaofanc at gmail.com
+       </A><BR>
+    <I>Tue Oct 11 04:22:33 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021151.html">[Openocd-development] Fwd: [PATCH] Start porting of usb	jtag	drivers to libusb-1.0 instead of libusb.0.1
+</A></li>
+        <LI>Next message: <A HREF="021153.html">[Openocd-development] Fwd: [PATCH] Start porting of usb	jtag	drivers to libusb-1.0 instead of libusb.0.1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21152">[ date ]</a>
+              <a href="thread.html#21152">[ thread ]</a>
+              <a href="subject.html#21152">[ subject ]</a>
+              <a href="author.html#21152">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tue, Oct 11, 2011 at 6:37 AM, Peter Stuge &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>&gt; wrote:
+&gt;&gt;<i> + &#160;AC_CHECK_HEADERS([libusb-1.0/libusb.h],[],
+</I>&gt;&gt;<i> + &#160;[AC_MSG_ERROR([libusb.h is required to build some OpenOCD driver(s)])])
+</I>&gt;<i>
+</I>&gt;<i> Please use pkg-config.
+</I>&gt;<i>
+</I>&gt;<i> pkg-config(1) <A HREF="http://linux.die.net/man/1/pkg-config">http://linux.die.net/man/1/pkg-config</A> mentions the
+</I>&gt;<i> autoconf macro to use:
+</I>&gt;<i>
+</I>&gt;<i> PKG_CHECK_MODULES(VARIABLE-PREFIX,MODULES[,ACTION-IF-FOUND,[ACTION-IF-NOT-FOUND]])
+</I>&gt;<i>
+</I>&gt;<i> as well as the added variables that will be available. Suggest use:
+</I>&gt;<i>
+</I>&gt;<i> PKG_CHECK_MODULES([LIBUSB1], [libusb-1.0 &gt;= 1.0.8])
+</I>
+Please also consider where pkg_config is usually not available, like in the
+case of MinGW under Windows.
+
+
+&gt;&gt;<i> @@ -1426,7 +1425,7 @@ static struct jlink* jlink_usb_open()
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> &#160;#if IS_WIN32 == 0
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> - &#160; &#160; usb_reset(dev);
+</I>&gt;&gt;<i> + &#160; &#160; libusb_reset_device(devh);
+</I>&gt;<i>
+</I>&gt;<i> Unsure. libusb_reset_device() shouldn't really need to be used in the
+</I>&gt;<i> common case..
+</I>
+I remember this was necessary last time some of us were
+testing OpenOCD with J-Link.
+
+On the other hand, this may well be not necessary now
+but the best is to look at Segger J-Link utility and see
+if it issues a reset in the beginning or not.
+
+&gt;<i> (Also, libusb-1.0 works to some degree on Windows.)
+</I>
+<A HREF="http://www.libusb.org/wiki/windows_backend#KnownRestrictions">http://www.libusb.org/wiki/windows_backend#KnownRestrictions</A>
+libusb_reset_device() does not work with the current WinUSB
+backend for libusb-1.0 Windows.
+
+The following codes are obviously hacky but you can see that
+any changes in these codes deserve great scrutiny.
+
+	/* BE ***VERY CAREFUL*** ABOUT MAKING CHANGES IN THIS
+	 * AREA!!!!!!!!!!!  The behavior of libusb is not completely
+	 * consistent across Windows, Linux, and Mac OS X platforms.
+	 * The actions taken in the following compiler conditionals may
+	 * not agree with published documentation for libusb, but were
+	 * found to be necessary through trials and tribulations.  Even
+	 * little tweaks can break one or more platforms, so if you do
+	 * make changes test them carefully on all platforms before
+	 * committing them!
+	 */
+
+#if IS_WIN32 == 0
+
+	usb_reset(dev);
+
+#if IS_DARWIN == 0
+
+	int timeout = 5;
+	/* reopen jlink after usb_reset
+	 * on win32 this may take a second or two to re-enumerate */
+	int retval;
+	while ((retval = jtag_usb_open(vids, pids, &amp;dev)) != ERROR_OK)
+	{
+		usleep(1000);
+		timeout--;
+		if (!timeout) {
+			break;
+		}
+	}
+	if (ERROR_OK != retval)
+		return NULL;
+#endif
+
+#endif
+
+
+
+&gt;&gt;<i> @@ -1460,27 +1459,46 @@ static struct jlink* jlink_usb_open()
+</I>&gt;<i> ..
+</I>&gt;&gt;<i> + &#160; &#160; dev = libusb_get_device(devh);
+</I>&gt;&gt;<i> + &#160; &#160; struct libusb_config_descriptor *config;
+</I>&gt;&gt;<i> + &#160; &#160; libusb_get_config_descriptor(dev, 0, &amp;config);
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> + &#160; &#160; const struct libusb_interface *inter;
+</I>&gt;&gt;<i> + &#160; &#160; const struct libusb_interface_descriptor *interdesc;
+</I>&gt;&gt;<i> + &#160; &#160; const struct libusb_endpoint_descriptor *epdesc;
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> + &#160; &#160; for(int i=0; i&lt;(int)config-&gt;bNumInterfaces; i++)
+</I>&gt;&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; for(int j=0; j&lt;inter-&gt;num_altsetting; j++)
+</I>&gt;&gt;<i> + &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; for(int k=0; k&lt;(int)interdesc-&gt;bNumEndpoints; k++)
+</I>&gt;<i>
+</I>&gt;<i> Is this necessary? Aren't the endpoint addresses always the same?
+</I>
+No, not always the same.
+
+&gt;<i> Or does the driver support so many jlink devices with so many different
+</I>&gt;<i> USB interface variants that there's no way to get around it?
+</I>
+That is right, there are different version of J-Link with different
+endpoints configuration.
+
+&gt;<i> I'm thinking a little about how to best get your work into OpenOCD.
+</I>&gt;<i>
+</I>&gt;<i> I think the best way is to start with one driver, and send a patch
+</I>&gt;<i> that changes only that one driver over to use libusb-1.0, but leaves
+</I>&gt;<i> the existing ones untouched. This means that you may need to create
+</I>&gt;<i> some duplicated functionality outside the driver, for drivers which
+</I>&gt;<i> use libusb-1.0, but I think this is OK, it will not likely be any
+</I>&gt;<i> significant amount of code, so be fairly quick to create, and not
+</I>&gt;<i> take much place. Once it is in place, you and others can more easily
+</I>&gt;<i> work on moving other drivers to libusb-1.0 in parallel. It's not at
+</I>&gt;<i> all necessary that you are the only doing that work.
+</I>
+I agree with this approach.
+
+UrJtag can be a reference as well, since it support either libusb-1.0,
+libusb-0.x/libusb-win32, or mix. It also supports either libftdi-1.0 or
+libftdi-0.x.
+<A HREF="http://urjtag.git.sourceforge.net/git/gitweb.cgi?p=urjtag/urjtag;a=tree">http://urjtag.git.sourceforge.net/git/gitweb.cgi?p=urjtag/urjtag;a=tree</A>
+
+-- 
+Xiaofan
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021151.html">[Openocd-development] Fwd: [PATCH] Start porting of usb	jtag	drivers to libusb-1.0 instead of libusb.0.1
+</A></li>
+	<LI>Next message: <A HREF="021153.html">[Openocd-development] Fwd: [PATCH] Start porting of usb	jtag	drivers to libusb-1.0 instead of libusb.0.1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21152">[ date ]</a>
+              <a href="thread.html#21152">[ thread ]</a>
+              <a href="subject.html#21152">[ subject ]</a>
+              <a href="author.html#21152">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

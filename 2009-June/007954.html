@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Retired endstate command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Retired%20endstate%20command&In-Reply-To=%3C200906122154.08155.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007942.html">
+   <LINK REL="Next"  HREF="007955.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Retired endstate command</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Retired%20endstate%20command&In-Reply-To=%3C200906122154.08155.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Retired endstate command">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Jun 13 06:54:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007942.html">[Openocd-development] Retired endstate command
+</A></li>
+        <LI>Next message: <A HREF="007955.html">[Openocd-development] Retired endstate command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7954">[ date ]</a>
+              <a href="thread.html#7954">[ thread ]</a>
+              <a href="subject.html#7954">[ subject ]</a>
+              <a href="author.html#7954">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Friday 12 June 2009, David Brownell wrote:
+&gt;<i> On Monday 08 June 2009, Dirk Behme wrote:
+</I>&gt;<i> &gt; - Tell exactly what is broken (from a technical point of view, maybe 
+</I>&gt;<i> &gt; on a level a not so experienced OpenOCD engineer could understand...
+</I>&gt;<i> 
+</I>&gt;<i> Here's a start.  Maybe other folk can add more.  ...
+</I>
+Brief updates below.  I can almost see the JRC stuff being fully
+usable in the 0.2.0 release ... it seems like it's nearly there ...
+
+
+&gt;<i> In no particular order, and with no expectation of completeness:
+</I>&gt;<i> 
+</I>&gt;<i>  - Can't handle IDCODE instruction for these DSPs, since the
+</I>&gt;<i>    instruction length is 38 bits.  Affects testing; I don't
+</I>&gt;<i>    expect OpenOCD to ever support C55, C64x+, or C67+ DSPs!
+</I>&gt;<i>    (I want to be able to look at *every* JRC port, to know
+</I>&gt;<i>    that the code behaves in more than one single case.)
+</I>
+Still open.  I don't expect this fixed in 0.2.0 code.
+
+
+&gt;<i>  - The current *model* of TAP enable/disable is a bit off.
+</I>&gt;<i> 
+</I>&gt;<i>      *	There are two disable modes, but the code only has
+</I>&gt;<i> 	one right now.  We should interpret the &quot;-disable&quot;
+</I>&gt;<i> 	option on TAP creation to reflect the state after
+</I>&gt;<i> 	exit from the JTAG Test_Logic_Reset state (doc fix
+</I>&gt;<i> 	for 0.2 IMO).  The *desired runtime state* is a
+</I>&gt;<i> 	different beast, AFAICT.
+</I>
+Fixed in a patch I just sent.
+
+
+&gt;<i>      *	Related, enabling TAPs is currently only done by
+</I>&gt;<i> 	a &quot;jtag tapenable $TAP&quot; command.  It should be
+</I>&gt;<i> 	abstracted so it's done automatically in cases like
+</I>&gt;<i> 	initializing an ETM bound to a disabled ETB, and
+</I>&gt;<i> 	to re-enable after some code triggered TLR.
+</I>
+I expect that for 0.2.0 the workaround will be something
+like adding a reset-deassert-post event handler embedding
+that knowledge in openocd.cfg files. 
+
+
+&gt;<i>  - The current TAP enable code is incomplete.  It needs to
+</I>&gt;<i>    kick the target(s) asociated with that TAP; examine()
+</I>&gt;<i>    it and maybe more.
+</I>
+Fixed in a patch I just sent.  For examine() only.
+
+ 
+&gt;<i>  - That TAP enable code is also excessively trusting.  It
+</I>&gt;<i>    should verify that the TAP actually appears!  And that
+</I>&gt;<i>    it's the expected device.   The latter implies different
+</I>&gt;<i>    kind of chain validation than we have now, since it may
+</I>&gt;<i>    not enter TLR.  (Presumably we can immediately verify
+</I>&gt;<i>    the IR length with IRSCAN.  Though it'd be good to sanity
+</I>&gt;<i>    check that we didn't somehow enable *two* adjacent taps.
+</I>&gt;<i>    If we know the IDCODE opcode we should then be able to
+</I>&gt;<i>    verify the expected TAP id.)
+</I>&gt;<i> 
+</I>&gt;<i>  - Similarly with TAP disable.  It should verify that the
+</I>&gt;<i>    TAP disappeared.  (We don't currently know how to make
+</I>&gt;<i>    the ICEpick-C taps go away, but I'm fairly sure we could
+</I>&gt;<i>    find out ... even without a logic analyser watching what
+</I>&gt;<i>    happens on the JTAG bus!)
+</I>
+Both of those issues are still open.  I suspect the enable
+checks will be important.
+
+
+&gt;<i>  - I didn't see an obvious way to guarantee the expected
+</I>&gt;<i>    100+ TCK cycles after TLR.  The cleanest way would be
+</I>&gt;<i>    to define a new TAP event for TLR exit, and let the
+</I>&gt;<i>    JRC provide a method that just does &quot;runtest 100&quot;.
+</I>
+Open.
+
+ 
+&gt;<i>  - One of the header files says that interfaces may use
+</I>&gt;<i>    arbitrary state transitions.  I think that's got to
+</I>&gt;<i>    be changed somewhat ... the new &quot;pathmove&quot; thing is
+</I>&gt;<i>    not sufficient, given free running clocks.  The hard
+</I>&gt;<i>    and fast rule *here* must be:  never enter RUN/IDLE
+</I>&gt;<i>    implicitly.
+</I>
+Open.  I wonder if I'm hitting a bug there?
+
+
+&gt;<i>  - Server can come up with the &quot;current&quot; target disabled.
+</I>&gt;<i>    That shouldn't be possible.
+</I>
+Open.
+
+ 
+&gt;<i> That's all for now.  Comments from anyone who's looked
+</I>&gt;<i> at this before?
+</I>&gt;<i> 
+</I>&gt;<i> - Dave
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> # jrc          == a JRC tap name
+</I>&gt;<i> # port         == a port number, 0..15
+</I>&gt;<i> proc icepick_tapenable {jrc port} {
+</I>&gt;<i>        irscan $jrc 7 -endstate IRPAUSE
+</I>&gt;<i>        drscan $jrc 8 0x89 -endstate DRPAUSE
+</I>&gt;<i>        irscan $jrc 2 -endstate IRPAUSE
+</I>&gt;<i>        drscan $jrc 32 [expr 0xa0002108 + ($port &lt;&lt; 24)] -endstate DRPAUSE
+</I>&gt;<i>        irscan $jrc 0x3F -endstate RUN/IDLE
+</I>&gt;<i>        runtest 10
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007942.html">[Openocd-development] Retired endstate command
+</A></li>
+	<LI>Next message: <A HREF="007955.html">[Openocd-development] Retired endstate command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7954">[ date ]</a>
+              <a href="thread.html#7954">[ thread ]</a>
+              <a href="subject.html#7954">[ subject ]</a>
+              <a href="author.html#7954">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

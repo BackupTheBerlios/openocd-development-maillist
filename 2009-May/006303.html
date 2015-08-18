@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] ti_dm6446.cfg (DaVinci dm6446)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ti_dm6446.cfg%20%28DaVinci%20dm6446%29&In-Reply-To=%3C200905081315.33209.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006355.html">
+   <LINK REL="Next"  HREF="006305.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] ti_dm6446.cfg (DaVinci dm6446)</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ti_dm6446.cfg%20%28DaVinci%20dm6446%29&In-Reply-To=%3C200905081315.33209.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] ti_dm6446.cfg (DaVinci dm6446)">david-b at pacbell.net
+       </A><BR>
+    <I>Fri May  8 22:15:33 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006355.html">[Openocd-development] environment configure msys/MinGW
+</A></li>
+        <LI>Next message: <A HREF="006305.html">[Openocd-development] [patch] ti_dm6446.cfg (DaVinci dm6446)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6303">[ date ]</a>
+              <a href="thread.html#6303">[ thread ]</a>
+              <a href="subject.html#6303">[ subject ]</a>
+              <a href="author.html#6303">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is the &quot;original&quot; DaVinci chip.  When you read that
+the OMAP3 has some &quot;DaVinci technology&quot;, it's from here.
+
+Bits easily seen at the JTAG level include ICEpick v3
+and the C64x+ DSP ... somehow I think it'll be a long
+time before that DSP gets OpenOCD support!
+
+---
+ src/target/target/ti_dm6446.cfg |   66 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 66 insertions(+)
+
+--- /dev/null
++++ b/src/target/target/ti_dm6446.cfg
+@@ -0,0 +1,66 @@
++#
++# Texas Instruments DaVinci family:  TMS320DM6446
++#
++if { [info exists CHIPNAME] } {
++   set  _CHIPNAME $CHIPNAME
++} else {
++   set  _CHIPNAME dm6446
++}
++if { [info exists ENDIAN] } {
++   set  _ENDIAN $ENDIAN
++} else {
++   set  _ENDIAN little
++}
++
++#
++# For now, expect EMU0/EMU1 jumpered LOW (not TI's default) so ARM and ETB
++# are enabled without making ICEpick route ARM and ETB into the JTAG chain.
++#
++# Also note:  when running without RTCK before the PLLs are set up, you
++# may need to slow the JTAG clock down quite a lot (under 2 MHz).
++#
++
++# Subsidiary TAP: ARM ETB11, with scan chain for 4K of ETM trace buffer
++if { [info exists ETB_TAPID ] } {
++   set _ETB_TAPID $ETB_TAPID
++} else {
++   set _ETB_TAPID 0x2b900f0f
++}
++jtag newtap $_CHIPNAME etb -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_ETB_TAPID
++
++# Subsidiary TAP: ARM926ejs with scan chains for ARM Debug, EmbeddedICE-RT, ETM.
++if { [info exists CPU_TAPID ] } {
++   set _CPU_TAPID $CPU_TAPID
++} else {
++   set _CPU_TAPID 0x07926001
++}
++jtag newtap $_CHIPNAME arm -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPU_TAPID
++
++# Subsidiary TAP: C64x+ DSP ... NOT CURRENTLY INCLUDED, must add via ICEpick.
++# Documentation for DSP JTAG interfaces evidently needs NDAs.
++
++# Primary TAP: ICEpick (JTAG route controller) and boundary scan
++if { [info exists JRC_TAPID ] } {
++   set _JRC_TAPID $JRC_TAPID
++} else {
++   set _JRC_TAPID 0x0b70002f
++}
++jtag newtap $_CHIPNAME jrc -irlen 6 -ircapture 0x1 -irmask 0x3f -expected-id $_JRC_TAPID
++
++# GDB target:  the ARM, using SRAM1 for scratch.  SRAM0 (also 8K)
++# and the ETB memory (4K) are other options, while trace is unused.
++set _TARGETNAME $_CHIPNAME.arm
++
++target create $_TARGETNAME arm926ejs -endian $_ENDIAN -chain-position $_TARGETNAME
++$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x0000a000 -work-area-size 0x2000 -work-area-backup 0
++
++arm7_9 dbgrq enable
++arm7_9 fast_memory_access enable
++arm7_9 dcc_downloads enable
++
++# trace setup
++# FIXME we ought to be able to say &quot;... config $_TARGETNAME ...&quot;
++# (not &quot;config 0&quot;) facilitating additional targets (e.g. other chips)
++etm config 0 16 normal full etb
++etb config 0 $_CHIPNAME.etb
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006355.html">[Openocd-development] environment configure msys/MinGW
+</A></li>
+	<LI>Next message: <A HREF="006305.html">[Openocd-development] [patch] ti_dm6446.cfg (DaVinci dm6446)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6303">[ date ]</a>
+              <a href="thread.html#6303">[ thread ]</a>
+              <a href="subject.html#6303">[ subject ]</a>
+              <a href="author.html#6303">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

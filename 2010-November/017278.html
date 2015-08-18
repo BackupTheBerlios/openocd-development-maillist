@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] TARGET: Add &quot;phys&quot; flag to dump_image	command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20TARGET%3A%20Add%20%22phys%22%20flag%20to%20dump_image%0A%09command&In-Reply-To=%3C1290965412-3554-1-git-send-email-timo.lindfors%40iki.fi%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017287.html">
+   <LINK REL="Next"  HREF="017286.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] TARGET: Add &quot;phys&quot; flag to dump_image	command</H1>
+    <B>Timo Juhani Lindfors</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20TARGET%3A%20Add%20%22phys%22%20flag%20to%20dump_image%0A%09command&In-Reply-To=%3C1290965412-3554-1-git-send-email-timo.lindfors%40iki.fi%3E"
+       TITLE="[Openocd-development] [PATCH] TARGET: Add &quot;phys&quot; flag to dump_image	command">timo.lindfors at iki.fi
+       </A><BR>
+    <I>Sun Nov 28 18:30:12 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017287.html">[Openocd-development] STM32 reset halt segfault on Mac OS X
+</A></li>
+        <LI>Next message: <A HREF="017286.html">[Openocd-development] [PATCH] TARGET: Add &quot;phys&quot; flag to dump_image command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17278">[ date ]</a>
+              <a href="thread.html#17278">[ thread ]</a>
+              <a href="subject.html#17278">[ subject ]</a>
+              <a href="author.html#17278">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>---
+ doc/openocd.texi    |    9 ++++++---
+ src/target/target.c |   37 +++++++++++++++++++++++++++++--------
+ 2 files changed, 35 insertions(+), 11 deletions(-)
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 70d789a..1b75f94 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -5731,9 +5731,12 @@ Otherwise, or if the optional @var{phys} flag is specified,
+ @cindex image dumping
+ 
+ @anchor{dump_image}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffn</A> Command {dump_image} filename address size
+-Dump @var{size} bytes of target memory starting at @var{address} to the
+-binary file named @var{filename}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {dump_image} [phys] filename address size
++Dump @var{size} bytes of target memory starting at @var{address} to
++the binary file named @var{filename}. When the current target has an
++MMU which is present and active, @var{addr} is interpreted as a
++virtual address.  Otherwise, or if the optional @var{phys} flag is
++specified, @var{addr} is interpreted as a physical address.
+ @end deffn
+ 
+ @deffn Command {fast_load}
+diff --git a/src/target/target.c b/src/target/target.c
+index 93efa76..5cc1e6a 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1393,12 +1393,22 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+  * mode respectively, otherwise data is handled as quickly as
+  * possible
+  */
+-int target_read_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++static int target_read_buffer2(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer, bool physical)
+ {
+ 	int retval;
+ 	LOG_DEBUG(&quot;reading buffer of %i byte at 0x%8.8x&quot;,
+ 			  (int)size, (unsigned)address);
+ 
++	int (*read_fn)(struct target *target,
++			uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	if (physical)
++	{
++		read_fn=target_read_phys_memory;
++	} else
++	{
++		read_fn=target_read_memory;
++	}
++
+ 	if (!target_was_examined(target))
+ 	{
+ 		LOG_ERROR(&quot;Target not examined yet&quot;);
+@@ -1420,7 +1430,7 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
+ 
+ 	if (((address % 2) == 0) &amp;&amp; (size == 2))
+ 	{
+-		return target_read_memory(target, address, 2, 1, buffer);
++		return read_fn(target, address, 2, 1, buffer);
+ 	}
+ 
+ 	/* handle unaligned head bytes */
+@@ -1431,7 +1441,7 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
+ 		if (unaligned &gt; size)
+ 			unaligned = size;
+ 
+-		if ((retval = target_read_memory(target, address, 1, unaligned, buffer)) != ERROR_OK)
++		if ((retval = read_fn(target, address, 1, unaligned, buffer)) != ERROR_OK)
+ 			return retval;
+ 
+ 		buffer += unaligned;
+@@ -1444,7 +1454,7 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
+ 	{
+ 		int aligned = size - (size % 4);
+ 
+-		if ((retval = target_read_memory(target, address, 4, aligned / 4, buffer)) != ERROR_OK)
++		if ((retval = read_fn(target, address, 4, aligned / 4, buffer)) != ERROR_OK)
+ 			return retval;
+ 
+ 		buffer += aligned;
+@@ -1456,7 +1466,7 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
+ 	if(size	&gt;=2)
+ 	{
+ 		int aligned = size - (size%2);
+-		retval = target_read_memory(target, address, 2, aligned / 2, buffer);
++		retval = read_fn(target, address, 2, aligned / 2, buffer);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+@@ -1467,13 +1477,18 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
+ 	/* handle tail writes of less than 4 bytes */
+ 	if (size &gt; 0)
+ 	{
+-		if ((retval = target_read_memory(target, address, 1, size, buffer)) != ERROR_OK)
++		if ((retval = read_fn(target, address, 1, size, buffer)) != ERROR_OK)
+ 			return retval;
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
++int target_read_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++{
++	target_read_buffer2(target, address, size, buffer, false);
++}
++
+ int target_checksum_memory(struct target *target, uint32_t address, uint32_t size, uint32_t* crc)
+ {
+ 	uint8_t *buffer;
+@@ -2605,6 +2620,12 @@ COMMAND_HANDLER(handle_dump_image_command)
+ 	struct duration bench;
+ 	struct target *target = get_current_target(CMD_CTX);
+ 
++	bool physical=strcmp(CMD_ARGV[0], &quot;phys&quot;)==0;
++	if (physical)
++	{
++		CMD_ARGC--;
++		CMD_ARGV++;
++	}
+ 	if (CMD_ARGC != 3)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+@@ -2622,7 +2643,7 @@ COMMAND_HANDLER(handle_dump_image_command)
+ 	{
+ 		size_t size_written;
+ 		uint32_t this_run_size = (size &gt; 560) ? 560 : size;
+-		retval = target_read_buffer(target, address, this_run_size, buffer);
++		retval = target_read_buffer2(target, address, this_run_size, buffer, physical);
+ 		if (retval != ERROR_OK)
+ 		{
+ 			break;
+@@ -5305,7 +5326,7 @@ static const struct command_registration target_exec_command_handlers[] = {
+ 		.name = &quot;dump_image&quot;,
+ 		.handler = handle_dump_image_command,
+ 		.mode = COMMAND_EXEC,
+-		.usage = &quot;filename address size&quot;,
++		.usage = &quot;['phys'] filename address size&quot;,
+ 	},
+ 	{
+ 		.name = &quot;verify_image&quot;,
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017287.html">[Openocd-development] STM32 reset halt segfault on Mac OS X
+</A></li>
+	<LI>Next message: <A HREF="017286.html">[Openocd-development] [PATCH] TARGET: Add &quot;phys&quot; flag to dump_image command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17278">[ date ]</a>
+              <a href="thread.html#17278">[ thread ]</a>
+              <a href="subject.html#17278">[ subject ]</a>
+              <a href="author.html#17278">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

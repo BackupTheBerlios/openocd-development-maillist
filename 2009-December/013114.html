@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/4] add 'module' helper module
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20add%20%27module%27%20helper%20module&In-Reply-To=%3C1259636501.10374.1120.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013117.html">
+   <LINK REL="Next"  HREF="013115.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/4] add 'module' helper module</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/4%5D%20add%20%27module%27%20helper%20module&In-Reply-To=%3C1259636501.10374.1120.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH 1/4] add 'module' helper module">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Dec  1 04:01:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013117.html">[Openocd-development] [patch 5/5] Cortex-A8: remove previous	mcr()/mrc() methods
+</A></li>
+        <LI>Next message: <A HREF="013115.html">[Openocd-development] [PATCH 2/4] produce stack traces on segfaults
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13114">[ date ]</a>
+              <a href="thread.html#13114">[ thread ]</a>
+              <a href="subject.html#13114">[ subject ]</a>
+              <a href="author.html#13114">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, 2009-11-30 at 14:38 -0800, David Brownell wrote:
+&gt;<i> On Monday 30 November 2009, Zachary T Welch wrote:
+</I>&gt;<i> &gt; Adds a fully-documented API for dynamically loading libraries and
+</I>&gt;<i> &gt; looking up symbols or addresses in them.
+</I>&gt;<i> 
+</I>&gt;<i> Seems to me I've seen one or two or three or four of these
+</I>&gt;<i> before ... must there be another??  I know that portability
+</I>&gt;<i> of such things to non-UNIXey environments has been painful.
+</I>
+I was avoiding adding any new external dependencies.  I bet that's why
+you've seen N of them.  I added it now to improve the stack tracing, but
+I think we are getting to the point where loadable modules could be
+possible.  This is definitely part of that strategic plan.
+
+&gt;<i> I'm used to seeing systems either stick to the &quot;libdl&quot; stuff,
+</I>&gt;<i> or use some multiplatform beast which tracks all of the
+</I>&gt;<i> platform-specific annoyances.
+</I>
+Ummm... this is libdl, isn't it?  That's what the man page for these
+APIs tell me to link against.....  That library is already included in
+most of our use cases, though I admit that I haven't tried these patches
+without any drivers enabled (i.e. a &quot;minimal&quot; build).
+
+&gt;<i> Also, I'm a bit uneasy at the notion of adding this, so I hope
+</I>&gt;<i> this doesn't merge unless it gets a lot better understood.
+</I>
+I am not in any hurry to push it.  I wanted it for my own use.
+It's nicely encapsulated, si I will see virtually no merge conflicts
+while I maintain this in my tree.
+
+&gt;<i> What's the intended change which will have us loading
+</I>&gt;<i> modules?  What modules  would be loaded?
+</I>
+JTAG interfaces, flash devices, targets....  Any of those things could
+be turned into loadable modules, so only the features used are resident.
+
+&gt;<i> 
+</I>&gt;<i> Plus:
+</I>&gt;<i> 
+</I>&gt;<i> &gt; +struct module_symbol *module_symbol_by_addr(void *addr)
+</I>&gt;<i> &gt; +{
+</I>&gt;<i> &gt; +	struct module_symbol *sym = calloc(1, sizeof(*sym));
+</I>&gt;<i> &gt; +	if (NULL == sym)
+</I>&gt;<i> &gt; +		return NULL;
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +	Dl_info info;
+</I>&gt;<i> &gt; +	int retval = dladdr(addr, &amp;info);
+</I>&gt;<i> 
+</I>&gt;<i> As noted, not very portable ...
+</I>
+Yes.  I can trivially split the non-portable portions of the API into a
+module_&lt;imp&gt;.c file, only one of which would be included.  This allows
+for libdl, Win32/LoadLibrary, or any other implementation required.
+
+&gt;<i> &gt; +	if (0 == retval)
+</I>&gt;<i> &gt; +	{
+</I>&gt;<i> &gt; +		free(sym);
+</I>&gt;<i> &gt; +		return NULL;
+</I>&gt;<i> &gt; +	}
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +	sym-&gt;so_name = info.dli_fname;
+</I>&gt;<i> &gt; +	sym-&gt;so_addr = info.dli_fbase;
+</I>&gt;<i> &gt; +	sym-&gt;sym_name = info.dli_sname;
+</I>&gt;<i> &gt; +	if (NULL != sym-&gt;sym_name) {
+</I>&gt;<i> &gt; +		sym-&gt;sym_addr = info.dli_saddr;
+</I>&gt;<i> &gt; +		sym-&gt;sym_offset = addr - sym-&gt;sym_addr;
+</I>&gt;<i> &gt; +	} else {
+</I>&gt;<i> &gt; +		sym-&gt;sym_addr = addr;
+</I>&gt;<i> &gt; +		sym-&gt;sym_offset = 0;
+</I>&gt;<i> 
+</I>&gt;<i> This looks wrong/dangerous.  Surely better to just fail?
+</I>
+It works and produces reasonable traces.
+
+&gt;<i> &gt; +	}
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +	if (NULL == sym-&gt;so_name)
+</I>&gt;<i> &gt; +		sym-&gt;so_name =  &quot;&lt;unknown&gt;&quot;;
+</I>&gt;<i> &gt; +	if (NULL == sym-&gt;sym_name)
+</I>&gt;<i> &gt; +		sym-&gt;sym_name = &quot;&lt;unknown&gt;&quot;;
+</I>&gt;<i> 
+</I>&gt;<i> ... and this even more so; those names aren't valid.
+</I>
+True.  Better alternatives?
+
+&gt;<i> &gt; +	return sym;
+</I>&gt;<i> &gt; +}
+</I>&gt;<i> &gt; +
+</I>&gt;<i> &gt; +struct module_symbol *module_symbol_by_name(struct module_instance *module,
+</I>&gt;<i> &gt; +		const char *name)
+</I>&gt;<i> &gt; +{
+</I>&gt;<i> &gt; +	void *addr = dlsym(module-&gt;dlhandle, name);
+</I>&gt;<i> 
+</I>&gt;<i> But dlsym can fail...
+</I>
+And returns NULL, which is an address that will be looked up (below)...
+That function will fail &quot;safely&quot;, excepting the issues you note above.
+I am not defending this API... just saying that it works
+
+&gt;<i> &gt; +	return module_symbol_by_addr(addr);
+</I>&gt;<i> &gt; +}
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013117.html">[Openocd-development] [patch 5/5] Cortex-A8: remove previous	mcr()/mrc() methods
+</A></li>
+	<LI>Next message: <A HREF="013115.html">[Openocd-development] [PATCH 2/4] produce stack traces on segfaults
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13114">[ date ]</a>
+              <a href="thread.html#13114">[ thread ]</a>
+              <a href="subject.html#13114">[ subject ]</a>
+              <a href="author.html#13114">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

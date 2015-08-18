@@ -1,0 +1,408 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Problem when tryng to flash LPC2368
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problem%20when%20tryng%20to%20flash%20LPC2368&In-Reply-To=%3C71d49d910912160701r157e0368vd543ecd71e3d9733%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013599.html">
+   <LINK REL="Next"  HREF="013601.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Problem when tryng to flash LPC2368</H1>
+    <B>Igor Skochinsky</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problem%20when%20tryng%20to%20flash%20LPC2368&In-Reply-To=%3C71d49d910912160701r157e0368vd543ecd71e3d9733%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Problem when tryng to flash LPC2368">skochinsky at mail.ru
+       </A><BR>
+    <I>Wed Dec 16 16:01:24 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013599.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+        <LI>Next message: <A HREF="013601.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13600">[ date ]</a>
+              <a href="thread.html#13600">[ thread ]</a>
+              <a href="subject.html#13600">[ subject ]</a>
+              <a href="author.html#13600">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Marcelo,
+
+What you see is bootrom code that gets automatically mapped to 0 if
+there is no user code or it's invalid.
+
+&quot;The interrupt vectors residing in the boot block of the on-chip flash
+memory also become active after reset, i.e., the bottom 64 bytes of
+the boot block are also visible in the memory region starting from the
+address 0x0000 0000. The reset vector contains a jump instruction to
+the entry point of the flash boot loader software.&quot;
+
+00000000                 LDR     R4, =0x3FFF8000
+00000004                 LDR     R5, =0xFFFFBFFF
+00000008                 LDR     R6, [R4]
+0000000C                 AND     R6, R5, R6
+00000010                 STR     R6, [R4]
+00000014                 LDR     PC, =0x7FFFE040
+
+0x7FFFE040 is the bootrom entrypoint.
+
+&quot;3.1.1 Criterion for Valid User Code
+Criterion for valid user code: The reserved ARM interrupt vector
+location (0x0000 0014) should contain the 2&#8217;s complement of the
+check-sum of the remaining interrupt vectors. This causes the checksum
+of all of the vectors together to be 0. The boot loader code disables
+the overlaying of the interrupt vectors from the boot block, then
+checksums the interrupt vectors in sector 0 of the flash. If the
+signatures match then the execution control is transferred to the user
+code by loading the program counter with 0x0000 0000. Hence the user
+flash reset vector should contain a jump instruction to the entry
+point of the user application code.&quot;
+
+My guess is that FlashMagic automatically patches the checksum to be correct.
+
+On Wed, Dec 16, 2009 at 14:47, Marcelo Utikawa da Fonseca
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marcelo.fonseca at tecnequip.com.br</A>&gt; wrote:
+&gt;<i> Thank you!
+</I>&gt;<i>
+</I>&gt;<i> I will try FlashMagic later because I do not have Windows on my PC.
+</I>&gt;<i> About the data in first 64 bytes I do not understand about them but they are
+</I>&gt;<i> in the flash!
+</I>&gt;<i> Please see the below logs showing this strange behaviour. I am using the
+</I>&gt;<i> telnet to send commands:
+</I>&gt;<i>
+</I>&gt;<i> 1) Memory containing correct data:
+</I>&gt;<i>
+</I>&gt;&gt;<i> mdw 0 0x20
+</I>&gt;<i> 0x00000000: e59ff018 e59ff018 e59ff018 e59ff018 e59ff018 b9206e58 e51ff120
+</I>&gt;<i> e59ff010
+</I>&gt;<i> 0x00000020: 00000038 00001244 00001258 0000121c 00001230 0000126c e59f0198
+</I>&gt;<i> e321f0db
+</I>&gt;<i> 0x00000040: e1a0d000 e2400004 e321f0d7 e1a0d000 e2400004 e321f0d1 e1a0d000
+</I>&gt;<i> e2400004
+</I>&gt;<i> 0x00000060: e321f0d2 e1a0d000 e2400040 e321f0d3 e1a0d000 e2400040 e321f0df
+</I>&gt;<i> e1a0d000
+</I>&gt;<i>
+</I>&gt;<i> 2) Now I do a erase and show the data again:
+</I>&gt;<i>
+</I>&gt;&gt;<i> flash erase_sector 0 0 0
+</I>&gt;<i> erased sectors 0 through 0 on flash bank 0 in 0.171872s
+</I>&gt;&gt;<i> mdw 0 0x20
+</I>&gt;<i> 0x00000000: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+</I>&gt;<i> ffffffff
+</I>&gt;<i> 0x00000020: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+</I>&gt;<i> ffffffff
+</I>&gt;<i> 0x00000040: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+</I>&gt;<i> ffffffff
+</I>&gt;<i> 0x00000060: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+</I>&gt;<i> ffffffff
+</I>&gt;<i>
+</I>&gt;<i> 3) The flash seems to be erased. Now I turn off the board, turn on again and
+</I>&gt;<i> reconnect the OpenOCD. Here is the result:
+</I>&gt;<i>
+</I>&gt;&gt;<i> halt
+</I>&gt;<i> target state: halted
+</I>&gt;<i> target halted in Thumb state due to debug-request, current mode: Supervisor
+</I>&gt;<i> cpsr: 0xa00000f3 pc: 0x7fffe154
+</I>&gt;&gt;<i> mdw 0 0x20
+</I>&gt;<i> 0x00000000: e59f4018 e59f5010 e5946000 e0056006 e5846000 e51ff004 7fffe040
+</I>&gt;<i> ffffbfff
+</I>&gt;<i> 0x00000020: 3fff8000 00000000 00000000 00000000 00000000 00000000 00000000
+</I>&gt;<i> 00000000
+</I>&gt;<i> 0x00000040: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+</I>&gt;<i> ffffffff
+</I>&gt;<i> 0x00000060: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+</I>&gt;<i> ffffffff
+</I>&gt;<i>
+</I>&gt;<i> In the J-Flash software, the command to read back the entire chip shows only
+</I>&gt;<i> 0xff but the J-Link Commander can read exactly the same data:
+</I>&gt;<i>
+</I>&gt;<i> SEGGER J-Link Commander V3.96d ('?' for help)
+</I>&gt;<i> Compiled Nov 21 2008 19:00:17
+</I>&gt;<i> DLL version V3.96d, compiled Nov 21 2008 18:59:52
+</I>&gt;<i> Firmware: J-Link ARM V6 compiled Jun 30 2009 11:06:04
+</I>&gt;<i> Hardware: V6.00
+</I>&gt;<i> S/N : 156002960
+</I>&gt;<i> OEM : IAR
+</I>&gt;<i> VTarget = 3.319V
+</I>&gt;<i> Info: TotalIRLen = 4, IRPrint = 0x01
+</I>&gt;<i> Found 1 JTAG device, Total IRLen = 4:
+</I>&gt;<i> &#160;Id of device #0: 0x4F1F0F0F
+</I>&gt;<i> Found ARM with core Id 0x4F1F0F0F (ARM7)
+</I>&gt;<i> &#160; ETM V1.2: 1 pairs addr.comp, 0 data comp, 4 MM decs, 1 counters
+</I>&gt;<i> RTCK reaction time is approx. 189ns
+</I>&gt;<i> Using adaptive clocking instead of fixed JTAG speed.
+</I>&gt;<i> J-Link&gt;mem 0 0x80
+</I>&gt;<i> 00000000 = 18 40 9F E5 10 50 9F E5 00 60 94 E5 06 60 05 E0
+</I>&gt;<i> 00000010 = 00 60 84 E5 04 F0 1F E5 40 E0 FF 7F FF BF FF FF
+</I>&gt;<i> 00000020 = 00 80 FF 3F 00 00 00 00 00 00 00 00 00 00 00 00
+</I>&gt;<i> 00000030 = 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+</I>&gt;<i> 00000040 = FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF
+</I>&gt;<i> 00000050 = FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF
+</I>&gt;<i> 00000060 = FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF
+</I>&gt;<i> 00000070 = FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF
+</I>&gt;<i> J-Link&gt;
+</I>&gt;<i>
+</I>&gt;<i> What can be wrong?
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Marcelo Utikawa da Fonseca
+</I>&gt;<i>
+</I>&gt;<i> Nico Coesel escreveu:
+</I>&gt;<i>
+</I>&gt;<i> The first 64 bytes must always be erased. Try to use flashmagic instead of
+</I>&gt;<i> OpenOCD.
+</I>&gt;<i>
+</I>&gt;<i> These controllers use flash with ECC therefore you cannot program the flash
+</I>&gt;<i> partially / patch single bytes.
+</I>&gt;<i>
+</I>&gt;<i> Nico Coesel
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> -----Original Message-----
+</I>&gt;<i> From: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development-bounces at lists.berlios.de</A> [mailto:openocd-
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">development-bounces at lists.berlios.de</A>] On Behalf Of Marcelo Utikawa da
+</I>&gt;<i> Fonseca
+</I>&gt;<i> Sent: woensdag 16 december 2009 13:54
+</I>&gt;<i> To: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+</I>&gt;<i> Subject: Re: [Openocd-development] Problem when tryng to flash LPC2368
+</I>&gt;<i>
+</I>&gt;<i> Hi again!
+</I>&gt;<i>
+</I>&gt;<i> I am still having problems to write the flahs in  an LPC2368.
+</I>&gt;<i>
+</I>&gt;<i> Now I know that the first 64 bytes is never erased. There is always data
+</I>&gt;<i> in this area. 95% of the write errors are caused because the data is not
+</I>&gt;<i> correctly programmed in this area.
+</I>&gt;<i> In the J-Flash software, this area have data after a erase so I think
+</I>&gt;<i> that the data in this area is correct.
+</I>&gt;<i> I am using J-Link in both OpenOCD and J-Flash. I have tried a programmer
+</I>&gt;<i> derivated from axm0432 and I receive the same results...
+</I>&gt;<i>
+</I>&gt;<i> Could this be a bug in OpenOCD? It cannot write in this situation but
+</I>&gt;<i> J-Flash can so the problem is not in the hardware or the programmer
+</I>&gt;<i> because they are the same.
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Marcelo Utikawa da Fonseca
+</I>&gt;<i>
+</I>&gt;<i> Marcelo Utikawa da Fonseca escreveu:
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Hi!
+</I>&gt;<i>
+</I>&gt;<i> First of all, I am new to this list.
+</I>&gt;<i> My name is Marcelo Fonseca. I work in a Brazilian design house and have
+</I>&gt;<i> experience with LPC21xx and LPC23xx from NXP and i.MX family from
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Freescale.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> I am having problems to write an LPC2368 with our custom board.
+</I>&gt;<i> I can write it with a J-Link and J-Flash software from Segger.
+</I>&gt;<i> In OpenOCD all seems to work but many times there are errors when trying
+</I>&gt;<i> to write the flash memory using the GDB.
+</I>&gt;<i> If I run a erase in the J-Flash software I have no error and OpenOCD
+</I>&gt;<i> succesfully write to the flash memory.
+</I>&gt;<i> When I run the &quot;flash erase_sector&quot; command in OpenOCD, J-Flash says
+</I>&gt;<i> that the flash is blank but I need to run a erase in J-Flash to write
+</I>&gt;<i> the flash using OpenOCD.
+</I>&gt;<i> PS.: sometimes I can write in OpenOCD without having to run a erase in
+</I>&gt;<i> J-Flash...
+</I>&gt;<i>
+</I>&gt;<i> Can anyone help me to solve this issue?
+</I>&gt;<i>
+</I>&gt;<i> Logs:
+</I>&gt;<i>
+</I>&gt;<i> Starting OpenOCD:
+</I>&gt;<i>
+</I>&gt;<i> $ sudo openocd -f jtec.cfg -f lpc2368.cfg
+</I>&gt;<i> [sudo] password for utikawa:
+</I>&gt;<i> Open On-Chip Debugger 0.2.0 (2009-12-14-11:51) Release
+</I>&gt;<i> $URL:
+</I>&gt;<i> <A HREF="http://svn.berlios.de/svnroot/repos/openocd/tags/openocd-">http://svn.berlios.de/svnroot/repos/openocd/tags/openocd-</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> 0.2.0/src/openocd.c
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> $
+</I>&gt;<i> For bug reports, read
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS">http://svn.berlios.de/svnroot/repos/openocd/trunk/BUGS</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> 100 kHz
+</I>&gt;<i> jtag_nsrst_delay: 100
+</I>&gt;<i> jtag_ntrst_delay: 100
+</I>&gt;<i> Info : device: 4
+</I>&gt;<i> Info : deviceID: 67330064
+</I>&gt;<i> Info : SerialNumber: S6
+</I>&gt;<i> Info : Description: Dual RS232 A
+</I>&gt;<i> Info : JTAG tap: lpc2368.cpu tap/device found: 0x4f1f0f0f (mfg: 0x787,
+</I>&gt;<i> part: 0xf1f0, ver: 0x4)
+</I>&gt;<i> Info : JTAG Tap/device matched
+</I>&gt;<i> Warn : EmbeddedICE version 7 detected, EmbeddedICE handling might be
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> broken
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Starting GDB without run erase in J-Flash:
+</I>&gt;<i>
+</I>&gt;<i> arm-elf-gdb -x gdbinit_minilpc.conf
+</I>&gt;<i> GNU gdb 6.8
+</I>&gt;<i> Copyright (C) 2008 Free Software Foundation, Inc.
+</I>&gt;<i> License GPLv3+: GNU GPL version 3 or later
+</I>&gt;<i> &lt;<A HREF="http://gnu.org/licenses/gpl.html">http://gnu.org/licenses/gpl.html</A>&gt;
+</I>&gt;<i> This is free software: you are free to change and redistribute it.
+</I>&gt;<i> There is NO WARRANTY, to the extent permitted by law.  Type &quot;show copying&quot;
+</I>&gt;<i> and &quot;show warranty&quot; for details.
+</I>&gt;<i> This GDB was configured as &quot;--host=i686-pc-linux-gnu --target=arm-elf&quot;.
+</I>&gt;<i> Setting up for the Tecnequip MiniLPC.
+</I>&gt;<i> The target is assumed to be little endian
+</I>&gt;<i> The target may not be able to correctly handle a memory-write-packet-size
+</I>&gt;<i> of 1024 bytes. Change the packet size? (y or n) [answered Y; input not
+</I>&gt;<i> from terminal]
+</I>&gt;<i> 0x00001a04 in ?? ()
+</I>&gt;<i> Loading section startup, size 0x204 lma 0x0
+</I>&gt;<i> Loading section text, size 0x106f0 lma 0x204
+</I>&gt;<i> Loading section .data, size 0x878 lma 0x108f4
+</I>&gt;<i> Start address 0x0, load size 69996
+</I>&gt;<i> Transfer rate: 3 KB/sec, 972 bytes/write.
+</I>&gt;<i> Breakpoint 1 at 0x234
+</I>&gt;<i> Note: automatically using hardware breakpoints for read-only addresses.
+</I>&gt;<i>
+</I>&gt;<i> It never reaches main().
+</I>&gt;<i>
+</I>&gt;<i> Starting GDB after a erase in J-Flash:
+</I>&gt;<i>
+</I>&gt;<i> arm-elf-gdb -x gdbinit_minilpc.conf
+</I>&gt;<i> GNU gdb 6.8
+</I>&gt;<i> Copyright (C) 2008 Free Software Foundation, Inc.
+</I>&gt;<i> License GPLv3+: GNU GPL version 3 or later
+</I>&gt;<i> &lt;<A HREF="http://gnu.org/licenses/gpl.html">http://gnu.org/licenses/gpl.html</A>&gt;
+</I>&gt;<i> This is free software: you are free to change and redistribute it.
+</I>&gt;<i> There is NO WARRANTY, to the extent permitted by law.  Type &quot;show copying&quot;
+</I>&gt;<i> and &quot;show warranty&quot; for details.
+</I>&gt;<i> This GDB was configured as &quot;--host=i686-pc-linux-gnu --target=arm-elf&quot;.
+</I>&gt;<i> Setting up for the Tecnequip MiniLPC.
+</I>&gt;<i> The target is assumed to be little endian
+</I>&gt;<i> The target may not be able to correctly handle a memory-write-packet-size
+</I>&gt;<i> of 1024 bytes. Change the packet size? (y or n) [answered Y; input not
+</I>&gt;<i> from terminal]
+</I>&gt;<i> 0x7fffe152 in ?? ()
+</I>&gt;<i> Loading section startup, size 0x204 lma 0x0
+</I>&gt;<i> Loading section text, size 0x106f0 lma 0x204
+</I>&gt;<i> Loading section .data, size 0x878 lma 0x108f4
+</I>&gt;<i> Start address 0x0, load size 69996
+</I>&gt;<i> Transfer rate: 3 KB/sec, 972 bytes/write.
+</I>&gt;<i> Breakpoint 1 at 0x234
+</I>&gt;<i> Note: automatically using hardware breakpoints for read-only addresses.
+</I>&gt;<i>
+</I>&gt;<i> Breakpoint 1, 0x00000234 in main ()
+</I>&gt;<i> (MiniLPC)
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Marcelo Utikawa da Fonseca
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> ---------------------------------------------
+</I>&gt;<i> Tecnequip Tecnologia em Equipamentos
+</I>&gt;<i> Endere&#231;o/Address: R. Ganges, 557
+</I>&gt;<i> Cidade/City: S&#227;o Paulo
+</I>&gt;<i> Estado/State: SP
+</I>&gt;<i> Pa&#237;s/Country: Brasil
+</I>&gt;<i> CEP/Postal Code: 03445-030
+</I>&gt;<i> Fone/Phone: 55-11-20937199
+</I>&gt;<i> FAX: 55-11-29412289
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> ---------------------------------------------
+</I>&gt;<i> Tecnequip Tecnologia em Equipamentos
+</I>&gt;<i> Endere&#231;o/Address: R. Ganges, 557
+</I>&gt;<i> Cidade/City: S&#227;o Paulo
+</I>&gt;<i> Estado/State: SP
+</I>&gt;<i> Pa&#237;s/Country: Brasil
+</I>&gt;<i> CEP/Postal Code: 03445-030
+</I>&gt;<i> Fone/Phone: 55-11-20937199
+</I>&gt;<i> FAX: 55-11-29412289
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> ---------------------------------------------
+</I>&gt;<i> Tecnequip Tecnologia em Equipamentos
+</I>&gt;<i> Endere&#231;o/Address: R. Ganges, 557
+</I>&gt;<i> Cidade/City: S&#227;o Paulo
+</I>&gt;<i> Estado/State: SP
+</I>&gt;<i> Pa&#237;s/Country: Brasil
+</I>&gt;<i> CEP/Postal Code: 03445-030
+</I>&gt;<i> Fone/Phone: 55-11-20937199
+</I>&gt;<i> FAX: 55-11-29412289
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>
+
+
+-- 
+WBR, Igor
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013599.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+	<LI>Next message: <A HREF="013601.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13600">[ date ]</a>
+              <a href="thread.html#13600">[ thread ]</a>
+              <a href="subject.html#13600">[ subject ]</a>
+              <a href="author.html#13600">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

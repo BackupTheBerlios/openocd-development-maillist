@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] fix -Wredundant-decls warnings
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20fix%20-Wredundant-decls%20warnings&In-Reply-To=%3C1240802617.13078.1167.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005761.html">
+   <LINK REL="Next"  HREF="005771.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] fix -Wredundant-decls warnings</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20fix%20-Wredundant-decls%20warnings&In-Reply-To=%3C1240802617.13078.1167.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH] fix -Wredundant-decls warnings">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Apr 27 05:23:37 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005761.html">[Openocd-development] [PATCH] fix -Wredundant-decls warnings
+</A></li>
+        <LI>Next message: <A HREF="005771.html">[Openocd-development] [PATCH] Fix build errors in SVN on x86_64
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5762">[ date ]</a>
+              <a href="thread.html#5762">[ thread ]</a>
+              <a href="subject.html#5762">[ subject ]</a>
+              <a href="author.html#5762">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, 2009-04-27 at 02:33 +0200, Magnus Lundin wrote:
+&gt;<i> We should be a bit more careful. I am all in favour of cleaning up the 
+</I>&gt;<i> bit rot !!!  But how to fix the warnings needs to be not carefully 
+</I>&gt;<i> considered.
+</I>&gt;<i> 
+</I>&gt;<i> My example:
+</I>&gt;<i> 
+</I>&gt;<i> cortex_me.c : cortex_m3_register_command. It is  declared both at the 
+</I>&gt;<i> top of the c file and in the header. BUT which should be removed ? It 
+</I>&gt;<i> turns out that this is an entirely local function to this module. So we 
+</I>&gt;<i> do not need it to be externally visible. So should we not remove the 
+</I>&gt;<i> declaration from the h file and declare it static inside the c file ?
+</I>
+Yes. I considered this and started to do such an analysis on a
+method-by-method basis, but most redundant declarations that I found in
+both .c and .h files were used externally.  I started to assume and got
+predictable results.  I have attached a patch that puts that .c file
+declaration back and removes the one from the .h file.
+
+I have been planning to go over the target directory and add the static
+keywords.  The duplicate definitions induced procrastination, and this
+patch will now make that step less ornery.
+
+&gt;<i> Personally, the declaration of everything local as static is at the very 
+</I>&gt;<i> bottom of the list.  I fail to see the quality gains and I do see the 
+</I>&gt;<i> problems when moving stuff around, and it kills the linker map files !!
+</I>
+By using the static keyword, the compiler may choose to inline small
+functions and those that are called once in a source file.  Without that
+keyword, such transformation cannot take place (as the object may be
+later required for linking... who knows).  The code will end up making
+function calls that could have been optimized away.
+
+Furthermore, the static keyword is one of the only ways to clearly
+indicate those routines that are public and private in a file; without
+them, every variable and function is be exposed in the object file,
+allowing layering violations and practically guaranteeing bloat.
+It also makes it impossible for new developers to determine whether a
+function is used locally or globally, without digging into the code.
+
+The benefits of the static keyword largely outweigh its costs, but one
+can temporarily remove the static keyword in certain modules while
+debugging by adding &quot;#define static&quot;.  That removes the keyword at the
+preprocessor level from that point forward in the compilation.
+I believe one may also use the -fno-inline-small-functions and
+-fno-inline-functions-called-once options (enabled at -O2 and -O
+respectively) to affect similar effects with the debugger.
+
+&gt;<i> Getting everything compiled with the most severe compiler enforced error 
+</I>&gt;<i> detection will not detect the errors  that actually makes OpenOCD less 
+</I>&gt;<i> useful than it could be. It will, and it already has, help us clean up 
+</I>&gt;<i> mad make the code base more maintainable.
+</I>&gt;<i> 
+</I>&gt;<i> Keep balanced focus, please.
+</I>
+I think my initial reply that precipitated this patch was balanced;
+there are some warnings that fix problems and others that do not.
+These last statements suggest that this patch (or their inspiration)
+will hurt the project or that it lacked proper consideration.
+
+This patch fixes real duplicate declarations; I made a minor mistake
+that would have been caught in a later patch that adds static keywords
+to the source files in the target directory.  This patch reduces noise
+and allows the new warning to be added, preventing future duplicate
+declarations from ever reaching the tree.
+
+The static keyword patches add legitimately missing C language keywords
+and allow the compiler to apply additional optimizations that would
+allow subsequent passes to improve code size or performance of those
+methods and their caller(s).  They also improve the readability of the
+code by giving developers a clear indication of data/code scope.
+
+These efforts seem both reasoned and sound to me, so I hope the attached
+patch suffices pending further cleanup.   I believe this and the other
+warnings buy us useful protections during development and maintenance.
+The warnings I am asking to add enforce good coding practices; while we
+can write code without them, I believe that everyone should be using
+them to help ensure the contribution of rigorously checked patches.
+
+Cheers,
+
+Zach
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: openocd-build-fix-redundant-decls-v2.patch
+Type: text/x-patch
+Size: 11341 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090426/b47ac4f9/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20090426/b47ac4f9/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005761.html">[Openocd-development] [PATCH] fix -Wredundant-decls warnings
+</A></li>
+	<LI>Next message: <A HREF="005771.html">[Openocd-development] [PATCH] Fix build errors in SVN on x86_64
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5762">[ date ]</a>
+              <a href="thread.html#5762">[ thread ]</a>
+              <a href="subject.html#5762">[ subject ]</a>
+              <a href="author.html#5762">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

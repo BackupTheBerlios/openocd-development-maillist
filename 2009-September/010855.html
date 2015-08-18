@@ -1,0 +1,178 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development]  RE: new lpc2xxx cfg files layout
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%20RE%3A%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C27121.32798.qm%40web27306.mail.ukl.yahoo.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010852.html">
+   <LINK REL="Next"  HREF="010394.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development]  RE: new lpc2xxx cfg files layout</H1>
+    <B>Rolf Meeser</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%20RE%3A%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C27121.32798.qm%40web27306.mail.ukl.yahoo.com%3E"
+       TITLE="[Openocd-development]  RE: new lpc2xxx cfg files layout">rolfm_9dq at yahoo.de
+       </A><BR>
+    <I>Mon Sep 28 19:21:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010852.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+        <LI>Next message: <A HREF="010394.html">[Openocd-development] version.texi missing in SVN
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10855">[ date ]</a>
+              <a href="thread.html#10855">[ thread ]</a>
+              <a href="subject.html#10855">[ subject ]</a>
+              <a href="author.html#10855">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Freddie,
+
+
+
+----- Urspr&#252;ngliche Mail ----
+&gt;<i> &gt; How would you write a board file for a board with two LPC2103 in the
+</I>&gt;<i> &gt; chain? A simple source [find target/lpc2103.cfg] source [find
+</I>&gt;<i> &gt; target/lpc2103.cfg] wouldn't work because it would try to declare two
+</I>&gt;<i> &gt; targets with the same name (lpc2103.cpu).
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Previously it was possible to write: set CHIPNAME chip1 source [find
+</I>&gt;<i> &gt; target/lpc2103.cfg] set CHIPNAME chip2 source [find
+</I>&gt;<i> &gt; target/lpc2103.cfg] It gave you two targets chip1.cpu and chip2.cpu.
+</I>&gt;<i> 
+</I>&gt;<i> You should not source lpc2103.cfg twice, but lpc2xxx_internals.tcl twice
+</I>&gt;<i> - with all necessary defines. A little more text unfortunately.
+</I>&gt;<i> 
+</I>
+Yes, this is how it could be done. However, for the first instance you would use the existing lpc2103.cfg, while for the second instance you had to copy the content of that file into your board config. It's possible, but I don't think it would be really straightforward.
+If I understand your latest proposal correctly, CHIPNAME is just for info (for naming the target). It's no longer being used in lpc2xxx_internals.tcl to determine the defaults for a specific chip. This is now done in (for instance) lpc2103.cfg. Why not just remove the CHIPNAME from the specific files, and just use an overridable default (&quot;lpc2000&quot;) in lpc2xxx_internals.tcl? This would solve the multiple instantiation problem.
+The target would be named lpc2000.cpu by default.
+
+
+&gt;<i> Do you suggest renaming CRYSTAL_FREQ to (for example) CCLK_FREQ or some
+</I>&gt;<i> other changes?
+</I>&gt;<i> 
+</I>
+No, it's fine as it is. Just has to be explained in the manual.
+
+
+&gt;<i> &gt; The reset init script must be available to the user, because he needs
+</I>&gt;<i> &gt; it to add the PLL initialization. Where would I enable the PLL when a
+</I>&gt;<i> &gt; default reset init script is already defined in the target script?
+</I>&gt;<i> 
+</I>&gt;<i> From what I have noticed all LPC2xxx have exactly the same PLL configuration 
+</I>&gt;<i> scheme, so that's more like target related in my opinion. The PLL setup code 
+</I>&gt;<i> will work (when written right) on all LPC2xxx chips. The only concen is the 
+</I>&gt;<i> difference between the chips with / without internal RC.
+</I>&gt;<i> 
+</I>
+PLL blocks in LPC23xx and LPC21xx are different.
+
+I admit that I don't have a good idea yet how this can be done properly.
+
+
+&gt;<i> &gt; The working area should start at 0x40000200. This makes sure that
+</I>&gt;<i> &gt; there is no conflict with possible temporary storage of IAP code (has
+</I>&gt;<i> &gt; been a problem in the past, although the 0x40000000--0x400001FF area
+</I>&gt;<i> &gt; should have been used by ISP code only). A strict requirement is to
+</I>&gt;<i> &gt; not touch the upper 32 bytes of the internal SRAM. This RAM area is
+</I>&gt;<i> &gt; definitely used by the IAP routines internally!
+</I>&gt;<i> 
+</I>&gt;<i> Sounds reasonable, but in my experience I haven't noticed any problems with 
+</I>&gt;<i> using exactly whole RAM.
+</I>&gt;<i> 
+</I>
+Currently the upper 32 bytes will not be used by the flash driver, but just by chance. A future version of the driver might want to use that part of the working area, and then we would be in trouble.
+So I suggest to limit the working area to 0x40000200--(SRAM end - 32).
+
+
+&gt;<i> &gt; There are devices with external memory bus. A user might want to use
+</I>&gt;<i> &gt; an external RAM for the working area instead of the internal SRAM.
+</I>&gt;<i> &gt; Therefore I think the working area declaration is board specific and
+</I>&gt;<i> &gt; doesn't belong to the target declaration.
+</I>&gt;<i> 
+</I>&gt;<i> The start of working area can be made &quot;overridable&quot; with default being 
+</I>&gt;<i> 0x40000000.
+</I>&gt;<i> 
+</I>
+I had a quick look at the sources, and it looks like that you can have multiple working area declarations. Only the last one will be used, so it's fine to have a default working area.
+If a user wants to utiize the external RAM of an LPC2468, he can just declare a new working area.
+
+
+&gt;<i> &gt; What do you think about modifying the LPC2000 flash driver to adapt
+</I>&gt;<i> &gt; itself to the various devices? It can read the part id and
+</I>&gt;<i> &gt; auto-configure itself. You could keep the FLASH_SIZE and RAM_SIZE
+</I>&gt;<i> &gt; variables to override any automatic detection. I feel it would make
+</I>&gt;<i> &gt; life a lot easier!
+</I>&gt;<i> 
+</I>&gt;<i> I've noticed that ideas of auto-whatever are not liked here &lt;: For me that's 
+</I>&gt;<i> cool, but beyond my knowledge.
+</I>&gt;<i> 
+</I>
+I saw that, too :-)
+I would volunteer to make the necessary changes to the lpc2000 driver. This is my idea:
+- Autodetect the device, and configure flash size and sector layout (variant) automatically.
+- Only use the autodetected values if the user has passed &quot;0&quot; in the corresponding field of the flash bank declaration.
+- Issue a warning if overridden values do not match autodetected values.
+- Should there be new devices not yet supported by the driver, you may specify everything manually.
+- Doesn't break existing config files.
+- Register the driver as &quot;lpc2000&quot; and &quot;lpc1700&quot;. Allows to use real family names, although (up to now) everything can be handled with one driver. In the future, there could be a specific driver for each family without breaking config files that we write now. Also allows to add new command handlers that are specific for LPC1700.
+
+Consequence: You do not have to set the FLASH_SIZE anywhere.
+There is now only one reason left to have chip specific files: Set the RAM size for an optimized working area.
+As this is now the last reason to have a config file for each and every LPC2000/LPC1700/... variant, I suggest we come up with an idea how we can get rid of that.
+
+I sharp contrast to others on this list, I think that one-derivative-one-file-even-if-there-are-hundreds-of-them concept is a mess :-)
+
+
+&gt;<i> With every modification that is suggested the script is becoming more and more 
+</I>&gt;<i> complex. At the beginning (in my original idea) all that was required was the 
+</I>&gt;<i> chip name. Then the part config files need all the details. Now there is a need 
+</I>&gt;<i> for another level of abstraction with wrapper script to configure the clock. You 
+</I>&gt;<i> propose individual reset-init scripts and individual work area placement...
+</I>&gt;<i> 
+</I>&gt;<i> To be honest, I'm loosing the faith in this whole idea, because the complex is 
+</I>&gt;<i> becoming more complex, not simple...
+</I>&gt;<i> 
+</I>
+Don't lose faith, we will eventually make it :-)
+Please continue to push this!
+
+Regards,
+Rolf
+
+
+      
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010852.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+	<LI>Next message: <A HREF="010394.html">[Openocd-development] version.texi missing in SVN
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10855">[ date ]</a>
+              <a href="thread.html#10855">[ thread ]</a>
+              <a href="subject.html#10855">[ subject ]</a>
+              <a href="author.html#10855">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

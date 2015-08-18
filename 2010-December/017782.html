@@ -1,0 +1,272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Compilation Warnings on OS X 10.5
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Compilation%20Warnings%20on%20OS%20X%2010.5&In-Reply-To=%3CAANLkTimJuxAdCvLQx1woG6JPagYJAYsq78YbEZwofkC7%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017781.html">
+   <LINK REL="Next"  HREF="017784.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Compilation Warnings on OS X 10.5</H1>
+    <B>Andrew MacIsaac</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Compilation%20Warnings%20on%20OS%20X%2010.5&In-Reply-To=%3CAANLkTimJuxAdCvLQx1woG6JPagYJAYsq78YbEZwofkC7%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Compilation Warnings on OS X 10.5">macisaac.andrew at gmail.com
+       </A><BR>
+    <I>Wed Dec 29 21:15:48 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017781.html">[Openocd-development] Some updates for non-CFI flashs
+</A></li>
+        <LI>Next message: <A HREF="017784.html">[Openocd-development] Compilation Warnings on OS X 10.5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17782">[ date ]</a>
+              <a href="thread.html#17782">[ thread ]</a>
+              <a href="subject.html#17782">[ subject ]</a>
+              <a href="author.html#17782">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I received a number of &quot;-Wshadow&quot; related warnings (treated as errors) while
+trying to build on OS X Leopard.  In addition, there were two miscellaneous
+other warnings in the flash drivers.  Attached are two patches which correct
+these issues and the commit messages to accompany them.
+
+My system has the following configuration (taken from uname -a):
+
+Darwin 9.8.0 Darwin Kernel Version 9.8.0: Wed Jul 15 16:55:01 PDT 2009;
+root:xnu-1228.15.4~1/RELEASE_I386 i386
+
+=== Werror_patch.txt Commit Message ===
+compilation: fixes for -Wshadow warnings on OS X
+
+These changes fix -Wshadow compilation warnings on OS X 10.5.8
+
+Compiled with the following configure command:
+
+../configure --prefix=/usr/local --enable-maintainer-mode --enable-jlink
+--enable-ft2232_libftdi
+
+=== flash_patch.txt Commit Message ===
+compilation: fixes for flash driver warnings on OS X
+
+These changes fix two compilation warnings on OS X 10.5.8:
+
+../../../../src/flash/nor/at91sam3.c:2767: warning: redundant redeclaration
+of 'at91sam3_flash'
+../../../../src/flash/nor/at91sam3.c:101: warning: previous declaration of
+'at91sam3_flash' was here
+
+and
+
+../../../../src/flash/nor/stmsmi.c:205: warning: format not a string literal
+and no format arguments
+
+Compiled with the following configure command:
+
+../configure --prefix=/usr/local --enable-maintainer-mode --enable-jlink
+--enable-ft2232_libftdi
+===
+
+Andrew
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20101229/cc7001a9/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20101229/cc7001a9/attachment.html</A>&gt;
+-------------- next part --------------
+diff --git a/src/flash/nor/lpc2900.c b/src/flash/nor/lpc2900.c
+index 1c1c90f..7bb9f14 100644
+--- a/src/flash/nor/lpc2900.c
++++ b/src/flash/nor/lpc2900.c
+@@ -184,7 +184,7 @@ static uint32_t lpc2900_run_bist128(struct flash_bank *bank,
+                                     uint32_t addr_from, uint32_t addr_to,
+                                     uint32_t (*signature)[4] );
+ static uint32_t lpc2900_address2sector(struct flash_bank *bank, uint32_t offset);
+-static uint32_t lpc2900_calc_tr( uint32_t clock, uint32_t time );
++static uint32_t lpc2900_calc_tr(uint32_t clock_var, uint32_t time_var);
+ 
+ 
+ /***********************  Helper functions  **************************/
+diff --git a/src/helper/fileio.h b/src/helper/fileio.h
+index fa499ab..f37dbd1 100644
+--- a/src/helper/fileio.h
++++ b/src/helper/fileio.h
+@@ -53,7 +53,7 @@ struct fileio
+ };
+ 
+ int fileio_open(struct fileio *fileio,
+-	const char *url, enum fileio_access access, enum fileio_type type);
++	const char *url, enum fileio_access access_type, enum fileio_type type);
+ int fileio_close(struct fileio *fileio);
+ 
+ int fileio_seek(struct fileio *fileio, size_t position);
+diff --git a/src/openocd.c b/src/openocd.c
+index 109f0e1..62b2238 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -267,7 +267,7 @@ struct command_context *setup_command_handler(Jim_Interp *interp)
+ 	struct command_context *cmd_ctx = command_init(startup, interp);
+ 
+ 	/* register subsystem commands */
+-	typedef int (*command_registrant_t)(struct command_context *cmd_ctx);
++	typedef int (*command_registrant_t)(struct command_context *cmd_ctx_value);
+ 	static const command_registrant_t command_registrants[] = {
+ 		&amp;openocd_register_commands,
+ 		&amp;server_register_commands,
+diff --git a/src/target/arm_dpm.h b/src/target/arm_dpm.h
+index 5d75ed4..e180807 100644
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -100,7 +100,7 @@ struct arm_dpm {
+ 	 * must currently be disabled.  Indices 0..15 are used for
+ 	 * breakpoints; indices 16..31 are for watchpoints.
+ 	 */
+-	int (*bpwp_enable)(struct arm_dpm *, unsigned index,
++	int (*bpwp_enable)(struct arm_dpm *, unsigned index_value,
+ 			uint32_t addr, uint32_t control);
+ 
+ 	/**
+@@ -108,7 +108,7 @@ struct arm_dpm {
+ 	 * hardware control registers.  Indices are the same ones
+ 	 * accepted by bpwp_enable().
+ 	 */
+-	int (*bpwp_disable)(struct arm_dpm *, unsigned index);
++	int (*bpwp_disable)(struct arm_dpm *, unsigned index_value);
+ 
+ 	/* The breakpoint and watchpoint arrays are private to the
+ 	 * DPM infrastructure.  There are nbp indices in the dbp
+diff --git a/src/target/mips32_pracc.h b/src/target/mips32_pracc.h
+index f2c2680..b207a5b 100644
+--- a/src/target/mips32_pracc.h
++++ b/src/target/mips32_pracc.h
+@@ -45,7 +45,7 @@ int mips32_pracc_read_mem(struct mips_ejtag *ejtag_info,
+ int mips32_pracc_write_mem(struct mips_ejtag *ejtag_info,
+ 		uint32_t addr, int size, int count, void *buf);
+ int mips32_pracc_fastdata_xfer(struct mips_ejtag *ejtag_info, struct working_area *source,
+-		int write, uint32_t addr, int count, uint32_t *buf);
++		int write_t, uint32_t addr, int count, uint32_t *buf);
+ 
+ int mips32_pracc_read_regs(struct mips_ejtag *ejtag_info, uint32_t *regs);
+ int mips32_pracc_write_regs(struct mips_ejtag *ejtag_info, uint32_t *regs);
+diff --git a/src/target/mips_ejtag.h b/src/target/mips_ejtag.h
+index 694cb34..a4430b6 100644
+--- a/src/target/mips_ejtag.h
++++ b/src/target/mips_ejtag.h
+@@ -137,7 +137,7 @@ int mips_ejtag_exit_debug(struct mips_ejtag *ejtag_info);
+ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode);
+ int mips_ejtag_drscan_32(struct mips_ejtag *ejtag_info, uint32_t *data);
+ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data);
+-int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int write, uint32_t *data);
++int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int write_t, uint32_t *data);
+ 
+ int mips_ejtag_init(struct mips_ejtag *ejtag_info);
+ int mips_ejtag_config_step(struct mips_ejtag *ejtag_info, int enable_step);
+diff --git a/src/target/target.c b/src/target/target.c
+index 5cff9d0..66ff115 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2314,7 +2314,7 @@ COMMAND_HANDLER(handle_md_command)
+ 
+ 	bool physical=strcmp(CMD_ARGV[0], &quot;phys&quot;)==0;
+ 	int (*fn)(struct target *target,
+-			uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++			uint32_t address, uint32_t size_value, uint32_t count, uint8_t *buffer);
+ 	if (physical)
+ 	{
+ 		CMD_ARGC--;
+-------------- next part --------------
+diff --git a/src/flash/nor/at91sam3.c b/src/flash/nor/at91sam3.c
+index 8b922f3..97693db 100644
+--- a/src/flash/nor/at91sam3.c
++++ b/src/flash/nor/at91sam3.c
+@@ -97,8 +97,7 @@
+ #define  offset_EFC_FSR   8
+ #define  offset_EFC_FRR   12
+ 
+-
+-struct flash_driver at91sam3_flash;
++#define DRIVER_NAME	&quot;at91sam3&quot;
+ 
+ static float
+ _tomhz(uint32_t freq_hz)
+@@ -2548,7 +2547,7 @@ COMMAND_HANDLER(sam3_handle_info_command)
+ 		command_print(CMD_CTX,
+ 					   &quot;Please define bank %d via command: flash bank %s ... &quot;,
+ 					   x,
+-					   at91sam3_flash.name);
++					   DRIVER_NAME);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -2614,7 +2613,7 @@ COMMAND_HANDLER(sam3_handle_gpnvm_command)
+ 
+ 	if (pChip-&gt;details.bank[0].pBank == NULL) {
+ 		command_print(CMD_CTX, &quot;Bank0 must be defined first via: flash bank %s ...&quot;,
+-					   at91sam3_flash.name);
++					   DRIVER_NAME);
+ 		return ERROR_FAIL;
+ 	}
+ 	if (!pChip-&gt;details.bank[0].probed) {
+@@ -2756,7 +2755,7 @@ static const struct command_registration at91sam3_exec_command_handlers[] = {
+ };
+ static const struct command_registration at91sam3_command_handlers[] = {
+ 	{
+-		.name = &quot;at91sam3&quot;,
++		.name = DRIVER_NAME,
+ 		.mode = COMMAND_ANY,
+ 		.help = &quot;at91sam3 flash command group&quot;,
+ 		.chain = at91sam3_exec_command_handlers,
+@@ -2765,7 +2764,7 @@ static const struct command_registration at91sam3_command_handlers[] = {
+ };
+ 
+ struct flash_driver at91sam3_flash = {
+-	.name = &quot;at91sam3&quot;,
++	.name = DRIVER_NAME,
+ 	.commands = at91sam3_command_handlers,
+ 	.flash_bank_command = sam3_flash_bank_command,
+ 	.erase = sam3_erase,
+diff --git a/src/flash/nor/stmsmi.c b/src/flash/nor/stmsmi.c
+index c9a1672..d298b36 100644
+--- a/src/flash/nor/stmsmi.c
++++ b/src/flash/nor/stmsmi.c
+@@ -202,7 +202,7 @@ FLASH_BANK_COMMAND_HANDLER(stmsmi_flash_bank_command)
+ {
+ 	struct stmsmi_flash_bank *stmsmi_info;
+ 
+-	LOG_DEBUG(__FUNCTION__);
++	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+ 
+ 	if (CMD_ARGC &lt; 6)
+ 	{
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017781.html">[Openocd-development] Some updates for non-CFI flashs
+</A></li>
+	<LI>Next message: <A HREF="017784.html">[Openocd-development] Compilation Warnings on OS X 10.5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17782">[ date ]</a>
+              <a href="thread.html#17782">[ thread ]</a>
+              <a href="subject.html#17782">[ subject ]</a>
+              <a href="author.html#17782">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

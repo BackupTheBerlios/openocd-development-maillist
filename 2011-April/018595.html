@@ -1,0 +1,121 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS Big Endian patches
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20Big%20Endian%20patches&In-Reply-To=%3CAANLkTikjC0piL%2BtO2YnEnY%2BC-%2BTqGwj3UQGAYnnMLgW7%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018590.html">
+   <LINK REL="Next"  HREF="018597.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS Big Endian patches</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20Big%20Endian%20patches&In-Reply-To=%3CAANLkTikjC0piL%2BtO2YnEnY%2BC-%2BTqGwj3UQGAYnnMLgW7%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] MIPS Big Endian patches">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Fri Apr  1 19:44:51 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018590.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+        <LI>Next message: <A HREF="018597.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18595">[ date ]</a>
+              <a href="thread.html#18595">[ thread ]</a>
+              <a href="subject.html#18595">[ subject ]</a>
+              <a href="author.html#18595">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, Apr 1, 2011 at 6:42 PM, &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt; wrote:
+&gt;&gt;<i> last time i benchmarked the mips code removing the keep_alive made no change
+</I>&gt;&gt;<i> - only tested flash programming.
+</I>&gt;<i>
+</I>&gt;<i> There are a LOT of unnecessary USB roundtrips and Drasko is looking
+</I>&gt;<i> into replacing clock out / in with clock out only where applicable.
+</I>&gt;<i>
+</I>&gt;<i> The added bonus of only clocking out is that clocking out can not fail,
+</I>&gt;<i> so there is no need to propagate return values.
+</I>
+Yes, and actually I saw that I introduced unnecessary latency with the
+latest patch, trying to correct  wait_for_pracc_rw().
+
+As an optimization, I tried taking out repeating instruction send, like this :
+
+ /* wait for the PrAcc to become &quot;1&quot; */
+	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL);
+	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
+
+	int retval;
+	if ((retval = jtag_execute_queue()) != ERROR_OK)
+	{
+		LOG_ERROR(&quot;fastdata load failed&quot;);
+		return retval;
+	}
+
+	while (1)
+	{
+		retval = mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+		if (retval != ERROR_OK)
+			return retval;
+
+		if (ejtag_ctrl &amp; EJTAG_CTRL_PRACC)
+			break;
+
+		if ( (timeout = timeval_ms()-then) &gt; 1000 )
+		{
+			LOG_DEBUG(&quot;DEBUGMODULE: No memory access in progress!&quot;);
+			return ERROR_JTAG_DEVICE_ERROR;
+		}
+	}
+
+
+As a result we have :
+downloaded 361540 bytes in 182.160828s (1.938 KiB/s)
+
+compared to previous :
+downloaded 361540 bytes in 362.964050s (0.973 KiB/s)
+
+I am really wondering for the FASTDATA loop, do we have to wait on
+PrAcc to be &quot;1&quot;... But trying not to wait (in order to prevent
+instruction sending, like in previous case), I am getting :
+Debug: 444 11073 ft2232.c:1959 ft2232_execute_scan(): ft2232 buffer
+size reached, sending queued commands (first_unsent: 0xb7bcb008, cmd:
+0xb7cc122c)
+
+A lot of similar errors...
+
+BR,
+Drasko
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018590.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+	<LI>Next message: <A HREF="018597.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18595">[ date ]</a>
+              <a href="thread.html#18595">[ thread ]</a>
+              <a href="subject.html#18595">[ subject ]</a>
+              <a href="author.html#18595">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

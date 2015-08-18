@@ -1,0 +1,128 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20insulate%20queue%20pointer%0A%09manipulation%20from%20general%20jtag.c%20code&In-Reply-To=%3CF2BE5941-7A47-4F9A-9790-282D44E8834F%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006693.html">
+   <LINK REL="Next"  HREF="006695.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20insulate%20queue%20pointer%0A%09manipulation%20from%20general%20jtag.c%20code&In-Reply-To=%3CF2BE5941-7A47-4F9A-9790-282D44E8834F%40kc8apf.net%3E"
+       TITLE="[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Sun May 17 22:54:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006693.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+        <LI>Next message: <A HREF="006695.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6694">[ date ]</a>
+              <a href="thread.html#6694">[ thread ]</a>
+              <a href="subject.html#6694">[ subject ]</a>
+              <a href="author.html#6694">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On May 17, 2009, at 1:43 PM, David Brownell wrote:
+
+&gt;<i> On Sunday 17 May 2009, Michael Bruck wrote:
+</I>&gt;&gt;<i> -       jtag_command_t **last_cmd;
+</I>&gt;&gt;<i> -       last_cmd = jtag_get_last_command_p();
+</I>&gt;&gt;<i> -
+</I>&gt;&gt;<i> -       *last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;&gt;<i> -       (*last_cmd)-&gt;next = NULL;
+</I>&gt;&gt;<i> -       last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+</I>&gt;&gt;<i> -       (*last_cmd)-&gt;type = JTAG_SCAN;
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> +       jtag_command_t * cmd =  
+</I>&gt;&gt;<i> cmd_queue_alloc(sizeof(jtag_command_t));
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> +       jtag_queue_command(cmd);
+</I>&gt;&gt;<i> +
+</I>&gt;&gt;<i> +       cmd-&gt;type = JTAG_SCAN;
+</I>&gt;<i>
+</I>&gt;<i> Seems like a goodly fix ... but, couldn't all of those be wrapped
+</I>&gt;<i> up in a single function sort of like
+</I>&gt;<i>
+</I>&gt;<i> 	cmd = jtag_alloc_and_queue(JTAG_SCAN);
+</I>&gt;<i>
+</I>&gt;<i> Or STATEMOVE, PATHMOVE, etc.  Agreed that queue_command() logic
+</I>&gt;<i> is exactly the error-prone stuff that really *needs* encapsulation;
+</I>&gt;<i> it should probably stay separate even with an alloc_and_queue().
+</I>&gt;<i>
+</I>&gt;<i> - Dave
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+Rather than combine them, I'd like to see jtag_queue_command() enforce  
+validation of the command to be enqueued.  Then the patterns would be:
+
+cmd = cmd_queue_alloc();
+
+cmd-&gt;type = JTAG_SCAN;
+....
+
+jtag_queue_command(cmd);
+
+Otherwise, you place a command in the queue before it is filled out.   
+This works fine today where the JTAG queue is manually flushed, but if  
+we ever went to a opportunistic queue draining scheme (device driver  
+pulls next item off queue automatically when a command finishes), you  
+could get bogus commands being executed.
+
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090517/5872cced/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20090517/5872cced/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006693.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+	<LI>Next message: <A HREF="006695.html">[Openocd-development] [PATCH] insulate queue pointer	manipulation from general jtag.c code
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6694">[ date ]</a>
+              <a href="thread.html#6694">[ thread ]</a>
+              <a href="subject.html#6694">[ subject ]</a>
+              <a href="author.html#6694">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

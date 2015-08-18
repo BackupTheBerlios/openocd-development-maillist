@@ -1,0 +1,405 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/6] use COMMAND_PARSE_ENABLE macro	where appropriate
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/6%5D%20use%20COMMAND_PARSE_ENABLE%20macro%0A%09where%20appropriate&In-Reply-To=%3C1258561643-14413-4-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012529.html">
+   <LINK REL="Next"  HREF="012533.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/6] use COMMAND_PARSE_ENABLE macro	where appropriate</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/6%5D%20use%20COMMAND_PARSE_ENABLE%20macro%0A%09where%20appropriate&In-Reply-To=%3C1258561643-14413-4-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 3/6] use COMMAND_PARSE_ENABLE macro	where appropriate">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 18 17:27:20 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012529.html">[Openocd-development] [PATCH 2/6] use COMMAND_PARSE_ON_OFF where	appropriate
+</A></li>
+        <LI>Next message: <A HREF="012533.html">[Openocd-development] [PATCH 4/6] add handle_command_parse_bool	command helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12530">[ date ]</a>
+              <a href="thread.html#12530">[ thread ]</a>
+              <a href="subject.html#12530">[ subject ]</a>
+              <a href="author.html#12530">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Updates all command parsing of simple &quot;enable&quot; and &quot;disable&quot; arguments.
+A few case in the tree use a tri-state or extended arguments, which
+cannot use this simple macro.
+
+Simlifies the xscale icache/dcache command handler logic.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/nand.c           |    9 +------
+ src/jtag/tcl.c             |   18 ++++--------
+ src/server/gdb_server.c    |   45 ++------------------------------
+ src/target/arm7_9_common.c |   45 ++------------------------------
+ src/target/etm.c           |   21 +++-----------
+ src/target/xscale.c        |   61 ++++++++++++++++---------------------------
+ 6 files changed, 41 insertions(+), 158 deletions(-)
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index c96354a..23caed0 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -1663,14 +1663,7 @@ COMMAND_HANDLER(handle_nand_raw_access_command)
+ 	}
+ 
+ 	if (CMD_ARGC == 2)
+-	{
+-		if (strcmp(&quot;enable&quot;, CMD_ARGV[1]) == 0)
+-			p-&gt;use_raw = 1;
+-		else if (strcmp(&quot;disable&quot;, CMD_ARGV[1]) == 0)
+-			p-&gt;use_raw = 0;
+-		else
+-			return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
++		COMMAND_PARSE_ENABLE(CMD_ARGV[1], p-&gt;use_raw);
+ 
+ 	const char *msg = p-&gt;use_raw ? &quot;enabled&quot; : &quot;disabled&quot;;
+ 	command_print(CMD_CTX, &quot;raw access is %s&quot;, msg);
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 96018b5..1266cd7 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1357,12 +1357,9 @@ COMMAND_HANDLER(handle_verify_ircapture_command)
+ 
+ 	if (CMD_ARGC == 1)
+ 	{
+-		if (strcmp(CMD_ARGV[0], &quot;enable&quot;) == 0)
+-			jtag_set_verify_capture_ir(true);
+-		else if (strcmp(CMD_ARGV[0], &quot;disable&quot;) == 0)
+-			jtag_set_verify_capture_ir(false);
+-		else
+-			return ERROR_COMMAND_SYNTAX_ERROR;
++		bool enable;
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], enable);
++		jtag_set_verify_capture_ir(enable);
+ 	}
+ 
+ 	const char *status = jtag_will_verify_capture_ir() ? &quot;enabled&quot;: &quot;disabled&quot;;
+@@ -1378,12 +1375,9 @@ COMMAND_HANDLER(handle_verify_jtag_command)
+ 
+ 	if (CMD_ARGC == 1)
+ 	{
+-		if (strcmp(CMD_ARGV[0], &quot;enable&quot;) == 0)
+-			jtag_set_verify(true);
+-		else if (strcmp(CMD_ARGV[0], &quot;disable&quot;) == 0)
+-			jtag_set_verify(false);
+-		else
+-			return ERROR_COMMAND_SYNTAX_ERROR;
++		bool enable;
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], enable);
++		jtag_set_verify(enable);
+ 	}
+ 
+ 	const char *status = jtag_will_verify() ? &quot;enabled&quot;: &quot;disabled&quot;;
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 9605f81..21dc24c 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2271,20 +2271,7 @@ COMMAND_HANDLER(handle_gdb_port_command)
+ COMMAND_HANDLER(handle_gdb_memory_map_command)
+ {
+ 	if (CMD_ARGC == 1)
+-	{
+-		if (strcmp(CMD_ARGV[0], &quot;enable&quot;) == 0)
+-		{
+-			gdb_use_memory_map = 1;
+-			return ERROR_OK;
+-		}
+-		else if (strcmp(CMD_ARGV[0], &quot;disable&quot;) == 0)
+-		{
+-			gdb_use_memory_map = 0;
+-			return ERROR_OK;
+-		}
+-		else
+-			LOG_WARNING(&quot;invalid gdb_memory_map configuration directive %s&quot;, CMD_ARGV[0]);
+-	}
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], gdb_use_memory_map);
+ 
+ 	return ERROR_COMMAND_SYNTAX_ERROR;
+ }
+@@ -2292,20 +2279,7 @@ COMMAND_HANDLER(handle_gdb_memory_map_command)
+ COMMAND_HANDLER(handle_gdb_flash_program_command)
+ {
+ 	if (CMD_ARGC == 1)
+-	{
+-		if (strcmp(CMD_ARGV[0], &quot;enable&quot;) == 0)
+-		{
+-			gdb_flash_program = 1;
+-			return ERROR_OK;
+-		}
+-		else if (strcmp(CMD_ARGV[0], &quot;disable&quot;) == 0)
+-		{
+-			gdb_flash_program = 0;
+-			return ERROR_OK;
+-		}
+-		else
+-			LOG_WARNING(&quot;invalid gdb_flash_program configuration directive: %s&quot;, CMD_ARGV[0]);
+-	}
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], gdb_flash_program);
+ 
+ 	return ERROR_COMMAND_SYNTAX_ERROR;
+ }
+@@ -2313,20 +2287,7 @@ COMMAND_HANDLER(handle_gdb_flash_program_command)
+ COMMAND_HANDLER(handle_gdb_report_data_abort_command)
+ {
+ 	if (CMD_ARGC == 1)
+-	{
+-		if (strcmp(CMD_ARGV[0], &quot;enable&quot;) == 0)
+-		{
+-			gdb_report_data_abort = 1;
+-			return ERROR_OK;
+-		}
+-		else if (strcmp(CMD_ARGV[0], &quot;disable&quot;) == 0)
+-		{
+-			gdb_report_data_abort = 0;
+-			return ERROR_OK;
+-		}
+-		else
+-			LOG_WARNING(&quot;invalid gdb_report_data_abort configuration directive: %s&quot;, CMD_ARGV[0]);
+-	}
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], gdb_report_data_abort);
+ 
+ 	return ERROR_COMMAND_SYNTAX_ERROR;
+ }
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 37aa066..16c8a92 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2870,20 +2870,7 @@ COMMAND_HANDLER(handle_arm7_9_dbgrq_command)
+ 	}
+ 
+ 	if (CMD_ARGC &gt; 0)
+-	{
+-		if (strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			arm7_9-&gt;use_dbgrq = 1;
+-		}
+-		else if (strcmp(&quot;disable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			arm7_9-&gt;use_dbgrq = 0;
+-		}
+-		else
+-		{
+-			command_print(CMD_CTX, &quot;usage: arm7_9 dbgrq &lt;enable | disable&gt;&quot;);
+-		}
+-	}
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0],arm7_9-&gt;use_dbgrq);
+ 
+ 	command_print(CMD_CTX, &quot;use of EmbeddedICE dbgrq instead of breakpoint for target halt %s&quot;, (arm7_9-&gt;use_dbgrq) ? &quot;enabled&quot; : &quot;disabled&quot;);
+ 
+@@ -2902,20 +2889,7 @@ COMMAND_HANDLER(handle_arm7_9_fast_memory_access_command)
+ 	}
+ 
+ 	if (CMD_ARGC &gt; 0)
+-	{
+-		if (strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			arm7_9-&gt;fast_memory_access = 1;
+-		}
+-		else if (strcmp(&quot;disable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			arm7_9-&gt;fast_memory_access = 0;
+-		}
+-		else
+-		{
+-			command_print(CMD_CTX, &quot;usage: arm7_9 fast_memory_access &lt;enable | disable&gt;&quot;);
+-		}
+-	}
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], arm7_9-&gt;fast_memory_access);
+ 
+ 	command_print(CMD_CTX, &quot;fast memory access is %s&quot;, (arm7_9-&gt;fast_memory_access) ? &quot;enabled&quot; : &quot;disabled&quot;);
+ 
+@@ -2934,20 +2908,7 @@ COMMAND_HANDLER(handle_arm7_9_dcc_downloads_command)
+ 	}
+ 
+ 	if (CMD_ARGC &gt; 0)
+-	{
+-		if (strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			arm7_9-&gt;dcc_downloads = 1;
+-		}
+-		else if (strcmp(&quot;disable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			arm7_9-&gt;dcc_downloads = 0;
+-		}
+-		else
+-		{
+-			command_print(CMD_CTX, &quot;usage: arm7_9 dcc_downloads &lt;enable | disable&gt;&quot;);
+-		}
+-	}
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], arm7_9-&gt;dcc_downloads);
+ 
+ 	command_print(CMD_CTX, &quot;dcc downloads are %s&quot;, (arm7_9-&gt;dcc_downloads) ? &quot;enabled&quot; : &quot;disabled&quot;);
+ 
+diff --git a/src/target/etm.c b/src/target/etm.c
+index 3b5fa61..85cc6eb 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1214,25 +1214,14 @@ static COMMAND_HELPER(handle_etm_tracemode_command_update,
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+ 
+-	if (strcmp(CMD_ARGV[2], &quot;enable&quot;) == 0)
++	bool etmv1_cycle_accurate;
++	COMMAND_PARSE_ENABLE(CMD_ARGV[2], etmv1_cycle_accurate);
++	if (etmv1_cycle_accurate)
+ 		tracemode |= ETMV1_CYCLE_ACCURATE;
+-	else if (strcmp(CMD_ARGV[2], &quot;disable&quot;) == 0)
+-		tracemode |= 0;
+-	else
+-	{
+-		command_print(CMD_CTX, &quot;invalid option '%s'&quot;, CMD_ARGV[2]);
+-		return ERROR_INVALID_ARGUMENTS;
+-	}
+ 
+-	if (strcmp(CMD_ARGV[3], &quot;enable&quot;) == 0)
++	bool etmv1_branch_output;
++	COMMAND_PARSE_ENABLE(CMD_ARGV[3], etmv1_branch_output);
+ 		tracemode |= ETMV1_BRANCH_OUTPUT;
+-	else if (strcmp(CMD_ARGV[3], &quot;disable&quot;) == 0)
+-		tracemode |= 0;
+-	else
+-	{
+-		command_print(CMD_CTX, &quot;invalid option '%s'&quot;, CMD_ARGV[3]);
+-		return ERROR_INVALID_ARGUMENTS;
+-	}
+ 
+ 	/* IGNORED:
+ 	 *  - CPRT tracing (coprocessor register transfers)
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 09e6825..28f89f1 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -3130,16 +3130,13 @@ COMMAND_HANDLER(xscale_handle_mmu_command)
+ 
+ 	if (CMD_ARGC &gt;= 1)
+ 	{
+-		if (strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0)
+-		{
++		bool enable;
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], enable);
++		if (enable)
+ 			xscale_enable_mmu_caches(target, 1, 0, 0);
+-			xscale-&gt;armv4_5_mmu.mmu_enabled = 1;
+-		}
+-		else if (strcmp(&quot;disable&quot;, CMD_ARGV[0]) == 0)
+-		{
++		else
+ 			xscale_disable_mmu_caches(target, 1, 0, 0);
+-			xscale-&gt;armv4_5_mmu.mmu_enabled = 0;
+-		}
++		xscale-&gt;armv4_5_mmu.mmu_enabled = enable;
+ 	}
+ 
+ 	command_print(CMD_CTX, &quot;mmu %s&quot;, (xscale-&gt;armv4_5_mmu.mmu_enabled) ? &quot;enabled&quot; : &quot;disabled&quot;);
+@@ -3151,10 +3148,8 @@ COMMAND_HANDLER(xscale_handle_idcache_command)
+ {
+ 	struct target *target = get_current_target(CMD_CTX);
+ 	struct xscale_common *xscale = target_to_xscale(target);
+-	int icache = 0, dcache = 0;
+-	int retval;
+ 
+-	retval = xscale_verify_pointer(CMD_CTX, xscale);
++	int retval = xscale_verify_pointer(CMD_CTX, xscale);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -3164,38 +3159,28 @@ COMMAND_HANDLER(xscale_handle_idcache_command)
+ 		return ERROR_OK;
+ 	}
+ 
+-	if (strcmp(CMD_NAME, &quot;icache&quot;) == 0)
+-		icache = 1;
+-	else if (strcmp(CMD_NAME, &quot;dcache&quot;) == 0)
+-		dcache = 1;
++	bool icache;
++	COMMAND_PARSE_BOOL(CMD_NAME, icache, &quot;icache&quot;, &quot;dcache&quot;);
+ 
+ 	if (CMD_ARGC &gt;= 1)
+ 	{
+-		if (strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			xscale_enable_mmu_caches(target, 0, dcache, icache);
+-
+-			if (icache)
+-				xscale-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = 1;
+-			else if (dcache)
+-				xscale-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled = 1;
+-		}
+-		else if (strcmp(&quot;disable&quot;, CMD_ARGV[0]) == 0)
+-		{
+-			xscale_disable_mmu_caches(target, 0, dcache, icache);
+-
+-			if (icache)
+-				xscale-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = 0;
+-			else if (dcache)
+-				xscale-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled = 0;
+-		}
++		bool enable;
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], enable);
++		if (enable)
++			xscale_enable_mmu_caches(target, 1, 0, 0);
++		else
++			xscale_disable_mmu_caches(target, 1, 0, 0);
++		if (icache)
++			xscale-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = enable;
++		else
++			xscale-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled = enable;
+ 	}
+ 
+-	if (icache)
+-		command_print(CMD_CTX, &quot;icache %s&quot;, (xscale-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled) ? &quot;enabled&quot; : &quot;disabled&quot;);
+-
+-	if (dcache)
+-		command_print(CMD_CTX, &quot;dcache %s&quot;, (xscale-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled) ? &quot;enabled&quot; : &quot;disabled&quot;);
++	bool enabled = icache ?
++					xscale-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled :
++					xscale-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled;
++	const char *msg = enabled ? &quot;enabled&quot; : &quot;disabled&quot;;
++	command_print(CMD_CTX, &quot;%s %s&quot;, CMD_NAME, msg);
+ 
+ 	return ERROR_OK;
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012529.html">[Openocd-development] [PATCH 2/6] use COMMAND_PARSE_ON_OFF where	appropriate
+</A></li>
+	<LI>Next message: <A HREF="012533.html">[Openocd-development] [PATCH 4/6] add handle_command_parse_bool	command helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12530">[ date ]</a>
+              <a href="thread.html#12530">[ thread ]</a>
+              <a href="subject.html#12530">[ subject ]</a>
+              <a href="author.html#12530">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

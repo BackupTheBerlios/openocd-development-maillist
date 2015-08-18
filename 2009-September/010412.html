@@ -1,0 +1,243 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Beagleboard post reset event
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Beagleboard%20post%20reset%20event&In-Reply-To=%3Cc09652430909070539w1d366085x3455a2d8bcd7e456%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010414.html">
+   <LINK REL="Next"  HREF="010413.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Beagleboard post reset event</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Beagleboard%20post%20reset%20event&In-Reply-To=%3Cc09652430909070539w1d366085x3455a2d8bcd7e456%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Beagleboard post reset event">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Sep  7 14:39:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010414.html">[Openocd-development] Cortex-A8, Introduction
+</A></li>
+        <LI>Next message: <A HREF="010413.html">[Openocd-development] Beagleboard post reset event
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10412">[ date ]</a>
+              <a href="thread.html#10412">[ thread ]</a>
+              <a href="subject.html#10412">[ subject ]</a>
+              <a href="author.html#10412">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Beagleboard needs 100 clocks after reset.
+
+The attached patch adds support for a generic post-reset
+event.
+
+Testing &amp; comments needed before committing:
+
+1. test that a robust post reset event can be written for Beagleboard
+that handles the &quot;100 clocks after reset&quot; problems.
+
+2. test for regressions on any other board(no obvious breakage
+and no observable differences in behaviour).
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://www.zylin.com">http://www.zylin.com</A>
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/flash/str9xpec.c
+===================================================================
+--- src/flash/str9xpec.c	(revision 2652)
++++ src/flash/str9xpec.c	(working copy)
+@@ -1254,7 +1254,8 @@
+ 		return ERROR_FAIL;
+ 
+ 	/* exit turbo mode via RESET */
+-	str9xpec_set_instr(tap, ISC_NOOP, TAP_RESET);
++	str9xpec_set_instr(tap, ISC_NOOP, TAP_IDLE);
++	jtag_add_tlr();
+ 	jtag_execute_queue();
+ 
+ 	/* restore previous scan chain */
+Index: src/jtag/jtag.h
+===================================================================
+--- src/jtag/jtag.h	(revision 2652)
++++ src/jtag/jtag.h	(working copy)
+@@ -208,6 +208,7 @@
+ 	JTAG_TRST_ASSERTED,
+ 	JTAG_TAP_EVENT_ENABLE,
+ 	JTAG_TAP_EVENT_DISABLE,
++	JTAG_TAP_EVENT_POST_RESET,
+ };
+ 
+ struct jtag_tap_event_action_s
+@@ -635,6 +636,9 @@
+ /// @returns the number of times the scan queue has been flushed
+ int jtag_get_flush_queue_count(void);
+ 
++/// Notify all TAP's about a TLR reset
++void jtag_notify_reset(void);
++
+ 
+ /* can be implemented by hw + sw */
+ extern int jtag_power_dropout(int* dropout);
+Index: src/jtag/core.c
+===================================================================
+--- src/jtag/core.c	(revision 2652)
++++ src/jtag/core.c	(working copy)
+@@ -62,6 +62,7 @@
+ {
+ 	[JTAG_TRST_ASSERTED] = &quot;JTAG controller reset (TLR or TRST)&quot;,
+ 	[JTAG_TAP_EVENT_ENABLE] = &quot;TAP enabled&quot;,
++	[JTAG_TAP_EVENT_POST_RESET] = &quot;post reset&quot;,
+ 	[JTAG_TAP_EVENT_DISABLE] = &quot;TAP disabled&quot;,
+ };
+ 
+@@ -339,6 +340,8 @@
+ 
+ void jtag_add_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++
+ 	if (jtag_verify &amp;&amp; jtag_verify_capture_ir)
+ 	{
+ 		/* 8 x 32 bit id's is enough for all invocations */
+@@ -361,6 +364,8 @@
+ void jtag_add_plain_ir_scan(int in_num_fields, const scan_field_t *in_fields,
+ 		tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++
+ 	jtag_prelude(state);
+ 
+ 	int retval = interface_jtag_add_plain_ir_scan(
+@@ -439,6 +444,8 @@
+ void jtag_add_dr_scan(int in_num_fields, const scan_field_t *in_fields,
+ 		tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++	
+ 	jtag_prelude(state);
+ 
+ 	int retval;
+@@ -449,6 +456,8 @@
+ void jtag_add_plain_dr_scan(int in_num_fields, const scan_field_t *in_fields,
+ 		tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++	
+ 	jtag_prelude(state);
+ 
+ 	int retval;
+@@ -460,6 +469,8 @@
+ 		int num_fields, const int* num_bits, const uint32_t* value,
+ 		tap_state_t end_state)
+ {
++	assert(end_state != TAP_RESET);
++	
+ 	assert(end_state != TAP_INVALID);
+ 
+ 	cmd_queue_cur_state = end_state;
+@@ -473,6 +484,9 @@
+ {
+ 	jtag_prelude(TAP_RESET);
+ 	jtag_set_error(interface_jtag_add_tlr());
++
++	jtag_notify_reset();
++
+ 	jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+ }
+ 
+@@ -683,6 +697,8 @@
+ 			LOG_DEBUG(&quot;TRST line released&quot;);
+ 			if (jtag_ntrst_delay)
+ 				jtag_add_sleep(jtag_ntrst_delay * 1000);
++
++			jtag_notify_reset();
+ 		}
+ 	}
+ }
+@@ -851,7 +867,8 @@
+ 	for (unsigned i = 0; i &lt; JTAG_MAX_CHAIN_SIZE; i++)
+ 		buf_set_u32(idcode_buffer, i * 32, 32, 0x000000FF);
+ 
+-	jtag_add_plain_dr_scan(1, &amp;field, TAP_RESET);
++	jtag_add_plain_dr_scan(1, &amp;field, TAP_DRPAUSE);
++	jtag_add_tlr();
+ 	return jtag_execute_queue();
+ }
+ 
+@@ -1065,7 +1082,9 @@
+ 	field.in_value = ir_test;
+ 
+ 
+-	jtag_add_plain_ir_scan(1, &amp;field, TAP_RESET);
++	jtag_add_plain_ir_scan(1, &amp;field, TAP_IRPAUSE);
++	jtag_add_tlr();
++
+ 	int retval;
+ 	retval = jtag_execute_queue();
+ 	if (retval != ERROR_OK)
+Index: src/jtag/tcl.c
+===================================================================
+--- src/jtag/tcl.c	(revision 2652)
++++ src/jtag/tcl.c	(working copy)
+@@ -41,6 +41,7 @@
+ #endif
+ 
+ static const Jim_Nvp nvp_jtag_tap_event[] = {
++	{ .value = JTAG_TAP_EVENT_POST_RESET,   .name = &quot;post-reset&quot; },
+ 	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
+ 	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
+ 
+@@ -577,6 +578,17 @@
+ 	return JIM_ERR;
+ }
+ 
++
++void jtag_notify_reset(void)
++{
++	jtag_tap_t *tap;
++	for (tap = jtag_all_taps(); tap; tap = tap-&gt;next_tap)
++	{
++		jtag_tap_handle_event(tap, JTAG_TAP_EVENT_POST_RESET);
++	}
++}
++
++
+ int jtag_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	register_jim(cmd_ctx, &quot;jtag&quot;, jim_jtag_command, &quot;perform jtag tap actions&quot;);
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010414.html">[Openocd-development] Cortex-A8, Introduction
+</A></li>
+	<LI>Next message: <A HREF="010413.html">[Openocd-development] Beagleboard post reset event
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10412">[ date ]</a>
+              <a href="thread.html#10412">[ thread ]</a>
+              <a href="subject.html#10412">[ subject ]</a>
+              <a href="author.html#10412">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

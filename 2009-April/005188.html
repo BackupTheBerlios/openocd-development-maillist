@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/5] software ECC computation for NAND	flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/5%5D%20software%20ECC%20computation%20for%20NAND%0A%09flash&In-Reply-To=%3C1238707050-19666-3-git-send-email-nico%40cam.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005187.html">
+   <LINK REL="Next"  HREF="005190.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/5] software ECC computation for NAND	flash</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/5%5D%20software%20ECC%20computation%20for%20NAND%0A%09flash&In-Reply-To=%3C1238707050-19666-3-git-send-email-nico%40cam.org%3E"
+       TITLE="[Openocd-development] [PATCH 3/5] software ECC computation for NAND	flash">nico at cam.org
+       </A><BR>
+    <I>Thu Apr  2 23:17:28 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005187.html">[Openocd-development] [PATCH 2/5] add some rudimentary erased block	accounting
+</A></li>
+        <LI>Next message: <A HREF="005190.html">[Openocd-development] [PATCH 4/5] add standard ECC layout and ECC computation for NAND writing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5188">[ date ]</a>
+              <a href="thread.html#5188">[ thread ]</a>
+              <a href="subject.html#5188">[ subject ]</a>
+              <a href="author.html#5188">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>---
+ src/flash/Makefile.am |   18 ++++---
+ src/flash/nand.h      |    1 +
+ src/flash/nand_ecc.c  |  126 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 138 insertions(+), 7 deletions(-)
+ create mode 100644 src/flash/nand_ecc.c
+
+diff --git a/src/flash/Makefile.am b/src/flash/Makefile.am
+index 9d7746c..7e57386 100644
+--- a/src/flash/Makefile.am
++++ b/src/flash/Makefile.am
+@@ -2,11 +2,15 @@ INCLUDES = -I$(top_srcdir)/src/helper -I$(top_srcdir)/src/jtag -I$(top_srcdir)/s
+ AM_CPPFLAGS = -DPKGLIBDIR=\&quot;$(pkglibdir)\&quot; @CPPFLAGS@
+ METASOURCES = AUTO
+ noinst_LIBRARIES = libflash.a
+-libflash_a_SOURCES = flash.c lpc2000.c cfi.c non_cfi.c at91sam7.c at91sam7_old.c str7x.c str9x.c aduc702x.c nand.c lpc3180_nand_controller.c \
+-		     stellaris.c str9xpec.c stm32x.c tms470.c ecos.c orion_nand.c \
+-		     s3c24xx_nand.c s3c2410_nand.c s3c2412_nand.c s3c2440_nand.c s3c2443_nand.c lpc288x.c ocl.c mflash.c pic32mx.c
+-noinst_HEADERS = flash.h lpc2000.h cfi.h non_cfi.h at91sam7.h at91sam7_old.h str7x.h str9x.h nand.h lpc3180_nand_controller.h \
+-				 stellaris.h str9xpec.h stm32x.h tms470.h s3c24xx_nand.h s3c24xx_regs_nand.h lpc288x.h mflash.h \
+-				 ocl.h pic32mx.h
+-
++libflash_a_SOURCES = \
++	flash.c lpc2000.c cfi.c non_cfi.c at91sam7.c at91sam7_old.c \
++	str7x.c str9x.c aduc702x.c nand.c nand_ecc.c \
++	lpc3180_nand_controller.c stellaris.c str9xpec.c stm32x.c tms470.c \
++	ecos.c orion_nand.c s3c24xx_nand.c s3c2410_nand.c s3c2412_nand.c \
++	s3c2440_nand.c s3c2443_nand.c lpc288x.c ocl.c mflash.c pic32mx.c
++noinst_HEADERS = \
++	flash.h lpc2000.h cfi.h non_cfi.h at91sam7.h at91sam7_old.h str7x.h \
++	str9x.h nand.h lpc3180_nand_controller.h stellaris.h str9xpec.h \
++	stm32x.h tms470.h s3c24xx_nand.h s3c24xx_regs_nand.h lpc288x.h \
++	mflash.h ocl.h pic32mx.h
+ MAINTAINERCLEANFILES = Makefile.in
+diff --git a/src/flash/nand.h b/src/flash/nand.h
+index d0dd757..5535221 100644
+--- a/src/flash/nand.h
++++ b/src/flash/nand.h
+@@ -197,6 +197,7 @@ extern nand_device_t *get_nand_device_by_num(int num);
+ extern int nand_read_page_raw(struct nand_device_s *device, u32 page, u8 *data, u32 data_size, u8 *oob, u32 oob_size);
+ extern int nand_write_page_raw(struct nand_device_s *device, u32 page, u8 *data, u32 data_size, u8 *oob, u32 oob_size);
+ extern int nand_read_status(struct nand_device_s *device, u8 *status);
++extern int nand_calculate_ecc(struct nand_device_s *device, const u8 *dat, u8 *ecc_code);
+ 
+ extern int nand_register_commands(struct command_context_s *cmd_ctx);
+ extern int nand_init(struct command_context_s *cmd_ctx);
+diff --git a/src/flash/nand_ecc.c b/src/flash/nand_ecc.c
+new file mode 100644
+index 0000000..121c033
+--- /dev/null
++++ b/src/flash/nand_ecc.c
+@@ -0,0 +1,126 @@
++/*
++ * This file contains an ECC algorithm from Toshiba that allows for detection
++ * and correction of 1-bit errors in a 256 byte block of data.
++ *
++ * [ Extracted from the initial code found in some early Linux versions.
++ *   The current Linux code is bigger while being faster, but this is of
++ *   no real benefit when the bottleneck largely remains the JTAG link.  ]
++ *
++ * Copyright (C) 2000-2004 Steven J. Hill (<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">sjhill at realitydiluted.com</A>)
++ *                         Toshiba America Electronics Components, Inc.
++ *
++ * Copyright (C) 2006 Thomas Gleixner &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">tglx at linutronix.de</A>&gt;
++ *
++ * This file is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the
++ * Free Software Foundation; either version 2 or (at your option) any
++ * later version.
++ *
++ * This file is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++ * for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this file; if not, write to the Free Software Foundation, Inc.,
++ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
++ *
++ * As a special exception, if other files instantiate templates or use
++ * macros or inline functions from these files, or you compile these
++ * files and link them with other works to produce a work based on these
++ * files, these files do not by themselves cause the resulting work to be
++ * covered by the GNU General Public License. However the source code for
++ * these files must still be made available in accordance with section (3)
++ * of the GNU General Public License.
++ *
++ * This exception does not invalidate any other reasons why a work based on
++ * this file might be covered by the GNU General Public License.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;replacements.h&quot;
++
++#include &lt;inttypes.h&gt;
++
++#include &quot;nand.h&quot;
++
++/*
++ * Pre-calculated 256-way 1 byte column parity
++ */
++static const u8 nand_ecc_precalc_table[] = {
++	0x00, 0x55, 0x56, 0x03, 0x59, 0x0c, 0x0f, 0x5a, 0x5a, 0x0f, 0x0c, 0x59, 0x03, 0x56, 0x55, 0x00,
++	0x65, 0x30, 0x33, 0x66, 0x3c, 0x69, 0x6a, 0x3f, 0x3f, 0x6a, 0x69, 0x3c, 0x66, 0x33, 0x30, 0x65,
++	0x66, 0x33, 0x30, 0x65, 0x3f, 0x6a, 0x69, 0x3c, 0x3c, 0x69, 0x6a, 0x3f, 0x65, 0x30, 0x33, 0x66,
++	0x03, 0x56, 0x55, 0x00, 0x5a, 0x0f, 0x0c, 0x59, 0x59, 0x0c, 0x0f, 0x5a, 0x00, 0x55, 0x56, 0x03,
++	0x69, 0x3c, 0x3f, 0x6a, 0x30, 0x65, 0x66, 0x33, 0x33, 0x66, 0x65, 0x30, 0x6a, 0x3f, 0x3c, 0x69,
++	0x0c, 0x59, 0x5a, 0x0f, 0x55, 0x00, 0x03, 0x56, 0x56, 0x03, 0x00, 0x55, 0x0f, 0x5a, 0x59, 0x0c,
++	0x0f, 0x5a, 0x59, 0x0c, 0x56, 0x03, 0x00, 0x55, 0x55, 0x00, 0x03, 0x56, 0x0c, 0x59, 0x5a, 0x0f,
++	0x6a, 0x3f, 0x3c, 0x69, 0x33, 0x66, 0x65, 0x30, 0x30, 0x65, 0x66, 0x33, 0x69, 0x3c, 0x3f, 0x6a,
++	0x6a, 0x3f, 0x3c, 0x69, 0x33, 0x66, 0x65, 0x30, 0x30, 0x65, 0x66, 0x33, 0x69, 0x3c, 0x3f, 0x6a,
++	0x0f, 0x5a, 0x59, 0x0c, 0x56, 0x03, 0x00, 0x55, 0x55, 0x00, 0x03, 0x56, 0x0c, 0x59, 0x5a, 0x0f,
++	0x0c, 0x59, 0x5a, 0x0f, 0x55, 0x00, 0x03, 0x56, 0x56, 0x03, 0x00, 0x55, 0x0f, 0x5a, 0x59, 0x0c,
++	0x69, 0x3c, 0x3f, 0x6a, 0x30, 0x65, 0x66, 0x33, 0x33, 0x66, 0x65, 0x30, 0x6a, 0x3f, 0x3c, 0x69,
++	0x03, 0x56, 0x55, 0x00, 0x5a, 0x0f, 0x0c, 0x59, 0x59, 0x0c, 0x0f, 0x5a, 0x00, 0x55, 0x56, 0x03,
++	0x66, 0x33, 0x30, 0x65, 0x3f, 0x6a, 0x69, 0x3c, 0x3c, 0x69, 0x6a, 0x3f, 0x65, 0x30, 0x33, 0x66,
++	0x65, 0x30, 0x33, 0x66, 0x3c, 0x69, 0x6a, 0x3f, 0x3f, 0x6a, 0x69, 0x3c, 0x66, 0x33, 0x30, 0x65,
++	0x00, 0x55, 0x56, 0x03, 0x59, 0x0c, 0x0f, 0x5a, 0x5a, 0x0f, 0x0c, 0x59, 0x03, 0x56, 0x55, 0x00
++};
++
++/*
++ * nand_calculate_ecc - Calculate 3-byte ECC for 256-byte block
++ */
++int nand_calculate_ecc(struct nand_device_s *device, const u8 *dat, u8 *ecc_code)
++{
++	u8 idx, reg1, reg2, reg3, tmp1, tmp2;
++	int i;
++
++	/* Initialize variables */
++	reg1 = reg2 = reg3 = 0;
++
++	/* Build up column parity */
++	for(i = 0; i &lt; 256; i++) {
++		/* Get CP0 - CP5 from table */
++		idx = nand_ecc_precalc_table[*dat++];
++		reg1 ^= (idx &amp; 0x3f);
++
++		/* All bit XOR = 1 ? */
++		if (idx &amp; 0x40) {
++			reg3 ^= (u8) i;
++			reg2 ^= ~((u8) i);
++		}
++	}
++
++	/* Create non-inverted ECC code from line parity */
++	tmp1  = (reg3 &amp; 0x80) &gt;&gt; 0; /* B7 -&gt; B7 */
++	tmp1 |= (reg2 &amp; 0x80) &gt;&gt; 1; /* B7 -&gt; B6 */
++	tmp1 |= (reg3 &amp; 0x40) &gt;&gt; 1; /* B6 -&gt; B5 */
++	tmp1 |= (reg2 &amp; 0x40) &gt;&gt; 2; /* B6 -&gt; B4 */
++	tmp1 |= (reg3 &amp; 0x20) &gt;&gt; 2; /* B5 -&gt; B3 */
++	tmp1 |= (reg2 &amp; 0x20) &gt;&gt; 3; /* B5 -&gt; B2 */
++	tmp1 |= (reg3 &amp; 0x10) &gt;&gt; 3; /* B4 -&gt; B1 */
++	tmp1 |= (reg2 &amp; 0x10) &gt;&gt; 4; /* B4 -&gt; B0 */
++
++	tmp2  = (reg3 &amp; 0x08) &lt;&lt; 4; /* B3 -&gt; B7 */
++	tmp2 |= (reg2 &amp; 0x08) &lt;&lt; 3; /* B3 -&gt; B6 */
++	tmp2 |= (reg3 &amp; 0x04) &lt;&lt; 3; /* B2 -&gt; B5 */
++	tmp2 |= (reg2 &amp; 0x04) &lt;&lt; 2; /* B2 -&gt; B4 */
++	tmp2 |= (reg3 &amp; 0x02) &lt;&lt; 2; /* B1 -&gt; B3 */
++	tmp2 |= (reg2 &amp; 0x02) &lt;&lt; 1; /* B1 -&gt; B2 */
++	tmp2 |= (reg3 &amp; 0x01) &lt;&lt; 1; /* B0 -&gt; B1 */
++	tmp2 |= (reg2 &amp; 0x01) &lt;&lt; 0; /* B7 -&gt; B0 */
++
++	/* Calculate final ECC code */
++#ifdef NAND_ECC_SMC
++	ecc_code[0] = ~tmp2;
++	ecc_code[1] = ~tmp1;
++#else
++	ecc_code[0] = ~tmp1;
++	ecc_code[1] = ~tmp2;
++#endif
++	ecc_code[2] = ((~reg1) &lt;&lt; 2) | 0x03;
++
++	return 0;
++}
+-- 
+1.6.2.1.484.gaff6a
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005187.html">[Openocd-development] [PATCH 2/5] add some rudimentary erased block	accounting
+</A></li>
+	<LI>Next message: <A HREF="005190.html">[Openocd-development] [PATCH 4/5] add standard ECC layout and ECC computation for NAND writing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5188">[ date ]</a>
+              <a href="thread.html#5188">[ thread ]</a>
+              <a href="subject.html#5188">[ subject ]</a>
+              <a href="author.html#5188">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

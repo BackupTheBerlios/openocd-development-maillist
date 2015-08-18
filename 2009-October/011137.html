@@ -1,0 +1,309 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] simplify XScale debug handler	installation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20simplify%20XScale%20debug%20handler%0A%09installation&In-Reply-To=%3C200910111208.48978.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011279.html">
+   <LINK REL="Next"  HREF="011140.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] simplify XScale debug handler	installation</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20simplify%20XScale%20debug%20handler%0A%09installation&In-Reply-To=%3C200910111208.48978.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] simplify XScale debug handler	installation">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Oct 11 21:08:48 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011279.html">[Openocd-development] cygwin and libtool build problems
+</A></li>
+        <LI>Next message: <A HREF="011140.html">[Openocd-development] [patch/rfc] simplify XScale debug handler	installation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11137">[ date ]</a>
+              <a href="thread.html#11137">[ thread ]</a>
+              <a href="subject.html#11137">[ subject ]</a>
+              <a href="author.html#11137">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I just committed some xscale updates; mostly cleanups that
+change no behavior at all, but some minor bugfixes too (only
+one of which, modifying R0 state but attributing it to R15/PC,
+is likely to have been observed).  See the git history for
+details ... or let me know if you really want to see such
+stuff posted to the list.
+
+On top of that, I've got the following more substantive change.
+It should get rid of one regression ... comments?  I'm inclined
+to just check it in.  Does anyone really need to support debug
+hosts that aren't using ELF and GNU AS?
+
+- Dave
+
+p.s. I also have an update to reset handling which makes it
+     work for PXA 255 not just PXA 270 ... that may not be
+     suitable for 0.3.x merging.
+
+==================== CUT HERE
+Load the XScale debug handler from the read-only data section
+instead of from a separate file that can get lost or garbaged.
+This eliminates installation and versioning issues, and also
+speeds up reset handling a bit.
+
+Plus some minor bits of cleanup related to loading that handler:
+comments about just what this handler does, and check fault codes
+while writing it into the mini-icache.
+
+The only behavioral changes should be cleaner failure modes after
+errors during handler loading, and being a bit faster.
+
+NOTE:  presumes GNU assembly syntax, with &quot;.incbin&quot;; and ELF,
+because of the syntax of the &quot;.size&quot; directive.
+---
+ TODO                      |    3 -
+ configure.in              |    1 
+ src/target/Makefile.am    |    2 -
+ src/target/xscale.c       |   82 +++++++++++++++++++++-----------------------
+ src/target/xscale.h       |    6 +++
+ src/target/xscale_debug.S |   13 ++++++
+ 6 files changed, 61 insertions(+), 46 deletions(-)
+
+--- a/TODO
++++ b/TODO
+@@ -125,9 +125,6 @@ Once the above are completed:
+ 
+ - general layer cleanup: @par
+   <A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-May/006590.html">https://lists.berlios.de/pipermail/openocd-development/2009-May/006590.html</A>
+-- regression: xscale does not place debug_handler.bin into the right spot. workaround:
+-  use -s option on command line to place xscale/debug_handler.bin in search path @par
+-  <A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-July/009338.html">https://lists.berlios.de/pipermail/openocd-development/2009-July/009338.html</A>
+ - bug: either USBprog is broken with new tms sequence or there is a general
+   problem with XScale and the new tms sequence. Workaround: use &quot;tms_sequence long&quot;
+   @par
+--- a/configure.in
++++ b/configure.in
+@@ -16,6 +16,7 @@ AC_LANG_C
+ AC_PROG_CC
+ AC_PROG_CC_C99
+ AM_PROG_CC_C_O
++AM_PROG_AS
+ AC_PROG_RANLIB
+ 
+ dnl disable checks for C++, Fortran and GNU Java Compiler
+--- a/src/target/Makefile.am
++++ b/src/target/Makefile.am
+@@ -35,6 +35,7 @@ libtarget_la_SOURCES = \
+ 	feroceon.c \
+ 	etb.c \
+ 	xscale.c \
++	xscale_debug.S \
+ 	arm_simulator.c \
+ 	image.c \
+ 	armv7m.c \
+@@ -98,7 +99,6 @@ noinst_HEADERS = \
+ 	avrt.h
+ 
+ nobase_dist_pkglib_DATA =
+-nobase_dist_pkglib_DATA += xscale/debug_handler.bin
+ nobase_dist_pkglib_DATA += ecos/at91eb40a.elf
+ 
+ MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1573,15 +1573,6 @@ static int xscale_deassert_reset(target_
+ {
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+-
+-	fileio_t debug_handler;
+-	uint32_t address;
+-	uint32_t binary_size;
+-
+-	uint32_t buf_cnt;
+-	uint32_t i;
+-	int retval;
+-
+ 	breakpoint_t *breakpoint = target-&gt;breakpoints;
+ 
+ 	LOG_DEBUG(&quot;-&quot;);
+@@ -1606,6 +1597,11 @@ static int xscale_deassert_reset(target_
+ 
+ 	if (!xscale-&gt;handler_installed)
+ 	{
++		uint32_t address;
++		unsigned buf_cnt;
++		const uint8_t *buffer = xscale_debug_handler;
++		int retval;
++
+ 		/* release SRST */
+ 		jtag_add_reset(0, 0);
+ 
+@@ -1620,36 +1616,26 @@ static int xscale_deassert_reset(target_
+ 		buf_set_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 16, 1, 0x1);
+ 		xscale_write_dcsr(target, 1, 0);
+ 
+-		/* Load debug handler */
+-		if (fileio_open(&amp;debug_handler, &quot;xscale/debug_handler.bin&quot;, FILEIO_READ, FILEIO_BINARY) != ERROR_OK)
+-		{
+-			return ERROR_OK;
+-		}
+-
+-		if ((binary_size = debug_handler.size) % 4)
+-		{
+-			LOG_ERROR(&quot;debug_handler.bin: size not a multiple of 4&quot;);
+-			exit(-1);
+-		}
+-
+-		if (binary_size &gt; 0x800)
+-		{
+-			LOG_ERROR(&quot;debug_handler.bin: larger than 2kb&quot;);
+-			exit(-1);
+-		}
+-
+-		binary_size = CEIL(binary_size, 32) * 32;
+-
++		/* Load the debug handler into the mini-icache.  Since
++		 * it's using halt mode (not monitor mode), it runs in
++		 * &quot;Special Debug State&quot; for access to registers, memory,
++		 * coprocessors, trace data, etc.
++		 *
++		 * REVISIT:  *assumes* we've had a SRST+TRST reset so the
++		 * mini-icache contents have been invalidated.  Safest to
++		 * force that, so writing new contents is reliable...
++		 */
+ 		address = xscale-&gt;handler_address;
+-		while (binary_size &gt; 0)
++		for (unsigned binary_size = xscale_debug_handler_size;
++				binary_size &gt; 0;
++				binary_size -= buf_cnt, buffer += buf_cnt)
+ 		{
+ 			uint32_t cache_line[8];
+-			uint8_t buffer[32];
+-
+-			if ((retval = fileio_read(&amp;debug_handler, 32, buffer, &amp;buf_cnt)) != ERROR_OK)
+-			{
++			unsigned i;
+ 
+-			}
++			buf_cnt = binary_size;
++			if (buf_cnt &gt; 32)
++				buf_cnt = 32;
+ 
+ 			for (i = 0; i &lt; buf_cnt; i += 4)
+ 			{
+@@ -1665,15 +1651,23 @@ static int xscale_deassert_reset(target_
+ 			/* only load addresses other than the reset vectors */
+ 			if ((address % 0x400) != 0x0)
+ 			{
+-				xscale_load_ic(target, address, cache_line);
++				retval = xscale_load_ic(target, address,
++						cache_line);
++				if (retval != ERROR_OK)
++					return retval;
+ 			}
+ 
+ 			address += buf_cnt;
+-			binary_size -= buf_cnt;
+ 		};
+ 
+-		xscale_load_ic(target, 0x0, xscale-&gt;low_vectors);
+-		xscale_load_ic(target, 0xffff0000, xscale-&gt;high_vectors);
++		retval = xscale_load_ic(target, 0x0,
++					xscale-&gt;low_vectors);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = xscale_load_ic(target, 0xffff0000,
++					xscale-&gt;high_vectors);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		jtag_add_runtest(30, jtag_set_end_state(TAP_IDLE));
+ 
+@@ -1699,8 +1693,6 @@ static int xscale_deassert_reset(target_
+ 			/* resume the target */
+ 			xscale_resume(target, 1, 0x0, 1, 0);
+ 		}
+-
+-		fileio_close(&amp;debug_handler);
+ 	}
+ 	else
+ 	{
+@@ -3069,8 +3061,14 @@ static int xscale_init_arch_info(target_
+ /* target xscale &lt;endianess&gt; &lt;startup_mode&gt; &lt;chain_pos&gt; &lt;variant&gt; */
+ static int xscale_target_create(struct target_s *target, Jim_Interp *interp)
+ {
+-	xscale_common_t *xscale = calloc(1,sizeof(xscale_common_t));
++	xscale_common_t *xscale;
++
++	if (xscale_debug_handler_size &gt; 0x800) {
++		LOG_ERROR(&quot;debug_handler.bin: larger than 2kb&quot;);
++		return ERROR_FAIL;
++	}
+ 
++	xscale = calloc(1,sizeof(xscale_common_t));
+ 	xscale_init_arch_info(target, xscale, target-&gt;tap, target-&gt;variant);
+ 	xscale_build_reg_cache(target);
+ 
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -180,4 +180,10 @@ enum
+ 
+ #define ERROR_XSCALE_NO_TRACE_DATA	(-1500)
+ 
++/* This XScale &quot;debug handler&quot; is loaded into the processor's
++ * mini-ICache, which is 2K of code writable only via JTAG.
++ */
++extern const uint8_t xscale_debug_handler[];
++extern const uint32_t xscale_debug_handler_size;
++
+ #endif /* XSCALE_H */
+--- /dev/null
++++ b/src/target/xscale_debug.S
+@@ -0,0 +1,13 @@
++	.section	.rodata
++
++	.align		4
++	.global		 xscale_debug_handler
++xscale_debug_handler:
++	.incbin		&quot;xscale/debug_handler.bin&quot;
++	.size		xscale_debug_handler, . - xscale_debug_handler
++
++	.align		4
++	.global		 xscale_debug_handler_size
++xscale_debug_handler_size:
++	.word		. - xscale_debug_handler
++	.size		xscale_debug_handler_size, 4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011279.html">[Openocd-development] cygwin and libtool build problems
+</A></li>
+	<LI>Next message: <A HREF="011140.html">[Openocd-development] [patch/rfc] simplify XScale debug handler	installation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11137">[ date ]</a>
+              <a href="thread.html#11137">[ thread ]</a>
+              <a href="subject.html#11137">[ subject ]</a>
+              <a href="author.html#11137">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,103 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Generic on-chip loader, was: EmbeddedICE send patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Generic%20on-chip%20loader%2C%0A%20was%3A%20EmbeddedICE%20send%20patch&In-Reply-To=%3C46D31A40.5080400%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000315.html">
+   <LINK REL="Next"  HREF="000317.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Generic on-chip loader, was: EmbeddedICE send patch</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Generic%20on-chip%20loader%2C%0A%20was%3A%20EmbeddedICE%20send%20patch&In-Reply-To=%3C46D31A40.5080400%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] Generic on-chip loader, was: EmbeddedICE send patch">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Mon Aug 27 20:38:56 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000315.html">[Openocd-development] Generic on-chip loader, was: EmbeddedICE send patch
+</A></li>
+        <LI>Next message: <A HREF="000317.html">[Openocd-development] Two stage algorithms
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#316">[ date ]</a>
+              <a href="thread.html#316">[ thread ]</a>
+              <a href="subject.html#316">[ subject ]</a>
+              <a href="author.html#316">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Spen wrote:
+&gt;<i>
+</I>&gt;<i> Been going though the cortex docs to see if they have a similar mechanism
+</I>&gt;<i> as
+</I>&gt;<i> the arm7/9 dcc channel, as yet cannot find one.
+</I>&gt;<i> Anyone know any more about this?
+</I>&gt;<i>
+</I>Hi,
+
+I have got the following from LMI about how to create a DCC channel using the Debug Core Register Data Register (DCRD):
+
+&lt;quote&gt;
+
+As you know, you can read and write memory. As you likely also know, the timing will be different when the target is running because AHB-AP 
+is prioritized lower than the core in the bus matrix (cross bar). So, you get only the cycles not used by the core (AHB is pipelined, so the 
+core can start its address cycle in the data cycle of an AHB-AP request). This is intended to remove time intrusion on the target. Many of 
+the decisions were to remove intrusion. Obviously if you read or write a wait-stated memory location, then you may intrude on the target 
+timing, but RAM accesses should not have this effect.
+
+To replace the DCC concept, the intent was 2-fold:
+1. You use the Debug Core Register Data Register (DCRD) as a communication and sync register. Since it can be read and written byte-wise, 
+you can avoid read-modify-write problems. So, for example, the target side can use DCRC[7:0] (byte at 0xE000EDF8) for status, [15:8] (byte 
+at 0xE000EDF9) for data, and the host can use [31:16] (half at 0xE000EDFA) for its control and data. This register is preferred because the 
+host is polling the nearby register at 0xE000EDF0 for stop anyway (and if you set bank1 in AHB-AP, it is a single access to read each) and 
+it does not generally have to contend with the core (unlike accessing SRAM).
+2. Your side (Host) signals the core that you have asked for something or have data, using software triggering of an interrupt. You have a 
+few built-in options, depending on goals. The Debug Monitor (int 12) was designed for RTOS agents, ROM monitors, test agents, etc. MON_PEND 
+is used to signal it (priority decides when it gets woken). Note that you do not have to use MON_EN, so you can continue with halting debug, 
+but use the monitor just for running behavior (MON_PEND only). Another option is PendSV (int 14), which can be used if not used by the app. 
+It is triggered by a write to PENDSVSET. This wakes it up when pri allows (of course); it is intended for certain RTOSes to use for ISR to 
+OS sync; but not used by more basic RTOSes.
+The purpose of the host signaling is to avoid polling on the target.
+
+The normal sequence is that the host is polling the status to see if the target has stopped and also if there is a message (status in DCRD). 
+If a message, the host can support it. If the host wants to send a message to the target, it can either write a small (2 byte) message to 
+the target in DCRD and then signal (e.g. MON_PEND or PENDSVSET), or write a bigger message in memory somewhere and then signal.
+
+&lt;/endquote&gt;
+
+Regards,
+Magnus
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000315.html">[Openocd-development] Generic on-chip loader, was: EmbeddedICE send patch
+</A></li>
+	<LI>Next message: <A HREF="000317.html">[Openocd-development] Two stage algorithms
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#316">[ date ]</a>
+              <a href="thread.html#316">[ thread ]</a>
+              <a href="subject.html#316">[ subject ]</a>
+              <a href="author.html#316">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

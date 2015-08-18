@@ -1,0 +1,299 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] JTAG controllers disabled while SRST is asserted
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20controllers%20disabled%20while%20SRST%20is%0A%20asserted&In-Reply-To=%3C1253838485.5430.110.camel%40mws%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010791.html">
+   <LINK REL="Next"  HREF="010753.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] JTAG controllers disabled while SRST is asserted</H1>
+    <B>michal smulski</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20controllers%20disabled%20while%20SRST%20is%0A%20asserted&In-Reply-To=%3C1253838485.5430.110.camel%40mws%3E"
+       TITLE="[Openocd-development] JTAG controllers disabled while SRST is asserted">michal.smulski at ooma.com
+       </A><BR>
+    <I>Fri Sep 25 02:28:05 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010791.html">[Openocd-development] JTAG controllers disabled while SRST is asserted
+</A></li>
+        <LI>Next message: <A HREF="010753.html">[Openocd-development] JTAG controllers disabled while SRST is	asserted
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10799">[ date ]</a>
+              <a href="thread.html#10799">[ thread ]</a>
+              <a href="subject.html#10799">[ subject ]</a>
+              <a href="author.html#10799">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch (it includes &#216;yvind's previous patch) fixes my problems with
+reset. By default it will do nothing so it should not affect anybody.
+
+I added [optional] reset before running jtag_init_inner().
+
+Is there a chance to commit this to svn tree?
+--Michal
+
+
+On Thu, 2009-09-24 at 00:28 +0200, Michael Schwingen wrote:
+&gt;<i> David Brownell wrote:
+</I>&gt;<i> &gt;&gt; A board may stretch SRST, so you *have* to be able to wait a
+</I>&gt;<i> &gt;&gt; (user-defined) amount of time after SRESET assertion/deassertion before 
+</I>&gt;<i> &gt;&gt; talking to anything in the chain. This is also true if the SRESET 
+</I>&gt;<i> &gt;&gt; assertion is not caused by OpenOCD directly.
+</I>&gt;<i> &gt;&gt;     
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Understood.  This is part of why some JTAG adapters provide
+</I>&gt;<i> &gt; inputs for SRST, not just outputs.  It'd be nice if the
+</I>&gt;<i> &gt; FT2232 ones provided a &quot;USB interrupt&quot; to give hosts an
+</I>&gt;<i> &gt; asynch (more or less) notification that it was asserted.
+</I>&gt;<i> &gt;   
+</I>&gt;<i> This won't help if the FTDI library asserts SRST when calling the init
+</I>&gt;<i> function. At that point, the interrupts are probably not yet set up
+</I>&gt;<i> correctly.
+</I>&gt;<i> 
+</I>&gt;<i> If the library does assert SRST during init without being told to do
+</I>&gt;<i> that, then OpenOCD needs to know about that and at least apply the
+</I>&gt;<i> configured delays so that the chain is in working order.
+</I>&gt;<i> 
+</I>&gt;<i> cu
+</I>&gt;<i> Michael
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>-------------- next part --------------
+Index: src/jtag/zy1000/zy1000.c
+===================================================================
+--- src/jtag/zy1000/zy1000.c	(revision 2726)
++++ src/jtag/zy1000/zy1000.c	(working copy)
+@@ -657,9 +657,6 @@
+ 
+ 
+ 
+-extern int jtag_nsrst_delay;
+-extern int jtag_ntrst_delay;
+-
+ int interface_jtag_add_reset(int req_trst, int req_srst)
+ {
+ 	zy1000_reset(req_trst, req_srst);
+Index: src/jtag/core.c
+===================================================================
+--- src/jtag/core.c	(revision 2726)
++++ src/jtag/core.c	(working copy)
+@@ -93,6 +93,9 @@
+ /* how long the OpenOCD should wait before attempting JTAG communication after reset lines deasserted (in ms) */
+ static int jtag_nsrst_delay = 0; /* default to no nSRST delay */
+ static int jtag_ntrst_delay = 0; /* default to no nTRST delay */
++static int jtag_nsrst_assert_width = 0; /* width of assertion */
++static int jtag_ntrst_assert_width = 0; /* width of assertion */
++static bool jtag_reset_on_init = false; /* reset JTAG on init */
+ 
+ typedef struct jtag_event_callback_s
+ {
+@@ -662,7 +665,11 @@
+ 	if (jtag_srst != new_srst) {
+ 		jtag_srst = new_srst;
+ 		if (jtag_srst)
++		{
+ 			LOG_DEBUG(&quot;SRST line asserted&quot;);
++			if (jtag_nsrst_assert_width)
++				jtag_add_sleep(jtag_nsrst_assert_width * 1000);
++		}
+ 		else {
+ 			LOG_DEBUG(&quot;SRST line released&quot;);
+ 			if (jtag_nsrst_delay)
+@@ -694,6 +701,8 @@
+ 			LOG_DEBUG(&quot;TRST line asserted&quot;);
+ 			tap_set_state(TAP_RESET);
+ 			jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
++			if (jtag_ntrst_assert_width)
++				jtag_add_sleep(jtag_ntrst_assert_width * 1000);
+ 		} else {
+ 			LOG_DEBUG(&quot;TRST line released&quot;);
+ 			if (jtag_ntrst_delay)
+@@ -1296,6 +1305,10 @@
+ 	int retval;
+ 	if ((retval = jtag_interface_init(cmd_ctx)) != ERROR_OK)
+ 		return retval;
++
++	if (jtag_reset_on_init)
++	  return jtag_init_reset(cmd_ctx);
++
+ 	if (jtag_init_inner(cmd_ctx) == ERROR_OK)
+ 	{
+ 		return ERROR_OK;
+@@ -1462,3 +1475,30 @@
+ {
+ 	return jtag_ntrst_delay;
+ }
++
++
++void jtag_set_nsrst_assert_width(unsigned delay)
++{
++	jtag_nsrst_assert_width = delay;
++}
++unsigned jtag_get_nsrst_assert_width(void)
++{
++	return jtag_nsrst_assert_width;
++}
++void jtag_set_ntrst_assert_width(unsigned delay)
++{
++	jtag_ntrst_assert_width = delay;
++}
++unsigned jtag_get_ntrst_assert_width(void)
++{
++	return jtag_ntrst_assert_width;
++}
++
++void jtag_set_reset_on_init(bool state)
++{
++	jtag_reset_on_init = state;
++}
++bool jtag_get_reset_on_init(void)
++{
++  return jtag_reset_on_init;
++}
+Index: src/jtag/jtag.h
+===================================================================
+--- src/jtag/jtag.h	(revision 2726)
++++ src/jtag/jtag.h	(working copy)
+@@ -289,6 +289,15 @@
+ void jtag_set_ntrst_delay(unsigned delay);
+ unsigned jtag_get_ntrst_delay(void);
+ 
++void jtag_set_nsrst_assert_width(unsigned delay);
++unsigned jtag_get_nsrst_assert_width(void);
++
++void jtag_set_ntrst_assert_width(unsigned delay);
++unsigned jtag_get_ntrst_assert_width(void);
++
++void jtag_set_reset_on_init(bool state);
++bool jtag_get_reset_on_init(void);
++     
+ /// @returns The current state of TRST.
+ int jtag_get_trst(void);
+ /// @returns The current state of SRST.
+Index: src/jtag/tcl.c
+===================================================================
+--- src/jtag/tcl.c	(revision 2726)
++++ src/jtag/tcl.c	(working copy)
+@@ -61,6 +61,9 @@
+ static int handle_reset_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_nsrst_delay_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_ntrst_delay_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_nsrst_assert_width_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_ntrst_assert_width_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_reset_on_init_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);   
+ 
+ static int handle_scan_chain_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ 
+@@ -618,7 +621,12 @@
+ 		COMMAND_ANY, &quot;jtag_nsrst_delay &lt;ms&gt; - delay after deasserting srst in ms&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;, handle_jtag_ntrst_delay_command,
+ 		COMMAND_ANY, &quot;jtag_ntrst_delay &lt;ms&gt; - delay after deasserting trst in ms&quot;);
+-
++	register_command(cmd_ctx, NULL, &quot;jtag_nsrst_assert_width&quot;, handle_jtag_nsrst_assert_width_command,
++		COMMAND_ANY, &quot;jtag_nsrst_assert_width &lt;ms&gt; - delay after deasserting srst in ms&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_assert_width&quot;, handle_jtag_ntrst_assert_width_command,
++		COMMAND_ANY, &quot;jtag_ntrst_assert_width &lt;ms&gt; - delay after deasserting trst in ms&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_reset_on_init&quot;, handle_jtag_reset_on_init_command,
++			 COMMAND_ANY, &quot;jtag_reset_on_init true/false - reset JTAG chain before initializing.&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;scan_chain&quot;, handle_scan_chain_command,
+ 		COMMAND_EXEC, &quot;print current scan chain configuration&quot;);
+ 
+@@ -978,6 +986,61 @@
+ 	return ERROR_OK;
+ }
+ 
++static int handle_jtag_nsrst_assert_width_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	if (argc == 1)
++	{
++		unsigned delay;
++		int retval = parse_uint(args[0], &amp;delay);
++		if (ERROR_OK != retval)
++			return retval;
++		jtag_set_nsrst_assert_width(delay);
++	}
++	command_print(cmd_ctx, &quot;jtag_nsrst_assert_width: %u&quot;, jtag_get_nsrst_assert_width());
++	return ERROR_OK;
++}
++
++static int handle_jtag_ntrst_assert_width_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	if (argc == 1)
++	{
++		unsigned delay;
++		int retval = parse_uint(args[0], &amp;delay);
++		if (ERROR_OK != retval)
++			return retval;
++		jtag_set_ntrst_assert_width(delay);
++	}
++	command_print(cmd_ctx, &quot;jtag_ntrst_assert_width: %u&quot;, jtag_get_ntrst_assert_width());
++	return ERROR_OK;
++}
++
++static int handle_jtag_reset_on_init_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	if (argc == 1)
++	{
++		bool state;
++		if (strcmp(args[0], &quot;true&quot;) == 0)
++		  state = true;
++		else if (strcmp(args[0], &quot;false&quot;) == 0)
++		  state = false;
++		else
++		  return ERROR_COMMAND_SYNTAX_ERROR;
++		jtag_set_reset_on_init(state);
++	}
++	command_print(cmd_ctx, &quot;reset_on_init is  %s&quot;,
++			jtag_get_reset_on_init() ? &quot;true&quot;: &quot;false&quot;);
++	return ERROR_OK;
++}
++
+ static int handle_jtag_speed_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	int retval = ERROR_OK;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010791.html">[Openocd-development] JTAG controllers disabled while SRST is asserted
+</A></li>
+	<LI>Next message: <A HREF="010753.html">[Openocd-development] JTAG controllers disabled while SRST is	asserted
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10799">[ date ]</a>
+              <a href="thread.html#10799">[ thread ]</a>
+              <a href="subject.html#10799">[ subject ]</a>
+              <a href="author.html#10799">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

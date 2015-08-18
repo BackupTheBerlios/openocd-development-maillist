@@ -1,0 +1,262 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/4] target: make &quot;examined&quot; flag be	per-target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20target%3A%20make%20%22examined%22%20flag%20be%0A%09per-target&In-Reply-To=%3C200911141845.18118.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012352.html">
+   <LINK REL="Next"  HREF="012355.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/4] target: make &quot;examined&quot; flag be	per-target</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20target%3A%20make%20%22examined%22%20flag%20be%0A%09per-target&In-Reply-To=%3C200911141845.18118.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/4] target: make &quot;examined&quot; flag be	per-target">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Nov 15 03:45:18 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012352.html">[Openocd-development] [patch 0/4] various fixes ...
+</A></li>
+        <LI>Next message: <A HREF="012355.html">[Openocd-development] [patch 2/4] ARM: memory utils aren't	ARM7/ARM9 dependent
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12353">[ date ]</a>
+              <a href="thread.html#12353">[ thread ]</a>
+              <a href="subject.html#12353">[ subject ]</a>
+              <a href="author.html#12353">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Previously this flag was stored in &quot;target_type&quot;, so that for example
+if there were two ARM7TDMI targets in a scan chain, both would claim
+to have been examined although only the first one actually had its
+examine() method called.
+
+Move this state to where it should have been in the first place, and
+hide a method that didn't need exposure ... the flag is write-once.
+
+Provide some doxygen.  The examine() method is confusing, since it
+isn't separating one-time setup from the after-each-reset stuff.
+And the ARM7/ARM9 version is, somewhat undesirably, not leaving
+the debug state alone ...
+---
+ src/target/arm11.c       |    6 ------
+ src/target/cortex_a8.c   |    6 +++---
+ src/target/target.c      |   19 ++++++-------------
+ src/target/target.h      |   32 ++++++++++++++++++++++++--------
+ src/target/target_type.h |   34 ++++++++++++++++++++--------------
+ 5 files changed, 53 insertions(+), 44 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1906,12 +1906,6 @@ static int arm11_examine(struct target *
+ 		retval = etm_setup(target);
+ 	}
+ 
+-	/* FIXME this sets a flag in the (shared) arm11_target structure,
+-	 * not in the (per-cpu) &quot;target&quot; structure ... so it's clearly
+-	 * wrong in the case of e.g. two different ARM11 chips on the
+-	 * same board.  (Maybe ARM11 MPCore works though.)  Whoever calls
+-	 * the examine() method should set a target-specific flag...
+-	 */
+ 	target_set_examined(target);
+ 
+ 	return ERROR_OK;
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1297,11 +1297,11 @@ static int cortex_a8_dcc_read(struct swj
+ static int cortex_a8_handle_target_request(void *priv)
+ {
+ 	struct target *target = priv;
+-	if (!target-&gt;type-&gt;examined)
+-		return ERROR_OK;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct swjdp_common *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
++	if (!target_was_examined(target))
++		return ERROR_OK;
+ 	if (!target-&gt;dbg_msg_enabled)
+ 		return ERROR_OK;
+ 
+@@ -1424,7 +1424,7 @@ static int cortex_a8_examine(struct targ
+ 	/* Configure core debug access */
+ 	cortex_a8_init_debug_access(target);
+ 
+-	target-&gt;type-&gt;examined = 1;
++	target_set_examined(target);
+ 
+ 	return retval;
+ }
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -644,20 +644,13 @@ int target_run_algorithm(struct target *
+ 			entry_point, exit_point, timeout_ms, arch_info);
+ }
+ 
+-/// @returns @c true if the target has been examined.
+-bool target_was_examined(struct target *target)
+-{
+-	return target-&gt;type-&gt;examined;
+-}
+-/// Sets the @c examined flag for the given target.
+-void target_set_examined(struct target *target)
+-{
+-	target-&gt;type-&gt;examined = true;
+-}
+-// Reset the @c examined flag for the given target.
+-void target_reset_examined(struct target *target)
++/**
++ * Reset the @c examined flag for the given target.
++ * Pure paranoia -- targets are zeroed on allocation.
++ */
++static void target_reset_examined(struct target *target)
+ {
+-	target-&gt;type-&gt;examined = false;
++	target-&gt;examined = false;
+ }
+ 
+ 
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -129,7 +129,16 @@ struct target
+ 	const char *cmd_name;				/* tcl Name of target */
+ 	int target_number;					/* DO NOT USE!  field to be removed in 2010 */
+ 	struct jtag_tap *tap;					/* where on the jtag chain is this */
+-	const char *variant;				/* what varient of this chip is it? */
++	const char *variant;				/* what variant of this chip is it? */
++
++	/**
++	 * Indicates whether this target has been examined.
++	 *
++	 * Do @b not access this field directly, use target_was_examined()
++	 * or target_set_examined().
++	 */
++	bool examined;
++
+ 	struct target_event_action *event_action;
+ 
+ 	int reset_halt;						/* attempt resetting the CPU into the halted mode? */
+@@ -289,18 +298,25 @@ struct target *get_target(const char *id
+ const char *target_get_name(struct target *target);
+ 
+ /**
+- * Examine the specified @a target.
++ * Examine the specified @a target, letting it perform any
++ * initialization that requires JTAG access.
+  *
+  * This routine is a wrapper for target-&gt;type-&gt;examine.
+  */
+ int target_examine_one(struct target *target);
+-/// @returns @c true if the target has been examined.
+-bool target_was_examined(struct target *target);
+-/// Sets the @c examined flag for the given target.
+-void target_set_examined(struct target *target);
+-/// Reset the @c examined flag for the given target.
+-void target_reset_examined(struct target *target);
+ 
++/// @returns @c true if target_set_examined() has been called.
++static inline bool target_was_examined(struct target *target)
++{
++	return target-&gt;examined;
++}
++
++/// Sets the @c examined flag for the given target.
++/// Use in target-&gt;type-&gt;examine() after one-time setup is done.
++static inline void target_set_examined(struct target *target)
++{
++	target-&gt;examined = true;
++}
+ 
+ /**
+  * Add the @a breakpoint for @a target.
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -30,22 +30,19 @@
+ 
+ struct target;
+ 
++/**
++ * This holds methods shared between all instances of a given target
++ * type.  For example, all Cortex-M3 targets on a scan chain share
++ * the same method table.
++ */
+ struct target_type
+ {
+ 	/**
+-	 * Name of the target.  Do @b not access this field directly, use
+-	 * target_get_name() instead.
++	 * Name of this type of target.  Do @b not access this
++	 * field directly, use target_get_name() instead.
+ 	 */
+ 	char *name;
+ 
+-	/**
+-	 * Indicates whether this target has been examined.
+-	 *
+-	 * Do @b not access this field directly, use target_was_examined()
+-	 * target_set_examined(), and target_reset_examined().
+-	 */
+-	int examined;
+-
+ 	/* poll current target status */
+ 	int (*poll)(struct target *target);
+ 	/* Invoked only from target_arch_state().
+@@ -165,13 +162,22 @@ struct target_type
+ 	/* returns JIM_OK, or JIM_ERR, or JIM_CONTINUE - if option not understood */
+ 	int (*target_jim_commands)(struct target *target, Jim_GetOptInfo *goi);
+ 
+-	/* invoked after JTAG chain has been examined &amp; validated. During
+-	 * this stage the target is examined and any additional setup is
+-	 * performed.
++	/**
++	 * This method is used to perform target setup that requires
++	 * JTAG access.
+ 	 *
+-	 * invoked every time after the jtag chain has been validated/examined
++	 * This may be called multiple times.  It is called after the
++	 * scan chain is initially validated, or later after the target
++	 * is enabled by a JRC.  It may also be called during some
++	 * parts of the reset sequence.
++	 *
++	 * For one-time initialization tasks, use target_was_examined()
++	 * and target_set_examined().  For example, probe the hardware
++	 * before setting up chip-specific state, and then set that
++	 * flag so you don't do that again.
+ 	 */
+ 	int (*examine)(struct target *target);
++
+ 	/* Set up structures for target.
+ 	 *
+ 	 * It is illegal to talk to the target at this stage as this fn is invoked
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012352.html">[Openocd-development] [patch 0/4] various fixes ...
+</A></li>
+	<LI>Next message: <A HREF="012355.html">[Openocd-development] [patch 2/4] ARM: memory utils aren't	ARM7/ARM9 dependent
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12353">[ date ]</a>
+              <a href="thread.html#12353">[ thread ]</a>
+              <a href="subject.html#12353">[ subject ]</a>
+              <a href="author.html#12353">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

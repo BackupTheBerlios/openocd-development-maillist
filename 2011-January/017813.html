@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] svf: implement sleep for RUNTEST	min_time
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20svf%3A%20implement%20sleep%20for%20RUNTEST%0A%09min_time&In-Reply-To=%3C1293979968-18252-2-git-send-email-jon.povey%40racelogic.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017812.html">
+   <LINK REL="Next"  HREF="017848.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] svf: implement sleep for RUNTEST	min_time</H1>
+    <B>Jon Povey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20svf%3A%20implement%20sleep%20for%20RUNTEST%0A%09min_time&In-Reply-To=%3C1293979968-18252-2-git-send-email-jon.povey%40racelogic.co.uk%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] svf: implement sleep for RUNTEST	min_time">jon.povey at racelogic.co.uk
+       </A><BR>
+    <I>Sun Jan  2 15:52:48 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017812.html">[Openocd-development] [PATCH 1/2] svf: fix USAGE and related error	reporting
+</A></li>
+        <LI>Next message: <A HREF="017848.html">[Openocd-development] [PATCH 2/2] svf: implement sleep for	RUNTEST min_time
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17813">[ date ]</a>
+              <a href="thread.html#17813">[ thread ]</a>
+              <a href="subject.html#17813">[ subject ]</a>
+              <a href="author.html#17813">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: Jon Povey &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jon.povey at racelogic.co.uk</A>&gt;
+
+min_time was effectively ignored, I needed it to program a Lattice MachXO
+which uses a RUNTEST to wait for an erase operation, amongst other things.
+
+With this patch pauses happen and I can program the device with an SVF
+generated in LSC ispVM (with &quot;Rev D Standard&quot; checked to suppress
+nonstandard LOOP statements)
+---
+
+ src/svf/svf.c |   58 +++++++++++++++++++++++++++-----------------------------
+ 1 files changed, 28 insertions(+), 30 deletions(-)
+
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index a6f2f6f..53994a2 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -1478,47 +1478,45 @@ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
+ 			}
+ 			i += 2;
+ 		}
+-		// calculate run_count
+-		if ((0 == run_count) &amp;&amp; (min_time &gt; 0))
+-		{
+-			run_count = min_time * svf_para.frequency;
+-		}
++
+ 		// all parameter should be parsed
+ 		if (i == num_of_argu)
+ 		{
+-			if (run_count &gt; 0)
+-			{
+-				// run_state and end_state is checked to be stable state
+-				// TODO: do runtest
+ #if 1
+-				/* FIXME handle statemove failures */
+-				int retval;
++			/* FIXME handle statemove failures */
++			int retval;
++			uint32_t min_usec = 1000000 * min_time;
+ 
+-				// enter into run_state if necessary
+-				if (cmd_queue_cur_state != svf_para.runtest_run_state)
+-				{
+-					retval = svf_add_statemove(svf_para.runtest_run_state);
+-				}
++			// enter into run_state if necessary
++			if (cmd_queue_cur_state != svf_para.runtest_run_state)
++			{
++				retval = svf_add_statemove(svf_para.runtest_run_state);
++			}
+ 
+-				// call jtag_add_clocks
++			// add clocks and/or min wait
++			if (run_count &gt; 0) {
+ 				jtag_add_clocks(run_count);
++			}
+ 
+-				// move to end_state if necessary
+-				if (svf_para.runtest_end_state != svf_para.runtest_run_state)
+-				{
+-					retval = svf_add_statemove(svf_para.runtest_end_state);
+-				}
++			if (min_usec &gt; 0) {
++				jtag_add_sleep(min_usec);
++			}
++
++			// move to end_state if necessary
++			if (svf_para.runtest_end_state != svf_para.runtest_run_state)
++			{
++				retval = svf_add_statemove(svf_para.runtest_end_state);
++			}
+ #else
+-				if (svf_para.runtest_run_state != TAP_IDLE)
+-				{
+-					LOG_ERROR(&quot;cannot runtest in %s state&quot;,
+-						tap_state_name(svf_para.runtest_run_state));
+-					return ERROR_FAIL;
+-				}
++			if (svf_para.runtest_run_state != TAP_IDLE)
++			{
++				LOG_ERROR(&quot;cannot runtest in %s state&quot;,
++					tap_state_name(svf_para.runtest_run_state));
++				return ERROR_FAIL;
++			}
+ 
+-				jtag_add_runtest(run_count, svf_para.runtest_end_state);
++			jtag_add_runtest(run_count, svf_para.runtest_end_state);
+ #endif
+-			}
+ 		}
+ 		else
+ 		{
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017812.html">[Openocd-development] [PATCH 1/2] svf: fix USAGE and related error	reporting
+</A></li>
+	<LI>Next message: <A HREF="017848.html">[Openocd-development] [PATCH 2/2] svf: implement sleep for	RUNTEST min_time
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17813">[ date ]</a>
+              <a href="thread.html#17813">[ thread ]</a>
+              <a href="subject.html#17813">[ subject ]</a>
+              <a href="author.html#17813">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] str9x.c: Removed the optimization	when erasing the whole bank
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20str9x.c%3A%20Removed%20the%20optimization%0A%09when%20erasing%20the%20whole%20bank&In-Reply-To=%3C1263471443-31236-1-git-send-email-laurentiu.cocanu%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014173.html">
+   <LINK REL="Next"  HREF="014175.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] str9x.c: Removed the optimization	when erasing the whole bank</H1>
+    <B>Laurentiu Cocanu</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20str9x.c%3A%20Removed%20the%20optimization%0A%09when%20erasing%20the%20whole%20bank&In-Reply-To=%3C1263471443-31236-1-git-send-email-laurentiu.cocanu%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] str9x.c: Removed the optimization	when erasing the whole bank">laurentiu.cocanu at zylin.com
+       </A><BR>
+    <I>Thu Jan 14 13:17:23 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014173.html">[Openocd-development] [patch] ARM7/ARM9: improved reset support
+</A></li>
+        <LI>Next message: <A HREF="014175.html">[Openocd-development] [PATCH] str9x.c: take2: Removed the	optimization when erasing the whole bank
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14174">[ date ]</a>
+              <a href="thread.html#14174">[ thread ]</a>
+              <a href="subject.html#14174">[ subject ]</a>
+              <a href="author.html#14174">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I tested version v0.4.0-rc1-98-g6c75f52 of OpenOCD for STR912 target.
+
+I tried to erase all the contents of the flash, sectors 0 to 7. Commands:
+
+reset init
+flash erase_address 0 0x80000 (or flash erase_sector 0 0 7)
+
+The expected result is:
+
+erased sectors 0 through 7 on flash bank 0 in x.xx0000s
+
+but instead the command returned erase timed out:
+
+erase timed out
+failed erasing sectors 0 to 7 (-4)
+
+Here are the last lines of the logs:
+
+Debug: 25605 4184220 arm7_9_common.c:2210 arm7_9_read_memory():
+address: 0x00000000, size: 0x00000001, count: 0x00000001
+Debug: 25606 4184220 target.c:1527 target_read_u8(): address: 0x00000000,
+value: 0x00
+Error: 25607 4184220 str9x.c:278 str9x_erase(): erase timed out
+Error: 25608 4184230 core.c:48 flash_driver_erase(): failed erasing sectors
+0 to 7 (-4)
+
+It worked fine when the process was divided in two: started with the first 7
+(0 to 6) sectors and then erased the last one, sector #7 separately.
+
+Using the erase bank command will cause a time out error. Replacing
+this with the erase sector bank will provide a slower but safer and
+stable method to erase the flash.
+
+Signed-off-by: Laurentiu Cocanu &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">laurentiu.cocanu at zylin.com</A>&gt;
+---
+ src/flash/nor/str9x.c |   20 +++-----------------
+ 1 files changed, 3 insertions(+), 17 deletions(-)
+
+diff --git a/src/flash/nor/str9x.c b/src/flash/nor/str9x.c
+index bf3f750..9df3944 100644
+--- a/src/flash/nor/str9x.c
++++ b/src/flash/nor/str9x.c
+@@ -230,17 +230,9 @@ static int str9x_erase(struct flash_bank *bank, int first, int last)
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	/* Check if we erase whole bank */
+-	if ((first == 0) &amp;&amp; (last == (bank-&gt;num_sectors - 1)))
+-	{
+-		/* Optimize to run erase bank command instead of sector */
+-		erase_cmd = 0x80;
+-	}
+-	else
+-	{
+-		/* Erase sector command */
+-		erase_cmd = 0x20;
+-	}
++	/*A slower but stable way of erasing*/
++	/* Erase sector command */
++	erase_cmd = 0x20;
+ 
+ 	for (i = first; i &lt;= last; i++)
+ 	{
+@@ -269,8 +261,6 @@ static int str9x_erase(struct flash_bank *bank, int first, int last)
+ 			{
+ 				return retval;
+ 			}
+-			if (status &amp; 0x80)
+-				break;
+ 			alive_sleep(1);
+ 		}
+ 		if (timeout == 1000)
+@@ -296,10 +286,6 @@ static int str9x_erase(struct flash_bank *bank, int first, int last)
+ 			LOG_ERROR(&quot;error erasing flash bank, status: 0x%x&quot;, status);
+ 			return ERROR_FLASH_OPERATION_FAILED;
+ 		}
+-
+-		/* If we ran erase bank command, we are finished */
+-		if (erase_cmd == 0x80)
+-			break;
+ 	}
+ 
+ 	for (i = first; i &lt;= last; i++)
+-- 
+1.6.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014173.html">[Openocd-development] [patch] ARM7/ARM9: improved reset support
+</A></li>
+	<LI>Next message: <A HREF="014175.html">[Openocd-development] [PATCH] str9x.c: take2: Removed the	optimization when erasing the whole bank
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14174">[ date ]</a>
+              <a href="thread.html#14174">[ thread ]</a>
+              <a href="subject.html#14174">[ subject ]</a>
+              <a href="author.html#14174">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

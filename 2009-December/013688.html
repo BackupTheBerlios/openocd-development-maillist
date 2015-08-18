@@ -1,0 +1,909 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] Initial import of AT91SAM9 NAND	flash driver.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Initial%20import%20of%20AT91SAM9%20NAND%0A%09flash%20driver.&In-Reply-To=%3C1261105802-3464-2-git-send-email-dnglaze%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013686.html">
+   <LINK REL="Next"  HREF="013689.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] Initial import of AT91SAM9 NAND	flash driver.</H1>
+    <B>Dean Glazeski</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Initial%20import%20of%20AT91SAM9%20NAND%0A%09flash%20driver.&In-Reply-To=%3C1261105802-3464-2-git-send-email-dnglaze%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] Initial import of AT91SAM9 NAND	flash driver.">dnglaze at gmail.com
+       </A><BR>
+    <I>Fri Dec 18 04:10:01 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013686.html">[Openocd-development] [PATCH 0/2] AT91SAM9 NAND Driver
+</A></li>
+        <LI>Next message: <A HREF="013689.html">[Openocd-development] [PATCH 2/2] Olimex SAM9-L9260 board	configuration update.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13688">[ date ]</a>
+              <a href="thread.html#13688">[ thread ]</a>
+              <a href="subject.html#13688">[ subject ]</a>
+              <a href="author.html#13688">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This creates the TCL interface for configuring an AT91SAM9 NAND flash controller
+and implements the necessary functions to correctly work with a NAND flash
+device connected to the chip.  This includes updates to the driver list and the
+Makefile.am to support building the driver and also houses the documentation
+update in openocd.texi.
+---
+ doc/openocd.texi           |   35 ++
+ src/flash/nand/Makefile.am |    3 +-
+ src/flash/nand/at91sam9.c  |  746 ++++++++++++++++++++++++++++++++++++++++++++
+ src/flash/nand/driver.c    |    2 +
+ 4 files changed, 785 insertions(+), 1 deletions(-)
+ create mode 100644 src/flash/nand/at91sam9.c
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 9d56523..c1ae0a5 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -4812,6 +4812,41 @@ As noted above, the @command{nand device} command allows
+ driver-specific options and behaviors.
+ Some controllers also activate controller-specific commands.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> {NAND Driver} at91sam9
++This driver handles the NAND controllers found on AT91SAM9 family chips from
++Atmel.  It takes two extra parameters: address of the NAND chip;
++address of the ECC controller.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at example</A>
++nand device $NANDFLASH at91sam9 $CHIPNAME 0x40000000 0xfffffe800
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> example
++AT91SAM9 chips support single-bit ECC hardware. The @code{write_page} and
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at code</A>{read_page} methods are used to utilize the ECC hardware unless they are
++disabled by using the @command{nand raw_access} command.  There are four 
++additional commands that are needed to fully configure the AT91SAM9 NAND
++controller.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {at91sam9 cle} num addr_line
++Configure the address line used for latching commands.  The @var{num} 
++parameter is the value shown by @command{nand list}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {at91sam9 ale} num addr_line
++Configure the address line used for latching addresses.  The @var{num} 
++parameter is the value shown by @command{nand list}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
++For the next two commands, it is assumed that the pins have already been 
++properly configured for input or output.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {at91sam9 rdy_busy} num pio_base_addr pin
++Configure the RDY/~BUSY input from the NAND device.  The @var{num} 
++paramter is the value shown by @command{nand list}.  @var{pio_base_addr} 
++is the base address of the PIO controller and @var{pin} is the pin number.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {at91sam9 ce} num pio_base_addr pin
++Configure the chip enable input to the NAND device.  The @var{num} 
++parameter is the value shown by @command{nand list}.  @var{pio_base_addr} 
++is the base address of the PIO controller and @var{pin} is the pin number.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ @deffn {NAND Driver} davinci
+ This driver handles the NAND controllers found on DaVinci family
+ chips from Texas Instruments.
+diff --git a/src/flash/nand/Makefile.am b/src/flash/nand/Makefile.am
+index f3033b8..bb9998e 100644
+--- a/src/flash/nand/Makefile.am
++++ b/src/flash/nand/Makefile.am
+@@ -24,7 +24,8 @@ NAND_DRIVERS = \
+ 	s3c2410.c \
+ 	s3c2412.c \
+ 	s3c2440.c \
+-	s3c2443.c
++	s3c2443.c \
++	at91sam9.c
+ 
+ noinst_HEADERS = \
+ 	arm_io.h \
+diff --git a/src/flash/nand/at91sam9.c b/src/flash/nand/at91sam9.c
+new file mode 100644
+index 0000000..966daee
+--- /dev/null
++++ b/src/flash/nand/at91sam9.c
+@@ -0,0 +1,746 @@
++/*
++ *   Copyright (C) 2009 by Dean Glazeski
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dnglaze at gmail.com</A>
++ *
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU General Public License as published by
++ *   the Free Software Foundation; either version 2 of the License, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the
++ *   Free Software Foundation, Inc.,
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++ */
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;target/arm.h&gt;
++#include &lt;helper/log.h&gt;
++#include &quot;imp.h&quot;
++#include &quot;arm_io.h&quot;
++
++#define AT91C_PIOx_SODR (0x30) /**&lt; Offset to PIO SODR. */
++#define AT91C_PIOx_CODR (0x34) /**&lt; Offset to PIO CODR. */
++#define AT91C_PIOx_PDSR (0x3C) /**&lt; Offset to PIO PDSR. */
++#define AT91C_ECCx_CR (0x00) /**&lt; Offset to ECC CR. */
++#define AT91C_ECCx_SR (0x08) /**&lt; Offset to ECC SR. */
++#define AT91C_ECCx_PR (0x0C) /**&lt; Offset to ECC PR. */
++#define AT91C_ECCx_NPR (0x10) /**&lt; Offset to ECC NPR. */
++
++/**
++ * Representation of a pin on an AT91SAM9 chip.
++ */
++struct at91sam9_pin {
++	/** Target this pin is on. */
++	struct target *target;
++
++	/** Address of the PIO controller. */
++	uint32_t pioc;
++
++	/** Pin number. */
++	uint32_t num;
++};
++
++/**
++ * Private data for the controller that is stored in the NAND device structure.
++ */
++struct at91sam9_nand {
++	/** Target the NAND is attached to. */
++	struct target *target;
++
++	/** Address of the ECC controller for NAND. */
++	uint32_t ecc;
++
++	/** Address data is written to. */
++	uint32_t data;
++
++	/** Address commands are written to. */
++	uint32_t cmd;
++
++	/** Address addresses are written to. */
++	uint32_t addr;
++
++	/** I/O structure for hosted reads/writes. */
++	struct arm_nand_data io;
++
++	/** Pin representing the ready/~busy line. */
++	struct at91sam9_pin busy;
++
++	/** Pin representing the chip enable. */
++	struct at91sam9_pin ce;
++};
++
++/**
++ * Checks if the target is halted and prints an error message if it isn't.
++ *
++ * @param target Target to be checked.
++ * @param label String label for where function is called from.
++ * @return True if the target is halted.
++ */
++static int at91sam9_halted(struct target *target, const char *label) {
++	if (target-&gt;state == TARGET_HALTED)
++		return true;
++
++	LOG_ERROR(&quot;Target must be halted to use NAND controller (%s)&quot;, label);
++	return false;
++}
++
++/**
++ * Initialize the AT91SAM9 NAND controller.
++ *
++ * @param nand NAND device the controller is attached to.
++ * @return Success or failure of initialization.
++ */
++static int at91sam9_init(struct nand_device *nand) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++
++	if (!at91sam9_halted(target, &quot;init&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++/**
++ * Enable NAND device attached to a controller.
++ *
++ * @param info NAND controller information for controlling NAND device.
++ * @return Success or failure of the enabling.
++ */
++static int at91sam9_enable(struct at91sam9_nand *info) {
++	struct target *target = info-&gt;target;
++
++	target_write_u32(target, info-&gt;ce.pioc + AT91C_PIOx_CODR, 1 &lt;&lt; info-&gt;ce.num);
++
++	return ERROR_OK;
++}
++
++/**
++ * Disable NAND device attached to a controller.
++ *
++ * @param info NAND controller information for controlling NAND device.
++ * @return Success or failure of the disabling.
++ */
++static int at91sam9_disable(struct at91sam9_nand *info) {
++	struct target *target = info-&gt;target;
++
++	target_write_u32(target, info-&gt;ce.pioc + AT91C_PIOx_SODR, 1 &lt;&lt; info-&gt;ce.num);
++
++	return ERROR_OK;
++}
++
++/**
++ * Send a command to the NAND device.
++ *
++ * @param nand NAND device to write the command to.
++ * @param command Command to be written.
++ * @return Success or failure of writing the command.
++ */
++static int at91sam9_command(struct nand_device *nand, uint8_t command) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++
++	if (!at91sam9_halted(target, &quot;command&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	at91sam9_enable(info);
++
++	target_write_u8(target, info-&gt;cmd, command);
++
++	return ERROR_OK;
++}
++
++/**
++ * Reset the AT91SAM9 NAND controller.
++ *
++ * @param nand NAND device to be reset.
++ * @return Success or failure of reset.
++ */
++static int at91sam9_reset(struct nand_device *nand) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++
++	if (!at91sam9_halted(info-&gt;target, &quot;reset&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	at91sam9_disable(info);
++
++	return ERROR_OK;
++}
++
++/**
++ * Send an address to the NAND device attached to an AT91SAM9 NAND controller.
++ *
++ * @param nand NAND device to send the address to.
++ * @param address Address to be sent.
++ * @return Success or failure of sending the address.
++ */
++static int at91sam9_address(struct nand_device *nand, uint8_t address) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++
++	if (!at91sam9_halted(info-&gt;target, &quot;address&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	target_write_u8(target, info-&gt;addr, address);
++
++	return ERROR_OK;
++}
++
++/**
++ * Read data directly from the NAND device attached to an AT91SAM9 NAND
++ * controller.
++ *
++ * @param nand NAND device to read from.
++ * @param data Pointer to where the data should be put.
++ * @return Success or failure of reading the data.
++ */
++static int at91sam9_read_data(struct nand_device *nand, void *data) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++
++	if (!at91sam9_halted(info-&gt;target, &quot;read data&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	target_read_u8(target, info-&gt;data, data);
++
++	return ERROR_OK;
++}
++
++/**
++ * Write data directly to the NAND device attached to an AT91SAM9 NAND
++ * controller.
++ *
++ * @param nand NAND device to be written to.
++ * @param data Data to be written.
++ * @return Success or failure of the data write.
++ */
++static int at91sam9_write_data(struct nand_device *nand, uint16_t data) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++
++	if (!at91sam9_halted(target, &quot;write data&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	target_write_u8(target, info-&gt;data, data);
++
++	return ERROR_OK;
++}
++
++/**
++ * Determine if the NAND device is ready by looking at the ready/~busy pin.
++ *
++ * @param nand NAND device to check.
++ * @param timeout Time in milliseconds to wait for NAND to be ready.
++ * @return True if the NAND is ready in the timeout period.
++ */
++static int at91sam9_nand_ready(struct nand_device *nand, int timeout) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++	uint32_t status;
++
++	if (!at91sam9_halted(target, &quot;nand ready&quot;)) {
++		return 0;
++	}
++
++	do {
++		target_read_u32(target, info-&gt;busy.pioc + AT91C_PIOx_PDSR, &amp;status);
++
++		if (status &amp; (1 &lt;&lt; info-&gt;busy.num)) {
++			return 1;
++		}
++
++		alive_sleep(1);
++	} while (timeout-- &gt; 0);
++
++	return 0;
++}
++
++/**
++ * Read a block of data from the NAND device attached to an AT91SAM9.  This
++ * utilizes the ARM hosted NAND read function.
++ *
++ * @param nand NAND device to read from.
++ * @param data Pointer to where the read data should be placed.
++ * @param size Size of the data being read.
++ * @return Success or failure of the hosted read.
++ */
++static int at91sam9_read_block_data(struct nand_device *nand, uint8_t *data, int size) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct arm_nand_data *io = &amp;info-&gt;io;
++	int status;
++
++	if (!at91sam9_halted(info-&gt;target, &quot;read block&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	io-&gt;chunk_size = nand-&gt;page_size;
++	status = arm_nandread(io, data, size);
++
++	return status;
++}
++
++/**
++ * Write a block of data to a NAND device attached to an AT91SAM9.  This uses
++ * the ARM hosted write function to write the data.
++ *
++ * @param nand NAND device to write to.
++ * @param data Data to be written to device.
++ * @param size Size of the data being written.
++ * @return Success or failure of the hosted write.
++ */
++static int at91sam9_write_block_data(struct nand_device *nand, uint8_t *data, int size) {
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct arm_nand_data *io = &amp;info-&gt;io;
++	int status;
++
++	if (!at91sam9_halted(info-&gt;target, &quot;write block&quot;)) {
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	io-&gt;chunk_size = nand-&gt;page_size;
++	status = arm_nandwrite(io, data, size);
++
++	return status;
++}
++
++/**
++ * Initialize the ECC controller on the AT91SAM9.
++ *
++ * @param target Target to configure ECC on.
++ * @param info NAND controller information for where the ECC is.
++ * @return Success or failure of initialization.
++ */
++static int at91sam9_ecc_init(struct target *target, struct at91sam9_nand *info) {
++	if (!info-&gt;ecc) {
++		LOG_ERROR(&quot;ECC controller address must be set when not reading raw NAND data&quot;);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	// reset ECC parity registers
++	target_write_u32(target, info-&gt;ecc + AT91C_ECCx_CR, 1);
++
++	return ERROR_OK;
++}
++
++/**
++ * Initialize an area for the OOB based on whether a user is requesting the OOB
++ * data.  This determines the size of the OOB and allocates the space in case
++ * the user has not requested the OOB data.
++ *
++ * @param nand NAND device we are creating an OOB for.
++ * @param oob Pointer to the user supplied OOB area.
++ * @param size Size of the OOB.
++ * @return Pointer to an area to store OOB data.
++ */
++static uint8_t * at91sam9_oob_init(struct nand_device *nand, uint8_t *oob, uint32_t *size)
++{
++	if (!oob) {
++		// user doesn't want OOB, allocate it
++		if (nand-&gt;page_size == 512) {
++			*size = 16;
++		} else if (nand-&gt;page_size == 2048) {
++			*size = 64;
++		}
++
++		oob = malloc(*size);
++		if (!oob) {
++			LOG_ERROR(&quot;Unable to allocate space for OOB&quot;);
++		}
++
++		memset(oob, 0xFF, *size);
++	}
++
++	return oob;
++}
++
++/**
++ * Reads a page from an AT91SAM9 NAND controller and verifies using 1-bit ECC
++ * controller on chip.  This makes an attempt to correct any errors that are
++ * encountered while reading the page of data.
++ *
++ * @param nand NAND device to read from
++ * @param page Page to be read.
++ * @param data Pointer to where data should be read to.
++ * @param data_size Size of the data to be read.
++ * @param oob Pointer to where OOB data should be read to.
++ * @param oob_size Size of the OOB data to be read.
++ * @return Success or failure of reading the NAND page.
++ */
++static int at91sam9_read_page(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
++{
++	int retval;
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++	uint8_t *oob_data;
++	uint32_t status;
++
++	retval = at91sam9_ecc_init(target, info);
++	if (ERROR_OK != retval) {
++		return retval;
++	}
++
++	retval = nand_page_command(nand, page, NAND_CMD_READ0, !data);
++	if (ERROR_OK != retval) {
++		return retval;
++	}
++
++	if (data) {
++		retval = nand_read_data_page(nand, data, data_size);
++		if (ERROR_OK != retval) {
++			return retval;
++		}
++	}
++
++	oob_data = at91sam9_oob_init(nand, oob, &amp;oob_size);
++	retval = nand_read_data_page(nand, oob_data, oob_size);
++	if (ERROR_OK == retval &amp;&amp; data) {
++		target_read_u32(target, info-&gt;ecc + AT91C_ECCx_SR, &amp;status);
++		if (status &amp; 1) {
++			LOG_ERROR(&quot;Error detected!&quot;);
++			if (status &amp; 4) {
++				LOG_ERROR(&quot;Multiple errors encountered; unrecoverable!&quot;);
++			} else {
++				// attempt recovery
++				uint32_t parity;
++
++				target_read_u32(target, info-&gt;ecc + AT91C_ECCx_PR, &amp;parity);
++				uint32_t word = (parity &amp; 0x0000FFF0) &gt;&gt; 4;
++				uint32_t bit = parity &amp; 0x0F;
++
++				data[word] ^= (0x1) &lt;&lt; bit;
++				LOG_INFO(&quot;Data word %d, bit %d corrected.&quot;, word, bit);
++			}
++		}
++
++		if (status &amp; 2) {
++			// we could write back correct ECC data
++			LOG_ERROR(&quot;Error in ECC bytes detected&quot;);
++		}
++	}
++
++	if (!oob) {
++		// if it wasn't asked for, free it
++		free(oob_data);
++	}
++
++	return retval;
++}
++
++/**
++ * Write a page of data including 1-bit ECC information to a NAND device
++ * attached to an AT91SAM9 controller.  If there is OOB data to be written,
++ * this will ignore the computed ECC from the ECC controller.
++ *
++ * @param nand NAND device to write to.
++ * @param page Page to write.
++ * @param data Pointer to data being written.
++ * @param data_size Size of the data being written.
++ * @param oob Pointer to OOB data being written.
++ * @param oob_size Size of the OOB data.
++ * @return Success or failure of the page write.
++ */
++static int at91sam9_write_page(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
++{
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++	int retval;
++	uint8_t *oob_data = oob;
++	uint32_t parity, nparity;
++
++	retval = at91sam9_ecc_init(target, info);
++	if (ERROR_OK != retval) {
++		return retval;
++	}
++
++	retval = nand_page_command(nand, page, NAND_CMD_SEQIN, !data);
++	if (ERROR_OK != retval) {
++		return retval;
++	}
++
++	if (data) {
++		retval = nand_write_data_page(nand, data, data_size);
++		if (ERROR_OK != retval) {
++			LOG_ERROR(&quot;Unable to write data to NAND device&quot;);
++			return retval;
++		}
++	}
++
++	oob_data = at91sam9_oob_init(nand, oob, &amp;oob_size);
++
++	if (!oob) {
++		// no OOB given, so read in the ECC parity from the ECC controller
++		target_read_u32(target, info-&gt;ecc + AT91C_ECCx_PR, &amp;parity);
++		target_read_u32(target, info-&gt;ecc + AT91C_ECCx_NPR, &amp;nparity);
++
++		oob_data[0] = (uint8_t) parity;
++		oob_data[1] = (uint8_t) (parity &gt;&gt; 8);
++		oob_data[2] = (uint8_t) nparity;
++		oob_data[3] = (uint8_t) (nparity &gt;&gt; 8);
++	}
++
++	retval = nand_write_data_page(nand, oob_data, oob_size);
++
++	if (!oob) {
++		free(oob_data);
++	}
++
++	if (ERROR_OK != retval) {
++		LOG_ERROR(&quot;Unable to write OOB data to NAND&quot;);
++		return retval;
++	}
++
++	retval = nand_write_finish(nand);
++
++	return retval;
++}
++
++/**
++ * Handle the initial NAND device command for AT91SAM9 controllers.  This
++ * initializes much of the controller information struct to be ready for future
++ * reads and writes.
++ */
++NAND_DEVICE_COMMAND_HANDLER(at91sam9_nand_device_command) {
++	struct target *target = NULL;
++	unsigned long chip = 0, ecc = 0;
++	struct at91sam9_nand *info = NULL;
++
++	LOG_DEBUG(&quot;AT91SAM9 NAND Device Command\n&quot;);
++
++	if (CMD_ARGC &lt; 3 || CMD_ARGC &gt; 4) {
++		LOG_ERROR(&quot;parameters: %s target chip_addr&quot;, CMD_ARGV[0]);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	target = get_target(CMD_ARGV[1]);
++	if (!target) {
++		LOG_ERROR(&quot;invalid target: %s&quot;, CMD_ARGV[1]);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	COMMAND_PARSE_NUMBER(ulong, CMD_ARGV[2], chip);
++	if (chip == 0) {
++		LOG_ERROR(&quot;invalid NAND chip address: %s&quot;, CMD_ARGV[2]);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	if (CMD_ARGC == 4) {
++		COMMAND_PARSE_NUMBER(ulong, CMD_ARGV[3], ecc);
++		if (ecc == 0) {
++			LOG_ERROR(&quot;invalid ECC controller address: %s&quot;, CMD_ARGV[3]);
++			return ERROR_NAND_OPERATION_FAILED;
++		}
++	}
++
++	info = calloc(1, sizeof(*info));
++	if (!info) {
++		LOG_ERROR(&quot;unable to allocate space for controller private data&quot;);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	info-&gt;target = target;
++	info-&gt;data = chip;
++	info-&gt;cmd = chip | (1 &lt;&lt; 22);
++	info-&gt;addr = chip | (1 &lt;&lt; 21);
++	info-&gt;ecc = ecc;
++
++	nand-&gt;controller_priv = info;
++	info-&gt;io.target = target;
++	info-&gt;io.data = info-&gt;data;
++	info-&gt;io.op = ARM_NAND_NONE;
++
++	return ERROR_OK;
++}
++
++/**
++ * Handle the AT91SAM9 CLE command for specifying the address line to use for
++ * writing commands to a NAND device.
++ */
++COMMAND_HANDLER(handle_at91sam9_cle_command) {
++	struct nand_device *nand = NULL;
++	struct at91sam9_nand *info = NULL;
++	unsigned num, address_line;
++
++	if (CMD_ARGC != 2) {
++		command_print(CMD_CTX, &quot;incorrect number of arguments for 'at91sam9 cle' command&quot;);
++		return ERROR_OK;
++	}
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], num);
++	nand = get_nand_device_by_num(num);
++	if (!nand) {
++		command_print(CMD_CTX, &quot;invalid nand device number: %s&quot;, CMD_ARGV[0]);
++		return ERROR_OK;
++	}
++
++	info = nand-&gt;controller_priv;
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], address_line);
++	info-&gt;cmd = info-&gt;data | (1 &lt;&lt; address_line);
++
++	return ERROR_OK;
++}
++
++/**
++ * Handle the AT91SAM9 ALE command for specifying the address line to use for
++ * writing addresses to the NAND device.
++ */
++COMMAND_HANDLER(handle_at91sam9_ale_command) {
++	struct nand_device *nand = NULL;
++	struct at91sam9_nand *info = NULL;
++	unsigned num, address_line;
++
++	if (CMD_ARGC != 2) {
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], num);
++	nand = get_nand_device_by_num(num);
++	if (!nand) {
++		command_print(CMD_CTX, &quot;invalid nand device number: %s&quot;, CMD_ARGV[0]);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++
++	info = nand-&gt;controller_priv;
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], address_line);
++	info-&gt;addr = info-&gt;data | (1 &lt;&lt; address_line);
++
++	return ERROR_OK;
++}
++
++/**
++ * Handle the AT91SAM9 RDY/~BUSY command for specifying the pin that watches the
++ * RDY/~BUSY line from the NAND device.
++ */
++COMMAND_HANDLER(handle_at91sam9_rdy_busy_command) {
++	struct nand_device *nand = NULL;
++	struct at91sam9_nand *info = NULL;
++	unsigned num, base_pioc, pin_num;
++
++	if (CMD_ARGC != 3) {
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], num);
++	nand = get_nand_device_by_num(num);
++	if (!nand) {
++		command_print(CMD_CTX, &quot;invalid nand device number: %s&quot;, CMD_ARGV[0]);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++
++	info = nand-&gt;controller_priv;
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], base_pioc);
++	info-&gt;busy.pioc = base_pioc;
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[2], pin_num);
++	info-&gt;busy.num = pin_num;
++
++	return ERROR_OK;
++}
++
++/**
++ * Handle the AT91SAM9 CE command for specifying the pin that is used to enable
++ * or disable the NAND device.
++ */
++COMMAND_HANDLER(handle_at91sam9_ce_command) {
++	struct nand_device *nand = NULL;
++	struct at91sam9_nand *info = NULL;
++	unsigned num, base_pioc, pin_num;
++
++	if (CMD_ARGC != 3) {
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], num);
++	nand = get_nand_device_by_num(num);
++	if (!nand) {
++		command_print(CMD_CTX, &quot;invalid nand device number: %s&quot;, CMD_ARGV[0]);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++
++	info = nand-&gt;controller_priv;
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], base_pioc);
++	info-&gt;ce.pioc = base_pioc;
++
++	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[2], pin_num);
++	info-&gt;ce.num = pin_num;
++
++	return ERROR_OK;
++}
++
++static const struct command_registration at91sam9_sub_command_handlers[] = {
++	{
++		.name = &quot;cle&quot;,
++		.handler = handle_at91sam9_cle_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;set command latch enable address line (default is 22)&quot;,
++		.usage = &quot;&lt;device_id&gt; &lt;address_line&gt;&quot;,
++	},
++	{
++		.name = &quot;ale&quot;,
++		.handler = handle_at91sam9_ale_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;set address latch enable address line (default is 21)&quot;,
++		.usage = &quot;&lt;device_id&gt; &lt;address_line&gt;&quot;,
++	},
++	{
++		.name = &quot;rdy_busy&quot;,
++		.handler = handle_at91sam9_rdy_busy_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;set the input pin connected to RDY/~BUSY signal (no default)&quot;,
++		.usage = &quot;&lt;device_id&gt; &lt;base_pioc&gt; &lt;pin_num&gt;&quot;,
++	},
++	{
++		.name = &quot;ce&quot;,
++		.handler = handle_at91sam9_ce_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;set the output pin connected to chip enable signal (no default)&quot;,
++		.usage = &quot;&lt;device_id&gt; &lt;base_pioc&gt; &lt;pin_num&gt;&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++static const struct command_registration at91sam9_command_handler[] = {
++	{
++		.name = &quot;at91sam9&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;AT91SAM9 NAND flash controller commands&quot;,
++		.chain = at91sam9_sub_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++/**
++ * Structure representing the AT91SAM9 NAND controller.
++ */
++struct nand_flash_controller at91sam9_nand_controller = {
++	.name = &quot;at91sam9&quot;,
++	.nand_device_command = at91sam9_nand_device_command,
++	.commands = at91sam9_command_handler,
++	.init = at91sam9_init,
++	.command = at91sam9_command,
++	.reset = at91sam9_reset,
++	.address = at91sam9_address,
++	.read_data = at91sam9_read_data,
++	.write_data = at91sam9_write_data,
++	.nand_ready = at91sam9_nand_ready,
++	.read_block_data = at91sam9_read_block_data,
++	.write_block_data = at91sam9_write_block_data,
++	.read_page = at91sam9_read_page,
++	.write_page = at91sam9_write_page,
++};
+diff --git a/src/flash/nand/driver.c b/src/flash/nand/driver.c
+index 1ccc4f4..0e174b2 100644
+--- a/src/flash/nand/driver.c
++++ b/src/flash/nand/driver.c
+@@ -37,6 +37,7 @@ extern struct nand_flash_controller s3c2412_nand_controller;
+ extern struct nand_flash_controller s3c2440_nand_controller;
+ extern struct nand_flash_controller s3c2443_nand_controller;
+ extern struct nand_flash_controller imx31_nand_flash_controller;
++extern struct nand_flash_controller at91sam9_nand_controller;
+ 
+ /* extern struct nand_flash_controller boundary_scan_nand_controller; */
+ 
+@@ -51,6 +52,7 @@ static struct nand_flash_controller *nand_flash_controllers[] =
+ 	&amp;s3c2440_nand_controller,
+ 	&amp;s3c2443_nand_controller,
+ 	&amp;imx31_nand_flash_controller,
++	&amp;at91sam9_nand_controller,
+ /*	&amp;boundary_scan_nand_controller, */
+ 	NULL
+ };
+-- 
+1.6.5.2
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013686.html">[Openocd-development] [PATCH 0/2] AT91SAM9 NAND Driver
+</A></li>
+	<LI>Next message: <A HREF="013689.html">[Openocd-development] [PATCH 2/2] Olimex SAM9-L9260 board	configuration update.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13688">[ date ]</a>
+              <a href="thread.html#13688">[ thread ]</a>
+              <a href="subject.html#13688">[ subject ]</a>
+              <a href="author.html#13688">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

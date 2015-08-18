@@ -1,0 +1,916 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Problems with linux and libftdi
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problems%20with%20linux%20and%20libftdi&In-Reply-To=%3C200711101431.03191.gimaker%40kth.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000387.html">
+   <LINK REL="Next"  HREF="000390.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Problems with linux and libftdi</H1>
+    <B>Staffan Gim&#229;ker</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problems%20with%20linux%20and%20libftdi&In-Reply-To=%3C200711101431.03191.gimaker%40kth.se%3E"
+       TITLE="[Openocd-development] Problems with linux and libftdi">gimaker at kth.se
+       </A><BR>
+    <I>Sat Nov 10 14:31:03 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000387.html">[Openocd-development] Handling timeout in &quot;monitor&quot; commands
+</A></li>
+        <LI>Next message: <A HREF="000390.html">[Openocd-development] Ideas on how to make the reset command less	confusing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#389">[ date ]</a>
+              <a href="thread.html#389">[ thread ]</a>
+              <a href="subject.html#389">[ subject ]</a>
+              <a href="author.html#389">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+I'm trying to use OpenOCD to flash and debug an Atmel AT91SAM7S256, using the 
+Olimex ARM-USB-OCD. I'm using the latest version from SVN (r211).
+
+The configuration file I use works on a Windows host, but I ran into the 
+following problems when using my Ubuntu (x86_64) box:
+
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">staffan at june</A>:~/bbfw$ openocd -d 
+3 -f /home/staffan/bbfw/openocd_at91sam7s_dbg_ftdi.cfg
+Info:    openocd.c:92 main(): Open On-Chip Debugger (2007-07-31 19:00 CEST)
+Debug:   jtag.c:1407 jtag_init(): -
+Debug:   ft2232.c:1421 ft2232_init_libftdi(): 'ft2232' interface using libftdi 
+with 'olimex-jtag' layout (15ba:0003)
+Error:   ft2232.c:1433 ft2232_init_libftdi(): unable to open ftdi device: 
+unable to fetch product description
+
+I have added udev rules so that the device should be read-writable by all 
+users, so faulty permissions shouldn't be the cause? When run as root, I get 
+similar results:
+
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">staffan at june</A>:~/bbfw$ sudo openocd -d 
+3 -f /home/staffan/bbfw/openocd_at91sam7s_dbg_ftdi.cfg
+Info:    openocd.c:92 main(): Open On-Chip Debugger (2007-07-31 19:00 CEST)
+Debug:   jtag.c:1407 jtag_init(): -
+Debug:   ft2232.c:1421 ft2232_init_libftdi(): 'ft2232' interface using libftdi 
+with 'olimex-jtag' layout (15ba:0003)
+Error:   ft2232.c:1433 ft2232_init_libftdi(): unable to open ftdi device: 
+device not found
+
+Using the binary-only ftd2xx driver is not an option since my system is 
+64-bit.
+
+Does anyone have a clue of what might be wrong and how it can be remedied?
+
+
+Staffan Gim&#229;ker
+-------------- next part --------------
+#daemon configuration
+telnet_port 4444
+gdb_port 3333
+
+#interface
+interface ft2232
+ft2232_device_desc &quot;Olimex OpenOCD JTAG A&quot;
+ft2232_layout &quot;olimex-jtag&quot;
+ft2232_vid_pid 0x15ba 0x0003
+jtag_speed 0
+jtag_nsrst_delay 500
+jtag_ntrst_delay 500
+
+#use combined on interfaces or targets that can't set TRST/SRST separately
+reset_config srst_only srst_pulls_trst
+
+#jtag scan chain
+#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag_device 4 0x1 0xf 0xe
+
+#target configuration
+daemon_startup reset
+
+#target &lt;type&gt; &lt;startup mode&gt;
+#target arm7tdmi &lt;reset mode&gt; &lt;chainpos&gt; &lt;endianness&gt; &lt;variant&gt;
+target arm7tdmi little run_and_halt 0 arm7tdmi
+run_and_halt_time 0 30
+
+# flash-options AT91
+working_area 0 0x00200000 0x4000 nobackup
+flash bank at91sam7 0 0 0 0 0
+
+# Information: 
+# erase command (telnet-interface) for complete flash:
+# flash erase &lt;num&gt; 0 numlockbits-1 (can be seen from output of flash info 0)
+# SAM7S64 with 16 lockbits and bank 0: flash erase 0 0 15
+# set/clear NVM-Bits:
+# at91sam7 gpnvm &lt;num&gt; &lt;bit&gt; &lt;set|clear&gt;
+# disable locking from SAM-BA:
+# flash protect 0 0 1 off
+
+# For more information about the configuration files, take a look at:
+# <A HREF="http://openfacts.berlios.de/index-en.phtml?title=Open+On-Chip+Debugger">http://openfacts.berlios.de/index-en.phtml?title=Open+On-Chip+Debugger</A>
+-------------- next part --------------
+
+Bus 003 Device 001: ID 0000:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            9 Hub
+  bDeviceSubClass         0 Unused
+  bDeviceProtocol         0 Full speed hub
+  bMaxPacketSize0        64
+  idVendor           0x0000 
+  idProduct          0x0000 
+  bcdDevice            2.06
+  iManufacturer           3 Linux 2.6.22-14-generic uhci_hcd
+  iProduct                2 UHCI Host Controller
+  iSerial                 1 0000:00:1a.0
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           25
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xe0
+      Self Powered
+      Remote Wakeup
+    MaxPower                0mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         9 Hub
+      bInterfaceSubClass      0 Unused
+      bInterfaceProtocol      0 Full speed hub
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0002  1x 2 bytes
+        bInterval             255
+Hub Descriptor:
+  bLength               9
+  bDescriptorType      41
+  nNbrPorts             2
+  wHubCharacteristic 0x000a
+    No power switching (usb 1.0)
+    Per-port overcurrent protection
+  bPwrOn2PwrGood        1 * 2 milli seconds
+  bHubContrCurrent      0 milli Ampere
+  DeviceRemovable    0x00
+  PortPwrCtrlMask    0xff
+ Hub Port Status:
+   Port 1: 0000.0100 power
+   Port 2: 0000.0100 power
+Device Status:     0x0003
+  Self Powered
+  Remote Wakeup Enabled
+
+Bus 004 Device 001: ID 0000:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            9 Hub
+  bDeviceSubClass         0 Unused
+  bDeviceProtocol         0 Full speed hub
+  bMaxPacketSize0        64
+  idVendor           0x0000 
+  idProduct          0x0000 
+  bcdDevice            2.06
+  iManufacturer           3 Linux 2.6.22-14-generic uhci_hcd
+  iProduct                2 UHCI Host Controller
+  iSerial                 1 0000:00:1a.1
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           25
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xe0
+      Self Powered
+      Remote Wakeup
+    MaxPower                0mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         9 Hub
+      bInterfaceSubClass      0 Unused
+      bInterfaceProtocol      0 Full speed hub
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0002  1x 2 bytes
+        bInterval             255
+Hub Descriptor:
+  bLength               9
+  bDescriptorType      41
+  nNbrPorts             2
+  wHubCharacteristic 0x000a
+    No power switching (usb 1.0)
+    Per-port overcurrent protection
+  bPwrOn2PwrGood        1 * 2 milli seconds
+  bHubContrCurrent      0 milli Ampere
+  DeviceRemovable    0x00
+  PortPwrCtrlMask    0xff
+ Hub Port Status:
+   Port 1: 0000.0100 power
+   Port 2: 0000.0100 power
+Device Status:     0x0003
+  Self Powered
+  Remote Wakeup Enabled
+
+Bus 007 Device 006: ID ffff:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            0 (Defined at Interface level)
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0         8
+  idVendor           0xffff 
+  idProduct          0x0000 
+  bcdDevice            0.01
+  iManufacturer           0 
+  iProduct                0 
+  iSerial                 0 
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           34
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xa0
+      (Bus Powered)
+      Remote Wakeup
+    MaxPower              100mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         3 Human Interface Devices
+      bInterfaceSubClass      1 Boot Interface Subclass
+      bInterfaceProtocol      2 Mouse
+      iInterface              0 
+        HID Device Descriptor:
+          bLength                 9
+          bDescriptorType        33
+          bcdHID               1.00
+          bCountryCode            0 Not supported
+          bNumDescriptors         1
+          bDescriptorType        34 Report
+          wDescriptorLength      50
+         Report Descriptors: 
+           ** UNAVAILABLE **
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0004  1x 4 bytes
+        bInterval              10
+Device Status:     0x0000
+  (Bus Powered)
+
+Bus 007 Device 005: ID 15ba:0003  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               2.00
+  bDeviceClass            0 (Defined at Interface level)
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0         8
+  idVendor           0x15ba 
+  idProduct          0x0003 
+  bcdDevice            5.00
+  iManufacturer           1 Olimex
+  iProduct                2 Olimex OpenOCD JTAG
+  iSerial                 3 FTOO68QS
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           55
+    bNumInterfaces          2
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0x80
+      (Bus Powered)
+    MaxPower              300mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           2
+      bInterfaceClass       255 Vendor Specific Class
+      bInterfaceSubClass    255 Vendor Specific Subclass
+      bInterfaceProtocol    255 Vendor Specific Protocol
+      iInterface              2 Olimex OpenOCD JTAG
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x02  EP 2 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        1
+      bAlternateSetting       0
+      bNumEndpoints           2
+      bInterfaceClass       255 Vendor Specific Class
+      bInterfaceSubClass    255 Vendor Specific Subclass
+      bInterfaceProtocol    255 Vendor Specific Protocol
+      iInterface              2 Olimex OpenOCD JTAG
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x83  EP 3 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x04  EP 4 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+Device Status:     0x0000
+  (Bus Powered)
+
+Bus 007 Device 001: ID 0000:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            9 Hub
+  bDeviceSubClass         0 Unused
+  bDeviceProtocol         0 Full speed hub
+  bMaxPacketSize0        64
+  idVendor           0x0000 
+  idProduct          0x0000 
+  bcdDevice            2.06
+  iManufacturer           3 Linux 2.6.22-14-generic uhci_hcd
+  iProduct                2 UHCI Host Controller
+  iSerial                 1 0000:00:1d.2
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           25
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xe0
+      Self Powered
+      Remote Wakeup
+    MaxPower                0mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         9 Hub
+      bInterfaceSubClass      0 Unused
+      bInterfaceProtocol      0 Full speed hub
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0002  1x 2 bytes
+        bInterval             255
+Hub Descriptor:
+  bLength               9
+  bDescriptorType      41
+  nNbrPorts             2
+  wHubCharacteristic 0x000a
+    No power switching (usb 1.0)
+    Per-port overcurrent protection
+  bPwrOn2PwrGood        1 * 2 milli seconds
+  bHubContrCurrent      0 milli Ampere
+  DeviceRemovable    0x00
+  PortPwrCtrlMask    0xff
+ Hub Port Status:
+   Port 1: 0000.0103 power enable connect
+   Port 2: 0000.0103 power enable connect
+Device Status:     0x0003
+  Self Powered
+  Remote Wakeup Enabled
+
+Bus 005 Device 002: ID 056a:00b1 Wacom Co., Ltd 
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            0 (Defined at Interface level)
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0         8
+  idVendor           0x056a Wacom Co., Ltd
+  idProduct          0x00b1 
+  bcdDevice            1.02
+  iManufacturer           1 
+  iProduct                2 
+  iSerial                 0 
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           34
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0x80
+      (Bus Powered)
+    MaxPower              300mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         3 Human Interface Devices
+      bInterfaceSubClass      1 Boot Interface Subclass
+      bInterfaceProtocol      2 Mouse
+      iInterface              0 
+        HID Device Descriptor:
+          bLength                 9
+          bDescriptorType        33
+          bcdHID               1.00
+          bCountryCode            0 Not supported
+          bNumDescriptors         1
+          bDescriptorType        34 Report
+          wDescriptorLength     170
+         Report Descriptors: 
+           ** UNAVAILABLE **
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x000a  1x 10 bytes
+        bInterval               4
+Device Status:     0x0000
+  (Bus Powered)
+
+Bus 005 Device 001: ID 0000:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            9 Hub
+  bDeviceSubClass         0 Unused
+  bDeviceProtocol         0 Full speed hub
+  bMaxPacketSize0        64
+  idVendor           0x0000 
+  idProduct          0x0000 
+  bcdDevice            2.06
+  iManufacturer           3 Linux 2.6.22-14-generic uhci_hcd
+  iProduct                2 UHCI Host Controller
+  iSerial                 1 0000:00:1d.0
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           25
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xe0
+      Self Powered
+      Remote Wakeup
+    MaxPower                0mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         9 Hub
+      bInterfaceSubClass      0 Unused
+      bInterfaceProtocol      0 Full speed hub
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0002  1x 2 bytes
+        bInterval             255
+Hub Descriptor:
+  bLength               9
+  bDescriptorType      41
+  nNbrPorts             2
+  wHubCharacteristic 0x000a
+    No power switching (usb 1.0)
+    Per-port overcurrent protection
+  bPwrOn2PwrGood        1 * 2 milli seconds
+  bHubContrCurrent      0 milli Ampere
+  DeviceRemovable    0x00
+  PortPwrCtrlMask    0xff
+ Hub Port Status:
+   Port 1: 0000.0100 power
+   Port 2: 0000.0103 power enable connect
+Device Status:     0x0003
+  Self Powered
+  Remote Wakeup Enabled
+
+Bus 006 Device 002: ID 046d:c213 Logitech, Inc. 
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            0 (Defined at Interface level)
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0         8
+  idVendor           0x046d Logitech, Inc.
+  idProduct          0xc213 
+  bcdDevice            1.00
+  iManufacturer           3 Logitech
+  iProduct                1 Logitech Freedom 2.4
+  iSerial                 0 
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           41
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0x80
+      (Bus Powered)
+    MaxPower              100mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           2
+      bInterfaceClass         3 Human Interface Devices
+      bInterfaceSubClass      0 No Subclass
+      bInterfaceProtocol      0 None
+      iInterface              0 
+        HID Device Descriptor:
+          bLength                 9
+          bDescriptorType        33
+          bcdHID               1.10
+          bCountryCode           33 US
+          bNumDescriptors         1
+          bDescriptorType        34 Report
+          wDescriptorLength     137
+         Report Descriptors: 
+           ** UNAVAILABLE **
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0008  1x 8 bytes
+        bInterval              10
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x01  EP 1 OUT
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0008  1x 8 bytes
+        bInterval              10
+Device Status:     0x0000
+  (Bus Powered)
+
+Bus 006 Device 001: ID 0000:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            9 Hub
+  bDeviceSubClass         0 Unused
+  bDeviceProtocol         0 Full speed hub
+  bMaxPacketSize0        64
+  idVendor           0x0000 
+  idProduct          0x0000 
+  bcdDevice            2.06
+  iManufacturer           3 Linux 2.6.22-14-generic uhci_hcd
+  iProduct                2 UHCI Host Controller
+  iSerial                 1 0000:00:1d.1
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           25
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xe0
+      Self Powered
+      Remote Wakeup
+    MaxPower                0mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         9 Hub
+      bInterfaceSubClass      0 Unused
+      bInterfaceProtocol      0 Full speed hub
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0002  1x 2 bytes
+        bInterval             255
+Hub Descriptor:
+  bLength               9
+  bDescriptorType      41
+  nNbrPorts             2
+  wHubCharacteristic 0x000a
+    No power switching (usb 1.0)
+    Per-port overcurrent protection
+  bPwrOn2PwrGood        1 * 2 milli seconds
+  bHubContrCurrent      0 milli Ampere
+  DeviceRemovable    0x00
+  PortPwrCtrlMask    0xff
+ Hub Port Status:
+   Port 1: 0000.0303 lowspeed power enable connect
+   Port 2: 0000.0100 power
+Device Status:     0x0003
+  Self Powered
+  Remote Wakeup Enabled
+
+Bus 002 Device 001: ID 0000:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               2.00
+  bDeviceClass            9 Hub
+  bDeviceSubClass         0 Unused
+  bDeviceProtocol         1 Single TT
+  bMaxPacketSize0        64
+  idVendor           0x0000 
+  idProduct          0x0000 
+  bcdDevice            2.06
+  iManufacturer           3 Linux 2.6.22-14-generic ehci_hcd
+  iProduct                2 EHCI Host Controller
+  iSerial                 1 0000:00:1d.7
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           25
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xe0
+      Self Powered
+      Remote Wakeup
+    MaxPower                0mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         9 Hub
+      bInterfaceSubClass      0 Unused
+      bInterfaceProtocol      0 Full speed hub
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0004  1x 4 bytes
+        bInterval              12
+Hub Descriptor:
+  bLength               9
+  bDescriptorType      41
+  nNbrPorts             6
+  wHubCharacteristic 0x000a
+    No power switching (usb 1.0)
+    Per-port overcurrent protection
+    TT think time 8 FS bits
+  bPwrOn2PwrGood       10 * 2 milli seconds
+  bHubContrCurrent      0 milli Ampere
+  DeviceRemovable    0x00
+  PortPwrCtrlMask    0xff
+ Hub Port Status:
+   Port 1: 0000.0100 power
+   Port 2: 0000.0100 power
+   Port 3: 0000.0100 power
+   Port 4: 0000.0100 power
+   Port 5: 0000.0100 power
+   Port 6: 0000.0100 power
+Device Status:     0x0003
+  Self Powered
+  Remote Wakeup Enabled
+
+Bus 001 Device 001: ID 0000:0000  
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               2.00
+  bDeviceClass            9 Hub
+  bDeviceSubClass         0 Unused
+  bDeviceProtocol         1 Single TT
+  bMaxPacketSize0        64
+  idVendor           0x0000 
+  idProduct          0x0000 
+  bcdDevice            2.06
+  iManufacturer           3 Linux 2.6.22-14-generic ehci_hcd
+  iProduct                2 EHCI Host Controller
+  iSerial                 1 0000:00:1a.7
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength           25
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xe0
+      Self Powered
+      Remote Wakeup
+    MaxPower                0mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           1
+      bInterfaceClass         9 Hub
+      bInterfaceSubClass      0 Unused
+      bInterfaceProtocol      0 Full speed hub
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0004  1x 4 bytes
+        bInterval              12
+Hub Descriptor:
+  bLength               9
+  bDescriptorType      41
+  nNbrPorts             4
+  wHubCharacteristic 0x000a
+    No power switching (usb 1.0)
+    Per-port overcurrent protection
+    TT think time 8 FS bits
+  bPwrOn2PwrGood       10 * 2 milli seconds
+  bHubContrCurrent      0 milli Ampere
+  DeviceRemovable    0x00
+  PortPwrCtrlMask    0xff
+ Hub Port Status:
+   Port 1: 0000.0100 power
+   Port 2: 0000.0100 power
+   Port 3: 0000.0100 power
+   Port 4: 0000.0100 power
+Device Status:     0x0003
+  Self Powered
+  Remote Wakeup Enabled
+-------------- next part --------------
+crw-rw---- 1 root root 189,   0 2007-11-09 18:16 /dev/usb1
+crw-rw---- 1 root root 189, 128 2007-11-09 18:16 /dev/usb2
+crw-rw---- 1 root root 189, 256 2007-11-09 18:16 /dev/usb3
+crw-rw---- 1 root root 189, 384 2007-11-09 18:16 /dev/usb4
+crw-rw---- 1 root root 189, 512 2007-11-09 18:16 /dev/usb5
+crw-rw---- 1 root root 189, 640 2007-11-09 18:16 /dev/usb6
+crw-rw---- 1 root root 189, 768 2007-11-09 18:16 /dev/usb7
+crw-rw---- 1 root root 253,   0 2007-11-09 18:16 /dev/usbdev1.1_ep00
+crw-rw---- 1 root root 253,   1 2007-11-09 18:16 /dev/usbdev1.1_ep81
+crw-rw---- 1 root root 253,   2 2007-11-09 18:16 /dev/usbdev2.1_ep00
+crw-rw---- 1 root root 253,   3 2007-11-09 18:16 /dev/usbdev2.1_ep81
+crw-rw---- 1 root root 253,   4 2007-11-09 18:16 /dev/usbdev3.1_ep00
+crw-rw---- 1 root root 253,   5 2007-11-09 18:16 /dev/usbdev3.1_ep81
+crw-rw---- 1 root root 253,   6 2007-11-09 18:16 /dev/usbdev4.1_ep00
+crw-rw---- 1 root root 253,   7 2007-11-09 18:16 /dev/usbdev4.1_ep81
+crw-rw---- 1 root root 253,   8 2007-11-09 18:16 /dev/usbdev5.1_ep00
+crw-rw---- 1 root root 253,   9 2007-11-09 18:16 /dev/usbdev5.1_ep81
+crw-rw---- 1 root root 253,  14 2007-11-09 18:16 /dev/usbdev5.2_ep00
+crw-rw---- 1 root root 253,  15 2007-11-09 18:16 /dev/usbdev5.2_ep81
+crw-rw---- 1 root root 253,  10 2007-11-09 18:16 /dev/usbdev6.1_ep00
+crw-rw---- 1 root root 253,  11 2007-11-09 18:16 /dev/usbdev6.1_ep81
+crw-rw---- 1 root root 253,  16 2007-11-09 18:16 /dev/usbdev6.2_ep00
+crw-rw---- 1 root root 253,  18 2007-11-09 18:16 /dev/usbdev6.2_ep01
+crw-rw---- 1 root root 253,  17 2007-11-09 18:16 /dev/usbdev6.2_ep81
+crw-rw---- 1 root root 253,  12 2007-11-09 18:16 /dev/usbdev7.1_ep00
+crw-rw---- 1 root root 253,  13 2007-11-09 18:16 /dev/usbdev7.1_ep81
+crw-rw-rw- 1 root root 253,  19 2007-11-10 10:35 /dev/usbdev7.5_ep00
+crw-rw-rw- 1 root root 253,  21 2007-11-10 10:35 /dev/usbdev7.5_ep02
+crw-rw-rw- 1 root root 253,  23 2007-11-10 10:35 /dev/usbdev7.5_ep04
+crw-rw-rw- 1 root root 253,  20 2007-11-10 10:35 /dev/usbdev7.5_ep81
+crw-rw-rw- 1 root root 253,  22 2007-11-10 10:35 /dev/usbdev7.5_ep83
+crw-rw---- 1 root root 253,  24 2007-11-10 13:57 /dev/usbdev7.6_ep00
+crw-rw---- 1 root root 253,  25 2007-11-10 13:57 /dev/usbdev7.6_ep81
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000387.html">[Openocd-development] Handling timeout in &quot;monitor&quot; commands
+</A></li>
+	<LI>Next message: <A HREF="000390.html">[Openocd-development] Ideas on how to make the reset command less	confusing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#389">[ date ]</a>
+              <a href="thread.html#389">[ thread ]</a>
+              <a href="subject.html#389">[ subject ]</a>
+              <a href="author.html#389">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

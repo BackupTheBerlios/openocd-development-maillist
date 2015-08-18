@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] Reorganize NAND flash table
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Reorganize%20NAND%20flash%20table&In-Reply-To=%3C1306233700-87807-1-git-send-email-damjan.marion%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019152.html">
+   <LINK REL="Next"  HREF="019155.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] Reorganize NAND flash table</H1>
+    <B>Damjan Marion</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Reorganize%20NAND%20flash%20table&In-Reply-To=%3C1306233700-87807-1-git-send-email-damjan.marion%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] Reorganize NAND flash table">damjan.marion at gmail.com
+       </A><BR>
+    <I>Tue May 24 12:41:39 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019152.html">[Openocd-development] OMAP3530 / beagleboard supper status
+</A></li>
+        <LI>Next message: <A HREF="019155.html">[Openocd-development] [PATCH 2/2] Improve NAND flash detection
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19154">[ date ]</a>
+              <a href="thread.html#19154">[ thread ]</a>
+              <a href="subject.html#19154">[ subject ]</a>
+              <a href="author.html#19154">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>- adds manufacturer field
+- name moved to the end for better text alignment
+- adds support for two Samsung NAND devices
+---
+ src/flash/nand/core.c |  154 +++++++++++++++++++++++++------------------------
+ src/flash/nand/core.h |    3 +-
+ 2 files changed, 81 insertions(+), 76 deletions(-)
+
+diff --git a/src/flash/nand/core.c b/src/flash/nand/core.c
+index 7c20ca5..4ab9436 100644
+--- a/src/flash/nand/core.c
++++ b/src/flash/nand/core.c
+@@ -42,8 +42,8 @@ void nand_device_add(struct nand_device *c)
+ 
+ /*	Chip ID list
+  *
+- *	Name, ID code, pagesize, chipsize in MegaByte, eraseblock size,
+- *	options
++ *	Manufacturer, ID code, pagesize, chipsize in MegaByte, eraseblock size,
++ *	options, name
+  *
+  *	Pagesize; 0, 256, 512
+  *	0	get this information from the extended chip ID
+@@ -52,82 +52,86 @@ void nand_device_add(struct nand_device *c)
+  */
+ static struct nand_info nand_flash_ids[] =
+ {
++	/* Vendor Specific Entries */
++	{ NAND_MFR_SAMSUNG,	0xD5, 8192, 2048, 0x100000, LP_OPTIONS, &quot;K9GAG08 2GB NAND 3.3V x8 MLC 2b/cell&quot;},
++	{ NAND_MFR_SAMSUNG,	0xD7, 8192, 4096, 0x100000, LP_OPTIONS, &quot;K9LBG08 4GB NAND 3.3V x8 MLC 2b/cell&quot;},
++
+ 	/* start &quot;museum&quot; IDs */
+-	{&quot;NAND 1MiB 5V 8-bit&quot;,		0x6e, 256, 1, 0x1000, 0},
+-	{&quot;NAND 2MiB 5V 8-bit&quot;,		0x64, 256, 2, 0x1000, 0},
+-	{&quot;NAND 4MiB 5V 8-bit&quot;,		0x6b, 512, 4, 0x2000, 0},
+-	{&quot;NAND 1MiB 3.3V 8-bit&quot;,	0xe8, 256, 1, 0x1000, 0},
+-	{&quot;NAND 1MiB 3.3V 8-bit&quot;,	0xec, 256, 1, 0x1000, 0},
+-	{&quot;NAND 2MiB 3.3V 8-bit&quot;,	0xea, 256, 2, 0x1000, 0},
+-	{&quot;NAND 4MiB 3.3V 8-bit&quot;,	0xd5, 512, 4, 0x2000, 0},
+-	{&quot;NAND 4MiB 3.3V 8-bit&quot;,	0xe3, 512, 4, 0x2000, 0},
+-	{&quot;NAND 4MiB 3.3V 8-bit&quot;,	0xe5, 512, 4, 0x2000, 0},
+-	{&quot;NAND 8MiB 3.3V 8-bit&quot;,	0xd6, 512, 8, 0x2000, 0},
+-
+-	{&quot;NAND 8MiB 1.8V 8-bit&quot;,	0x39, 512, 8, 0x2000, 0},
+-	{&quot;NAND 8MiB 3.3V 8-bit&quot;,	0xe6, 512, 8, 0x2000, 0},
+-	{&quot;NAND 8MiB 1.8V 16-bit&quot;,	0x49, 512, 8, 0x2000, NAND_BUSWIDTH_16},
+-	{&quot;NAND 8MiB 3.3V 16-bit&quot;,	0x59, 512, 8, 0x2000, NAND_BUSWIDTH_16},
++	{ 0x0,			0x6e, 256, 1, 0x1000, 0,	 	&quot;NAND 1MiB 5V 8-bit&quot;},
++	{ 0x0,			0x64, 256, 2, 0x1000, 0,		&quot;NAND 2MiB 5V 8-bit&quot;},
++	{ 0x0,			0x6b, 512, 4, 0x2000, 0,		&quot;NAND 4MiB 5V 8-bit&quot;},
++	{ 0x0,			0xe8, 256, 1, 0x1000, 0,		&quot;NAND 1MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xec, 256, 1, 0x1000, 0,		&quot;NAND 1MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xea, 256, 2, 0x1000, 0,		&quot;NAND 2MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xd5, 512, 4, 0x2000, 0,		&quot;NAND 4MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xe3, 512, 4, 0x2000, 0,		&quot;NAND 4MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xe5, 512, 4, 0x2000, 0,		&quot;NAND 4MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xd6, 512, 8, 0x2000, 0,		&quot;NAND 8MiB 3.3V 8-bit&quot;},
++
++	{ 0x0,			0x39, 512, 8, 0x2000, 0, 		&quot;NAND 8MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0xe6, 512, 8, 0x2000, 0, 		&quot;NAND 8MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0x49, 512, 8, 0x2000, NAND_BUSWIDTH_16, &quot;NAND 8MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0x59, 512, 8, 0x2000, NAND_BUSWIDTH_16, &quot;NAND 8MiB 3.3V 16-bit&quot;},
+ 	/* end &quot;museum&quot; IDs */
+ 
+-	{&quot;NAND 16MiB 1.8V 8-bit&quot;,	0x33, 512, 16, 0x4000, 0},
+-	{&quot;NAND 16MiB 3.3V 8-bit&quot;,	0x73, 512, 16, 0x4000, 0},
+-	{&quot;NAND 16MiB 1.8V 16-bit&quot;,	0x43, 512, 16, 0x4000, NAND_BUSWIDTH_16},
+-	{&quot;NAND 16MiB 3.3V 16-bit&quot;,	0x53, 512, 16, 0x4000, NAND_BUSWIDTH_16},
+-
+-	{&quot;NAND 32MiB 1.8V 8-bit&quot;,	0x35, 512, 32, 0x4000, 0},
+-	{&quot;NAND 32MiB 3.3V 8-bit&quot;,	0x75, 512, 32, 0x4000, 0},
+-	{&quot;NAND 32MiB 1.8V 16-bit&quot;,	0x45, 512, 32, 0x4000, NAND_BUSWIDTH_16},
+-	{&quot;NAND 32MiB 3.3V 16-bit&quot;,	0x55, 512, 32, 0x4000, NAND_BUSWIDTH_16},
+-
+-	{&quot;NAND 64MiB 1.8V 8-bit&quot;,	0x36, 512, 64, 0x4000, 0},
+-	{&quot;NAND 64MiB 3.3V 8-bit&quot;,	0x76, 512, 64, 0x4000, 0},
+-	{&quot;NAND 64MiB 1.8V 16-bit&quot;,	0x46, 512, 64, 0x4000, NAND_BUSWIDTH_16},
+-	{&quot;NAND 64MiB 3.3V 16-bit&quot;,	0x56, 512, 64, 0x4000, NAND_BUSWIDTH_16},
+-
+-	{&quot;NAND 128MiB 1.8V 8-bit&quot;,	0x78, 512, 128, 0x4000, 0},
+-	{&quot;NAND 128MiB 1.8V 8-bit&quot;,	0x39, 512, 128, 0x4000, 0},
+-	{&quot;NAND 128MiB 3.3V 8-bit&quot;,	0x79, 512, 128, 0x4000, 0},
+-	{&quot;NAND 128MiB 1.8V 16-bit&quot;,	0x72, 512, 128, 0x4000, NAND_BUSWIDTH_16},
+-	{&quot;NAND 128MiB 1.8V 16-bit&quot;,	0x49, 512, 128, 0x4000, NAND_BUSWIDTH_16},
+-	{&quot;NAND 128MiB 3.3V 16-bit&quot;,	0x74, 512, 128, 0x4000, NAND_BUSWIDTH_16},
+-	{&quot;NAND 128MiB 3.3V 16-bit&quot;,	0x59, 512, 128, 0x4000, NAND_BUSWIDTH_16},
+-
+-	{&quot;NAND 256MiB 3.3V 8-bit&quot;,	0x71, 512, 256, 0x4000, 0},
+-
+-	{&quot;NAND 64MiB 1.8V 8-bit&quot;,	0xA2, 0,  64, 0, LP_OPTIONS},
+-	{&quot;NAND 64MiB 3.3V 8-bit&quot;,	0xF2, 0,  64, 0, LP_OPTIONS},
+-	{&quot;NAND 64MiB 1.8V 16-bit&quot;,	0xB2, 0,  64, 0, LP_OPTIONS16},
+-	{&quot;NAND 64MiB 3.3V 16-bit&quot;,	0xC2, 0,  64, 0, LP_OPTIONS16},
+-
+-	{&quot;NAND 128MiB 1.8V 8-bit&quot;,	0xA1, 0, 128, 0, LP_OPTIONS},
+-	{&quot;NAND 128MiB 3.3V 8-bit&quot;,	0xF1, 0, 128, 0, LP_OPTIONS},
+-	{&quot;NAND 128MiB 1.8V 16-bit&quot;,	0xB1, 0, 128, 0, LP_OPTIONS16},
+-	{&quot;NAND 128MiB 3.3V 16-bit&quot;,	0xC1, 0, 128, 0, LP_OPTIONS16},
+-
+-	{&quot;NAND 256MiB 1.8V 8-bit&quot;,	0xAA, 0, 256, 0, LP_OPTIONS},
+-	{&quot;NAND 256MiB 3.3V 8-bit&quot;,	0xDA, 0, 256, 0, LP_OPTIONS},
+-	{&quot;NAND 256MiB 1.8V 16-bit&quot;,	0xBA, 0, 256, 0, LP_OPTIONS16},
+-	{&quot;NAND 256MiB 3.3V 16-bit&quot;,	0xCA, 0, 256, 0, LP_OPTIONS16},
+-
+-	{&quot;NAND 512MiB 1.8V 8-bit&quot;,	0xAC, 0, 512, 0, LP_OPTIONS},
+-	{&quot;NAND 512MiB 3.3V 8-bit&quot;,	0xDC, 0, 512, 0, LP_OPTIONS},
+-	{&quot;NAND 512MiB 1.8V 16-bit&quot;,	0xBC, 0, 512, 0, LP_OPTIONS16},
+-	{&quot;NAND 512MiB 3.3V 16-bit&quot;,	0xCC, 0, 512, 0, LP_OPTIONS16},
+-
+-	{&quot;NAND 1GiB 1.8V 8-bit&quot;,	0xA3, 0, 1024, 0, LP_OPTIONS},
+-	{&quot;NAND 1GiB 3.3V 8-bit&quot;,	0xD3, 0, 1024, 0, LP_OPTIONS},
+-	{&quot;NAND 1GiB 1.8V 16-bit&quot;,	0xB3, 0, 1024, 0, LP_OPTIONS16},
+-	{&quot;NAND 1GiB 3.3V 16-bit&quot;,	0xC3, 0, 1024, 0, LP_OPTIONS16},
+-
+-	{&quot;NAND 2GiB 1.8V 8-bit&quot;,	0xA5, 0, 2048, 0, LP_OPTIONS},
+-	{&quot;NAND 2GiB 3.3V 8-bit&quot;,	0xD5, 0, 2048, 0, LP_OPTIONS},
+-	{&quot;NAND 2GiB 1.8V 16-bit&quot;,	0xB5, 0, 2048, 0, LP_OPTIONS16},
+-	{&quot;NAND 2GiB 3.3V 16-bit&quot;,	0xC5, 0, 2048, 0, LP_OPTIONS16},
+-
+-	{&quot;NAND 2GiB 3.3V 8-bit&quot;,	0x48, 0, 2048, 0, LP_OPTIONS},
+-
+-	{NULL, 0, 0, 0, 0, 0 }
++	{ 0x0,			0x33, 512, 16, 0x4000, 0, 		&quot;NAND 16MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0x73, 512, 16, 0x4000, 0, 		&quot;NAND 16MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0x43, 512, 16, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 16MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0x53, 512, 16, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 16MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0x35, 512, 32, 0x4000, 0, 		&quot;NAND 32MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0x75, 512, 32, 0x4000, 0, 		&quot;NAND 32MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0x45, 512, 32, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 32MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0x55, 512, 32, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 32MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0x36, 512, 64, 0x4000, 0, 		&quot;NAND 64MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0x76, 512, 64, 0x4000, 0, 		&quot;NAND 64MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0x46, 512, 64, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 64MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0x56, 512, 64, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 64MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0x78, 512, 128, 0x4000, 0, 		&quot;NAND 128MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0x39, 512, 128, 0x4000, 0, 		&quot;NAND 128MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0x79, 512, 128, 0x4000, 0, 		&quot;NAND 128MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0x72, 512, 128, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 128MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0x49, 512, 128, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 128MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0x74, 512, 128, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 128MiB 3.3V 16-bit&quot;},
++	{ 0x0,			0x59, 512, 128, 0x4000, NAND_BUSWIDTH_16,&quot;NAND 128MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0x71, 512, 256, 0x4000, 0, 		&quot;NAND 256MiB 3.3V 8-bit&quot;},
++
++	{ 0x0,			0xA2, 0,  64, 0, LP_OPTIONS,		&quot;NAND 64MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0xF2, 0,  64, 0, LP_OPTIONS,		&quot;NAND 64MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xB2, 0,  64, 0, LP_OPTIONS16,		&quot;NAND 64MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0xC2, 0,  64, 0, LP_OPTIONS16,		&quot;NAND 64MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0xA1, 0, 128, 0, LP_OPTIONS,		&quot;NAND 128MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0xF1, 0, 128, 0, LP_OPTIONS,		&quot;NAND 128MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xB1, 0, 128, 0, LP_OPTIONS16,		&quot;NAND 128MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0xC1, 0, 128, 0, LP_OPTIONS16,		&quot;NAND 128MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0xAA, 0, 256, 0, LP_OPTIONS,		&quot;NAND 256MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0xDA, 0, 256, 0, LP_OPTIONS,		&quot;NAND 256MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xBA, 0, 256, 0, LP_OPTIONS16,		&quot;NAND 256MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0xCA, 0, 256, 0, LP_OPTIONS16,		&quot;NAND 256MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0xAC, 0, 512, 0, LP_OPTIONS,		&quot;NAND 512MiB 1.8V 8-bit&quot;},
++	{ 0x0,			0xDC, 0, 512, 0, LP_OPTIONS,		&quot;NAND 512MiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xBC, 0, 512, 0, LP_OPTIONS16,		&quot;NAND 512MiB 1.8V 16-bit&quot;},
++	{ 0x0,			0xCC, 0, 512, 0, LP_OPTIONS16,		&quot;NAND 512MiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0xA3, 0, 1024, 0, LP_OPTIONS,		&quot;NAND 1GiB 1.8V 8-bit&quot;},
++	{ 0x0,			0xD3, 0, 1024, 0, LP_OPTIONS,		&quot;NAND 1GiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xB3, 0, 1024, 0, LP_OPTIONS16,		&quot;NAND 1GiB 1.8V 16-bit&quot;},
++	{ 0x0,			0xC3, 0, 1024, 0, LP_OPTIONS16,		&quot;NAND 1GiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0xA5, 0, 2048, 0, LP_OPTIONS,		&quot;NAND 2GiB 1.8V 8-bit&quot;},
++	{ 0x0,			0xD5, 0, 8192, 0, LP_OPTIONS,		&quot;NAND 2GiB 3.3V 8-bit&quot;},
++	{ 0x0,			0xB5, 0, 2048, 0, LP_OPTIONS16,		&quot;NAND 2GiB 1.8V 16-bit&quot;},
++	{ 0x0,			0xC5, 0, 2048, 0, LP_OPTIONS16,		&quot;NAND 2GiB 3.3V 16-bit&quot;},
++
++	{ 0x0,			0x48, 0, 2048, 0, LP_OPTIONS,		&quot;NAND 2GiB 3.3V 8-bit&quot;},
++
++	{0, 0, 0, 0, 0, 0, NULL}
+ };
+ 
+ /* Manufacturer ID list
+diff --git a/src/flash/nand/core.h b/src/flash/nand/core.h
+index 73fd0ed..8a76d48 100644
+--- a/src/flash/nand/core.h
++++ b/src/flash/nand/core.h
+@@ -97,12 +97,13 @@ struct nand_manufacturer
+ 
+ struct nand_info
+ {
+-	const char *name;
++	int mfr_id;
+ 	int id;
+ 	int page_size;
+ 	int chip_size;
+ 	int erase_size;
+ 	int options;
++	const char *name;
+ };
+ 
+ /* Option constants for bizarre disfunctionality and real features
+-- 
+1.7.3.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019152.html">[Openocd-development] OMAP3530 / beagleboard supper status
+</A></li>
+	<LI>Next message: <A HREF="019155.html">[Openocd-development] [PATCH 2/2] Improve NAND flash detection
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19154">[ date ]</a>
+              <a href="thread.html#19154">[ thread ]</a>
+              <a href="subject.html#19154">[ subject ]</a>
+              <a href="author.html#19154">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

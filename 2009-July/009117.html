@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] amtjtagaccel reports incorrect chip ID's
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20amtjtagaccel%20reports%20incorrect%20chip%20ID%27s&In-Reply-To=%3C4A4F8A83.4030002%40postema.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009116.html">
+   <LINK REL="Next"  HREF="009120.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] amtjtagaccel reports incorrect chip ID's</H1>
+    <B>Ferdinand Postema</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20amtjtagaccel%20reports%20incorrect%20chip%20ID%27s&In-Reply-To=%3C4A4F8A83.4030002%40postema.eu%3E"
+       TITLE="[Openocd-development] amtjtagaccel reports incorrect chip ID's">ferdinand at postema.eu
+       </A><BR>
+    <I>Sat Jul  4 18:59:47 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009116.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+        <LI>Next message: <A HREF="009120.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9117">[ date ]</a>
+              <a href="thread.html#9117">[ thread ]</a>
+              <a href="subject.html#9117">[ subject ]</a>
+              <a href="author.html#9117">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Sorry, I posted this message in html. Now in text-mode:
+
+I understand that you do not want to make any changes so close to the 
+release of a new version. No problem.
+
+I made 3 changes in the table amt_jtagaccel_tap_move. This table defines 
+how to move from one state to the other. It consists of two bytes per 
+state move. The five LSB of the first byte will be shifted out to the 
+right to the TMS-line. If you need an other 5 bytes to reach the desired 
+state, you have to OR the first word with 0x80 and supply the next 5 
+bits in the second word (5 LSB).
+
+The first change is the neccesary one to correct the problem. This is 
+the sequence to go from state RESET to state DRSHIFT. The value of these 
+2 bytes were 0x8a and 0x04. This means that the bitstream to do this 
+transition is 0b 00100 01010 (send LSB first). This will bring you from 
+the reset state to the shift state, but you enter the shift-state twice, 
+which explains why the ID-CODE that will be read next is already shifted 
+1 bit. I corrected this to 0x05 and 0x00. This will send te bitstream 
+0b00101 (send LSB first). This will bring you from the RESET state to 
+the DRSHIFT state more directly and without entering the DRSHIFT state 
+twice.
+
+After checking the whole table, I found two other transitions that were 
+correct, but could be optimized (5 bits in stead of 10 bits).
+Summary off all changes:
+    From   To       Old values  Old Bitstream  New values  New 
+Bitstream  Remark
+    ----   -------  ----------  -------------  ----------  
+-------------  ------
+    RESET  DRSHIFT  0x8a 0x04   0b00100 01010  0x05 0x00   
+0b00101        To Correct the error (and optimization)
+    IDLE   DRSHIFT  0x85 0x08   0b01000 00101  0x04 0x00   0b00100      
+  Optimization
+    IDLE   IRSHIFT  0x8b 0x08   0b01000 01011  0x06 0x00   
+0b00110        Optimization
+
+Hopefully, this explanation helps.
+
+Good luck with your 0.2.0 branch release!
+
+P.S. I'm working on the code of the amt_jtagaccel interface to 
+incorporate speed setting in kHz.
+
+Ferdinand Postema
+
+Zach Welch schreef:
+&gt;<i> Without further confirmation of this patch's correctness, I do not want
+</I>&gt;<i> to add it until after the 0.2.0 branch release. I have been trying to
+</I>&gt;<i> push that out for most of the week, but it would be good to include this
+</I>&gt;<i> fix if it is indeed required.
+</I>&gt;<i>
+</I>&gt;<i> Can you perhaps provide a little more explanation regarding why you
+</I>&gt;<i> believe this patch to be correct? Sorry for having to ask, but I need
+</I>&gt;<i> to learn the details in order to make an informed decision about it.
+</I>&gt;<i>
+</I>&gt;<i> On Fri, 2009-07-03 at 22:16 +0200, Ferdinand Postema wrote:
+</I>&gt;&gt;<i> Hello,
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I found the bug by myself. I have made a patch file to correct it.
+</I>&gt;&gt;<i> Is it possible to incorporate this patch into the source code?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Ferdinand Postema
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Ferdinand Postema schreef:
+</I>&gt;&gt;&gt;<i> First I want to say that I am very happy with the OpenOCD-software! I
+</I>&gt;&gt;&gt;<i> like it very much.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> I have a Chameleon POD from Amontec. This dongle can be programmed to
+</I>&gt;&gt;&gt;<i> act as a Wiggler-cable, but also as a JTAG Accelerator interface.
+</I>&gt;&gt;&gt;<i> I use it in combination with an ARM processor and a FPGA. Both are
+</I>&gt;&gt;&gt;<i> supplied by Propox.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> When I use the Wiggler JTAG interface, I get the following information:
+</I>&gt;&gt;&gt;<i> Info : JTAG tap: at91sam9260.cpu tap/device found: 0x0792603f
+</I>&gt;&gt;&gt;<i> (Manufacturer: 0x01f, Part: 0x7926, Version: 0x0)
+</I>&gt;&gt;&gt;<i> When I use the Amontec JTAG Accelerator Interface, I get the following
+</I>&gt;&gt;&gt;<i> information:
+</I>&gt;&gt;&gt;<i> Info : JTAG tap: at91sam9260.cpu tap/device found: 0x03c9301f
+</I>&gt;&gt;&gt;<i> (Manufacturer: 0x00f, Part: 0x3c93, Version: 0x0)
+</I>&gt;&gt;&gt;<i> It looks like the whole word is shifted 1 bit. I think the Wiggler
+</I>&gt;&gt;&gt;<i> interface is correct.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> I also tried my FPGA module and got the following ID's:
+</I>&gt;&gt;&gt;<i> Manuf. Chip wiggler amtjtagaccel
+</I>&gt;&gt;&gt;<i> Processor: Atmel AT91SAM9260 0x0792603f 0x03c9301f
+</I>&gt;&gt;&gt;<i> Platform Flash: Xilinx XCF01S 0xF5044093 0x7A822049
+</I>&gt;&gt;&gt;<i> FPGA: Xilinx XC3S200 0x01414093 0x80A0A049
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> The ID of the FPGA is not only shifted 1 bit to the right, but is also
+</I>&gt;&gt;&gt;<i> OR-ed with 0x80000000
+</I>&gt;&gt;&gt;<i> The wiggler ID is correct
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Can you correct this?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Kind regards,
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Ferdinand Postema
+</I>&gt;&gt;&gt;<i> (The Netherlands)
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i> plain text document attachment (openocd_wrong_id_code.patch)
+</I>&gt;&gt;<i> Index: src/jtag/amt_jtagaccel.c
+</I>&gt;&gt;<i> ===================================================================
+</I>&gt;&gt;<i> --- src/jtag/amt_jtagaccel.c (revision 2461)
+</I>&gt;&gt;<i> +++ src/jtag/amt_jtagaccel.c (working copy)
+</I>&gt;&gt;<i> @@ -92,8 +92,8 @@
+</I>&gt;&gt;<i> static uint8_t amt_jtagaccel_tap_move[6][6][2] =
+</I>&gt;&gt;<i> {
+</I>&gt;&gt;<i> /* RESET IDLE DRSHIFT DRPAUSE IRSHIFT IRPAUSE */
+</I>&gt;&gt;<i> - {{0x1f, 0x00}, {0x0f, 0x00}, {0x8a, 0x04}, {0x0a, 0x00}, {0x06, 
+</I>&gt;&gt;<i> 0x00}, {0x96, 0x00}}, /* RESET */
+</I>&gt;&gt;<i> - {{0x1f, 0x00}, {0x00, 0x00}, {0x85, 0x08}, {0x05, 0x00}, {0x8b, 
+</I>&gt;&gt;<i> 0x08}, {0x0b, 0x00}}, /* IDLE */
+</I>&gt;&gt;<i> + {{0x1f, 0x00}, {0x0f, 0x00}, {0x05, 0x00}, {0x0a, 0x00}, {0x06, 
+</I>&gt;&gt;<i> 0x00}, {0x96, 0x00}}, /* RESET */
+</I>&gt;&gt;<i> + {{0x1f, 0x00}, {0x00, 0x00}, {0x04, 0x00}, {0x05, 0x00}, {0x06, 
+</I>&gt;&gt;<i> 0x00}, {0x0b, 0x00}}, /* IDLE */
+</I>&gt;&gt;<i> {{0x1f, 0x00}, {0x0d, 0x00}, {0x00, 0x00}, {0x01, 0x00}, {0x8f, 
+</I>&gt;&gt;<i> 0x09}, {0x8f, 0x01}}, /* DRSHIFT */
+</I>&gt;&gt;<i> {{0x1f, 0x00}, {0x0c, 0x00}, {0x08, 0x00}, {0x00, 0x00}, {0x8f, 
+</I>&gt;&gt;<i> 0x09}, {0x8f, 0x01}}, /* DRPAUSE */
+</I>&gt;&gt;<i> {{0x1f, 0x00}, {0x0d, 0x00}, {0x07, 0x00}, {0x97, 0x00}, {0x00, 
+</I>&gt;&gt;<i> 0x00}, {0x01, 0x00}}, /* IRSHIFT */
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009116.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+	<LI>Next message: <A HREF="009120.html">[Openocd-development] amtjtagaccel reports incorrect chip ID's
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9117">[ date ]</a>
+              <a href="thread.html#9117">[ thread ]</a>
+              <a href="subject.html#9117">[ subject ]</a>
+              <a href="author.html#9117">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

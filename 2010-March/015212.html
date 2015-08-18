@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] arm11: imx31: Push Instructions freeze the	debugger
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm11%3A%20imx31%3A%20Push%20Instructions%20freeze%20the%0A%09debugger&In-Reply-To=%3C1268261948.2769.1.camel%40realization%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015238.html">
+   <LINK REL="Next"  HREF="015222.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] arm11: imx31: Push Instructions freeze the	debugger</H1>
+    <B>Alberto Panizzo</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm11%3A%20imx31%3A%20Push%20Instructions%20freeze%20the%0A%09debugger&In-Reply-To=%3C1268261948.2769.1.camel%40realization%3E"
+       TITLE="[Openocd-development] arm11: imx31: Push Instructions freeze the	debugger">maramaopercheseimorto at gmail.com
+       </A><BR>
+    <I>Wed Mar 10 23:59:08 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015238.html">[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones
+</A></li>
+        <LI>Next message: <A HREF="015222.html">[Openocd-development] arm11: imx31: Push Instructions freeze	the debugger
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15212">[ date ]</a>
+              <a href="thread.html#15212">[ thread ]</a>
+              <a href="subject.html#15212">[ subject ]</a>
+              <a href="author.html#15212">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+I am working with an i.MX31 based board (Armadillo500) with a JtagKey-2 dongle.
+I have setup an OpenOcd connection where I can:
+- read/write to the board NOR flash
+- read/write the memory
+- connect the gdb
+- set/clear breakpoints
+
+But when a &quot;push&quot;(STMDB) instruction is raised, OpenOCD can not step over that instruction:
+it maintain the target status &quot;running&quot;.
+
+A breakpoint over that instruction is never reached.
+
+Here the telnet session:
+&gt;<i> reset halt
+</I>JTAG tap: imx31.etb tap/device found: 0x2b900f0f (mfg: 0x787, part: 0xb900, ver: 0x2)
+JTAG tap: imx31.cpu tap/device found: 0x07b3601d (mfg: 0x00e, part: 0x7b36, ver: 0x0)
+TAP imx31.whatchacallit does not have IDCODE
+JTAG tap: imx31.smda tap/device found: 0x1190101d (mfg: 0x00e, part: 0x1901, ver: 0x1)
+found ARM1136
+imx31.cpu: ran after reset and before halt ...
+target state: halted
+target halted in ARM state due to debug-request, current mode: Supervisor
+cpsr: 0x800001d3 pc: 0xa00000e0
+DSCR 00006003 e
+&gt;<i> bp 0xa0004360 4 hw
+</I>breakpoint set at 0xa0004360
+&gt;<i> resume
+</I>target state: halted
+target halted in ARM state due to breakpoint, current mode: Supervisor
+cpsr: 0x200001d3 pc: 0xa0004360
+DSCR 00006007 e
+&gt;<i> arm disassemble 0xa0004360 10    
+</I>0xa0004360	0xe92d4030	STMDB r13!, {r4, r5, r14}
+0xa0004364	0xe24dd044	SUB r13, r13, #0x44
+0xa0004368	0xe59f40e0	LDR r4, [r15, #0xe0]
+0xa000436c	0xe59f50e0	LDR r5, [r15, #0xe0]
+0xa0004370	0xea000008	B 0xa0004398
+0xa0004374	0xe1a0e00f	MOV r14, r15
+0xa0004378	0xe594f000	LDR r15, [r4]
+0xa000437c	0xe2844004	ADD r4, r4, #0x4
+0xa0004380	0xe3500000	CMP r0, #0x0
+0xa0004384	0x0a000003	BEQ 0xa0004398
+&gt;<i>step
+</I>target state: halted
+target halted in ARM state due to single-step, current mode: Supervisor
+cpsr: 0x200001d3 pc: 0xa0004360
+DSCR 00006007 e
+&gt;<i> step
+</I>Timeout (1000ms) waiting for instructions to complete
+Command handler execution failed
+in procedure 'step' called at file &quot;command.c&quot;, line 650
+called at file &quot;command.c&quot;, line 361
+&gt;<i> poll
+</I>background polling: on
+TAP: imx31.cpu (enabled)
+target state: running
+&gt;<i> halt
+</I>Timeout (1000ms) waiting for instructions to complete
+Command handler execution failed
+in procedure 'halt' called at file &quot;command.c&quot;, line 650
+called at file &quot;command.c&quot;, line 361
+
+
+And here the corresponding log level 3
+
+Debug: 1821 1574924 command.c:133 script_debug(): command - ocd_command ocd_command type ocd_step
+Debug: 1822 1574924 command.c:133 script_debug(): command - step ocd_step
+Debug: 1824 1574925 target.c:2180 handle_step_command(): -
+Debug: 1825 1574925 arm11.c:586 arm11_step(): target-&gt;state: halted
+Debug: 1826 1574925 arm11.c:598 arm11_step(): STEP PC a0004360
+Debug: 1827 1574935 arm11.c:847 arm11_read_memory_inner(): ADDR a0004360  SIZE 00000004  COUNT 00000001
+Debug: 1828 1574945 target.c:1527 target_read_u32(): address: 0xa0004360, value: 0xe92d4030
+Debug: 1829 1574972 arm_dpm.c:223 dpm_write_reg(): WRITE: pc, a0004360
+Debug: 1830 1574975 arm_dpm.c:223 dpm_write_reg(): WRITE: r0, a001b47c
+Debug: 1831 1574980 core.c:566 jtag_add_statemove(): cur_state=RUN/IDLE goal_state=DRPAUSE
+Debug: 1832 1574981 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 1833 1574983 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 1834 1574985 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 1835 1574987 arm11.c:709 arm11_step(): DSCR 00006006 e
+..... Every Debug: n
+Debug: 2826 1576968 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 2827 1576970 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 2828 1576973 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 2829 1576975 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 2830 1576977 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 2831 1576979 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 2832 1576981 arm11.c:709 arm11_step(): DSCR 00006006 e
+Debug: 2833 1576983 arm11.c:709 arm11_step(): DSCR 00006006 e
+Warn : 2834 1576983 arm11.c:723 arm11_step(): Timeout (1000ms) waiting for instructions to complete
+Debug: 2835 1576983 command.c:620 run_command(): Command failed with error code -4
+User : 2836 1576983 command.c:824 openocd_jim_vfprintf(): Command handler execution failed
+User : 2839 1576983 command.c:824 openocd_jim_vfprintf(): 
+User : 2841 1576983 command.c:824 openocd_jim_vfprintf(): 
+Debug: 2842 1576983 log.c:496 keep_alive(): keep_alive() was not invoked in the 1000ms timelimit (2122). This may cause trouble with GDB connections.
+
+
+
+Thanks for all the help you can give me!
+
+Best regards,
+
+
+-- 
+Alberto!
+
+        Be Persistent!
+                - Greg Kroah-Hartman (FOSDEM 2010)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015238.html">[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones
+</A></li>
+	<LI>Next message: <A HREF="015222.html">[Openocd-development] arm11: imx31: Push Instructions freeze	the debugger
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15212">[ date ]</a>
+              <a href="thread.html#15212">[ thread ]</a>
+              <a href="subject.html#15212">[ subject ]</a>
+              <a href="author.html#15212">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

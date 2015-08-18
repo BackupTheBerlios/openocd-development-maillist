@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] jtag: move towards making	out_value const
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20jtag%3A%20move%20towards%20making%0A%09out_value%20const&In-Reply-To=%3C1269080253-22500-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015287.html">
+   <LINK REL="Next"  HREF="015291.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] jtag: move towards making	out_value const</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20jtag%3A%20move%20towards%20making%0A%09out_value%20const&In-Reply-To=%3C1269080253-22500-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] jtag: move towards making	out_value const">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sat Mar 20 11:17:32 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015287.html">[Openocd-development] [PATCH] Fix underlying problem with	xscale icache and dcache commands
+</A></li>
+        <LI>Next message: <A HREF="015291.html">[Openocd-development] [PATCH 2/2] jtag: make out_value const
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15290">[ date ]</a>
+              <a href="thread.html#15290">[ thread ]</a>
+              <a href="subject.html#15290">[ subject ]</a>
+              <a href="author.html#15290">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>These were relatively straightforward fixes which are
+backwards compatible.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nor/str9xpec.c |    7 ++++---
+ src/pld/virtex2.c        |    7 ++++---
+ src/target/arm_jtag.c    |    2 +-
+ src/target/mips_ejtag.c  |    6 +++---
+ src/target/xscale.c      |    2 +-
+ 5 files changed, 13 insertions(+), 11 deletions(-)
+
+diff --git a/src/flash/nor/str9xpec.c b/src/flash/nor/str9xpec.c
+index 732226f..a93b6a2 100644
+--- a/src/flash/nor/str9xpec.c
++++ b/src/flash/nor/str9xpec.c
+@@ -44,13 +44,14 @@ int str9xpec_set_instr(struct jtag_tap *tap, uint32_t new_instr, tap_state_t end
+ 		struct scan_field field;
+ 
+ 		field.num_bits = tap-&gt;ir_length;
+-		field.out_value = calloc(DIV_ROUND_UP(field.num_bits, 8), 1);
+-		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
++		void * t = calloc(DIV_ROUND_UP(field.num_bits, 8), 1);
++		field.out_value = t;
++		buf_set_u32(t, 0, field.num_bits, new_instr);
+ 		field.in_value = NULL;
+ 
+ 		jtag_add_ir_scan(tap, &amp;field, end_state);
+ 
+-		free(field.out_value);
++		free(t);
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/pld/virtex2.c b/src/pld/virtex2.c
+index b2833fa..1963736 100644
+--- a/src/pld/virtex2.c
++++ b/src/pld/virtex2.c
+@@ -36,13 +36,14 @@ static int virtex2_set_instr(struct jtag_tap *tap, uint32_t new_instr)
+ 		struct scan_field field;
+ 
+ 		field.num_bits = tap-&gt;ir_length;
+-		field.out_value = calloc(DIV_ROUND_UP(field.num_bits, 8), 1);
+-		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
++		void * t = calloc(DIV_ROUND_UP(field.num_bits, 8), 1);
++		field.out_value = t;
++		buf_set_u32(t, 0, field.num_bits, new_instr);
+ 		field.in_value = NULL;
+ 
+ 		jtag_add_ir_scan(tap, &amp;field, TAP_IDLE);
+ 
+-		free(field.out_value);
++		free(t);
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/arm_jtag.c b/src/target/arm_jtag.c
+index f8b5f4f..8cc4428 100644
+--- a/src/target/arm_jtag.c
++++ b/src/target/arm_jtag.c
+@@ -40,7 +40,7 @@ int arm_jtag_set_instr_inner(struct arm_jtag *jtag_info, uint32_t new_instr,  vo
+ 
+ 	field.num_bits = tap-&gt;ir_length;
+ 	field.out_value = t;
+-	buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
++	buf_set_u32(t, 0, field.num_bits, new_instr);
+ 	field.in_value = NULL;
+ 
+ 	if (no_verify_capture == NULL)
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 37e1f09..98b27f0 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -43,7 +43,7 @@ int mips_ejtag_set_instr(struct mips_ejtag *ejtag_info, int new_instr)
+ 
+ 		field.num_bits = tap-&gt;ir_length;
+ 		field.out_value = t;
+-		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
++		buf_set_u32(t, 0, field.num_bits, new_instr);
+ 		field.in_value = NULL;
+ 
+ 		jtag_add_ir_scan(tap, &amp;field, TAP_IDLE);
+@@ -105,7 +105,7 @@ int mips_ejtag_drscan_32(struct mips_ejtag *ejtag_info, uint32_t *data)
+ 
+ 	field.num_bits = 32;
+ 	field.out_value = t;
+-	buf_set_u32(field.out_value, 0, field.num_bits, *data);
++	buf_set_u32(t, 0, field.num_bits, *data);
+ 	field.in_value = r;
+ 
+ 	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+@@ -136,7 +136,7 @@ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data)
+ 
+ 	field.num_bits = 8;
+ 	field.out_value = t;
+-	buf_set_u32(field.out_value, 0, field.num_bits, *data);
++	buf_set_u32(t, 0, field.num_bits, *data);
+ 	field.in_value = r;
+ 
+ 	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index f0e2311..0f1953d 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -171,7 +171,7 @@ static int xscale_jtag_set_instr(struct jtag_tap *tap, uint32_t new_instr, tap_s
+ 		memset(&amp;field, 0, sizeof field);
+ 		field.num_bits = tap-&gt;ir_length;
+ 		field.out_value = scratch;
+-		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
++		buf_set_u32(scratch, 0, field.num_bits, new_instr);
+ 
+ 		jtag_add_ir_scan(tap, &amp;field, end_state);
+ 	}
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015287.html">[Openocd-development] [PATCH] Fix underlying problem with	xscale icache and dcache commands
+</A></li>
+	<LI>Next message: <A HREF="015291.html">[Openocd-development] [PATCH 2/2] jtag: make out_value const
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15290">[ date ]</a>
+              <a href="thread.html#15290">[ thread ]</a>
+              <a href="subject.html#15290">[ subject ]</a>
+              <a href="author.html#15290">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

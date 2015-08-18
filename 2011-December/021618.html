@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] jtag_add_scan_check Assertion Error
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_add_scan_check%20Assertion%20Error&In-Reply-To=%3CCAEk6gTDbwYRW8DWAPVMPhgnrOKZbFQzPNLX1V7y2VUQ-o4nAiQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021616.html">
+   <LINK REL="Next"  HREF="021619.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] jtag_add_scan_check Assertion Error</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jtag_add_scan_check%20Assertion%20Error&In-Reply-To=%3CCAEk6gTDbwYRW8DWAPVMPhgnrOKZbFQzPNLX1V7y2VUQ-o4nAiQ%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] jtag_add_scan_check Assertion Error">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Wed Dec 21 16:10:41 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021616.html">[Openocd-development] jtag_add_scan_check Assertion Error
+</A></li>
+        <LI>Next message: <A HREF="021619.html">[Openocd-development] jtag_add_scan_check Assertion Error
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21618">[ date ]</a>
+              <a href="thread.html#21618">[ thread ]</a>
+              <a href="subject.html#21618">[ subject ]</a>
+              <a href="author.html#21618">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, Dec 21, 2011 at 3:54 PM, &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt; wrote:
+&gt;<i> Please run this in gdb and do a bt(backtrace).
+</I>
+Seems to be working fine, at least OpenOCD does not break.
+
+I have in the end of the listing
+Backtrace stopped: previous frame identical to this frame (corrupt stack?)
+but I guess not related to this problem.
+
+I can see that this was recent commit :
+
+[<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ddraskovic at lardos</A>:/home/ddraskovic/openocd]&gt;git show a30a4f0f
+commit a30a4f0fc76b72936a6557e08d6b55b3a46eaafd
+Author: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Dec 13 23:44:34 2011 +0100
+
+    jtag: make caller always allocate buffer
+
+    simplifies the API and there is only one remaining user at this point.
+
+    Is the implementation busted where the check does not actually happen
+    now?
+
+    Change-Id: I776a43766f5576a08df320f6fe41a2750d101bde
+    Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+    Reviewed-on: <A HREF="http://openocd.zylin.com/264">http://openocd.zylin.com/264</A>
+    Tested-by: jenkins
+    Reviewed-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>&gt;
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 3090ddd..529e9bc 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -417,12 +417,8 @@ static void jtag_add_scan_check(struct jtag_tap
+*active, void (*jtag_add_scan)(s
+    for (int i = 0; i &lt; in_num_fields; i++)
+    {
+        struct scan_field *field = &amp;in_fields[i];
+-       field-&gt;allocated = 0;
+-       field-&gt;modified = 0;
+-       if (field-&gt;check_value || field-&gt;in_value)
+-           continue;
+-       interface_jtag_add_scan_check_alloc(field);
+-       field-&gt;modified = 1;
++       /* caller must provide in_buffer if needed for callback */
++       assert((field-&gt;check_value == NULL) || (field-&gt;in_value != NULL));
+    }
+
+
+
+
+Seems to be introducing a bit of regression... Some unchanged files remain ?
+
+BR,
+Drasko
+
+
+&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> On Wed, Dec 21, 2011 at 3:52 PM, Drasko DRASKOVIC
+</I>&gt;<i> &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+</I>&gt;&gt;<i> Hi all,
+</I>&gt;&gt;<i> with new git repo clone of OpenOCD I have been hitting this assert
+</I>&gt;&gt;<i> during the scan chain init :
+</I>&gt;&gt;<i> openocd: core.c:421: jtag_add_scan_check: Assertion
+</I>&gt;&gt;<i> `(field-&gt;check_value == ((void *)0)) || (field-&gt;in_value != ((void
+</I>&gt;&gt;<i> *)0))' failed.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Commenting out this assert everything seems to be OK.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I am using libftdi-0.19, and have seen same issue on both ARM946 and
+</I>&gt;&gt;<i> MIPS targets.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> BR,
+</I>&gt;&gt;<i> Drasko
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> --
+</I>&gt;<i> &#216;yvind Harboe - Can Zylin Consulting help on your project?
+</I>&gt;<i> US toll free 1-866-980-3434
+</I>&gt;<i> <A HREF="http://www.zylin.com/">http://www.zylin.com/</A>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021616.html">[Openocd-development] jtag_add_scan_check Assertion Error
+</A></li>
+	<LI>Next message: <A HREF="021619.html">[Openocd-development] jtag_add_scan_check Assertion Error
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21618">[ date ]</a>
+              <a href="thread.html#21618">[ thread ]</a>
+              <a href="subject.html#21618">[ subject ]</a>
+              <a href="author.html#21618">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

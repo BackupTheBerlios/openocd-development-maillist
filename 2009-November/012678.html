@@ -1,0 +1,325 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 4/5] ARM: arm_set_cpsr() handles T and	J bits
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%204/5%5D%20ARM%3A%20arm_set_cpsr%28%29%20handles%20T%20and%0A%09J%20bits&In-Reply-To=%3C200911211422.17993.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012677.html">
+   <LINK REL="Next"  HREF="012679.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 4/5] ARM: arm_set_cpsr() handles T and	J bits</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%204/5%5D%20ARM%3A%20arm_set_cpsr%28%29%20handles%20T%20and%0A%09J%20bits&In-Reply-To=%3C200911211422.17993.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 4/5] ARM: arm_set_cpsr() handles T and	J bits">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Nov 21 23:22:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012677.html">[Openocd-development] [patch 3/5] ARM: define two register utilities
+</A></li>
+        <LI>Next message: <A HREF="012679.html">[Openocd-development] [patch 5/5] ARM: use arm_reg_current()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12678">[ date ]</a>
+              <a href="thread.html#12678">[ thread ]</a>
+              <a href="subject.html#12678">[ subject ]</a>
+              <a href="author.html#12678">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Have arm_set_cpsr() handle the two core state flags, updating
+the CPU state.  This eliminates code in various debug_entry()
+paths, and marginally improves handling of the J bit.
+
+Catch and comment a few holes in the handling of the J bit on
+ARM926ejs cores ... it's unlikely our users will care about
+Jazelle mode, but we can at least warn of Impending Doom.  If
+anyone does use it, these breadcrumbs may help them to find
+the right path through the code.
+---
+ src/target/arm720t.c       |    1 
+ src/target/arm7_9_common.c |   32 +++++++++++++-------
+ src/target/arm920t.c       |    1 
+ src/target/arm926ejs.c     |    1 
+ src/target/armv4_5.c       |   67 +++++++++++++++++++------------------------
+ src/target/cortex_a8.c     |   23 --------------
+ src/target/xscale.c        |    6 ---
+ 7 files changed, 52 insertions(+), 79 deletions(-)
+
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -354,7 +354,6 @@ static int arm720t_soft_reset_halt(struc
+ 	cpsr |= 0xd3;
+ 	arm_set_cpsr(armv4_5, cpsr);
+ 	armv4_5-&gt;cpsr-&gt;dirty = 1;
+-	armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1223,6 +1223,8 @@ int arm7_9_soft_reset_halt(struct target
+ 		arm7_9-&gt;change_to_arm(target, &amp;r0_thumb, &amp;pc_thumb);
+ 	}
+ 
++	/* REVISIT likewise for bit 5 -- switch Jazelle-to-ARM */
++
+ 	/* all register content is now invalid */
+ 	register_cache_invalidate(armv4_5-&gt;core_cache);
+ 
+@@ -1234,7 +1236,6 @@ int arm7_9_soft_reset_halt(struct target
+ 	cpsr |= 0xd3;
+ 	arm_set_cpsr(armv4_5, cpsr);
+ 	armv4_5-&gt;cpsr-&gt;dirty = 1;
+-	armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+@@ -1334,7 +1335,7 @@ static int arm7_9_debug_entry(struct tar
+ 	uint32_t context[16];
+ 	uint32_t* context_p[16];
+ 	uint32_t r0_thumb, pc_thumb;
+-	uint32_t cpsr;
++	uint32_t cpsr, cpsr_mask = 0;
+ 	int retval;
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct armv4_5_common_s *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+@@ -1379,11 +1380,21 @@ static int arm7_9_debug_entry(struct tar
+ 		LOG_DEBUG(&quot;target entered debug from Thumb state&quot;);
+ 		/* Entered debug from Thumb mode */
+ 		armv4_5-&gt;core_state = ARMV4_5_STATE_THUMB;
++		cpsr_mask = 1 &lt;&lt; 5;
+ 		arm7_9-&gt;change_to_arm(target, &amp;r0_thumb, &amp;pc_thumb);
+-		LOG_DEBUG(&quot;r0_thumb: 0x%8.8&quot; PRIx32 &quot;, pc_thumb: 0x%8.8&quot; PRIx32 &quot;&quot;, r0_thumb, pc_thumb);
+-	}
+-	else
+-	{
++		LOG_DEBUG(&quot;r0_thumb: 0x%8.8&quot; PRIx32
++			&quot;, pc_thumb: 0x%8.8&quot; PRIx32, r0_thumb, pc_thumb);
++	} else if (buf_get_u32(dbg_stat-&gt;value, 5, 1)) {
++		/* \todo Get some vaguely correct handling of Jazelle, if
++		 * anyone ever uses it and full info becomes available.
++		 * See ARM9EJS TRM B.7.1 for how to switch J-&gt;ARM; and
++		 * B.7.3 for the reverse.  That'd be the bare minimum...
++		 */
++		LOG_DEBUG(&quot;target entered debug from Jazelle state&quot;);
++		armv4_5-&gt;core_state = ARMV4_5_STATE_JAZELLE;
++		cpsr_mask = 1 &lt;&lt; 24;
++		LOG_ERROR(&quot;Jazelle debug entry -- BROKEN!&quot;);
++	} else {
+ 		LOG_DEBUG(&quot;target entered debug from ARM state&quot;);
+ 		/* Entered debug from ARM mode */
+ 		armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+@@ -1399,11 +1410,10 @@ static int arm7_9_debug_entry(struct tar
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 		return retval;
+ 
+-	/* if the core has been executing in Thumb state, set the T bit */
+-	if (armv4_5-&gt;core_state == ARMV4_5_STATE_THUMB)
+-		cpsr |= 0x20;
+-
+-	arm_set_cpsr(armv4_5, cpsr);
++	/* Sync our CPSR copy with J or T bits EICE reported, but
++	 * which we then erased by putting the core into ARM mode.
++	 */
++	arm_set_cpsr(armv4_5, cpsr | cpsr_mask);
+ 
+ 	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 	{
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -603,7 +603,6 @@ int arm920t_soft_reset_halt(struct targe
+ 	cpsr |= 0xd3;
+ 	arm_set_cpsr(armv4_5, cpsr);
+ 	armv4_5-&gt;cpsr-&gt;dirty = 1;
+-	armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -572,7 +572,6 @@ int arm926ejs_soft_reset_halt(struct tar
+ 	cpsr |= 0xd3;
+ 	arm_set_cpsr(armv4_5, cpsr);
+ 	armv4_5-&gt;cpsr-&gt;dirty = 1;
+-	armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+ 
+ 	/* start fetching from 0x0 */
+ 	buf_set_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32, 0x0);
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -372,6 +372,24 @@ void arm_set_cpsr(struct arm *arm, uint3
+ 	arm-&gt;spsr = (mode == ARMV4_5_MODE_USR || mode == ARMV4_5_MODE_SYS)
+ 			? NULL
+ 			: arm-&gt;core_cache-&gt;reg_list + arm-&gt;map[16];
++
++	/* Older ARMs won't have the J bit */
++	enum armv4_5_state state;
++
++	if (cpsr &amp; (1 &lt;&lt; 5)) {	/* T */
++		if (cpsr &amp; (1 &lt;&lt; 24)) {	/* J */
++			LOG_WARNING(&quot;ThumbEE -- incomplete support&quot;);
++			state = ARM_STATE_THUMB_EE;
++		} else
++			state = ARMV4_5_STATE_THUMB;
++	} else {
++		if (cpsr &amp; (1 &lt;&lt; 24)) {	/* J */
++			LOG_ERROR(&quot;Jazelle state handling is BROKEN!&quot;);
++			state = ARMV4_5_STATE_JAZELLE;
++		} else
++			state = ARMV4_5_STATE_ARM;
++	}
++	arm-&gt;core_state = state;
+ }
+ 
+ /**
+@@ -481,49 +499,27 @@ static int armv4_5_set_core_reg(struct r
+ 	/* Except for CPSR, the &quot;reg&quot; command exposes a writeback model
+ 	 * for the register cache.
+ 	 */
+-	buf_set_u32(reg-&gt;value, 0, 32, value);
+-	reg-&gt;dirty = 1;
+-	reg-&gt;valid = 1;
+-
+-	if (reg == armv4_5_target-&gt;cpsr)
+-	{
+-		/* FIXME handle J bit too; mostly for ThumbEE, also Jazelle */
+-		if (value &amp; 0x20)
+-		{
+-			/* T bit should be set */
+-			if (armv4_5_target-&gt;core_state == ARMV4_5_STATE_ARM)
+-			{
+-				/* change state to Thumb */
+-				LOG_DEBUG(&quot;changing to Thumb state&quot;);
+-				armv4_5_target-&gt;core_state = ARMV4_5_STATE_THUMB;
+-			}
+-		}
+-		else
+-		{
+-			/* T bit should be cleared */
+-			if (armv4_5_target-&gt;core_state == ARMV4_5_STATE_THUMB)
+-			{
+-				/* change state to ARM */
+-				LOG_DEBUG(&quot;changing to ARM state&quot;);
+-				armv4_5_target-&gt;core_state = ARMV4_5_STATE_ARM;
+-			}
+-		}
++	if (reg == armv4_5_target-&gt;cpsr) {
++		arm_set_cpsr(armv4_5_target, value);
+ 
+-		/* REVISIT Why only update core for mode change, not also
+-		 * for state changes?  Possibly older cores need to stay
+-		 * in ARM mode during halt mode debug, not execute Thumb;
+-		 * v6/v7a/v7r seem to do that automatically...
++		/* Older cores need help to be in ARM mode during halt
++		 * mode debug, so we clear the J and T bits if we flush.
++		 * For newer cores (v6/v7a/v7r) we don't need that, but
++		 * it won't hurt since CPSR is always flushed anyway.
+ 		 */
+-
+-		if (armv4_5_target-&gt;core_mode != (enum armv4_5_mode)(value &amp; 0x1f))
+-		{
++		if (armv4_5_target-&gt;core_mode !=
++				(enum armv4_5_mode)(value &amp; 0x1f)) {
+ 			LOG_DEBUG(&quot;changing ARM core mode to '%s'&quot;,
+ 					arm_mode_name(value &amp; 0x1f));
++			value &amp;= ~((1 &lt;&lt; 24) | (1 &lt;&lt; 5));
+ 			armv4_5_target-&gt;write_core_reg(target, reg,
+ 					16, ARMV4_5_MODE_ANY, value);
+-			arm_set_cpsr(armv4_5_target, value);
+ 		}
++	} else {
++		buf_set_u32(reg-&gt;value, 0, 32, value);
++		reg-&gt;valid = 1;
+ 	}
++	reg-&gt;dirty = 1;
+ 
+ 	return ERROR_OK;
+ }
+@@ -1240,7 +1236,6 @@ int armv4_5_init_arch_info(struct target
+ 
+ 	armv4_5-&gt;common_magic = ARMV4_5_COMMON_MAGIC;
+ 	arm_set_cpsr(armv4_5, ARMV4_5_MODE_USR);
+-	armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+ 
+ 	/* core_type may be overridden by subtype logic */
+ 	armv4_5-&gt;core_type = ARMV4_5_MODE_ANY;
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -650,29 +650,6 @@ static int cortex_a8_debug_entry(struct 
+ 
+ 	arm_set_cpsr(armv4_5, cpsr);
+ 
+-	i = (cpsr &gt;&gt; 5) &amp; 1;	/* T */
+-	i |= (cpsr &gt;&gt; 23) &amp; 1;	/* J &lt;&lt; 1 */
+-	switch (i) {
+-	case 0:	/* J = 0, T = 0 */
+-		armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+-		break;
+-	case 1:	/* J = 0, T = 1 */
+-		armv4_5-&gt;core_state = ARMV4_5_STATE_THUMB;
+-		break;
+-	case 2:	/* J = 1, T = 0 */
+-		LOG_WARNING(&quot;Jazelle state -- not handled&quot;);
+-		armv4_5-&gt;core_state = ARMV4_5_STATE_JAZELLE;
+-		break;
+-	case 3:	/* J = 1, T = 1 */
+-		/* ThumbEE is very much like Thumb, but some of the
+-		 * instructions are different.  Single stepping and
+-		 * breakpoints need updating...
+-		 */
+-		LOG_WARNING(&quot;ThumbEE -- incomplete support&quot;);
+-		armv4_5-&gt;core_state = ARM_STATE_THUMB_EE;
+-		break;
+-	}
+-
+ 	/* update cache */
+ 	for (i = 0; i &lt;= ARM_PC; i++)
+ 	{
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -960,12 +960,6 @@ static int xscale_debug_entry(struct tar
+ 	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;,
+ 			 arm_mode_name(armv4_5-&gt;core_mode));
+ 
+-	if (buffer[9] &amp; 0x20)
+-		armv4_5-&gt;core_state = ARMV4_5_STATE_THUMB;
+-	else
+-		armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+-
+-
+ 	/* get banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+ 	if ((armv4_5-&gt;core_mode != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5-&gt;core_mode != ARMV4_5_MODE_SYS))
+ 	{
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012677.html">[Openocd-development] [patch 3/5] ARM: define two register utilities
+</A></li>
+	<LI>Next message: <A HREF="012679.html">[Openocd-development] [patch 5/5] ARM: use arm_reg_current()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12678">[ date ]</a>
+              <a href="thread.html#12678">[ thread ]</a>
+              <a href="subject.html#12678">[ subject ]</a>
+              <a href="author.html#12678">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

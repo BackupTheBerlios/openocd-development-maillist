@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Balloon board config and some queries
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Balloon%20board%20config%20and%20some%20queries&In-Reply-To=%3C20090519112926.GJ17468%40knossos.aleph1.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006931.html">
+   <LINK REL="Next"  HREF="006826.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Balloon board config and some queries</H1>
+    <B>Wookey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Balloon%20board%20config%20and%20some%20queries&In-Reply-To=%3C20090519112926.GJ17468%40knossos.aleph1.co.uk%3E"
+       TITLE="[Openocd-development] Balloon board config and some queries">wookey at wookware.org
+       </A><BR>
+    <I>Tue May 19 13:29:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006931.html">[Openocd-development] [RFC][PATCH] [0/4] x16_as_x8 tentative implementation.
+</A></li>
+        <LI>Next message: <A HREF="006826.html">[Openocd-development] Balloon board config and some queries
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6824">[ date ]</a>
+              <a href="thread.html#6824">[ thread ]</a>
+              <a href="subject.html#6824">[ subject ]</a>
+              <a href="author.html#6824">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>As described on
+<A HREF="http://www.balloonboard.org/balloonwiki/Balloon3OpenOCD">http://www.balloonboard.org/balloonwiki/Balloon3OpenOCD</A> I have working
+configs for use with the balloon board and Olimex and Amontec JTAG
+dongles. I won't copy them all into this message - look at that page
+for the detailed file contents.
+
+Putting this config into openOCD itself as board support seems
+sensible. However there about a million ways of setting out these
+config files, and proper paramerisation and having info reside at the
+right levels is tricky. I partly adressed this in my pxa.cfg patch
+mail (where should the reset config and CPUTAPID live), but here are
+some other queries that arise.
+
+I have top-level files for a port/dongle/interface-cabling/board
+combination like this:
+balloon3-cpu-olimex.cfg  (olimex dongle, pxa jtag port, full init)
+balloon3-cpld-olimex.cfg (olimex dongle, cpld jtag port, xsvf-only init)
+and then script files for uploading code:
+loadloon.cfg  (load bootloader and kernel/initrd into NOR)
+loadfpga.cfg  (load FPGA image into NOR)
+loadcpld.cfg  (just play xsvf file)
+
+The top-level files refer to:
+base.cfg
+&lt;dongle&gt;.cfg (should be stock from openOCD)
+pxa270.cfg (should be stock from openOCD, but currently isn't)
+then specify 
+* a CPUTAPID
+* a reset config
+* a NOR flash device
+* initialisation of chain ready for programming
+
+Things are complicated because we have build flavours with FPGA and
+CPLD, and various dongle/interface arrangements to the CPU and
+CPLD/FPGA which sometimes chain the JTAG ports and sometimes don't.
+
+This seems to leave a choice between an awful lot of top-level files
+(one for each combo of dongle/chaining) or loads of tiny little files
+and a lot of knowledge required to know which set to select. I have
+tried to find a happy medium here, and offer these files for
+inclusion, but some of this stuff has wider implications for board
+files in general I suspect so am happy to take suggestions about how
+best to do this.
+
+I also have some questions about how things currently work.
+
+1) Is there a way to output a user message? Currently 
+flash write_image erase kernel/zImageInitrd 0x200000 bin
+involves a 10-minute pause. It would be great if there was a way to
+display
+'programming flash with kernel/root image now - should take 10 mins'
+so the user didn't think it had died.
+
+2) base.cfg just specifies the default port info:
+-----
+telnet_port 4444
+gdb_port 3333
+tcl_port 6666
+-----
+But if I don't put this in I get warning messages about how these are
+&quot;not specified- using defaults&quot;. Is that really necessary? Shouldn't it
+just quietly use the defaults and save us all having to specify these
+in thousands of config files? If not then having this 'base.cfg' for
+such default info might be a good idea generally?
+
+3) What's with the 'A' on the end of all the USB ft2232_device_desc
+names?
+Originally I had to change the Olimex.cfg file to a) have the correct
+vip_pid numbers (now correct in svn) and b) remove the A, so it
+worked. Now it seems that leaving the A in can work because OpenOCD
+strings it off and tries without it, but it still seems confusing.
+Shouldn't the config file not have this info and it gets added on and
+checked for in the strange Windows case where apparently it is needed?
+
+4) When running correctly I get a lot of grumbling which I don't
+understand how to fix:
+tap creation outputs:
+-----
+Info : JTAG tap: pxa270.cpu tap/device found: 0x49265013 (Manufacturer: 0x009, Part: 0x9265, Version: 0x4)
+Info : JTAG Tap/device matched
+-----
+
+so that's OK, but then 'reset halt' gives:
+---------
+Info : JTAG tap: pxa270.cpu tap/device found: 0x49265013 (Manufacturer: 0x009, Part: 0x9265, Version: 0x4)
+Info : JTAG Tap/device matched
+Warn : TAP pxa270.cpu:
+Warn : value captured during scan didn't pass the requested check:
+Warn : captured: 0x00 check_value: 0x02 check_mask: 0x07
+Warn : in_handler: w/o &quot;in_value&quot;, mismatch in SDR
+Error: JTAG error while writing DCSR
+Warn : TAP pxa270.cpu:
+Warn : value captured during scan didn't pass the requested check:
+Warn : captured: 0x00 check_value: 0x01 check_mask: 0x7F
+Warn : in_handler: w/o &quot;in_value&quot;, mismatch in SIR
+target state: halted
+target halted in ARM state due to debug-request, current mode: Supervisor
+cpsr: 0x580000d3 pc: 0x00000000
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+(processor reset)
+------------
+What are the 'requested checks' referred-to? What should I specify
+where to stop it whinging? 
+
+erm. There is probably more but that'll do for now :-)
+
+I hope this stuff is useful.
+
+Wookey
+-- 
+Principal hats:  iEndian - Balloonboard - Toby Churchill - Emdebian
+<A HREF="http://wookware.org/">http://wookware.org/</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006931.html">[Openocd-development] [RFC][PATCH] [0/4] x16_as_x8 tentative implementation.
+</A></li>
+	<LI>Next message: <A HREF="006826.html">[Openocd-development] Balloon board config and some queries
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6824">[ date ]</a>
+              <a href="thread.html#6824">[ thread ]</a>
+              <a href="subject.html#6824">[ subject ]</a>
+              <a href="author.html#6824">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

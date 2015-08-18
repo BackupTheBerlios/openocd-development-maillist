@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32: &quot;flash write_image&quot; has an alignment issue and flash protect/erase is broken
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%3A%20%22flash%20write_image%22%20has%20an%20alignment%0A%20issue%20and%20flash%20protect/erase%20is%20broken&In-Reply-To=%3C4B05CAAA.6030800%40milksnot.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012568.html">
+   <LINK REL="Next"  HREF="012681.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32: &quot;flash write_image&quot; has an alignment issue and flash protect/erase is broken</H1>
+    <B>Johnny Halfmoon</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%3A%20%22flash%20write_image%22%20has%20an%20alignment%0A%20issue%20and%20flash%20protect/erase%20is%20broken&In-Reply-To=%3C4B05CAAA.6030800%40milksnot.com%3E"
+       TITLE="[Openocd-development] STM32: &quot;flash write_image&quot; has an alignment issue and flash protect/erase is broken">jhalfmoon at milksnot.com
+       </A><BR>
+    <I>Thu Nov 19 23:46:02 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012568.html">[Openocd-development] [patch 2/2] ARM: remove per-register malloc
+</A></li>
+        <LI>Next message: <A HREF="012681.html">[Openocd-development] STM32: &quot;flash write_image&quot; has an	alignment issue and flash protect/erase is broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12571">[ date ]</a>
+              <a href="thread.html#12571">[ thread ]</a>
+              <a href="subject.html#12571">[ subject ]</a>
+              <a href="author.html#12571">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hiya,
+
+I've found a few issues in OpenOCD and thought that I'd share before hacking a solution together. The following revision is used:
+
+commit 8f446fcf676e9cd13cf53d9946f0cae5d29a10ec
+Date:   Thu Nov 19 13:23:49 2009 -0800
+
+When doing &quot;flash write_image erase unlock image.bin 0x8000000 bin&quot; on an STM32, the following error is generated:
+
+auto erase enabled
+auto unlock enabled
+Info : device id = 0x20036410
+Info : flash size = 128kbytes
+Warn : Error: start and end sectors must be on a 4 sector boundary
+Error: failed setting protection for areas 0 to 21 (-901)
+
+So it seems we need write_image to be a bit smarter and do some boundary aligning before doing the unprotect / erase . The way I was thinking to do this is to add a configuration parameter to OpenOCD which tells it to be smart ( or not ) when encountering alignment issues like this one. For example &quot;smartalign on&quot; and &quot;smartalign off&quot;. &quot;smartalign on&quot; will make OpenOCD adjust alignment automatically to be valid. Anyone go a better idea?
+
+Also I've noticed that the following two commands have stopped working, at least on STM32:
+
+- flash protect 0 0 last off
+- flash erase_sector 0 0 last
+
+OpenOCD just exits and the -d parameter only yields this:
+
+User : 208 1276 command.c:608 jim_echo(): ---Removing write protection---
+Debug: 210 1279 command.c:64 script_debug(): command - protect
+Debug: 211 1279 command.c:74 script_debug(): protect - argv[0]=ocd_flash_protect
+Debug: 212 1279 command.c:74 script_debug(): protect - argv[1]=0
+Debug: 213 1279 command.c:74 script_debug(): protect - argv[2]=0
+Debug: 214 1279 command.c:74 script_debug(): protect - argv[3]=last
+Debug: 215 1279 command.c:74 script_debug(): protect - argv[4]=off
+User : 217 1282 command.c:675 openocd_jim_vfprintf(): 
+User : 219 1282 command.c:675 openocd_jim_vfprintf(): 
+User : 221 1282 command.c:675 openocd_jim_vfprintf(): 
+User : 223 1282 command.c:675 openocd_jim_vfprintf(): 
+User : 224 1283 command.c:675 openocd_jim_vfprintf(): 
+User : 227 1283 command.c:675 openocd_jim_vfprintf(): 
+User : 229 1283 command.c:675 openocd_jim_vfprintf(): 
+User : 231 1283 command.c:675 openocd_jim_vfprintf(): 
+User : 233 1283 command.c:675 openocd_jim_vfprintf(): 
+User : 235 1283 command.c:675 openocd_jim_vfprintf(): 
+User : 237 1283 command.c:675 openocd_jim_vfprintf(): 
+make: *** [flash] Error 1
+
+and
+
+User : 207 1027 command.c:608 jim_echo(): ---Erasing---
+Debug: 209 1029 command.c:64 script_debug(): command - erase_sector
+Debug: 210 1029 command.c:74 script_debug(): erase_sector - argv[0]=ocd_flash_erase_sector
+Debug: 211 1029 command.c:74 script_debug(): erase_sector - argv[1]=0
+Debug: 212 1029 command.c:74 script_debug(): erase_sector - argv[2]=0
+Debug: 213 1029 command.c:74 script_debug(): erase_sector - argv[3]=last
+User : 215 1032 command.c:675 openocd_jim_vfprintf(): 
+User : 216 1032 command.c:675 openocd_jim_vfprintf(): 
+User : 219 1032 command.c:675 openocd_jim_vfprintf(): 
+User : 221 1032 command.c:675 openocd_jim_vfprintf(): 
+User : 223 1032 command.c:675 openocd_jim_vfprintf(): 
+User : 225 1032 command.c:675 openocd_jim_vfprintf(): 
+User : 227 1032 command.c:675 openocd_jim_vfprintf(): 
+User : 229 1032 command.c:675 openocd_jim_vfprintf(): 
+make: *** [flash] Error 1
+
+OpenOCD apparently exits with an error, but why; I don't know. The mass_erase command, on the other hand, does work as it should. I've yet do dig in to this, but for lack of time, haven't done so yet. Perhaps somebody already knows the answer. If not, I'll try and find the cause some time next week.
+
+Cheers,
+
+Johnny
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012568.html">[Openocd-development] [patch 2/2] ARM: remove per-register malloc
+</A></li>
+	<LI>Next message: <A HREF="012681.html">[Openocd-development] STM32: &quot;flash write_image&quot; has an	alignment issue and flash protect/erase is broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12571">[ date ]</a>
+              <a href="thread.html#12571">[ thread ]</a>
+              <a href="subject.html#12571">[ subject ]</a>
+              <a href="author.html#12571">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Compile issue on mingw on current svn
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Compile%20issue%20on%20mingw%20on%20current%20svn&In-Reply-To=%3Cd48b39750905130300t3aca6927y42d9b639c7e42e02%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006468.html">
+   <LINK REL="Next"  HREF="006470.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Compile issue on mingw on current svn</H1>
+    <B>Francois Lorrain</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Compile%20issue%20on%20mingw%20on%20current%20svn&In-Reply-To=%3Cd48b39750905130300t3aca6927y42d9b639c7e42e02%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Compile issue on mingw on current svn">francois.lorrain at gmail.com
+       </A><BR>
+    <I>Wed May 13 12:00:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006468.html">[Openocd-development] move src/*.txt to doc/?
+</A></li>
+        <LI>Next message: <A HREF="006470.html">[Openocd-development] Compile issue on mingw on current svn
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6469">[ date ]</a>
+              <a href="thread.html#6469">[ thread ]</a>
+              <a href="subject.html#6469">[ subject ]</a>
+              <a href="author.html#6469">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+Trying to compile the SVN version after the recent changes on windows
+I am compiling a mingw version using the cygwin tools with
+mingw32-make, mingw32-gcc - it has worked for me before.
+
+I have a couple of issue with one blocking from finishing the compilation.
+
+1) I have a small local patch in order to be able to find the libftdi
+lib in configure.in, otherwise it generate a cygwin path which the
+mingw32-gcc does not understand ... I know it will break cygwin build
+but I don't know how to fix it better.
+
+ Index: configure.in
+===================================================================
+--- configure.in	(revision 1771)
++++ configure.in	(working copy)
+@@ -145,7 +145,7 @@
+   # option present
+   if test -d $with_ftd2xx_win32_zipdir
+   then
+-	with_ftd2xx_win32_zipdir=`cd $with_ftd2xx_win32_zipdir &amp;&amp; pwd`
++#	with_ftd2xx_win32_zipdir=`cd $with_ftd2xx_win32_zipdir &amp;&amp; pwd`
+ 	AC_MSG_NOTICE([Using: ftdichip.com library: $with_ftd2xx_win32_zipdir])
+   else
+ 	AC_MSG_ERROR([Parameter to --with-ftd2xx-win32-zipdir is not a dir:
+$with_ftd2xx_win32_zipdir])
+
+
+2)  It looks like the stdint.h need to be included in system.h, not
+types.h, otherwise binarybuffer.c does not compile
+
+here is a patch :
+
+Index: system.h
+===================================================================
+--- system.h	(revision 1771)
++++ system.h	(working copy)
+@@ -29,6 +29,9 @@
+ #include &lt;assert.h&gt;
+ #include &lt;ctype.h&gt;
+ #include &lt;errno.h&gt;
++#ifdef HAVE_STDINT_H
++#include &lt;stdint.h&gt;
++#endif
+
+ // +++ AC_HEADER_TIME +++
+ #ifdef TIME_WITH_SYS_TIME
+
+Index: types.h
+===================================================================
+--- types.h	(revision 1771)
++++ types.h	(working copy)
+@@ -26,9 +26,6 @@
+ #ifdef HAVE_SYS_TYPES_H
+ #include &lt;sys/types.h&gt;
+ #endif
+-#ifdef HAVE_STDINT_H
+-#include &lt;stdint.h&gt;
+-#endif
+
+ #ifndef u8
+ typedef unsigned char u8;
+
+
+3)  This one has been bothering me for a while but I cannot find the
+solution ... during the make process, the generation of the Makefile
+does not work because the ./config.status command is issued with a
+lowercase 'm' instead of 'M' for makefile.
+If I re-issue the command with the correct UPPERCASE 'M', then it
+works and I can continue.
+If somebody can find where this 'm' is not correct, it would be great :-)
+
+mingw32-make[3]: Entering directory `c:/Workspace-1/openocd/src/flash'
+ cd ../.. &amp;&amp; C:/cygwin/bin/sh.exe /Workspace-1/openocd/missing --run
+automake-1.10 --foreign  src/flash/Makefile
+ cd ../.. &amp;&amp; C:/cygwin/bin/sh.exe ./config.status src/flash/makefile depfiles
+config.status: error: invalid argument: src/flash/makefile
+mingw32-make[3]: *** [makefile] Error 1
+mingw32-make[3]: Leaving directory `c:/Workspace-1/openocd/src/flash'
+mingw32-make[2]: *** [all-recursive] Error 1
+mingw32-make[2]: Leaving directory `c:/Workspace-1/openocd/src'
+mingw32-make[1]: *** [all-recursive] Error 1
+mingw32-make[1]: Leaving directory `c:/Workspace-1/openocd'
+mingw32-make: *** [all] Error 2
+
+
+$ ./config.status src/flash/Makefile depfiles
+config.status: creating src/flash/Makefile
+config.status: executing depfiles commands
+
+4) This one is blocking, during the compilation of openocd.c, there is
+a syntax error around  -DPKGBLDDATE=\&quot;`date +%F-%R`\&quot;
+I am not sure how to fix it ...
+
+ mingw32-make[3]: Entering directory `c:/Workspace-1/openocd/src'
+C:/cygwin/bin/sh.exe ../libtool --tag=CC   --mode=compile mingw32-gcc
+-std=gnu99 -DHAVE_CONFIG_H -I. -I..  -DPKGLIBDIR=\&quot;/usr/local/lib/open
+ocd\&quot; -DPKGBLDDATE=\&quot;`date +%F-%R`\&quot;  -DRELSTR=\&quot;svn:\&quot;
+-DPKGBLDREV=\&quot;`../guess-rev.sh ..`\&quot; -I../src -I../src/helper
+-I../src/jtag -I../src
+/target -I../src/xsvf -I../src/svf -I../src/server -I../src/flash
+-I../src/pld -IC:/libusb-win32-device-bin-0.1.12.1/include
+-IC:/libusb-win
+32-device-bin-0.1.12.1/include  -g -O2 -Ic:/ftdi-2.04.06 -Wall
+-Wstrict-prototypes -Wformat-security -Wextra -Wno-unused-parameter
+-Wbad-fun
+ction-cast -Wcast-align -Wredundant-decls -Werror -MT
+libopenocd_la-openocd.lo -MD -MP -MF .deps/libopenocd_la-openocd.Tpo
+-c -o libopenocd_
+la-openocd.lo `test -f 'openocd.c' || echo './'`openocd.c
+/usr/bin/sh: \: command not found
+libtool: compile:  mingw32-gcc -std=gnu99 -DHAVE_CONFIG_H -I. -I..
+&quot;-DPKGLIBDIR=\\/usr/local/lib/openocd\\ -DPKGBLDDATE=\\\`date&quot;
+&quot;+%F-%R\\
+-I../src&quot; -I../src/helper -I../src/jtag -I../src/target -I../src/xsvf
+-I../src/svf -I../src/server -I../src/flash -I../src/pld -IC:/libusb-w
+in32-device-bin-0.1.12.1/include
+-IC:/libusb-win32-device-bin-0.1.12.1/include -g -O2 -Ic:/ftdi-2.04.06
+-Wall -Wstrict-prototypes -Wformat-s
+ecurity -Wextra -Wno-unused-parameter -Wbad-function-cast -Wcast-align
+-Wredundant-decls -Werror -MT libopenocd_la-openocd.lo -MD -MP -MF .d
+eps/libopenocd_la-openocd.Tpo -c openocd.c  -DDLL_EXPORT -DPIC -o
+.libs/libopenocd_la-openocd.o
+mingw32-gcc.exe: +%F-%R\ -I../src : No such file or directory
+openocd.c: In function 'handle_version_command':
+openocd.c:75: erreur: expected ')' before 'PKGBLDDATE'
+openocd.c: In function 'setup_command_handler':
+openocd.c:213: erreur: expected ')' before 'PKGBLDDATE'
+mingw32-make[3]: *** [libopenocd_la-openocd.lo] Error 1
+mingw32-make[3]: Leaving directory `c:/Workspace-1/openocd/src'
+mingw32-make[2]: *** [all-recursive] Error 1
+mingw32-make[2]: Leaving directory `c:/Workspace-1/openocd/src'
+mingw32-make[1]: *** [all-recursive] Error 1
+mingw32-make[1]: Leaving directory `c:/Workspace-1/openocd'
+mingw32-make: *** [all] Error 2
+
+
+Keep up the good work ...
+
+Regards
+
+Francois
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006468.html">[Openocd-development] move src/*.txt to doc/?
+</A></li>
+	<LI>Next message: <A HREF="006470.html">[Openocd-development] Compile issue on mingw on current svn
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6469">[ date ]</a>
+              <a href="thread.html#6469">[ thread ]</a>
+              <a href="subject.html#6469">[ subject ]</a>
+              <a href="author.html#6469">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

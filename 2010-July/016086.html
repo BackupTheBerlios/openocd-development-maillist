@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] arm_adi_v5: dap_run() error	propagation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm_adi_v5%3A%20dap_run%28%29%20error%0A%09propagation&In-Reply-To=%3C1279542277-17180-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016085.html">
+   <LINK REL="Next"  HREF="016087.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] arm_adi_v5: dap_run() error	propagation</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm_adi_v5%3A%20dap_run%28%29%20error%0A%09propagation&In-Reply-To=%3C1279542277-17180-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] arm_adi_v5: dap_run() error	propagation">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul 19 14:24:37 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016085.html">[Openocd-development] [PATCH 3/3] arm_adi_v5: mem_ap_write error	propagation
+</A></li>
+        <LI>Next message: <A HREF="016087.html">[Openocd-development] [PATCH] arm: error propagation of	arm_jtag_set_instr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16086">[ date ]</a>
+              <a href="thread.html#16086">[ thread ]</a>
+              <a href="subject.html#16086">[ subject ]</a>
+              <a href="author.html#16086">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/arm_adi_v5.c |   43 ++++++++++++++++++++++++++++---------------
+ 1 files changed, 28 insertions(+), 15 deletions(-)
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 39d8bde..b26175b 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -321,7 +321,7 @@ int mem_ap_write_buf_u32(struct adiv5_dap *dap, uint8_t *buffer, int count, uint
+ 				break;
+ 		}
+ 
+-		if (dap_run(dap) == ERROR_OK)
++		if ((retval = dap_run(dap)) == ERROR_OK)
+ 		{
+ 			wcount = wcount - blocksize;
+ 			address = address + 4 * blocksize;
+@@ -335,8 +335,7 @@ int mem_ap_write_buf_u32(struct adiv5_dap *dap, uint8_t *buffer, int count, uint
+ 		if (errorcount &gt; 1)
+ 		{
+ 			LOG_WARNING(&quot;Block write error address 0x%&quot; PRIx32 &quot;, wcount 0x%x&quot;, address, wcount);
+-			/* REVISIT return the *actual* fault code */
+-			return ERROR_JTAG_DEVICE_ERROR;
++			return retval;
+ 		}
+ 	}
+ 
+@@ -406,13 +405,12 @@ static int mem_ap_write_buf_packed_u16(struct adiv5_dap *dap,
+ 				if (retval != ERROR_OK)
+ 					break;
+ 
+-				if (dap_run(dap) != ERROR_OK)
++				if ((retval = dap_run(dap)) != ERROR_OK)
+ 				{
+ 					LOG_WARNING(&quot;Block write error address &quot;
+ 						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
+ 						address, count);
+-					/* REVISIT return *actual* fault code */
+-					return ERROR_JTAG_DEVICE_ERROR;
++					return retval;
+ 				}
+ 			}
+ 
+@@ -515,13 +513,12 @@ static int mem_ap_write_buf_packed_u8(struct adiv5_dap *dap,
+ 				if (retval != ERROR_OK)
+ 					break;
+ 
+-				if (dap_run(dap) != ERROR_OK)
++				if ((retval = dap_run(dap)) != ERROR_OK)
+ 				{
+ 					LOG_WARNING(&quot;Block write error address &quot;
+ 						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
+ 						address, count);
+-					/* REVISIT return *actual* fault code */
+-					return ERROR_JTAG_DEVICE_ERROR;
++					return retval;
+ 				}
+ 			}
+ 
+@@ -712,11 +709,12 @@ static int mem_ap_read_buf_packed_u16(struct adiv5_dap *dap,
+ 		do
+ 		{
+ 			retval = dap_queue_ap_read(dap, AP_REG_DRW, &amp;invalue);
+-			if (dap_run(dap) != ERROR_OK)
++			if (retval != ERROR_OK)
++				return retval;
++			if ((retval = dap_run(dap)) != ERROR_OK)
+ 			{
+ 				LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
+-				/* REVISIT return the *actual* fault code */
+-				return ERROR_JTAG_DEVICE_ERROR;
++				return retval;
+ 			}
+ 
+ 			nbytes = MIN((readcount &lt;&lt; 1), 4);
+@@ -821,11 +819,12 @@ static int mem_ap_read_buf_packed_u8(struct adiv5_dap *dap,
+ 		do
+ 		{
+ 			retval = dap_queue_ap_read(dap, AP_REG_DRW, &amp;invalue);
+-			if (dap_run(dap) != ERROR_OK)
++			if (retval != ERROR_OK)
++				return retval;
++			if ((retval = dap_run(dap)) != ERROR_OK)
+ 			{
+ 				LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
+-				/* REVISIT return the *actual* fault code */
+-				return ERROR_JTAG_DEVICE_ERROR;
++				return retval;
+ 			}
+ 
+ 			nbytes = MIN(readcount, 4);
+@@ -993,7 +992,11 @@ int ahbap_debugport_init(struct adiv5_dap *dap)
+ 	 * place to scan the table and do any topology detection?
+ 	 */
+ 	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;idreg);
++	if (retval != ERROR_OK)
++		return retval;
+ 	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;romaddr);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if ((retval = dap_run(dap)) != ERROR_OK)
+ 		return retval;
+@@ -1039,7 +1042,11 @@ static int dap_info_command(struct command_context *cmd_ctx,
+ 	apselold = dap-&gt;apsel;
+ 	dap_ap_select(dap, apsel);
+ 	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;dbgbase);
++	if (retval != ERROR_OK)
++		return retval;
+ 	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
++	if (retval != ERROR_OK)
++		return retval;
+ 	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1490,6 +1497,8 @@ COMMAND_HANDLER(dap_baseaddr_command)
+ 	 * use the ID register to verify it's a MEM-AP.
+ 	 */
+ 	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;baseaddr);
++	if (retval != ERROR_OK)
++		return retval;
+ 	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1553,6 +1562,8 @@ COMMAND_HANDLER(dap_apsel_command)
+ 
+ 	dap_ap_select(dap, apsel);
+ 	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
++	if (retval != ERROR_OK)
++		return retval;
+ 	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1591,6 +1602,8 @@ COMMAND_HANDLER(dap_apid_command)
+ 		dap_ap_select(dap, apsel);
+ 
+ 	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
++	if (retval != ERROR_OK)
++		return retval;
+ 	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016085.html">[Openocd-development] [PATCH 3/3] arm_adi_v5: mem_ap_write error	propagation
+</A></li>
+	<LI>Next message: <A HREF="016087.html">[Openocd-development] [PATCH] arm: error propagation of	arm_jtag_set_instr
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16086">[ date ]</a>
+              <a href="thread.html#16086">[ thread ]</a>
+              <a href="subject.html#16086">[ subject ]</a>
+              <a href="author.html#16086">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

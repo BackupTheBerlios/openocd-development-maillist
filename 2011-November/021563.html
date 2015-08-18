@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] pointers modification within functions
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20pointers%20modification%20within%20functions&In-Reply-To=%3CCAFYkXjm86Q_aioe5aWk2YWzCuXus_Ya-eTesTcfXrKbm8mZy%2Bw%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021552.html">
+   <LINK REL="Next"  HREF="021564.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] pointers modification within functions</H1>
+    <B>Tomek CEDRO</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20pointers%20modification%20within%20functions&In-Reply-To=%3CCAFYkXjm86Q_aioe5aWk2YWzCuXus_Ya-eTesTcfXrKbm8mZy%2Bw%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] pointers modification within functions">tomek.cedro at gmail.com
+       </A><BR>
+    <I>Thu Nov  3 22:29:51 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021552.html">[Openocd-development] pointers modification within functions
+</A></li>
+        <LI>Next message: <A HREF="021564.html">[Openocd-development] pointers modification within functions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21563">[ date ]</a>
+              <a href="thread.html#21563">[ thread ]</a>
+              <a href="subject.html#21563">[ subject ]</a>
+              <a href="author.html#21563">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hmm, things seems to be more suble :-)
+
+I have tried a trick with using int *a; fun(int* &amp;a); and it indeed
+works but the address is trimmed no matter what type &quot;a&quot; is (int*,
+long*, void*) and this causes problems.
+
+21	 int a1=0, a2=0;
+(gdb) s
+22	 double *a3;
+(gdb)
+23	 a3=NULL;
+(gdb)
+f1 (pf11=0x7fffffffe71c, pf12=0x7fffffffe718, pf13=0x7fffffffe710) at
+pointertest.c:17
+17	 return f2(pf11, pf12, pf13);
+(gdb)
+f2 (pf21=0x7fffffffe71c, pf22=0x7fffffffe718, pf23=0x7fffffffe710) at
+pointertest.c:6
+6	 stuff=calloc(1,sizeof(int));
+(gdb)
+7	 if (!stuff) exit(-1);
+(gdb)
+8	 *stuff=0xDEADBEEF;
+(gdb)
+9	 printf(&quot;stuff[@%X]=%X\n&quot;, stuff, *stuff);
+(gdb) p/x stuff
+$1 = 0x800a04090
+(gdb) p/x *stuff
+$2 = 0xdeadbeef
+(gdb) s
+stuff[@A04090]=DEADBEEF
+10	 *pf21=stuff;
+(gdb)
+11	 *pf22=*stuff;
+
+The most important lines below:
+
+(gdb)
+12	 *pf23=&stuff;
+(gdb)
+13	 return 0;
+(gdb) p/x pf23
+$3 = 0x7fffffffe710
+(gdb) p/x *pf23
+$4 = 0xffffe6b0
+(gdb) p/x &amp;stuff
+$5 = 0x7fffffffe6b0
+
+&amp;stuff is the address of the memory location. I want to write that
+location to my pointer, but its trimmed although variable IS a
+pointer. Maybe this is because of a type....
+
+The most interesting part is the &quot;*variable=value&quot; construct because
+without this we cannot get data out of the function. Even if we change
+the address contained within a pointer variable we will get the data
+from an old address!!! Note that below I did not use *variable=value
+but simple variable=value, variable changed but it still points to the
+old memory location (0x00 instead 0xdeadbeef)
+
+(gdb) p/x &amp;stuff
+$1 = 0x7fffffffe6b0
+(gdb) p/x stuff
+$2 = 0x800a04090
+(gdb) p/x *stuff
+$3 = 0xdeadbeef
+(gdb) s
+stuff[@A04090]=DEADBEEF
+10	 *pf21=stuff;
+(gdb)
+11	 *pf22=*stuff;
+(gdb)
+12	 pf23=&stuff;
+(gdb)
+13	 return 0;
+(gdb) p/x &amp;pf23
+$4 = 0x7fffffffe698
+(gdb) p/x pf23
+$5 = 0x7fffffffe6b0
+(gdb) p/x *pf23
+$6 = 0x0
+
+I think this is some memory corruption protection mechanism
+implemented by a compiler...
+
+Well I have to live with double pointers ;-P
+
+-- 
+CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021552.html">[Openocd-development] pointers modification within functions
+</A></li>
+	<LI>Next message: <A HREF="021564.html">[Openocd-development] pointers modification within functions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21563">[ date ]</a>
+              <a href="thread.html#21563">[ thread ]</a>
+              <a href="subject.html#21563">[ subject ]</a>
+              <a href="author.html#21563">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

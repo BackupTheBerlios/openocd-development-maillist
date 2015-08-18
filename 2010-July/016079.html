@@ -1,0 +1,633 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] arm: add error propagation for	enable/disable mmu caches
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20arm%3A%20add%20error%20propagation%20for%0A%09enable/disable%20mmu%20caches&In-Reply-To=%3C1279530005-10004-2-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016078.html">
+   <LINK REL="Next"  HREF="016080.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] arm: add error propagation for	enable/disable mmu caches</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20arm%3A%20add%20error%20propagation%20for%0A%09enable/disable%20mmu%20caches&In-Reply-To=%3C1279530005-10004-2-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] arm: add error propagation for	enable/disable mmu caches">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Jul 19 11:00:05 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016078.html">[Openocd-development] [PATCH 1/2] arm: add error propagation to	generic get_ttb fn
+</A></li>
+        <LI>Next message: <A HREF="016080.html">[Openocd-development] [PATCH] cortex a8: added timeout handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16079">[ date ]</a>
+              <a href="thread.html#16079">[ thread ]</a>
+              <a href="subject.html#16079">[ subject ]</a>
+              <a href="author.html#16079">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/arm720t.c     |   45 +++++++++++++++++++++++++++----------
+ src/target/arm920t.c     |   28 ++++++++++++++++------
+ src/target/arm920t.h     |    4 +-
+ src/target/arm926ejs.c   |   56 +++++++++++++++++++++++++++++++++------------
+ src/target/armv4_5_mmu.c |   20 +++++++++++++---
+ src/target/armv4_5_mmu.h |    4 +-
+ src/target/cortex_a8.c   |   26 +++++++++++++--------
+ src/target/xscale.c      |   44 ++++++++++++++++++++++++++----------
+ 8 files changed, 162 insertions(+), 65 deletions(-)
+
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index b269f94..6bf38bb 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -154,14 +154,19 @@ static int arm720t_get_ttb(struct target *target, uint32_t *result)
+ 	return ERROR_OK;
+ }
+ 
+-static void arm720t_disable_mmu_caches(struct target *target,
++static int arm720t_disable_mmu_caches(struct target *target,
+ 		int mmu, int d_u_cache, int i_cache)
+ {
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	arm720t_read_cp15(target, 0xee110f10, &amp;cp15_control);
+-	jtag_execute_queue();
++	retval = arm720t_read_cp15(target, 0xee110f10, &amp;cp15_control);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (mmu)
+ 		cp15_control &amp;= ~0x1U;
+@@ -169,17 +174,23 @@ static void arm720t_disable_mmu_caches(struct target *target,
+ 	if (d_u_cache || i_cache)
+ 		cp15_control &amp;= ~0x4U;
+ 
+-	arm720t_write_cp15(target, 0xee010f10, cp15_control);
++	retval = arm720t_write_cp15(target, 0xee010f10, cp15_control);
++	return retval;
+ }
+ 
+-static void arm720t_enable_mmu_caches(struct target *target,
++static int arm720t_enable_mmu_caches(struct target *target,
+ 		int mmu, int d_u_cache, int i_cache)
+ {
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	arm720t_read_cp15(target, 0xee110f10, &amp;cp15_control);
+-	jtag_execute_queue();
++	retval = arm720t_read_cp15(target, 0xee110f10, &amp;cp15_control);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (mmu)
+ 		cp15_control |= 0x1U;
+@@ -187,7 +198,8 @@ static void arm720t_enable_mmu_caches(struct target *target,
+ 	if (d_u_cache || i_cache)
+ 		cp15_control |= 0x4U;
+ 
+-	arm720t_write_cp15(target, 0xee010f10, cp15_control);
++	retval = arm720t_write_cp15(target, 0xee010f10, cp15_control);
++	return retval;
+ }
+ 
+ static void arm720t_post_debug_entry(struct target *target)
+@@ -282,12 +294,19 @@ static int arm720t_read_memory(struct target *target,
+ 
+ 	/* disable cache, but leave MMU enabled */
+ 	if (arm720t-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled)
+-		arm720t_disable_mmu_caches(target, 0, 1, 0);
+-
++	{
++		retval = arm720t_disable_mmu_caches(target, 0, 1, 0);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 	retval = arm7_9_read_memory(target, address, size, count, buffer);
+ 
+ 	if (arm720t-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled)
+-		arm720t_enable_mmu_caches(target, 0, 1, 0);
++	{
++		retval = arm720t_enable_mmu_caches(target, 0, 1, 0);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 
+ 	return retval;
+ }
+@@ -367,7 +386,9 @@ static int arm720t_soft_reset_halt(struct target *target)
+ 	armv4_5-&gt;pc-&gt;dirty = 1;
+ 	armv4_5-&gt;pc-&gt;valid = 1;
+ 
+-	arm720t_disable_mmu_caches(target, 1, 1, 1);
++	retval = arm720t_disable_mmu_caches(target, 1, 1, 1);
++	if (retval != ERROR_OK)
++		return retval;
+ 	arm720t-&gt;armv4_5_mmu.mmu_enabled = 0;
+ 	arm720t-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled = 0;
+ 	arm720t-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = 0;
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 9c11d12..a80a378 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -333,14 +333,19 @@ int arm920t_get_ttb(struct target *target, uint32_t *result)
+ }
+ 
+ // EXPORTED to FA256
+-void arm920t_disable_mmu_caches(struct target *target, int mmu,
++int arm920t_disable_mmu_caches(struct target *target, int mmu,
+ 		int d_u_cache, int i_cache)
+ {
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	arm920t_read_cp15_physical(target, CP15PHYS_CTRL, &amp;cp15_control);
+-	jtag_execute_queue();
++	retval = arm920t_read_cp15_physical(target, CP15PHYS_CTRL, &amp;cp15_control);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (mmu)
+ 		cp15_control &amp;= ~0x1U;
+@@ -351,18 +356,24 @@ void arm920t_disable_mmu_caches(struct target *target, int mmu,
+ 	if (i_cache)
+ 		cp15_control &amp;= ~0x1000U;
+ 
+-	arm920t_write_cp15_physical(target, CP15PHYS_CTRL, cp15_control);
++	retval = arm920t_write_cp15_physical(target, CP15PHYS_CTRL, cp15_control);
++	return retval;
+ }
+ 
+ // EXPORTED to FA256
+-void arm920t_enable_mmu_caches(struct target *target, int mmu,
++int arm920t_enable_mmu_caches(struct target *target, int mmu,
+ 		int d_u_cache, int i_cache)
+ {
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	arm920t_read_cp15_physical(target, CP15PHYS_CTRL, &amp;cp15_control);
+-	jtag_execute_queue();
++	retval = arm920t_read_cp15_physical(target, CP15PHYS_CTRL, &amp;cp15_control);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (mmu)
+ 		cp15_control |= 0x1U;
+@@ -373,7 +384,8 @@ void arm920t_enable_mmu_caches(struct target *target, int mmu,
+ 	if (i_cache)
+ 		cp15_control |= 0x1000U;
+ 
+-	arm920t_write_cp15_physical(target, CP15PHYS_CTRL, cp15_control);
++	retval = arm920t_write_cp15_physical(target, CP15PHYS_CTRL, cp15_control);
++	return retval;
+ }
+ 
+ // EXPORTED to FA256
+diff --git a/src/target/arm920t.h b/src/target/arm920t.h
+index 9d5afab..20f614d 100644
+--- a/src/target/arm920t.h
++++ b/src/target/arm920t.h
+@@ -67,9 +67,9 @@ int arm920t_write_memory(struct target *target,
+ void arm920t_post_debug_entry(struct target *target);
+ void arm920t_pre_restore_context(struct target *target);
+ int arm920t_get_ttb(struct target *target, uint32_t *result);
+-void arm920t_disable_mmu_caches(struct target *target,
++int arm920t_disable_mmu_caches(struct target *target,
+ 	int mmu, int d_u_cache, int i_cache);
+-void arm920t_enable_mmu_caches(struct target *target,
++int arm920t_enable_mmu_caches(struct target *target,
+ 	int mmu, int d_u_cache, int i_cache);
+ 
+ extern const struct command_registration arm920t_command_handlers[];
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 0cf7173..f8a4f62 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -337,20 +337,27 @@ static int arm926ejs_get_ttb(struct target *target, uint32_t *result)
+ 	return ERROR_OK;
+ }
+ 
+-static void arm926ejs_disable_mmu_caches(struct target *target, int mmu,
++static int arm926ejs_disable_mmu_caches(struct target *target, int mmu,
+ 		int d_u_cache, int i_cache)
+ {
+ 	struct arm926ejs_common *arm926ejs = target_to_arm926(target);
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	arm926ejs-&gt;read_cp15(target, 0, 0, 1, 0, &amp;cp15_control);
+-	jtag_execute_queue();
++	retval = arm926ejs-&gt;read_cp15(target, 0, 0, 1, 0, &amp;cp15_control);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (mmu)
+ 	{
+ 		/* invalidate TLB */
+-		arm926ejs-&gt;write_cp15(target, 0, 0, 8, 7, 0x0);
++		retval = arm926ejs-&gt;write_cp15(target, 0, 0, 8, 7, 0x0);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		cp15_control &amp;= ~0x1U;
+ 	}
+@@ -360,17 +367,25 @@ static void arm926ejs_disable_mmu_caches(struct target *target, int mmu,
+ 		uint32_t debug_override;
+ 		/* read-modify-write CP15 debug override register
+ 		 * to enable &quot;test and clean all&quot; */
+-		arm926ejs-&gt;read_cp15(target, 0, 0, 15, 0, &amp;debug_override);
++		retval = arm926ejs-&gt;read_cp15(target, 0, 0, 15, 0, &amp;debug_override);
++		if (retval != ERROR_OK)
++			return retval;
+ 		debug_override |= 0x80000;
+-		arm926ejs-&gt;write_cp15(target, 0, 0, 15, 0, debug_override);
++		retval = arm926ejs-&gt;write_cp15(target, 0, 0, 15, 0, debug_override);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		/* clean and invalidate DCache */
+-		arm926ejs-&gt;write_cp15(target, 0, 0, 7, 5, 0x0);
++		retval = arm926ejs-&gt;write_cp15(target, 0, 0, 7, 5, 0x0);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		/* write CP15 debug override register
+ 		 * to disable &quot;test and clean all&quot; */
+ 		debug_override &amp;= ~0x80000;
+-		arm926ejs-&gt;write_cp15(target, 0, 0, 15, 0, debug_override);
++		retval = arm926ejs-&gt;write_cp15(target, 0, 0, 15, 0, debug_override);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		cp15_control &amp;= ~0x4U;
+ 	}
+@@ -378,23 +393,31 @@ static void arm926ejs_disable_mmu_caches(struct target *target, int mmu,
+ 	if (i_cache)
+ 	{
+ 		/* invalidate ICache */
+-		arm926ejs-&gt;write_cp15(target, 0, 0, 7, 5, 0x0);
++		retval = arm926ejs-&gt;write_cp15(target, 0, 0, 7, 5, 0x0);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		cp15_control &amp;= ~0x1000U;
+ 	}
+ 
+-	arm926ejs-&gt;write_cp15(target, 0, 0, 1, 0, cp15_control);
++	retval = arm926ejs-&gt;write_cp15(target, 0, 0, 1, 0, cp15_control);
++	return retval;
+ }
+ 
+-static void arm926ejs_enable_mmu_caches(struct target *target, int mmu,
++static int arm926ejs_enable_mmu_caches(struct target *target, int mmu,
+ 		int d_u_cache, int i_cache)
+ {
+ 	struct arm926ejs_common *arm926ejs = target_to_arm926(target);
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	arm926ejs-&gt;read_cp15(target, 0, 0, 1, 0, &amp;cp15_control);
+-	jtag_execute_queue();
++	retval = arm926ejs-&gt;read_cp15(target, 0, 0, 1, 0, &amp;cp15_control);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (mmu)
+ 		cp15_control |= 0x1U;
+@@ -405,7 +428,8 @@ static void arm926ejs_enable_mmu_caches(struct target *target, int mmu,
+ 	if (i_cache)
+ 		cp15_control |= 0x1000U;
+ 
+-	arm926ejs-&gt;write_cp15(target, 0, 0, 1, 0, cp15_control);
++	retval = arm926ejs-&gt;write_cp15(target, 0, 0, 1, 0, cp15_control);
++	return retval;
+ }
+ 
+ static void arm926ejs_post_debug_entry(struct target *target)
+@@ -564,7 +588,9 @@ int arm926ejs_soft_reset_halt(struct target *target)
+ 	armv4_5-&gt;pc-&gt;dirty = 1;
+ 	armv4_5-&gt;pc-&gt;valid = 1;
+ 
+-	arm926ejs_disable_mmu_caches(target, 1, 1, 1);
++	retval = arm926ejs_disable_mmu_caches(target, 1, 1, 1);
++	if (retval != ERROR_OK)
++		return retval;
+ 	arm926ejs-&gt;armv4_5_mmu.mmu_enabled = 0;
+ 	arm926ejs-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled = 0;
+ 	arm926ejs-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = 0;
+diff --git a/src/target/armv4_5_mmu.c b/src/target/armv4_5_mmu.c
+index 3d450ae..8978f35 100644
+--- a/src/target/armv4_5_mmu.c
++++ b/src/target/armv4_5_mmu.c
+@@ -131,14 +131,20 @@ int armv4_5_mmu_read_physical(struct target *target, struct armv4_5_mmu_common *
+ 		return ERROR_TARGET_NOT_HALTED;
+ 
+ 	/* disable MMU and data (or unified) cache */
+-	armv4_5_mmu-&gt;disable_mmu_caches(target, 1, 1, 0);
++	retval = armv4_5_mmu-&gt;disable_mmu_caches(target, 1, 1, 0);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	retval = armv4_5_mmu-&gt;read_memory(target, address, size, count, buffer);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	/* reenable MMU / cache */
+-	armv4_5_mmu-&gt;enable_mmu_caches(target, armv4_5_mmu-&gt;mmu_enabled,
++	retval = armv4_5_mmu-&gt;enable_mmu_caches(target, armv4_5_mmu-&gt;mmu_enabled,
+ 		armv4_5_mmu-&gt;armv4_5_cache.d_u_cache_enabled,
+ 		armv4_5_mmu-&gt;armv4_5_cache.i_cache_enabled);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	return retval;
+ }
+@@ -151,14 +157,20 @@ int armv4_5_mmu_write_physical(struct target *target, struct armv4_5_mmu_common
+ 		return ERROR_TARGET_NOT_HALTED;
+ 
+ 	/* disable MMU and data (or unified) cache */
+-	armv4_5_mmu-&gt;disable_mmu_caches(target, 1, 1, 0);
++	retval = armv4_5_mmu-&gt;disable_mmu_caches(target, 1, 1, 0);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	retval = armv4_5_mmu-&gt;write_memory(target, address, size, count, buffer);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	/* reenable MMU / cache */
+-	armv4_5_mmu-&gt;enable_mmu_caches(target, armv4_5_mmu-&gt;mmu_enabled,
++	retval = armv4_5_mmu-&gt;enable_mmu_caches(target, armv4_5_mmu-&gt;mmu_enabled,
+ 		armv4_5_mmu-&gt;armv4_5_cache.d_u_cache_enabled,
+ 		armv4_5_mmu-&gt;armv4_5_cache.i_cache_enabled);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	return retval;
+ }
+diff --git a/src/target/armv4_5_mmu.h b/src/target/armv4_5_mmu.h
+index d2716fb..f39834e 100644
+--- a/src/target/armv4_5_mmu.h
++++ b/src/target/armv4_5_mmu.h
+@@ -29,8 +29,8 @@ struct armv4_5_mmu_common
+ 	int (*get_ttb)(struct target *target, uint32_t *result);
+ 	int (*read_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ 	int (*write_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+-	void (*disable_mmu_caches)(struct target *target, int mmu, int d_u_cache, int i_cache);
+-	void (*enable_mmu_caches)(struct target *target, int mmu, int d_u_cache, int i_cache);
++	int (*disable_mmu_caches)(struct target *target, int mmu, int d_u_cache, int i_cache);
++	int (*enable_mmu_caches)(struct target *target, int mmu, int d_u_cache, int i_cache);
+ 	struct armv4_5_cache_common armv4_5_cache;
+ 	int has_tiny_pages;
+ 	int mmu_enabled;
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index e1acbf7..9a90180 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -58,9 +58,9 @@ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ static int cortex_a8_mmu(struct target *target, int *enabled);
+ static int cortex_a8_virt2phys(struct target *target,
+                 uint32_t virt, uint32_t *phys);
+-static void cortex_a8_disable_mmu_caches(struct target *target, int mmu,
++static int cortex_a8_disable_mmu_caches(struct target *target, int mmu,
+                 int d_u_cache, int i_cache);
+-static void cortex_a8_enable_mmu_caches(struct target *target, int mmu,
++static int cortex_a8_enable_mmu_caches(struct target *target, int mmu,
+                 int d_u_cache, int i_cache);
+ static int cortex_a8_get_ttb(struct target *target, uint32_t *result);
+ 
+@@ -1916,19 +1916,21 @@ static int cortex_a8_get_ttb(struct target *target, uint32_t *result)
+     return ERROR_OK;
+ }
+ 
+-/* FIX! error propagation missing from this fn */
+-static void cortex_a8_disable_mmu_caches(struct target *target, int mmu,
++static int cortex_a8_disable_mmu_caches(struct target *target, int mmu,
+                 int d_u_cache, int i_cache)
+ {
+     struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+     struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+     uint32_t cp15_control;
++    int retval;
+ 
+     /* read cp15 control register */
+-    armv7a-&gt;armv4_5_common.mrc(target, 15,
++    retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
+                     0, 0,   /* op1, op2 */
+                     1, 0,   /* CRn, CRm */
+                     &amp;cp15_control);
++    if (retval != ERROR_OK)
++    	return retval;
+ 
+ 
+     if (mmu)
+@@ -1940,25 +1942,28 @@ static void cortex_a8_disable_mmu_caches(struct target *target, int mmu,
+     if (i_cache)
+             cp15_control &amp;= ~0x1000U;
+ 
+-    armv7a-&gt;armv4_5_common.mcr(target, 15,
++    retval = armv7a-&gt;armv4_5_common.mcr(target, 15,
+                     0, 0,   /* op1, op2 */
+                     1, 0,   /* CRn, CRm */
+                     cp15_control);
++	return retval;
+ }
+ 
+-/* FIX! error propagation missing from this fn */
+-static void cortex_a8_enable_mmu_caches(struct target *target, int mmu,
++static int cortex_a8_enable_mmu_caches(struct target *target, int mmu,
+                 int d_u_cache, int i_cache)
+ {
+     struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+     struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+     uint32_t cp15_control;
++    int retval;
+ 
+     /* read cp15 control register */
+-    armv7a-&gt;armv4_5_common.mrc(target, 15,
++    retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
+                     0, 0,   /* op1, op2 */
+                     1, 0,   /* CRn, CRm */
+                     &amp;cp15_control);
++    if (retval != ERROR_OK)
++    	return retval;
+ 
+     if (mmu)
+             cp15_control |= 0x1U;
+@@ -1969,10 +1974,11 @@ static void cortex_a8_enable_mmu_caches(struct target *target, int mmu,
+     if (i_cache)
+             cp15_control |= 0x1000U;
+ 
+-    armv7a-&gt;armv4_5_common.mcr(target, 15,
++    retval = armv7a-&gt;armv4_5_common.mcr(target, 15,
+                     0, 0,   /* op1, op2 */
+                     1, 0,   /* CRn, CRm */
+                     cp15_control);
++   	return retval;
+ }
+ 
+ 
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 35efa85..c0080b2 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2018,14 +2018,17 @@ static int xscale_get_ttb(struct target *target, uint32_t *result)
+ 	return ERROR_OK;
+ }
+ 
+-static void xscale_disable_mmu_caches(struct target *target, int mmu,
++static int xscale_disable_mmu_caches(struct target *target, int mmu,
+ 		int d_u_cache, int i_cache)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	xscale_get_reg(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL]);
++	retval = xscale_get_reg(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL]);
++	if (retval !=ERROR_OK)
++		return retval;
+ 	cp15_control = buf_get_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL].value, 0, 32);
+ 
+ 	if (mmu)
+@@ -2034,11 +2037,17 @@ static void xscale_disable_mmu_caches(struct target *target, int mmu,
+ 	if (d_u_cache)
+ 	{
+ 		/* clean DCache */
+-		xscale_send_u32(target, 0x50);
+-		xscale_send_u32(target, xscale-&gt;cache_clean_address);
++		retval = xscale_send_u32(target, 0x50);
++		if (retval !=ERROR_OK)
++			return retval;
++		retval = xscale_send_u32(target, xscale-&gt;cache_clean_address);
++		if (retval !=ERROR_OK)
++			return retval;
+ 
+ 		/* invalidate DCache */
+-		xscale_send_u32(target, 0x51);
++		retval = xscale_send_u32(target, 0x51);
++		if (retval !=ERROR_OK)
++			return retval;
+ 
+ 		cp15_control &amp;= ~0x4U;
+ 	}
+@@ -2046,25 +2055,33 @@ static void xscale_disable_mmu_caches(struct target *target, int mmu,
+ 	if (i_cache)
+ 	{
+ 		/* invalidate ICache */
+-		xscale_send_u32(target, 0x52);
++		retval = xscale_send_u32(target, 0x52);
++		if (retval !=ERROR_OK)
++			return retval;
+ 		cp15_control &amp;= ~0x1000U;
+ 	}
+ 
+ 	/* write new cp15 control register */
+-	xscale_set_reg_u32(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL], cp15_control);
++	retval = xscale_set_reg_u32(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL], cp15_control);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	/* execute cpwait to ensure outstanding operations complete */
+-	xscale_send_u32(target, 0x53);
++	retval = xscale_send_u32(target, 0x53);
++	return retval;
+ }
+ 
+-static void xscale_enable_mmu_caches(struct target *target, int mmu,
++static int xscale_enable_mmu_caches(struct target *target, int mmu,
+ 		int d_u_cache, int i_cache)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 	uint32_t cp15_control;
++	int retval;
+ 
+ 	/* read cp15 control register */
+-	xscale_get_reg(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL]);
++	retval = xscale_get_reg(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL]);
++	if (retval !=ERROR_OK)
++		return retval;
+ 	cp15_control = buf_get_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL].value, 0, 32);
+ 
+ 	if (mmu)
+@@ -2077,10 +2094,13 @@ static void xscale_enable_mmu_caches(struct target *target, int mmu,
+ 		cp15_control |= 0x1000U;
+ 
+ 	/* write new cp15 control register */
+-	xscale_set_reg_u32(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL], cp15_control);
++	retval = xscale_set_reg_u32(&amp;xscale-&gt;reg_cache-&gt;reg_list[XSCALE_CTRL], cp15_control);
++	if (retval !=ERROR_OK)
++		return retval;
+ 
+ 	/* execute cpwait to ensure outstanding operations complete */
+-	xscale_send_u32(target, 0x53);
++	retval = xscale_send_u32(target, 0x53);
++	return retval;
+ }
+ 
+ static int xscale_set_breakpoint(struct target *target,
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016078.html">[Openocd-development] [PATCH 1/2] arm: add error propagation to	generic get_ttb fn
+</A></li>
+	<LI>Next message: <A HREF="016080.html">[Openocd-development] [PATCH] cortex a8: added timeout handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16079">[ date ]</a>
+              <a href="thread.html#16079">[ thread ]</a>
+              <a href="subject.html#16079">[ subject ]</a>
+              <a href="author.html#16079">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

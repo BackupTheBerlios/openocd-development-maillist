@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 04/10] allow scripts to update usage	information
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2004/10%5D%20allow%20scripts%20to%20update%20usage%0A%09information&In-Reply-To=%3C1259100329-14549-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012862.html">
+   <LINK REL="Next"  HREF="012864.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 04/10] allow scripts to update usage	information</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2004/10%5D%20allow%20scripts%20to%20update%20usage%0A%09information&In-Reply-To=%3C1259100329-14549-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 04/10] allow scripts to update usage	information">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012862.html">[Openocd-development] [PATCH 03/10] httpd: use register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012864.html">[Openocd-development] [PATCH 05/10] improve usage and help command	output
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12863">[ date ]</a>
+              <a href="thread.html#12863">[ thread ]</a>
+              <a href="subject.html#12863">[ subject ]</a>
+              <a href="author.html#12863">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+The add_usage_text command uses the same C handler, which was updated
+to support its new polymorphic role.  This patch updates the two script
+commands that needed this support: 'find' and 'script'.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c   |   36 ++++++++++++++++++++++++++++++++----
+ src/helper/startup.tcl |    7 ++++---
+ 2 files changed, 36 insertions(+), 7 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 3cb36ea..1263a93 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -951,8 +951,9 @@ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+ 			return ERROR_FAIL;
+ 		}
+ 		LOG_DEBUG(&quot;added '%s' help text&quot;, cmd_name);
++		return ERROR_OK;
+ 	}
+-	else
++	if (help_text)
+ 	{
+ 		bool replaced = false;
+ 		if (nc-&gt;help)
+@@ -961,12 +962,25 @@ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+ 			replaced = true;
+ 		}
+ 		nc-&gt;help = strdup(help_text);
+-
+ 		if (replaced)
+ 			LOG_INFO(&quot;replaced existing '%s' help&quot;, cmd_name);
+ 		else
+ 			LOG_DEBUG(&quot;added '%s' help text&quot;, cmd_name);
+ 	}
++	if (usage)
++	{
++		bool replaced = false;
++		if (nc-&gt;usage)
++		{
++			free((void *)nc-&gt;usage);
++			replaced = true;
++		}
++		nc-&gt;usage = strdup(usage);
++		if (replaced)
++			LOG_INFO(&quot;replaced existing '%s' usage&quot;, cmd_name);
++		else
++			LOG_DEBUG(&quot;added '%s' usage text&quot;, cmd_name);
++	}
+ 	return ERROR_OK;
+ }
+ 
+@@ -979,7 +993,14 @@ COMMAND_HANDLER(handle_help_add_command)
+ 	}
+ 
+ 	// save help text and remove it from argument list
+-	const char *help_text = CMD_ARGV[--CMD_ARGC];
++	const char *str = CMD_ARGV[--CMD_ARGC];
++	const char *help = !strcmp(CMD_NAME, &quot;add_help_text&quot;) ? str : NULL;
++	const char *usage = !strcmp(CMD_NAME, &quot;add_usage_text&quot;) ? str : NULL;
++	if (!help &amp;&amp; !usage)
++	{
++		LOG_ERROR(&quot;command name '%s' is unknown&quot;, CMD_NAME);
++		return ERROR_INVALID_ARGUMENTS;
++	}
+ 	// likewise for the leaf command name
+ 	const char *cmd_name = CMD_ARGV[--CMD_ARGC];
+ 
+@@ -991,7 +1012,7 @@ COMMAND_HANDLER(handle_help_add_command)
+ 		if (ERROR_OK != retval)
+ 			return retval;
+ 	}
+-	return help_add_command(CMD_CTX, c, cmd_name, help_text, NULL);
++	return help_add_command(CMD_CTX, c, cmd_name, help, usage);
+ }
+ 
+ /* sleep command sleeps for &lt;n&gt; miliseconds
+@@ -1039,6 +1060,13 @@ static const struct command_registration command_builtin_handlers[] = {
+ 		.usage = &quot;&lt;command&gt; [...] &lt;help_text&gt;]&quot;,
+ 	},
+ 	{
++		.name = &quot;add_usage_text&quot;,
++		.handler = &amp;handle_help_add_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;add new command usage text&quot;,
++		.usage = &quot;&lt;command&gt; [...] &lt;usage_text&gt;]&quot;,
++	},
++	{
+ 		.name = &quot;sleep&quot;,
+ 		.handler = &amp;handle_sleep_command,
+ 		.mode = COMMAND_ANY,
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index ede8cdb..5969cfe 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -59,14 +59,15 @@ proc find {filename} {
+ 	# make sure error message matches original input string
+ 	return -code error &quot;Can't find $filename&quot;
+ }
+-add_help_text find &quot;&lt;file&gt; - print full path to file according to OpenOCD search rules&quot;
++add_usage_text find &quot;&lt;file&gt;&quot;
++add_help_text find &quot;print full path to file according to OpenOCD search rules&quot;
+ 
+ # Run script
+ proc script {filename} {
+ 	source [find $filename]
+ }
+-
+-add_help_text script &quot;&lt;filename&gt; - filename of OpenOCD script (tcl) to run&quot;
++add_help_text script &quot;filename of OpenOCD script (tcl) to run&quot;
++add_usage_text script &quot;&lt;file&gt;&quot;
+ 
+ #########
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012862.html">[Openocd-development] [PATCH 03/10] httpd: use register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012864.html">[Openocd-development] [PATCH 05/10] improve usage and help command	output
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12863">[ date ]</a>
+              <a href="thread.html#12863">[ thread ]</a>
+              <a href="subject.html#12863">[ subject ]</a>
+              <a href="author.html#12863">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

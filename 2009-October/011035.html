@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] arm11 cleanup
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm11%20cleanup&In-Reply-To=%3Cc09652430910070505m27c719f4m6f0d0f8be523d92%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011079.html">
+   <LINK REL="Next"  HREF="011036.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] arm11 cleanup</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20arm11%20cleanup&In-Reply-To=%3Cc09652430910070505m27c719f4m6f0d0f8be523d92%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] arm11 cleanup">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Oct  7 14:05:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011079.html">[Openocd-development] Do not check ir capture if no IDCODE
+</A></li>
+        <LI>Next message: <A HREF="011036.html">[Openocd-development] imx35
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11035">[ date ]</a>
+              <a href="thread.html#11035">[ thread ]</a>
+              <a href="subject.html#11035">[ subject ]</a>
+              <a href="author.html#11035">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+add timeouts and fix syntax error handling of mrc/mcr commands.
+
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/arm11.c
+===================================================================
+--- src/target/arm11.c	(revision 2803)
++++ src/target/arm11.c	(working copy)
+@@ -768,12 +768,29 @@
+
+ 	uint32_t dscr;
+
++	int i = 0;
+ 	while (1)
+ 	{
+ 		CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;dscr));
+
+ 		if (dscr &amp; ARM11_DSCR_CORE_HALTED)
+ 			break;
++
++
++		long long then = 0;
++		if (i == 1000)
++		{
++			then = timeval_ms();
++		}
++		if (i &gt;= 1000)
++		{
++			if ((timeval_ms()-then) &gt; 1000)
++			{
++				LOG_WARNING(&quot;Timeout (1000ms) waiting for instructions to complete&quot;);
++				return ERROR_FAIL;
++			}
++		}
++		i++;
+ 	}
+
+ 	arm11_on_enter_debug_state(arm11);
+@@ -865,6 +882,7 @@
+
+ 	CHECK_RETVAL(jtag_execute_queue());
+
++	int i = 0;
+ 	while (1)
+ 	{
+ 		uint32_t dscr;
+@@ -875,6 +893,22 @@
+
+ 		if (dscr &amp; ARM11_DSCR_CORE_RESTARTED)
+ 			break;
++
++
++		long long then = 0;
++		if (i == 1000)
++		{
++			then = timeval_ms();
++		}
++		if (i &gt;= 1000)
++		{
++			if ((timeval_ms()-then) &gt; 1000)
++			{
++				LOG_WARNING(&quot;Timeout (1000ms) waiting for instructions to complete&quot;);
++				return ERROR_FAIL;
++			}
++		}
++		i++;
+ 	}
+
+ 	if (!debug_execution)
+@@ -1088,10 +1122,8 @@
+
+ 		CHECK_RETVAL(jtag_execute_queue());
+
+-		/** \todo TODO: add a timeout */
+-
+ 		/* wait for halt */
+-
++		int i = 0;
+ 		while (1)
+ 		{
+ 			uint32_t dscr;
+@@ -1103,6 +1135,21 @@
+ 			if ((dscr &amp; (ARM11_DSCR_CORE_RESTARTED | ARM11_DSCR_CORE_HALTED)) ==
+ 				(ARM11_DSCR_CORE_RESTARTED | ARM11_DSCR_CORE_HALTED))
+ 				break;
++
++			long long then = 0;
++			if (i == 1000)
++			{
++				then = timeval_ms();
++			}
++			if (i &gt;= 1000)
++			{
++				if ((timeval_ms()-then) &gt; 1000)
++				{
++					LOG_WARNING(&quot;Timeout (1000ms) waiting for instructions to complete&quot;);
++					return ERROR_FAIL;
++				}
++			}
++			i++;
+ 		}
+
+ 		/* clear breakpoint */
+@@ -1936,9 +1983,6 @@
+ 	0xFFFFFFFF,		/* value */
+ };
+
+-const char arm11_mrc_syntax[] = &quot;Syntax: mrc &lt;jtag_target&gt;
+&lt;coprocessor&gt; &lt;opcode 1&gt; &lt;CRn&gt; &lt;CRm&gt; &lt;opcode 2&gt;. All parameters are
+numbers only.&quot;;
+-const char arm11_mcr_syntax[] = &quot;Syntax: mcr &lt;jtag_target&gt;
+&lt;coprocessor&gt; &lt;opcode 1&gt; &lt;CRn&gt; &lt;CRm&gt; &lt;opcode 2&gt; &lt;32bit value to
+write&gt;. All parameters are numbers only.&quot;;
+-
+ arm11_common_t * arm11_find_target(const char * arg)
+ {
+ 	jtag_tap_t *	tap;
+@@ -1966,18 +2010,16 @@
+ {
+ 	if (argc != (read ? 6 : 7))
+ 	{
+-		LOG_ERROR(&quot;Invalid number of arguments. %s&quot;, read ?
+arm11_mrc_syntax : arm11_mcr_syntax);
+-		return -1;
++		LOG_ERROR(&quot;Invalid number of arguments.&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+
+ 	arm11_common_t * arm11 = arm11_find_target(args[0]);
+
+ 	if (!arm11)
+ 	{
+-		LOG_ERROR(&quot;Parameter 1 is not a the JTAG chain position of an ARM11
+device. %s&quot;,
+-			read ? arm11_mrc_syntax : arm11_mcr_syntax);
+-
+-		return -1;
++		LOG_ERROR(&quot;Parameter 1 is not a the JTAG chain position of an ARM11
+device.&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+
+ 	if (arm11-&gt;target-&gt;state != TARGET_HALTED)
+@@ -1994,11 +2036,10 @@
+
+ 		if (values[i] &gt; arm11_coproc_instruction_limits[i])
+ 		{
+-			LOG_ERROR(&quot;Parameter %ld out of bounds (%&quot; PRId32 &quot; max). %s&quot;,
++			LOG_ERROR(&quot;Parameter %ld out of bounds (%&quot; PRId32 &quot; max).&quot;,
+ 				  (long)(i + 2),
+-				  arm11_coproc_instruction_limits[i],
+-				read ? arm11_mrc_syntax : arm11_mcr_syntax);
+-			return -1;
++				  arm11_coproc_instruction_limits[i]);
++			return ERROR_COMMAND_SYNTAX_ERROR;
+ 		}
+ 	}
+
+@@ -2072,7 +2113,7 @@
+
+ 	register_command(cmd_ctx, top_cmd, &quot;mcr&quot;,
+ 			arm11_handle_mcr, COMMAND_ANY,
+-			&quot;Write Coprocessor register&quot;);
++			&quot;Write Coprocessor register. mcr &lt;jtag_target&gt; &lt;coprocessor&gt;
+&lt;opcode 1&gt; &lt;CRn&gt; &lt;CRm&gt; &lt;opcode 2&gt; &lt;32bit value to write&gt;. All
+parameters are numbers only.&quot;);
+
+ 	mw_cmd = register_command(cmd_ctx, top_cmd, &quot;memwrite&quot;,
+ 			NULL, COMMAND_ANY, NULL);
+@@ -2087,7 +2128,7 @@
+
+ 	register_command(cmd_ctx, top_cmd, &quot;mrc&quot;,
+ 			arm11_handle_mrc, COMMAND_ANY,
+-			&quot;Read Coprocessor register&quot;);
++			&quot;Read Coprocessor register. mrc &lt;jtag_target&gt; &lt;coprocessor&gt;
+&lt;opcode 1&gt; &lt;CRn&gt; &lt;CRm&gt; &lt;opcode 2&gt;. All parameters are numbers only.&quot;);
+ 	register_command(cmd_ctx, top_cmd, &quot;no_increment&quot;,
+ 			arm11_handle_bool_memrw_no_increment, COMMAND_ANY,
+ 			&quot;Don't increment address on multi-read/-write&quot;
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011079.html">[Openocd-development] Do not check ir capture if no IDCODE
+</A></li>
+	<LI>Next message: <A HREF="011036.html">[Openocd-development] imx35
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11035">[ date ]</a>
+              <a href="thread.html#11035">[ thread ]</a>
+              <a href="subject.html#11035">[ subject ]</a>
+              <a href="author.html#11035">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

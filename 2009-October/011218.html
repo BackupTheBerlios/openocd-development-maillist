@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rft] xscale: always reload handler	after reset
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rft%5D%20xscale%3A%20always%20reload%20handler%0A%09after%20reset&In-Reply-To=%3C200910131206.11797.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011215.html">
+   <LINK REL="Next"  HREF="011597.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rft] xscale: always reload handler	after reset</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rft%5D%20xscale%3A%20always%20reload%20handler%0A%09after%20reset&In-Reply-To=%3C200910131206.11797.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rft] xscale: always reload handler	after reset">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Oct 13 21:06:11 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011215.html">[Openocd-development] [PATCH] fix pass_condition() LE condition	code check
+</A></li>
+        <LI>Next message: <A HREF="011597.html">[Openocd-development] [patch/rft] xscale: always reload handler	after reset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11218">[ date ]</a>
+              <a href="thread.html#11218">[ thread ]</a>
+              <a href="subject.html#11218">[ subject ]</a>
+              <a href="author.html#11218">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Remove needless debug handler state.
+
+ - &quot;handler_installed&quot; became wrong as soon as the second TRST+SRST
+   reset was issued ... so the handler was never reloaded after the
+   reset removed it from the mini-icache.
+   
+   This fixes the bug where subsequent resets fail on PXA255 (if the
+   first one even worked, which is uncommon).  I suspect other XScale
+   chips should have had problems too...
+
+ - &quot;handler_running&quot; was never tested; it's pointless.
+  
+Plus a related bugfix: invalidate OpenOCD's ARM register cache on reset.
+It was no more valid than the XScale's mini-icache.  (Though ... such
+invalidations might be better done in &quot;SRST asserted&quot; callbacks.)
+---
+Against current GIT tree.  I've cc'd the folk I know use xscales
+with OpenOCD ... pxa270 and ixp425, which are second gen parts that
+may be looser in how they handle the mini-icache, and certainly seem
+to have differences in reset handling.
+
+ src/target/xscale.c |   28 +++++++++++-----------------
+ src/target/xscale.h |    2 --
+ 2 files changed, 11 insertions(+), 19 deletions(-)
+
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -879,8 +879,6 @@ static int xscale_arch_state(struct targ
+ static int xscale_poll(target_t *target)
+ {
+ 	int retval = ERROR_OK;
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+ 
+ 	if ((target-&gt;state == TARGET_RUNNING) || (target-&gt;state == TARGET_DEBUG_RUNNING))
+ 	{
+@@ -889,8 +887,6 @@ static int xscale_poll(target_t *target)
+ 		{
+ 
+ 			/* there's data to read from the tx register, we entered debug state */
+-			xscale-&gt;handler_running = 1;
+-
+ 			target-&gt;state = TARGET_HALTED;
+ 
+ 			/* process debug entry, fetching current mode regs */
+@@ -1354,8 +1350,6 @@ static int xscale_resume(struct target_s
+ 
+ 	LOG_DEBUG(&quot;target resumed&quot;);
+ 
+-	xscale-&gt;handler_running = 1;
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -1563,7 +1557,17 @@ static int xscale_deassert_reset(target_
+ 		breakpoint = breakpoint-&gt;next;
+ 	}
+ 
+-	if (!xscale-&gt;handler_installed)
++	armv4_5_invalidate_core_regs(target);
++
++	/* FIXME mark hardware watchpoints got unset too.  Also,
++	 * at least some of the XScale registers are invalid...
++	 */
++
++	/*
++	 * REVISIT:  *assumes* we had a SRST+TRST reset so the mini-icache
++	 * contents got invalidated.  Safer to force that, so writing new
++	 * contents can't ever fail..
++	 */
+ 	{
+ 		uint32_t address;
+ 		unsigned buf_cnt;
+@@ -1588,10 +1592,6 @@ static int xscale_deassert_reset(target_
+ 		 * it's using halt mode (not monitor mode), it runs in
+ 		 * &quot;Special Debug State&quot; for access to registers, memory,
+ 		 * coprocessors, trace data, etc.
+-		 *
+-		 * REVISIT:  *assumes* we've had a SRST+TRST reset so the
+-		 * mini-icache contents have been invalidated.  Safest to
+-		 * force that, so writing new contents is reliable...
+ 		 */
+ 		address = xscale-&gt;handler_address;
+ 		for (unsigned binary_size = xscale_debug_handler_size;
+@@ -1662,10 +1662,6 @@ static int xscale_deassert_reset(target_
+ 			xscale_resume(target, 1, 0x0, 1, 0);
+ 		}
+ 	}
+-	else
+-	{
+-		jtag_add_reset(0, 0);
+-	}
+ 
+ 	return ERROR_OK;
+ }
+@@ -2956,8 +2952,6 @@ static int xscale_init_arch_info(target_
+ 	}
+ 
+ 	/* the debug handler isn't installed (and thus not running) at this time */
+-	xscale-&gt;handler_installed = 0;
+-	xscale-&gt;handler_running = 0;
+ 	xscale-&gt;handler_address = 0xfe000800;
+ 
+ 	/* clear the vectors we keep locally for reference */
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -86,8 +86,6 @@ typedef struct xscale_common_s
+ 	reg_cache_t *reg_cache;
+ 
+ 	/* current state of the debug handler */
+-	int handler_installed;
+-	int handler_running;
+ 	uint32_t handler_address;
+ 
+ 	/* target-endian buffers with exception vectors */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011215.html">[Openocd-development] [PATCH] fix pass_condition() LE condition	code check
+</A></li>
+	<LI>Next message: <A HREF="011597.html">[Openocd-development] [patch/rft] xscale: always reload handler	after reset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11218">[ date ]</a>
+              <a href="thread.html#11218">[ thread ]</a>
+              <a href="subject.html#11218">[ subject ]</a>
+              <a href="author.html#11218">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

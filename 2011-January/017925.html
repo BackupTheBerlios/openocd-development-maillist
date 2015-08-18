@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] SWD progress
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SWD%20progress&In-Reply-To=%3CAANLkTi%3D4LVdhbWcGY9-F8FqX%3DM1%3DNs9mJbBj%2BZS5u-wc%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017924.html">
+   <LINK REL="Next"  HREF="017927.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] SWD progress</H1>
+    <B>Tomek CEDRO</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SWD%20progress&In-Reply-To=%3CAANLkTi%3D4LVdhbWcGY9-F8FqX%3DM1%3DNs9mJbBj%2BZS5u-wc%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] SWD progress">tomek.cedro at gmail.com
+       </A><BR>
+    <I>Wed Jan 12 09:31:13 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017924.html">[Openocd-development] SWD progress
+</A></li>
+        <LI>Next message: <A HREF="017927.html">[Openocd-development] SWD progress
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17925">[ date ]</a>
+              <a href="thread.html#17925">[ thread ]</a>
+              <a href="subject.html#17925">[ subject ]</a>
+              <a href="author.html#17925">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, Jan 12, 2011 at 8:52 AM, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+&gt;&gt;<i> From: Peter Stuge &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>&gt;
+</I>&gt;&gt;<i> Subject: Re: [Openocd-development] SWD progress
+</I>&gt;&gt;<i> To: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> Date: Tuesday, January 11, 2011, 11:06 PM
+</I>&gt;&gt;<i> simon qian wrote:
+</I>&gt;&gt;<i> &gt; SWD in Versaloon is based on operation.
+</I>&gt;&gt;<i> &gt; For example: A read operation consists of :
+</I>&gt;&gt;<i> &gt; 1. Host send the 8-bit command, and trn
+</I>&gt;&gt;<i> &gt; 2. read 3-bit ack
+</I>&gt;&gt;<i> &gt; 3. read the 32-bit data and 1-bit parity
+</I>&gt;&gt;<i> &gt; 4. host send the last trn
+</I>&gt;&gt;<i> &gt;
+</I>&gt;&gt;<i> &gt; So Versaloon can do some error handler.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Tomek, does it sound like this is similar to what libswd
+</I>&gt;&gt;<i> outputs?
+</I>
+Correct :-) These are the basic bus operations, wehere trn and parity
+bit is also an operation in libswd for easier implementation (also
+bitbang/bistream flush can be used from char array). Data can be
+directly queued up on the *cmdq (command bidirectional queue) or first
+bitstream can be generated for those operations and then queued up on
+the *cmdq - there are helper functions already implemented that
+realize this bistream, so no need to write them from scratch - ie. you
+only need to provide addres, operation type and access port and helper
+function will build request - then the request byte can be put on the
+queue. This way we can put data on the queue and have good overview of
+what is happening on the bus (swd-viewer), also something like svf
+record can be done, wehere all transactions are stored on the queue
+and then flushed out to file and then replayed with external software.
+
+&gt;<i> Sounds like a bit-level description of most any
+</I>&gt;<i> SWD wire transaction...
+</I>
+If versalon driver needs packey payload anywas and does not construct
+it itself, then you can use libswd helper functions to easily create
+those data. If so it perfectly matches current libswd abilities, but
+the problem also might occur when it is the cable itself that
+constructs the bitstream from parameters like address, access port,
+etc.
+
+&gt;&gt;<i> In that case it might be easy to abstract
+</I>&gt;&gt;<i> libswd/versaloon.
+</I>
+Exactly! I am aware that still libswd is not yet functional but it
+will be in a short time. Also this is good time to request
+functionalities :-)
+
+&gt;&gt;<i> How is this not already done in the SWD
+</I>&gt;<i> transpsort defs? Implementations of the SWD
+</I>&gt;<i> ops to read/write registers must do those
+</I>&gt;<i> bitop sequences as driver ops.
+</I>
+The trick is that libswd can be standalone, it was written for another
+purpose, but the integration with other utilities is critial, so I
+have created something like abstraction layer - where there are
+functions that can do TRN, BIT8 read/write and BIT32 read/write. The
+trick is to have as low functions as possible that could flush the
+queue out/into physical driver (or anything other utilizing existing
+higher level drivers). TRN must be separate function to work on the
+interface buffers. bit shift can be input or output and done from char
+and int data type, so I have created two functions that will flush
+n-bits, lsb/msb-first from char and int type. These functions are
+driver specific, located in external file and separate for openocd,
+urjtag and others.. please tahe a look at libswd_drv.c but these
+functions are still open for constructive criticism as work in
+progress (unfinished) :-)
+
+I hope this libswd organization is not too complex and in some ways
+comfortable - if it prove itself, maybe after some modifications (and
+lots of bugfixes), these utilities would be able to easily create
+other serial transports such as spi, i2c, 1wire, and many others using
+exiting cables that we already own :-)
+
+Best regards! :-)
+Tomek
+
+-- 
+CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017924.html">[Openocd-development] SWD progress
+</A></li>
+	<LI>Next message: <A HREF="017927.html">[Openocd-development] SWD progress
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17925">[ date ]</a>
+              <a href="thread.html#17925">[ thread ]</a>
+              <a href="subject.html#17925">[ subject ]</a>
+              <a href="author.html#17925">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

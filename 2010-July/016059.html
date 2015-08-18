@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] stm32 : improve unlock procedure for mass_erase
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20stm32%20%3A%20improve%20unlock%20procedure%0A%20for%20mass_erase&In-Reply-To=%3C4C4013E8.20404%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016058.html">
+   <LINK REL="Next"  HREF="016061.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] stm32 : improve unlock procedure for mass_erase</H1>
+    <B>gcembed</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20stm32%20%3A%20improve%20unlock%20procedure%0A%20for%20mass_erase&In-Reply-To=%3C4C4013E8.20404%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] stm32 : improve unlock procedure for mass_erase">gcembed at gmail.com
+       </A><BR>
+    <I>Fri Jul 16 10:10:16 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016058.html">[Openocd-development] arm-jtag-ew + imote2 (pxa271)
+</A></li>
+        <LI>Next message: <A HREF="016061.html">[Openocd-development] [PATCH] stm32 : improve unlock procedure	for mass_erase
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16059">[ date ]</a>
+              <a href="thread.html#16059">[ thread ]</a>
+              <a href="subject.html#16059">[ subject ]</a>
+              <a href="author.html#16059">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+I am back.
+Andreas, can I add something in stm32x_mass_erase() like
+
+     stm32x_read_options()
+     if (protected) : unlock + reset
+
+     continue with current code
+     /* unlock option flash registers */
+     target_write_u32(target, STM32_FLASH_KEYR, KEY1);
+     target_write_u32(target, STM32_FLASH_KEYR, KEY2);
+
+Should I add a flag to mass_erase command to force or enable this 
+feature. Does this check must be done automatically ?
+Thank you for your advise,
+Ga&#235;tan
+
+On 06/01/2010 09:47 PM, Andreas Fritiofson wrote:
+&gt;<i> On Tue, Jun 1, 2010 at 1:56 PM, gcembed&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">gcembed at gmail.com</A>&gt;  wrote:
+</I>&gt;&gt;<i> Hello,
+</I>&gt;&gt;<i> I have added a new command for stm32x : mass_erase_unlock
+</I>&gt;&gt;<i> This function combine &quot;stm32x unlock 0&quot; + reset to apply unlock + &quot;stm32x
+</I>&gt;&gt;<i> mass_erase 0&quot;
+</I>&gt;&gt;<i> In this way, it is more easier to handle the unlock sequence and makes the
+</I>&gt;&gt;<i> (annoying) reset procedure transparent.
+</I>&gt;&gt;<i> After calling mass_erase_unlock, flash write_image can immediately  called.
+</I>&gt;&gt;<i> Here is an example of my flashing procedure :
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> init
+</I>&gt;&gt;<i> jtag_khz 1000
+</I>&gt;&gt;<i> reset_config trst_and_srst
+</I>&gt;&gt;<i> halt
+</I>&gt;&gt;<i> flash probe 0
+</I>&gt;&gt;<i> flash protect 0 0 last off
+</I>&gt;&gt;<i> stm32x mass_erase_unlock 0
+</I>&gt;&gt;<i> flash write_bank 0 file.bin 0
+</I>&gt;&gt;<i> flash protect 0 0 last on
+</I>&gt;&gt;<i> verify_image file.bin 0
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Thanks
+</I>&gt;&gt;<i> Ga&#235;tan
+</I>&gt;<i>
+</I>&gt;<i> I like the idea, it would be very convenient to have a single command
+</I>&gt;<i> to always put the chip in a well defined, cleared state. Perfect for
+</I>&gt;<i> programming scripts, which today need to assume that the flash is
+</I>&gt;<i> locked. However...
+</I>&gt;<i>
+</I>&gt;<i> If the flash is locked, the unlock procedure will perform a mass
+</I>&gt;<i> erase, so the second mass erase will just waste time and flash erase
+</I>&gt;<i> cycles. Plus, the SP and PC could have different values after the
+</I>&gt;<i> procedure depending on whether the protection was active or not (see
+</I>&gt;<i> the test I posted yesterday). I would prefer something like the
+</I>&gt;<i> following pseudo code to get a consistent state with minimum number of
+</I>&gt;<i> operations.
+</I>&gt;<i>
+</I>&gt;<i> read option byte;
+</I>&gt;<i> if (readout protection active)
+</I>&gt;<i>     unlock;
+</I>&gt;<i> else
+</I>&gt;<i>     mass_erase;
+</I>&gt;<i> reset;
+</I>&gt;<i>
+</I>&gt;<i> Then one starts to think why we need this new command in addition to
+</I>&gt;<i> the separate unlock and mass_erase commands. Unlock already implies
+</I>&gt;<i> mass_erase. And is there ever a reason to (try to) do a mass_erase on
+</I>&gt;<i> a locked flash without wanting to unlock it? Or to mass_erase or
+</I>&gt;<i> unlock without resetting the core afterwards (how about when running
+</I>&gt;<i> from ram?). The operations seem to go hand in hand. Maybe we only need
+</I>&gt;<i> one command to do it all.
+</I>&gt;<i>
+</I>&gt;<i> /Andreas
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016058.html">[Openocd-development] arm-jtag-ew + imote2 (pxa271)
+</A></li>
+	<LI>Next message: <A HREF="016061.html">[Openocd-development] [PATCH] stm32 : improve unlock procedure	for mass_erase
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16059">[ date ]</a>
+              <a href="thread.html#16059">[ thread ]</a>
+              <a href="subject.html#16059">[ subject ]</a>
+              <a href="author.html#16059">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

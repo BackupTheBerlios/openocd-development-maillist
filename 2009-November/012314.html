@@ -1,0 +1,310 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH] New interface_init and swd_interface_init functions
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20New%20interface_init%20and%20swd_interface_init%20functions&In-Reply-To=%3Cmailman.79.1331735931.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012292.html">
+   <LINK REL="Next"  HREF="012285.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH] New interface_init and swd_interface_init functions</H1>
+    <B>Andrew Rogers</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20New%20interface_init%20and%20swd_interface_init%20functions&In-Reply-To=%3Cmailman.79.1331735931.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH] New interface_init and swd_interface_init functions">andrew at rogerstech.co.uk
+       </A><BR>
+    <I>Fri Nov 13 14:15:08 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012292.html">[Openocd-development] Infinite loop in jtag chain autodetect
+</A></li>
+        <LI>Next message: <A HREF="012285.html">[Openocd-development] remove superfluous typedefs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12314">[ date ]</a>
+              <a href="thread.html#12314">[ thread ]</a>
+              <a href="subject.html#12314">[ subject ]</a>
+              <a href="author.html#12314">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>swd_interface_init is a tweaked copy of jtag_interface_init but will change for SWD requirements.
+interface_init chooses which init function to call based upon the interface type.
+openocd.c now calls interface_init and not jtag_interface_init.
+---
+ src/jtag/core.c             |   75 +++++++++++++++++++++++++++++++++++++++++--
+ src/jtag/jtag.h             |    2 +
+ src/jtag/tcl.c              |   34 ++++++++++++++++++--
+ src/openocd.c               |    6 ++--
+ tcl/interface/rlink-swd.cfg |    8 ++++
+ 5 files changed, 116 insertions(+), 9 deletions(-)
+ create mode 100644 tcl/interface/rlink-swd.cfg
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index ed26756..4dfcf3d 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -116,9 +116,9 @@ static enum {CLOCK_MODE_SPEED, CLOCK_MODE_KHZ, CLOCK_MODE_RCLK} clock_mode;
+ static int jtag_speed = 0;
+ 
+ static struct jtag_interface_s *jtag = NULL;
++static struct interface_base_s *interface = NULL;
+ 
+ /* configuration */
+-jtag_interface_t *jtag_interface = NULL;
+ interface_base_t *chosen_interface = NULL;
+ 
+ void jtag_set_error(int error)
+@@ -1329,22 +1329,91 @@ void jtag_tap_free(jtag_tap_t *tap)
+ 	free(tap);
+ }
+ 
++int interface_init(struct command_context_s *cmd_ctx)
++{
++  int retval;
++  if(interface)
++    return ERROR_OK;
++
++  if(!chosen_interface){
++    /* nothing was previously specified by &quot;interface&quot; command */
++    LOG_ERROR(&quot;An interface has to be specified, see \&quot;interface\&quot; command&quot;);
++    return ERROR_JTAG_INVALID_INTERFACE;
++  }
++
++  switch(chosen_interface-&gt;type){
++  case INTERFACE_SWD:
++    retval=swd_interface_init(cmd_ctx);
++  case INTERFACE_JTAG:
++  default:
++    retval=jtag_interface_init(cmd_ctx);
++  }
++  return retval;
++}
++
+ int jtag_interface_init(struct command_context_s *cmd_ctx)
+ {
+-	if (jtag)
++	if (interface)
+ 		return ERROR_OK;
+ 
+-	if (!jtag_interface)
++	if (!chosen_interface)
+ 	{
+ 		/* nothing was previously specified by &quot;interface&quot; command */
+ 		LOG_ERROR(&quot;JTAG interface has to be specified, see \&quot;interface\&quot; command&quot;);
+ 		return ERROR_JTAG_INVALID_INTERFACE;
+ 	}
+ 
++	interface = chosen_interface;
++
++	jtag_interface_t *jtag_interface = (jtag_interface_t *)chosen_interface;
+ 	jtag = jtag_interface;
+ 	if (jtag_interface-&gt;init() != ERROR_OK)
+ 	{
+ 		jtag = NULL;
++		interface = NULL;
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	int requested_khz = jtag_get_speed_khz();
++	int actual_khz = requested_khz;
++	int retval = jtag_get_speed_readable(&amp;actual_khz);
++	if (ERROR_OK != retval)
++		LOG_INFO(&quot;interface specific clock speed value %d&quot;, jtag_get_speed());
++	else if (actual_khz)
++	{
++		if ((CLOCK_MODE_RCLK == clock_mode)
++			|| ((CLOCK_MODE_KHZ == clock_mode) &amp;&amp; !requested_khz))
++		{
++			LOG_INFO(&quot;RCLK (adaptive clock speed) not supported - fallback to %d kHz&quot;
++				, actual_khz);
++		}
++		else
++			LOG_INFO(&quot;clock speed %d kHz&quot;, actual_khz);
++	}
++	else
++		LOG_INFO(&quot;RCLK (adaptive clock speed)&quot;);
++
++	return ERROR_OK;
++}
++
++int swd_interface_init(struct command_context_s *cmd_ctx)
++{
++	if (interface)
++		return ERROR_OK;
++
++	if (!chosen_interface)
++	{
++		/* nothing was previously specified by &quot;interface&quot; command */
++		LOG_ERROR(&quot;SWD interface has to be specified, see \&quot;interface\&quot; command&quot;);
++		return ERROR_JTAG_INVALID_INTERFACE;
++	}
++
++	interface = chosen_interface;
++
++	swd_interface_t *swd_interface = (swd_interface_t*)interface;
++	if (swd_interface-&gt;init() != ERROR_OK)
++	{
++		interface = NULL;
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index 1dfefde..64587a5 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -323,7 +323,9 @@ bool jtag_will_verify_capture_ir(void);
+  * Initialize interface upon startup.  Return a successful no-op upon
+  * subsequent invocations.
+  */
++int  interface_init(struct command_context_s* cmd_ctx);
+ int  jtag_interface_init(struct command_context_s* cmd_ctx);
++int  swd_interface_init(struct command_context_s* cmd_ctx);
+ 
+ /// Shutdown the JTAG interface upon program exit.
+ int  jtag_interface_quit(void);
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index c938acc..7bb60dd 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -50,6 +50,7 @@ static const Jim_Nvp nvp_jtag_tap_event[] = {
+ };
+ 
+ extern jtag_interface_t *jtag_interface;
++extern interface_base_t *chosen_interface;
+ 
+ enum jtag_tap_cfg_param {
+ 	JCFG_EVENT
+@@ -422,7 +423,7 @@ static int jim_jtag_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 			Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
+ 			return JIM_ERR;
+ 		}
+-		const char *name = jtag_interface ? jtag_interface-&gt;name : NULL;
++		const char *name = chosen_interface ? chosen_interface-&gt;name : NULL;
+ 		Jim_SetResultString(goi.interp, name ? : &quot;undefined&quot;, -1);
+ 		return JIM_OK;
+ 	case JTAG_CMD_INIT:
+@@ -628,7 +629,7 @@ COMMAND_HANDLER(handle_interface_list_command)
+ COMMAND_HANDLER(handle_interface_command)
+ {
+ 	/* check whether the interface is already configured */
+-	if (jtag_interface)
++	if (chosen_interface)
+ 	{
+ 		LOG_WARNING(&quot;Interface already configured, ignoring&quot;);
+ 		return ERROR_OK;
+@@ -647,7 +648,9 @@ COMMAND_HANDLER(handle_interface_command)
+ 		if (ERROR_OK != retval)
+ 				return retval;
+ 
+-		jtag_interface = jtag_interfaces[i];
++		jtag_interface_t *jtag_interface = jtag_interfaces[i];
++		jtag_interface-&gt;type = INTERFACE_JTAG;
++                chosen_interface = (interface_base_t *)jtag_interfaces[i];
+ 
+ 		if (jtag_interface-&gt;khz == NULL)
+ 			jtag_interface-&gt;khz = default_khz;
+@@ -660,6 +663,31 @@ COMMAND_HANDLER(handle_interface_command)
+ 
+ 		return ERROR_OK;
+ 	}
++	
++	for (unsigned i = 0; NULL != swd_interfaces[i]; i++)
++        {
++                if (strcmp(args[0], swd_interfaces[i]-&gt;name) != 0)
++                        continue;
++
++                int retval = swd_interfaces[i]-&gt;register_commands(cmd_ctx);
++                if (ERROR_OK != retval)
++                                return retval;
++
++                swd_interface_t *swd_interface = swd_interfaces[i]; 
++                swd_interface-&gt;type = INTERFACE_SWD;
++                chosen_interface = (interface_base_t *)swd_interface;
++
++                if (swd_interface-&gt;khz == NULL)
++                        swd_interface-&gt;khz = default_khz;
++                if (swd_interface-&gt;speed_div == NULL)
++                        swd_interface-&gt;speed_div = default_speed_div;
++                if (swd_interface-&gt;power_dropout == NULL)
++                        swd_interface-&gt;power_dropout = default_power_dropout;
++                if (swd_interface-&gt;srst_asserted == NULL)
++                        swd_interface-&gt;srst_asserted = default_srst_asserted;
++
++                return ERROR_OK;
++        }
+ 
+ 	/* no valid interface was found (i.e. the configuration option,
+ 	 * didn't match one of the compiled-in interfaces
+diff --git a/src/openocd.c b/src/openocd.c
+index d67ebd5..e982a1b 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -128,12 +128,12 @@ COMMAND_HANDLER(handle_init_command)
+ 		return ERROR_FAIL;
+ 	LOG_DEBUG(&quot;target init complete&quot;);
+ 
+-	if ((retval = jtag_interface_init(cmd_ctx)) != ERROR_OK)
++	if ((retval = interface_init(cmd_ctx)) != ERROR_OK)
+ 	{
+-		/* we must be able to set up the jtag interface */
++		/* we must be able to set up the interface */
+ 		return retval;
+ 	}
+-	LOG_DEBUG(&quot;jtag interface init complete&quot;);
++	LOG_DEBUG(&quot;interface init complete&quot;);
+ 
+ 	/* Try to initialize &amp; examine the JTAG chain at this point, but
+ 	 * continue startup regardless */
+diff --git a/tcl/interface/rlink-swd.cfg b/tcl/interface/rlink-swd.cfg
+new file mode 100644
+index 0000000..ef06173
+--- /dev/null
++++ b/tcl/interface/rlink-swd.cfg
+@@ -0,0 +1,8 @@
++#
++# Raisonance RLink
++#
++# <A HREF="http://www.mcu-raisonance.com/~rlink-debugger-programmer__microcontrollers__tool~tool__T018:4cn9ziz4bnx6.html">http://www.mcu-raisonance.com/~rlink-debugger-programmer__microcontrollers__tool~tool__T018:4cn9ziz4bnx6.html</A>
++#
++
++interface rlink-swd
++
+-- 
+1.6.0.6
+
+
+--=-e/cbRgD0xBMdi8Y5aFpH--
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012292.html">[Openocd-development] Infinite loop in jtag chain autodetect
+</A></li>
+	<LI>Next message: <A HREF="012285.html">[Openocd-development] remove superfluous typedefs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12314">[ date ]</a>
+              <a href="thread.html#12314">[ thread ]</a>
+              <a href="subject.html#12314">[ subject ]</a>
+              <a href="author.html#12314">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

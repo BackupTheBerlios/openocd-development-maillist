@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] eliminate add_tlr() during	Capture-IR verification
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20eliminate%20add_tlr%28%29%20during%0A%09Capture-IR%20verification&In-Reply-To=%3C200909261553.47240.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010888.html">
+   <LINK REL="Next"  HREF="010896.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] eliminate add_tlr() during	Capture-IR verification</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20eliminate%20add_tlr%28%29%20during%0A%09Capture-IR%20verification&In-Reply-To=%3C200909261553.47240.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] eliminate add_tlr() during	Capture-IR verification">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Sep 27 00:53:47 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010888.html">[Openocd-development] [patch/rft] &quot;arm11 memwrite ...&quot; bug fixes
+</A></li>
+        <LI>Next message: <A HREF="010896.html">[Openocd-development] [patch/rfc] eliminate add_tlr() during	Capture-IR verification
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10834">[ date ]</a>
+              <a href="thread.html#10834">[ thread ]</a>
+              <a href="subject.html#10834">[ subject ]</a>
+              <a href="author.html#10834">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Streamline Capture-IR validation code
+
+ - Don't issue needless JTAG resets ... only do them after
+   errors. Normal exit now leaves every TAP in BYPASS.
+   
+ - Fix an unlikely memory leak on one fault path.
+
+ - Remove the oddball limitation that invalid capture LSBs 
+   trigger errors only for TAPs that support IDCODE.
+
+Re the JTAG reset:  there are too many of them, and they can
+(and do!) change system state.  So the needless ones should
+get removed.  This one was especially pointless.
+---
+This is against *latest* SVN head.  Works for me in light
+testing.  I have no idea why the code previously did some of
+the strange and nonstandard stuff it did.  This could be
+tweaked just a bit more, but it's probably not absolutely needed.
+
+ src/jtag/core.c |   35 ++++++++++++++++++-----------------
+ 1 file changed, 18 insertions(+), 17 deletions(-)
+
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1046,6 +1046,9 @@ static int jtag_examine_chain(void)
+  * Validate the date loaded by entry to the Capture-IR state, to help
+  * find errors related to scan chain configuration (wrong IR lengths)
+  * or communication.
++ *
++ * Entry state can be anything.  On non-error exit, all TAPs are in
++ * bypass mode.  On error exits, the scan chain is reset.
+  */
+ static int jtag_validate_ircapture(void)
+ {
+@@ -1054,6 +1057,7 @@ static int jtag_validate_ircapture(void)
+ 	uint8_t *ir_test = NULL;
+ 	scan_field_t field;
+ 	int chain_pos = 0;
++	int retval;
+ 
+ 	tap = NULL;
+ 	total_ir_length = 0;
+@@ -1065,12 +1069,14 @@ static int jtag_validate_ircapture(void)
+ 		total_ir_length += tap-&gt;ir_length;
+ 	}
+ 
++	/* increase length to add 2 bit sentinel after scan */
+ 	total_ir_length += 2;
+ 
+ 	ir_test = malloc(CEIL(total_ir_length, 8));
+ 	if (ir_test == NULL)
+ 		return ERROR_FAIL;
+ 
++	/* after this scan, all TAPs will capture BYPASS instructions */
+ 	buf_set_ones(ir_test, total_ir_length);
+ 
+ 	field.tap = NULL;
+@@ -1078,14 +1084,11 @@ static int jtag_validate_ircapture(void)
+ 	field.out_value = ir_test;
+ 	field.in_value = ir_test;
+ 
++	jtag_add_plain_ir_scan(1, &amp;field, TAP_IDLE);
+ 
+-	jtag_add_plain_ir_scan(1, &amp;field, TAP_IRPAUSE);
+-	jtag_add_tlr();
+-
+-	int retval;
+ 	retval = jtag_execute_queue();
+ 	if (retval != ERROR_OK)
+-		return retval;
++		goto done;
+ 
+ 	tap = NULL;
+ 	chain_pos = 0;
+@@ -1107,14 +1110,8 @@ static int jtag_validate_ircapture(void)
+ 			LOG_ERROR(&quot;%s: IR capture error; saw 0x%s not 0x..1&quot;,
+ 					jtag_tap_name(tap), cbuf);
+ 
+-			/* Fail only if we have IDCODE for this device.
+-			 * REVISIT -- why not fail-always?
+-			 */
+-			if (tap-&gt;hasidcode) {
+-				free(cbuf);
+-				free(ir_test);
+-				return ERROR_JTAG_INIT_FAILED;
+-			}
++			free(cbuf);
++			retval = ERROR_JTAG_INIT_FAILED;
+ 		}
+ 		chain_pos += tap-&gt;ir_length;
+ 	}
+@@ -1128,13 +1125,17 @@ static int jtag_validate_ircapture(void)
+ 		LOG_ERROR(&quot;IR capture error at bit %d, saw 0x%s not 0x...3&quot;,
+ 				chain_pos, cbuf);
+ 		free(cbuf);
+-		free(ir_test);
+-		return ERROR_JTAG_INIT_FAILED;
++		retval = ERROR_JTAG_INIT_FAILED;
++		goto done;
+ 	}
+ 
++done:
+ 	free(ir_test);
+-
+-	return ERROR_OK;
++	if (retval != ERROR_OK) {
++		jtag_add_tlr();
++		jtag_execute_queue();
++	}
++	return retval;
+ }
+ 
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010888.html">[Openocd-development] [patch/rft] &quot;arm11 memwrite ...&quot; bug fixes
+</A></li>
+	<LI>Next message: <A HREF="010896.html">[Openocd-development] [patch/rfc] eliminate add_tlr() during	Capture-IR verification
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10834">[ date ]</a>
+              <a href="thread.html#10834">[ thread ]</a>
+              <a href="subject.html#10834">[ subject ]</a>
+              <a href="author.html#10834">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

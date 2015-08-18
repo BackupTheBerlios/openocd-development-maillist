@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD Coding (was broken)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20Coding%20%28was%20broken%29&In-Reply-To=%3C200912131745.46392.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013546.html">
+   <LINK REL="Next"  HREF="013550.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD Coding (was broken)</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20Coding%20%28was%20broken%29&In-Reply-To=%3C200912131745.46392.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] OpenOCD Coding (was broken)">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Dec 14 02:45:46 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013546.html">[Openocd-development] OpenOCD Coding (was broken)
+</A></li>
+        <LI>Next message: <A HREF="013550.html">[Openocd-development] OpenOCD Coding (was broken)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13548">[ date ]</a>
+              <a href="thread.html#13548">[ thread ]</a>
+              <a href="subject.html#13548">[ subject ]</a>
+              <a href="author.html#13548">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sunday 13 December 2009, Zach Welch wrote:
+&gt;<i> On Sun, 2009-12-13 at 15:49 -0800, David Brownell wrote:
+</I>&gt;<i> [snip] 
+</I>&gt;<i> &gt; &gt; &gt; Note that MISRA is not universally lauded.  As I understand, some of
+</I>&gt;<i> &gt; &gt; &gt; its practices are contrary to other widely adopted coding policies.
+</I>&gt;<i> &gt; &gt; 
+</I>&gt;<i> &gt; &gt; Sure. Some points are a laugh like &quot;a null pointer should not be
+</I>&gt;<i> &gt; &gt; dereferenced&quot;.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; That one touches on interesting system philosophy though.  Should
+</I>&gt;<i> &gt; one guard _every_ pointer access with an &quot;if (ptr == NULL)&quot; check?
+</I>&gt;<i> 
+</I>&gt;<i> Only if the NULL can be a result of normal run-time operation.  Memory
+</I>&gt;<i> allocation failures should be expected in normal run-time operations;
+</I>&gt;<i> even though they are undesirable, the program must always handle them.
+</I>
+Yes.  Cases where NULL is valid should get such checks.  But that's
+self-evident, and not the interesting case.
+
+
+&gt;<i> In library APIs where it's impossible to determine such pre-conditions,
+</I>&gt;<i> they must be checked... or we have a buggy library.
+</I>
+And that's the issue I was highlighting.  By calling that a &quot;buggy&quot;
+library you are extending its specification.  It's possible to define
+them in that way ... but it's fairly widely understood to be costly,
+enough so that such definitions are unusual.
+
+Such spec extensions enlarge the scope of what must be tested, hurt
+performance in several ways, and increase system complexity.  In some
+cases those tradeoffs are worth making in that way; not often.
+
+I admit that when I first came across it, the &quot;don't check for NULL&quot;
+philosophy seemed pretty wrong.  But, quite a few years later on, now
+I see that it's quite effective.  The &quot;it's wrong&quot; argument is on micro
+scales.  The &quot;it's right&quot; one is macro scale.  For every small micro win,
+there are many more large macro wins.
+
+
+&gt;<i> &gt; I'm personally used to the answer to that being &quot;no&quot;, and being
+</I>&gt;<i> &gt; able to rely on inputs being non-NULL ... unless they're explicitly
+</I>&gt;<i> &gt; stated as allowing NULL.
+</I>
+If you pass a NULL where the function spec requires that the parameter
+not be NULL, there is only one action which is in all cases clearly
+incorrect:  passing the NULL in the first place.
+
+
+Anything else is down to a choice of policies about how to handle
+such run time errors.  &quot;Implementation choices&quot;.  One choice being:
+
+&gt;<i> If the NULL can derive _only_ from programming error, then the assert()
+</I>&gt;<i> macro should be used instead. 
+</I>
+Note that the difference between an assert() failure and what
+happens when you actually indirect through a NULL pointer (on
+sane systems!) is *ONLY* in which diagnostic is emitted ... which
+includes SIGSEGV or nothing-at-all, vs &quot;assertion failure&quot;.
+
+
+&gt;<i> &gt; I'm not sure what you mean to imply by that NULL example, but the
+</I>&gt;<i> &gt; two philosophies I'm aware of are:
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt;  - Having largely superfluous NULL checks obfuscates the code and
+</I>&gt;<i> &gt;    makes it less clear.  If anyone wrongly passes a NULL, we get a
+</I>&gt;<i> &gt;    nice fast-fail that's easily tracked down and fixed.  Plus, there
+</I>&gt;<i> &gt;    is a *LOT* of code (and runtime cycles) wasted on such checks.
+</I>&gt;<i> 
+</I>&gt;<i> This model falls down in embedded devices and under heavy load with
+</I>&gt;<i> dynamic memory allocation.  In neither case will it be remotely easy for
+</I>&gt;<i> the user of the device or application to produce a viable crash report.
+</I>
+That &quot;dynamic memory allocation&quot; presupposes bugs of the &quot;didn't
+check for allocation failure&quot; ... those happen to be bugs which
+static analysis tools are pretty good at surfacing.  Or even GCC
+with the warn_unused_result machinery.  So that's a non-issue in
+any reasonable development model.  (Worth checking that OpenOCD is
+kicking in that function attribute ... also the &quot;nonnull&quot; one.  I
+suspect that it isn't.)
+
+The &quot;deeply embedded devices&quot; scenario was the second one I called out.
+It doesn't actually apply to all such devices, but most places where
+that policy is used are ROM-based (and have CPU and other resources to
+waste on such checks).
+
+
+&gt;<i> If this philosophy has a religious following, it comes with ceremonies
+</I>&gt;<i> that have the same effect on its practitioners as does Russian Roulette.
+</I>
+Not true.  It's pretty common in operating systems ... where the overhead
+of the superfluous testing is actively detrimental.  I've seen benchmarks
+showing library performance improved by over 10% on common tasks, just by
+getting rid of such crap.  Ditto device drivers and other key system
+infrastructure.  It turns out that the icache impact of such code is much
+worse than you'd think.  Ditto code density and thus paging rates.  When
+six or ten different components are each wasting 10% of their time on such
+defensive programming, the result isn't just a 10% overall slowdown.
+
+You're running Linux right now, yes?  That's one place using such policies.
+
+And there are no &quot;ceremonies&quot; ... if someone gets a null pointer exception
+it's pretty easily -- and *VERY* quickly -- fixed.  And the developers are
+well trained to avoid creating such bugs in the first place.
+
+In contrast, I've seen that on systems which test for NULLs all over the
+place ... some fairly rude systematic bugs never get fixed, because of all
+those lowlevel checks which ameliorate the fault modes.  And in fact just
+trying to fix them is rarely well received, since those &quot;it's always safe
+to do stupid crap&quot; assumptions are *everywhere* in the code.
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013546.html">[Openocd-development] OpenOCD Coding (was broken)
+</A></li>
+	<LI>Next message: <A HREF="013550.html">[Openocd-development] OpenOCD Coding (was broken)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13548">[ date ]</a>
+              <a href="thread.html#13548">[ thread ]</a>
+              <a href="subject.html#13548">[ subject ]</a>
+              <a href="author.html#13548">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

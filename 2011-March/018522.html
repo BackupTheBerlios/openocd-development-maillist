@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] target: add -dbgbase option to	target configuration
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20target%3A%20add%20-dbgbase%20option%20to%0A%09target%20configuration&In-Reply-To=%3C1301484971-18494-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018526.html">
+   <LINK REL="Next"  HREF="018521.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] target: add -dbgbase option to	target configuration</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20target%3A%20add%20-dbgbase%20option%20to%0A%09target%20configuration&In-Reply-To=%3C1301484971-18494-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] target: add -dbgbase option to	target configuration">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Mar 30 13:36:10 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018526.html">[Openocd-development] [PATCH] docs: add HACKING file to help users get started with patches
+</A></li>
+        <LI>Next message: <A HREF="018521.html">[Openocd-development] [PATCH 2/2] cortex-a: use -dbgbase option
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18522">[ date ]</a>
+              <a href="thread.html#18522">[ thread ]</a>
+              <a href="subject.html#18522">[ subject ]</a>
+              <a href="author.html#18522">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Really a Cortex-A specific option, but there is no
+system in place to support target specific options
+currently and there has been no need for such a system
+until now.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/target.c |   18 ++++++++++++++++++
+ src/target/target.h |    5 +++++
+ 2 files changed, 23 insertions(+), 0 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 00d4309..df38c83 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3703,6 +3703,7 @@ enum target_cfg_param {
+ 	TCFG_VARIANT,
+ 	TCFG_COREID,
+ 	TCFG_CHAIN_POSITION,
++	TCFG_DBGBASE,
+ };
+ 
+ static Jim_Nvp nvp_config_opts[] = {
+@@ -3716,6 +3717,7 @@ static Jim_Nvp nvp_config_opts[] = {
+ 	{ .name = &quot;-variant&quot;,          .value = TCFG_VARIANT },
+ 	{ .name = &quot;-coreid&quot;,           .value = TCFG_COREID },
+ 	{ .name = &quot;-chain-position&quot;,   .value = TCFG_CHAIN_POSITION },
++	{ .name = &quot;-dbgbase&quot;,          .value = TCFG_DBGBASE },
+ 	{ .name = NULL, .value = -1 }
+ };
+ 
+@@ -4006,6 +4008,22 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 			Jim_SetResultString(goi-&gt;interp, target-&gt;tap-&gt;dotted_name, -1);
+ 			/* loop for more e*/
+ 			break;
++		case TCFG_DBGBASE:
++			if (goi-&gt;isconfigure) {
++				e = Jim_GetOpt_Wide(goi, &amp;w);
++				if (e != JIM_OK) {
++					return e;
++				}
++				target-&gt;dbgbase = (uint32_t)w;
++				target-&gt;dbgbase_set = true;
++			} else {
++				if (goi-&gt;argc != 0) {
++					goto no_params;
++				}
++			}
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;dbgbase));
++			/* loop for more */
++			break;
+ 		}
+ 	} /* while (goi-&gt;argc) */
+ 
+diff --git a/src/target/target.h b/src/target/target.h
+index d6e7431..32fa87a 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -155,6 +155,11 @@ struct target
+ 										 * lots of halted/resumed info when stepping in debugger. */
+ 	bool halt_issued;					/* did we transition to halted state? */
+ 	long long halt_issued_time;			/* Note time when halt was issued */
++
++	bool dbgbase_set;					/* By default the debug base is not set */
++	uint32_t dbgbase;					/* Really a Cortex-A specific option, but there is no
++	 	 	 	 	 	 	 	 	 	   system in place to support target specific options
++	 	 	 	 	 	 	 	 	 	   currently. */
+ };
+ 
+ /** Returns the instance-specific name of the specified target. */
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018526.html">[Openocd-development] [PATCH] docs: add HACKING file to help users get started with patches
+</A></li>
+	<LI>Next message: <A HREF="018521.html">[Openocd-development] [PATCH 2/2] cortex-a: use -dbgbase option
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18522">[ date ]</a>
+              <a href="thread.html#18522">[ thread ]</a>
+              <a href="subject.html#18522">[ subject ]</a>
+              <a href="author.html#18522">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

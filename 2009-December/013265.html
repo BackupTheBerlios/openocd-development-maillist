@@ -1,0 +1,347 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 7/7] ARM11: more register cleanup #4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%207/7%5D%20ARM11%3A%20more%20register%20cleanup%20%234&In-Reply-To=%3C200912022246.21626.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013263.html">
+   <LINK REL="Next"  HREF="013262.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 7/7] ARM11: more register cleanup #4</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%207/7%5D%20ARM11%3A%20more%20register%20cleanup%20%234&In-Reply-To=%3C200912022246.21626.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 7/7] ARM11: more register cleanup #4">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Dec  3 07:46:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013263.html">[Openocd-development] [patch 6/7] ARM11: more register cleanup #3
+</A></li>
+        <LI>Next message: <A HREF="013262.html">[Openocd-development] [patch 0/7] ARM11 cleanups (mostly)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13265">[ date ]</a>
+              <a href="thread.html#13265">[ thread ]</a>
+              <a href="subject.html#13265">[ subject ]</a>
+              <a href="author.html#13265">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Remove the remaining extra copy of DSCR, and the register cache
+of which it was a part.  That cache wasn't a very safe, or even
+necessary, idea; it was essentialy letting debugger-private state
+be manipulated by Tcl code that couldn't know how to do it right.
+
+This makes the &quot;reg&quot; output of an ARM11 resemble what most other
+ARM cores produce ... forward motion in the &quot;make ARM11 work like
+the rest of the ARM cores&quot; Jihad!
+---
+ src/target/arm11.c |  178 ++-------------------------------------------------
+ src/target/arm11.h |   14 ----
+ 2 files changed, 7 insertions(+), 185 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -46,41 +46,8 @@ static uint32_t arm11_vcr = 0;
+ static bool arm11_config_step_irq_enable = false;
+ static bool arm11_config_hardware_step = false;
+ 
+-enum arm11_regtype
+-{
+-	/* debug regs */
+-	ARM11_REGISTER_DSCR,
+-};
+-
+-
+-struct arm11_reg_defs
+-{
+-	char *					name;
+-	uint32_t						num;
+-	int						gdb_num;
+-	enum arm11_regtype		type;
+-};
+-
+-/* update arm11_regcache_ids when changing this */
+-static const struct arm11_reg_defs arm11_reg_defs[] =
+-{
+-	/* Debug Registers */
+-	{&quot;dscr&quot;,	0,	-1,	ARM11_REGISTER_DSCR},
+-};
+-
+-enum arm11_regcache_ids
+-{
+-	ARM11_RC_DSCR,
+-
+-	ARM11_RC_MAX,
+-};
+-
+ static int arm11_step(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints);
+-/* helpers */
+-static int arm11_build_reg_cache(struct target *target);
+-static int arm11_set_reg(struct reg *reg, uint8_t *buf);
+-static int arm11_get_reg(struct reg *reg);
+ 
+ 
+ /** Check and if necessary take control of the system
+@@ -127,11 +94,6 @@ static int arm11_check_init(struct arm11
+ 	return ERROR_OK;
+ }
+ 
+-
+-
+-#define R(x) \
+-	(arm11-&gt;reg_values[ARM11_RC_##x])
+-
+ /**
+  * Save processor state.  This is called after a HALT instruction
+  * succeeds, and on other occasions the processor enters debug mode
+@@ -148,17 +110,8 @@ static int arm11_debug_entry(struct arm1
+ 	/* REVISIT entire cache should already be invalid !!! */
+ 	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+-	for (size_t i = 0; i &lt; ARRAY_SIZE(arm11-&gt;reg_values); i++)
+-	{
+-		arm11-&gt;reg_list[i].valid	= 1;
+-		arm11-&gt;reg_list[i].dirty	= 0;
+-	}
+-
+ 	/* See e.g. ARM1136 TRM, &quot;14.8.4 Entering Debug state&quot; */
+ 
+-	/* Save DSCR */
+-	R(DSCR) = arm11-&gt;dscr;
+-
+ 	/* maybe save wDTR (pending DCC write to debug SW, e.g. libdcc) */
+ 	arm11-&gt;is_wdtr_saved = !!(arm11-&gt;dscr &amp; ARM11_DSCR_WDTR_FULL);
+ 	if (arm11-&gt;is_wdtr_saved)
+@@ -336,11 +289,9 @@ static int arm11_leave_debug_state(struc
+ 	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+ 	/* restore DSCR */
+-
+-	arm11_write_DSCR(arm11, R(DSCR));
++	arm11_write_DSCR(arm11, arm11-&gt;dscr);
+ 
+ 	/* maybe restore rDTR */
+-
+ 	if (arm11-&gt;is_rdtr_saved)
+ 	{
+ 		arm11_add_debug_SCAN_N(arm11, 0x05, ARM11_TAP_DEFAULT);
+@@ -722,9 +673,10 @@ static int arm11_step(struct target *tar
+ 
+ 
+ 		if (arm11_config_step_irq_enable)
+-			R(DSCR) &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;		/* should be redundant */
++			/* this disable should be redundant ... */
++			arm11-&gt;dscr &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;
+ 		else
+-			R(DSCR) |= ARM11_DSCR_INTERRUPTS_DISABLE;
++			arm11-&gt;dscr |= ARM11_DSCR_INTERRUPTS_DISABLE;
+ 
+ 
+ 		CHECK_RETVAL(arm11_leave_debug_state(arm11, handle_breakpoints));
+@@ -769,8 +721,8 @@ static int arm11_step(struct target *tar
+ 		/* save state */
+ 		CHECK_RETVAL(arm11_debug_entry(arm11));
+ 
+-	    /* restore default state */
+-		R(DSCR) &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;
++		/* restore default state */
++		arm11-&gt;dscr &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;
+ 
+ 	}
+ 
+@@ -1199,12 +1151,7 @@ static int arm11_init_target(struct comm
+ 		struct target *target)
+ {
+ 	/* Initialize anything we can set up without talking to the target */
+-
+-	/* REVISIT do we really want such a debug-registers-only cache?
+-	 * If we do, it should probably be handled purely by the DPM code,
+-	 * so it works identically on the v7a/v7r cores.
+-	 */
+-	return arm11_build_reg_cache(target);
++	return ERROR_OK;
+ }
+ 
+ /* talk to the target and set things up */
+@@ -1309,117 +1256,6 @@ static int arm11_examine(struct target *
+ }
+ 
+ 
+-/** Load a register that is marked !valid in the register cache */
+-static int arm11_get_reg(struct reg *reg)
+-{
+-	struct arm11_reg_state *r = reg-&gt;arch_info;
+-	struct target *target = r-&gt;target;
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target was not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+-	/** \todo TODO: Check this. We assume that all registers are fetched at debug entry. */
+-
+-#if 0
+-	struct arm11_common *arm11 = target_to_arm11(target);
+-	const struct arm11_reg_defs *arm11_reg_info = arm11_reg_defs + ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index;
+-#endif
+-
+-	return ERROR_OK;
+-}
+-
+-/** Change a value in the register cache */
+-static int arm11_set_reg(struct reg *reg, uint8_t *buf)
+-{
+-	struct arm11_reg_state *r = reg-&gt;arch_info;
+-	struct target *target = r-&gt;target;
+-	struct arm11_common *arm11 = target_to_arm11(target);
+-//	const struct arm11_reg_defs *arm11_reg_info = arm11_reg_defs + ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index;
+-
+-	arm11-&gt;reg_values[((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index] = buf_get_u32(buf, 0, 32);
+-	reg-&gt;valid	= 1;
+-	reg-&gt;dirty	= 1;
+-
+-	return ERROR_OK;
+-}
+-
+-static const struct reg_arch_type arm11_reg_type = {
+-	.get = arm11_get_reg,
+-	.set = arm11_set_reg,
+-};
+-
+-static int arm11_build_reg_cache(struct target *target)
+-{
+-	struct arm11_common *arm11 = target_to_arm11(target);
+-	struct reg_cache *cache;
+-	struct reg *reg_list;
+-	struct arm11_reg_state *arm11_reg_states;
+-
+-	cache = calloc(1, sizeof *cache);
+-	reg_list = calloc(ARM11_REGCACHE_COUNT, sizeof *reg_list);
+-	arm11_reg_states = calloc(ARM11_REGCACHE_COUNT,
+-			sizeof *arm11_reg_states);
+-	if (!cache || !reg_list || !arm11_reg_states) {
+-		free(cache);
+-		free(reg_list);
+-		free(arm11_reg_states);
+-		return ERROR_FAIL;
+-	}
+-
+-	arm11-&gt;reg_list	= reg_list;
+-
+-	/* build cache for some of the debug registers */
+-	cache-&gt;name = &quot;arm11 debug registers&quot;;
+-	cache-&gt;reg_list	= reg_list;
+-	cache-&gt;num_regs	= ARM11_REGCACHE_COUNT;
+-
+-	struct reg_cache **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
+-	(*cache_p) = cache;
+-
+-	arm11-&gt;core_cache = cache;
+-
+-	size_t i;
+-
+-	/* Not very elegant assertion */
+-	if (ARM11_REGCACHE_COUNT != ARRAY_SIZE(arm11-&gt;reg_values) ||
+-		ARM11_REGCACHE_COUNT != ARRAY_SIZE(arm11_reg_defs) ||
+-		ARM11_REGCACHE_COUNT != ARM11_RC_MAX)
+-	{
+-		LOG_ERROR(&quot;BUG: arm11-&gt;reg_values inconsistent (%d %u %u %d)&quot;,
+-				ARM11_REGCACHE_COUNT,
+-				(unsigned) ARRAY_SIZE(arm11-&gt;reg_values),
+-				(unsigned) ARRAY_SIZE(arm11_reg_defs),
+-				ARM11_RC_MAX);
+-		/* FIXME minimally, use a build_bug_on(X) mechanism;
+-		 * runtime exit() here is bad!
+-		 */
+-		exit(-1);
+-	}
+-
+-	for (i = 0; i &lt; ARM11_REGCACHE_COUNT; i++)
+-	{
+-		struct reg *						r	= reg_list			+ i;
+-		const struct arm11_reg_defs *	rd	= arm11_reg_defs	+ i;
+-		struct arm11_reg_state *			rs	= arm11_reg_states	+ i;
+-
+-		r-&gt;name				= rd-&gt;name;
+-		r-&gt;size				= 32;
+-		r-&gt;value			= (uint8_t *)(arm11-&gt;reg_values + i);
+-		r-&gt;dirty			= 0;
+-		r-&gt;valid			= 0;
+-		r-&gt;type = &amp;arm11_reg_type;
+-		r-&gt;arch_info		= rs;
+-
+-		rs-&gt;def_index		= i;
+-		rs-&gt;target			= target;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+ /* FIXME all these BOOL_WRAPPER things should be modifying
+  * per-instance state, not shared state; ditto the vector
+  * catch register support.  Scan chains with multiple cores
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -26,8 +26,6 @@
+ #include &quot;armv4_5.h&quot;
+ #include &quot;arm_dpm.h&quot;
+ 
+-#define ARM11_REGCACHE_COUNT		1
+-
+ #define ARM11_TAP_DEFAULT			TAP_INVALID
+ 
+ #define CHECK_RETVAL(action)			\
+@@ -69,18 +67,6 @@ struct arm11_common
+ 
+ 	bool	simulate_reset_on_next_halt;	/**&lt; Perform cleanups of the ARM state on next halt */
+ 
+-	/** \name Shadow registers to save debug state */
+-	/*@{*/
+-
+-	struct reg *	reg_list;							/**&lt; target register list */
+-	uint32_t		reg_values[ARM11_REGCACHE_COUNT];	/**&lt; data for registers */
+-
+-	/*@}*/
+-
+-
+-	// GA
+-	struct reg_cache *core_cache;
+-
+ 	struct arm_jtag jtag_info;
+ };
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013263.html">[Openocd-development] [patch 6/7] ARM11: more register cleanup #3
+</A></li>
+	<LI>Next message: <A HREF="013262.html">[Openocd-development] [patch 0/7] ARM11 cleanups (mostly)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13265">[ date ]</a>
+              <a href="thread.html#13265">[ thread ]</a>
+              <a href="subject.html#13265">[ subject ]</a>
+              <a href="author.html#13265">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

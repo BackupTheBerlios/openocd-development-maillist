@@ -1,0 +1,145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] TMS470 and problem with endianness
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20TMS470%20and%20problem%20with%20endianness&In-Reply-To=%3C204106c90811122233w371f77f5ya1e2e5f4fa125ea4%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003626.html">
+   <LINK REL="Next"  HREF="003635.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] TMS470 and problem with endianness</H1>
+    <B>krzysztof.dziuba Gazeta.pl</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20TMS470%20and%20problem%20with%20endianness&In-Reply-To=%3C204106c90811122233w371f77f5ya1e2e5f4fa125ea4%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] TMS470 and problem with endianness">krzysztof.dziuba at gazeta.pl
+       </A><BR>
+    <I>Thu Nov 13 07:33:22 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003626.html">[Openocd-development] Patch: TMS470R1A384 flash support
+</A></li>
+        <LI>Next message: <A HREF="003635.html">[Openocd-development] gdb app notes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3623">[ date ]</a>
+              <a href="thread.html#3623">[ thread ]</a>
+              <a href="subject.html#3623">[ subject ]</a>
+              <a href="author.html#3623">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+I started development on TMS470R1A384 and have problem with endianness
+in OpenOCD. Please consider following scenario:
+- generated big-endian elf file
+- OpenOCD configured:
+       target create TMS470 arm7tdmi -endian big -chain-position 0
+       RAM mapped at 0x00000000 - 0x00007FFFF
+- Eclipse/GDB configured
+ Initialize commands:
+       target remote localhost:3333
+
+ Run commands:
+       monitor reset init
+       load
+       continue
+- I added LOG_INFO to arm7_9_common.c line 238:
+
+                       if ((retval = target-&gt;type-&gt;read_memory(target,
+breakpoint-&gt;address, 4, 1, (u8 *)&amp;verify)) != ERROR_OK)
+                       {
+                               return retval;
+                       }
+                       LOG_INFO(&quot;verify=%08x arm7_9-&gt;arm_bkpt=%08x&quot;,
+verify, arm7_9-&gt;arm_bkpt);
+                       if (verify != arm7_9-&gt;arm_bkpt)
+                       {
+                               LOG_ERROR(&quot;Unable to set 32 bit
+software breakpoint at address %08x - check that memory is
+read/writable&quot;, breakpoint-&gt;address);
+                               return ERROR_OK;
+                       }
+
+
+
+Breakpoint is set on main(), address 0x00000150. Here is log from gdb:
+
+       target remote localhost:3333
+       0xac090000 in ?? ()
+       monitor reset init
+       JTAG device found: 0x3100e02f (Manufacturer: 0x017, Part:
+0x100e, Version: 0x3)
+       target state: halted
+       target halted in ARM state due to debug-request, current mode:
+        Supervisor
+       cpsr: 0xa00000d3 pc: 0x00000000
+       load
+       Loading section .text, size 0x164 lma 0x0
+       Start address 0x0, load size 356
+       Transfer rate: 7 KB/sec, 356 bytes/write.
+       continue
+       verify=eedeeede arm7_9-&gt;arm_bkpt=deeedeee
+       Unable to set 32 bit software breakpoint at address 00000150 -
+check that memory is read/writable
+
+       Breakpoint 1, main () at main.c:13
+       13          x -= 10;
+       mon mdw 0x150 0x10
+       0x00000150: deeedeee e243300a e50b3010 eafffffe 51eb851f
+6c0efaa6 a888bbbe 22f8b274
+       0x00000170: 7018fa3f 38c25b4b c34a3bee a3145ca5 408ce3fa
+5ae1a1a3 dd74aeff 471cb75b
+
+
+Problems:
+- cannot set software breakpoint at specified address - somewhere is
+mismatch in converting between endiannesses
+- after pressing F5 (step), message:
+       Cannot find bounds of current function
+- &quot;Disassembly window&quot;: instead of presenting disassembled memory view
+starting from address 0x00000150 it shows view from address 0x50010000
+- Breakpoint on address 0x00000000. Instruction expected on disassembled window:
+       b     _start
+ it shows:
+       0x00000000 &lt;_boot&gt;:     cdple 14, 14, cr13, cr14, cr14, {7}
+
+ After pressing F5 (step) it jumps to address 0x04000000.
+- however if I start stepping in telnet session, PC register changes
+it's value correctly
+
+I compiled latest sources from SVN.
+
+Regards,
+Krzysztof
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003626.html">[Openocd-development] Patch: TMS470R1A384 flash support
+</A></li>
+	<LI>Next message: <A HREF="003635.html">[Openocd-development] gdb app notes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3623">[ date ]</a>
+              <a href="thread.html#3623">[ thread ]</a>
+              <a href="subject.html#3623">[ subject ]</a>
+              <a href="author.html#3623">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

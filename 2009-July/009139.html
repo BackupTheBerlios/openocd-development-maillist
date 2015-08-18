@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Patch to Fix J-link Debugger Communication Failures
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Patch%20to%20Fix%20J-link%20Debugger%0A%20Communication%20Failures&In-Reply-To=%3CC676BDC4.2FF1%25gcarlson%40carlson-minot.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009136.html">
+   <LINK REL="Next"  HREF="009140.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Patch to Fix J-link Debugger Communication Failures</H1>
+    <B>Gary Carlson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Patch%20to%20Fix%20J-link%20Debugger%0A%20Communication%20Failures&In-Reply-To=%3CC676BDC4.2FF1%25gcarlson%40carlson-minot.com%3E"
+       TITLE="[Openocd-development] Patch to Fix J-link Debugger Communication Failures">gcarlson at carlson-minot.com
+       </A><BR>
+    <I>Mon Jul  6 05:29:56 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009136.html">[Openocd-development] Patch to Fix J-link Debugger	Communication Failures
+</A></li>
+        <LI>Next message: <A HREF="009140.html">[Openocd-development] Patch to Fix J-link Debugger	Communication Failures
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9139">[ date ]</a>
+              <a href="thread.html#9139">[ thread ]</a>
+              <a href="subject.html#9139">[ subject ]</a>
+              <a href="author.html#9139">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Xiaofan,
+
+Based on your most recent information, I am pretty sure this a different
+problem that my patch won't fix.  I have a sneaking suspicion that you are
+running into some issue with libusb.  If you don't have access to a DSO, do
+you have at least a DMM?
+
+If you do, I think there is some value writing a simple test routine in
+jlink_init after the USB handle is available that does the following:
+
+    jlink_jtag_handle = jlink_usb_open();
+
+    if (jlink_jtag_handle == 0)
+    {
+        blah...blah...blah...
+    }
+
+    /* Begin new test stuff here */
+
+    while (1)
+    {
+        jlink_simple_command(EMU_CMD_HW_RESET0);
+        sleep(1);
+        jlink_simple_command(EMU_CMD_HW_RESET1);
+        sleep(1);
+    }
+
+You should see the reset line transition on your target once a second from
+high to low on your DMM without skipping a beat.  If it does this likely
+will help you rule out libusb.
+
+As for using USBMon, I can't disagree that it is hard to use and is
+deficient compared to a true hardware protocol analyzer.  I wouldn't waste
+my time with that.
+
+Gary
+
+
+Gary Carlson
+
+Gary Carlson, MSEE
+Principal Engineer
+Carlson-Minot Inc.
+
+
+
+
+
+On 7/5/09 6:41 PM, &quot;Xiaofan Chen&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">xiaofanc at gmail.com</A>&gt; wrote:
+
+&gt;<i> On Mon, Jul 6, 2009 at 9:18 AM, Gary Carlson&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">gcarlson at carlson-minot.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;&gt;<i> Hi Xiaofan,
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> The session transcript that you provided below seems to indicate a different
+</I>&gt;&gt;<i> problem then my patch would fix in your case. &#160;Was this for the Arch Linux
+</I>&gt;&gt;<i> or all host systems? &#160;One of your earlier messages indicated success, so
+</I>&gt;&gt;<i> knowing that helps.
+</I>&gt;<i> 
+</I>&gt;<i> Your patch works for Ubuntu 9.04 (without the patch it works as well but
+</I>&gt;<i> sometimes got initialization error). I have not tested Fedora 10 but I believe
+</I>&gt;<i> it would work. It failed under Arch Linux and OpenSuse 11.1 (without
+</I>&gt;<i> your patches it did not work either. Your patch at lease helped to remove
+</I>&gt;<i> the initialization error).
+</I>&gt;<i> 
+</I>&gt;<i> Take note all these 4 Linux distros are installed on the same computer.
+</I>&gt;<i> I also use the same USB port to connect the J-Link.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> Judging from your log, you seem to be getting outright write errors out of
+</I>&gt;&gt;<i> the USB port to the dongle.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I obviously don't have your dongle, target, and computer in front of me or
+</I>&gt;&gt;<i> know your technical background, but here are some starting suggestions of
+</I>&gt;&gt;<i> things I would try to narrow the problem:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> 1) If you have a DSO with a differential probe you may want to look at the
+</I>&gt;&gt;<i> data signals emitted onto the USB link. &#160;Are they reasonably clean at the
+</I>&gt;&gt;<i> dongle?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> 2) As part of the previous suggestion, if you write a simple test loop and
+</I>&gt;&gt;<i> emit one test command to the dongle at each startup, do you see signal
+</I>&gt;&gt;<i> transitions at all or does the port seem to be dead during the failures? &#160;If
+</I>&gt;&gt;<i> you send one command at a time and everything works normally every time,
+</I>&gt;&gt;<i> what happens if you modify the test loop to send the same command in rapid
+</I>&gt;&gt;<i> succession instead? &#160;Does the link then break?
+</I>&gt;<i> 
+</I>&gt;<i> I was doing that at home so no DSOs. At work, I have DSOs but probably
+</I>&gt;<i> I would not want to do this type of things at work.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> 3) If you have a good USB sniffer, have you done a closer inspection of what
+</I>&gt;&gt;<i> is actually crossing the link? &#160;The simple test loop helps here so that you
+</I>&gt;&gt;<i> are not overwhelmed by data.
+</I>&gt;<i> 
+</I>&gt;<i> Maybe USBmon under Linux but it is a bit difficult to understand the log.
+</I>&gt;<i> On the other hand, I will try some old versions of OpenOCD. I remember
+</I>&gt;<i> it was working last time.
+</I>&gt;<i> 
+</I>&gt;<i> On the other hand, Segger's Linux utility seems to work fine.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> 4) Verify that your board is actually being reset during initialization by
+</I>&gt;&gt;<i> monitoring the reset line into the processor using the DSO or reset LED (if
+</I>&gt;&gt;<i> your board has one). &#160;Over 20 years of working on multitudes of different
+</I>&gt;&gt;<i> processors and emulators I can't think of all the times that I nearly pulled
+</I>&gt;&gt;<i> out my hair tracing odd problems only to find out that the board was not
+</I>&gt;&gt;<i> reset like it should have been. &#160;If your link is working at all, the very
+</I>&gt;&gt;<i> first thing you should see is the board tossed into reset by the dongle if
+</I>&gt;&gt;<i> the first few USB writes are interpreted correctly.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> 5) What version of libusb do you have on your system(s)? &#160;If you are using
+</I>&gt;&gt;<i> an older version, you may be running into bugs that have since been
+</I>&gt;&gt;<i> corrected in the USB support library.
+</I>&gt;<i> 
+</I>&gt;<i> I think Arch Linux and OpenSuse 11.1 have the latest version of libusb.
+</I>&gt;<i> Actually I normally run the latest version of libusb 0.1 and libusb 1.0
+</I>&gt;<i> (svn version) under my main Linux distro which is Ubuntu 9.04.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> 6) What hardware version of USB does your host system have (USB 1.0
+</I>&gt;&gt;<i> or USB 2.0)?
+</I>&gt;<i> 
+</I>&gt;<i> It is a USB 2.0 high speed port. As I mentioned before, I
+</I>&gt;<i> am using the same computer (An Acer M1641, GeForce 7050 / nForce 620i
+</I>&gt;<i> ICP chipset, Intel Core 2 Duo E4700), same USB port.
+</I>&gt;<i> 
+</I>&gt;&gt;<i> Anyway some things to think about.
+</I>&gt;<i> Thanks for the hints.
+</I>
+
+
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009136.html">[Openocd-development] Patch to Fix J-link Debugger	Communication Failures
+</A></li>
+	<LI>Next message: <A HREF="009140.html">[Openocd-development] Patch to Fix J-link Debugger	Communication Failures
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9139">[ date ]</a>
+              <a href="thread.html#9139">[ thread ]</a>
+              <a href="subject.html#9139">[ subject ]</a>
+              <a href="author.html#9139">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

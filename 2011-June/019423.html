@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 3/5] ft2232: Clean up on ft2232_init()	errors after a device has been opened
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/5%5D%20ft2232%3A%20Clean%20up%20on%20ft2232_init%28%29%0A%09errors%20after%20a%20device%20has%20been%20opened&In-Reply-To=%3C1307615136-475-3-git-send-email-peter%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019469.html">
+   <LINK REL="Next"  HREF="019442.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 3/5] ft2232: Clean up on ft2232_init()	errors after a device has been opened</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%203/5%5D%20ft2232%3A%20Clean%20up%20on%20ft2232_init%28%29%0A%09errors%20after%20a%20device%20has%20been%20opened&In-Reply-To=%3C1307615136-475-3-git-send-email-peter%40stuge.se%3E"
+       TITLE="[Openocd-development] [PATCH 3/5] ft2232: Clean up on ft2232_init()	errors after a device has been opened">peter at stuge.se
+       </A><BR>
+    <I>Thu Jun  9 12:25:34 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019469.html">[Openocd-development] [PATCH 2/5] ft2232: Refactor ft2232_init_*() into ft2232_initone()
+</A></li>
+        <LI>Next message: <A HREF="019442.html">[Openocd-development] [PATCH 3/5] ft2232: Clean up on ft2232_init() errors after a device has been opened
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19423">[ date ]</a>
+              <a href="thread.html#19423">[ thread ]</a>
+              <a href="subject.html#19423">[ subject ]</a>
+              <a href="author.html#19423">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>ft2232_quit() is called on errors and should clean up after any device
+initialization that has been done by ft2232_init().
+---
+ src/jtag/drivers/ft2232.c |   17 ++++++++++++-----
+ 1 files changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index cb50c50..219d41f 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -217,6 +217,8 @@ static void ktlink_blink(void);
+ static void lisa_l_blink(void);
+ static void flossjtag_blink(void);
+ 
++static int ft2232_quit(void);
++
+ /* common transport support options */
+ 
+ //static const char *jtag_and_swd[] = { &quot;jtag&quot;, &quot;swd&quot;, NULL };
+@@ -2463,7 +2465,7 @@ static int ft2232_init(void)
+ 	ft2232_buffer = malloc(FT2232_BUFFER_SIZE);
+ 
+ 	if (layout-&gt;init() != ERROR_OK)
+-		return ERROR_JTAG_INIT_FAILED;
++		goto quit;
+ 
+ 	if (ft2232_device_is_highspeed())
+ 	{
+@@ -2476,23 +2478,28 @@ static int ft2232_init(void)
+ #endif
+ 		/* make sure the legacy mode is disabled */
+ 		if (ft2232h_ft4232h_clk_divide_by_5(false) != ERROR_OK)
+-			return ERROR_JTAG_INIT_FAILED;
++			goto quit;
+ 	}
+ 
+ 	buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+ 	if ((retval = ft2232_write(buf, 1, &amp;bytes_written)) != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;couldn't write to FT2232 to disable loopback&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
++		goto quit;
+ 	}
+ 
+ #if BUILD_FT2232_FTD2XX == 1
+-	return ft2232_purge_ftd2xx();
++	if (ft2232_purge_ftd2xx() != ERROR_OK)
+ #elif BUILD_FT2232_LIBFTDI == 1
+-	return ft2232_purge_libftdi();
++	if (ft2232_purge_libftdi() != ERROR_OK)
+ #endif
++		goto quit;
+ 
+ 	return ERROR_OK;
++
++quit:
++	ft2232_quit();
++	return ERROR_JTAG_INIT_FAILED;
+ }
+ 
+ /** Updates defaults for DBUS signals:  the four JTAG signals
+-- 
+1.7.4.1.343.ga91df.dirty
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019469.html">[Openocd-development] [PATCH 2/5] ft2232: Refactor ft2232_init_*() into ft2232_initone()
+</A></li>
+	<LI>Next message: <A HREF="019442.html">[Openocd-development] [PATCH 3/5] ft2232: Clean up on ft2232_init() errors after a device has been opened
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19423">[ date ]</a>
+              <a href="thread.html#19423">[ thread ]</a>
+              <a href="subject.html#19423">[ subject ]</a>
+              <a href="author.html#19423">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

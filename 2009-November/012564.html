@@ -1,0 +1,110 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] Cortex-A8: parts of examine() run	just once
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Cortex-A8%3A%20parts%20of%20examine%28%29%20run%0A%09just%20once&In-Reply-To=%3C200911191044.21537.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012563.html">
+   <LINK REL="Next"  HREF="012567.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] Cortex-A8: parts of examine() run	just once</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Cortex-A8%3A%20parts%20of%20examine%28%29%20run%0A%09just%20once&In-Reply-To=%3C200911191044.21537.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] Cortex-A8: parts of examine() run	just once">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov 19 19:44:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012563.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+        <LI>Next message: <A HREF="012567.html">[Openocd-development] [patch 1/2] ARM: streamline register init
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12564">[ date ]</a>
+              <a href="thread.html#12564">[ thread ]</a>
+              <a href="subject.html#12564">[ subject ]</a>
+              <a href="author.html#12564">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The examine() method has some conceptual breakage.  Cope
+with it by manually splitting out the run-once parts from
+the after-each-reset parts ... this gets rid of memory
+leaks and speeds up resets after the first one.
+---
+This passes in light testing, and it looks like the
+after-each-reset logic is still prepared to reinit
+the debug port.  But ... please keep an eye out for
+more subtle problems that might crop up.
+
+ src/target/cortex_a8.c |   19 +++++++++++++++----
+ 1 file changed, 15 insertions(+), 4 deletions(-)
+
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1362,7 +1362,7 @@ static int cortex_a8_handle_target_reque
+  * Cortex-A8 target information and configuration
+  */
+ 
+-static int cortex_a8_examine(struct target *target)
++static int cortex_a8_examine_first(struct target *target)
+ {
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+@@ -1447,10 +1447,21 @@ static int cortex_a8_examine(struct targ
+ 	LOG_DEBUG(&quot;Configured %i hw breakpoint pairs and %i hw watchpoint pairs&quot;,
+ 			cortex_a8-&gt;brp_num , cortex_a8-&gt;wrp_num);
+ 
+-	/* Configure core debug access */
+-	cortex_a8_init_debug_access(target);
+-
+ 	target_set_examined(target);
++	return ERROR_OK;
++}
++
++static int cortex_a8_examine(struct target *target)
++{
++	int retval = ERROR_OK;
++
++	/* don't re-probe hardware after each reset */
++	if (!target_was_examined(target))
++		retval = cortex_a8_examine_first(target);
++
++	/* Configure core debug access */
++	if (retval == ERROR_OK)
++		retval = cortex_a8_init_debug_access(target);
+ 
+ 	return retval;
+ }
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012563.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+	<LI>Next message: <A HREF="012567.html">[Openocd-development] [patch 1/2] ARM: streamline register init
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12564">[ date ]</a>
+              <a href="thread.html#12564">[ thread ]</a>
+              <a href="subject.html#12564">[ subject ]</a>
+              <a href="author.html#12564">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

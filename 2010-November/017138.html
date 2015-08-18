@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] lpc3131 and Actel FPGA chain programming.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20lpc3131%20and%20Actel%20FPGA%20chain%20programming.&In-Reply-To=%3CAANLkTikPnPk7hcH6_ERjLC2fVERxw%3DLeeGapuoW8nPn1%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017091.html">
+   <LINK REL="Next"  HREF="017012.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] lpc3131 and Actel FPGA chain programming.</H1>
+    <B>Andrew Leech</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20lpc3131%20and%20Actel%20FPGA%20chain%20programming.&In-Reply-To=%3CAANLkTikPnPk7hcH6_ERjLC2fVERxw%3DLeeGapuoW8nPn1%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] lpc3131 and Actel FPGA chain programming.">coronasensei at gmail.com
+       </A><BR>
+    <I>Mon Nov 15 03:05:55 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017091.html">[Openocd-development] lpc3131 and Actel FPGA chain programming.
+</A></li>
+        <LI>Next message: <A HREF="017012.html">[Openocd-development] [PATCH 1/2] cortex_m3: report detected error	condition in poll
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17138">[ date ]</a>
+              <a href="thread.html#17138">[ thread ]</a>
+              <a href="subject.html#17138">[ subject ]</a>
+              <a href="author.html#17138">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, Nov 13, 2010 at 1:28 AM, Peter Stuge &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>&gt; wrote:
+
+&gt;&gt;<i> There's specific HDR and similar commands in svf to define these
+</I>&gt;&gt;<i> paddings.
+</I>&gt;<i>
+</I>&gt;<i> Can you say more about them? Did you study the SVF output by
+</I>&gt;<i> FlashPro? It would be interesting to diff a failing SVF with a
+</I>&gt;<i> working one.
+</I>&gt;<i>
+</I>
+Yeah I've just been looking into them more. Basically the svf with
+chain information is exactly the same as non-chain except for a nice
+header block.
+They basically just put the lpc into bypass mode which leaves a 1 bit
+data register in the jtag chain. The header/trailer commands then just
+specify (to openocd) this extra padding bit on any data command and
+(in my case) 4 bits of padding on any instruction command.
+
+&gt;<i>From Xilinx xapp503:
+</I>
+To reduce the size of an SVF file, the SVF specification provides four
+global padding
+instructions: Header Instruction Register (HIR), Trailer Instruction
+Register (TIR), Header Data
+Register (HDR), and Trailer Data Register (TDR).
+
+HIR length TDI(tdi) SMASK(smask) [TDO(tdo) MASK(mask] &#160; &#160;#Specifies
+bits to follow subsequent Shift-IR instructions.
+TIR length TDI(tdi) SMASK(smask) [TDO(tdo) MASK(mask] &#160; &#160; #Specifies
+bits to precede subsequent Shift-IR instructions.
+HDR length TDI(tdi) SMASK(smask) [TDO(tdo) MASK(mask] &#160; #Specifies
+bits to follow subsequent Shift-DR instructions
+TDR length TDI(tdi) SMASK(smask) [TDO(tdo) MASK(mask]   #Specifies
+bits to precede subsequent Shift-DR instructions.
+
+Note: SVF &#8220;Header&#8221; instructions specify padding bits at the end of a
+shift pattern, while &#8220;Trailer&#8221;
+instructions specify padding bits at the beginning of a shift pattern.
+This is a common point of
+confusion and can initially seem counterintuitive.
+These global commands specify the number of bits to pad the beginning
+and end of a shift
+operation, to account for bypassed devices, and provide a simple
+method of SVF file
+compression. Once specified, these bits lead or follow every set of
+bits shifted for the SIR or
+SDR commands.
+
+It's up the the svf parser (ie openocd) to add these specified padding
+bits to all subsequent commands. Luckily for me support for these
+commands is already included in openocd's svf module.
+
+&gt;<i>
+</I>&gt;&gt;<i> Some software like UrJtag ignores these commands if they even exist
+</I>&gt;&gt;<i> and figures them out itself by scanning the chain, this is neat.
+</I>&gt;<i>
+</I>&gt;<i> I think this is the only sensible behavior.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;&gt;<i> The svf player in openocd doesn't have anything like this (and I don't
+</I>&gt;&gt;<i> have time right now how to figure out how to add it, maybe later), so
+</I>&gt;&gt;<i> you're left with generating the svf files to be aware of the chain, if
+</I>&gt;&gt;<i> the software making the svf has this functionality.
+</I>&gt;<i>
+</I>&gt;<i> Or maybe OpenOCD can patch in the neccessary stuff into the SVF?
+</I>&gt;<i>
+</I>
+Yeah I would like to add automatic support for this in openocd, it
+really would be quite trivial. Basically add an optional switch to the
+svf command to target a specific tap which would then ignore any
+header/trailer commands in the svf and run the appropriate command
+before running the supplied svf.
+
+
+&gt;<i> 3 minutes is also really slow imo, but it is what it is because of
+</I>&gt;<i> how the simple interfaces work. I've ranted enough about that before.
+</I>&gt;<i>
+</I>
+Yep 3 minutes does feel like an eternity if you sit and watch it. To
+be fair Altium's programmer does take pretty much just as long, it's
+their own custom hardware based on a LPC2888 (usb 2 high speed) which
+is supported by Alium and nothing else. Personally I'm not changing my
+fpga code much currently and I want openocd support primarily for
+production guys to use, where 3 minutes I'm sure will be annoying but
+not the end of the world. The fact that it works is the most important
+aspect. Higher jtag clock speed might help too.
+
+&gt;<i> Thanks! Maybe another option would be for you to just submit a patch
+</I>&gt;<i> with the above board file for your board, with some comments in it?
+</I>&gt;<i>
+</I>
+Yeah I thought about submitting a board file but as it's a completely
+custom hardware setup (it's composed of 3 pcb's wired together
+haphazardly) it's not really relevant except as a generic sample. Is
+this really suitable for inclusion as a board.cfg?
+
+For reference here's a svf header for my chain (trimmed and commented by me)
+
+&gt;<i>!# Chain header for configuration of:
+</I>&gt;<i>!#  tap 1: jtag newtap lpc3131 cpu -irlen 4 -expected-id 0x07926f0f
+</I>&gt;<i>!#  tap 2: jtag newtap a3p125 tap -irlen 8 -expected-id 0x02a121cf
+</I>&gt;<i>!#
+</I>&gt;<i>STATE RESET;
+</I>&gt;<i>RUNTEST IDLE 5 TCK 200E-6 SEC;
+</I>&gt;<i>ENDIR IDLE;
+</I>&gt;<i>SIR 12 TDI(00f) TDO(000) MASK(000); 	!# put lpc IR = 0xF (bypass mode), and a3p IR = 0x00 (do nothing?)
+</I>&gt;<i>ENDIR IRPAUSE;
+</I>&gt;<i>HDR 1 TDI(0);		!# Set 1 bit of data header padding (lpc bypass register at start of chain)
+</I>&gt;<i>HIR 4 TDI(f);		!# Set 4 bits of instruction header padding (lpc 4 bits of IR at start of chain)
+</I>&gt;<i>TDR 0;			!# no trailer padding (no taps on chain after a3p)
+</I>&gt;<i>TIR 0;
+</I>&gt;<i>!#
+</I>&gt;<i>!#
+</I>&gt;<i>!# Continue with rest of original SVF
+</I>&gt;<i>FREQUENCY 4E6 HZ;
+</I>&gt;<i>STATE RESET;
+</I>&gt;<i>RUNTEST IDLE 5 TCK;
+</I>&gt;<i>ENDIR IRPAUSE;
+</I>&gt;<i>ENDDR DRPAUSE;
+</I>&gt;<i>SIR 8 TDI(0F);
+</I>&gt;<i>SDR 32 TDI(00000000);
+</I>&gt;<i>STATE IDLE;
+</I>&gt;<i>RUNTEST IDLE 1 TCK;
+</I>&gt;<i>SDR 32 TDI(00000000) TDO(03A121CF) MASK(06FFFFFF);
+</I>&gt;<i>!#....
+</I>
+The original header from actel had a few extra tests than is here, I
+trimmed it to basically the minimum that works, and these commands
+would be very easy to auto generate. Not sure if/when I might find
+time to add this to openocd though. Pretty easy to add these commands
+to a SVF manually in the mean time. This header is certainly worth
+having on the wiki page about SVF I feel.
+
+Andrew
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017091.html">[Openocd-development] lpc3131 and Actel FPGA chain programming.
+</A></li>
+	<LI>Next message: <A HREF="017012.html">[Openocd-development] [PATCH 1/2] cortex_m3: report detected error	condition in poll
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17138">[ date ]</a>
+              <a href="thread.html#17138">[ thread ]</a>
+              <a href="subject.html#17138">[ subject ]</a>
+              <a href="author.html#17138">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

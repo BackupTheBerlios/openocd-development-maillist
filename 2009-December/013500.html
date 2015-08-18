@@ -1,0 +1,347 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] ARM11: start using opcode macros
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM11%3A%20start%20using%20opcode%20macros&In-Reply-To=%3C200912121537.36704.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013582.html">
+   <LINK REL="Next"  HREF="013525.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] ARM11: start using opcode macros</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM11%3A%20start%20using%20opcode%20macros&In-Reply-To=%3C200912121537.36704.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] ARM11: start using opcode macros">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Dec 13 00:37:36 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013582.html">[Openocd-development] Cross Platform Debugger
+</A></li>
+        <LI>Next message: <A HREF="013525.html">[Openocd-development] [patch 1/2] target: further shrink	Jim-awareness
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13500">[ date ]</a>
+              <a href="thread.html#13500">[ thread ]</a>
+              <a href="subject.html#13500">[ subject ]</a>
+              <a href="author.html#13500">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The current code is using lots of magic numbers.  Improve
+code readability/maintainability by doing less of that.
+
+Switch one opcode over to a conventional NOP so it's more
+clear what's going on (and comment that, too).
+
+Minor status returning cleanup:  return one code which was
+wrongly dropped, return another more directly.
+---
+I sanity-tested this, and eyeballed it carefully, but will
+hold off committing this for a bit so other folk can too...
+
+ src/target/arm11.c        |   54 +++++++++++++++++++++++++++++++-------------
+ src/target/arm11_dbgtap.c |   49 +++++++++++++++++++++++++--------------
+ 2 files changed, 70 insertions(+), 33 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -194,7 +194,8 @@ static int arm11_debug_entry(struct arm1
+ 	{
+ 		/* MRC p14,0,R0,c0,c5,0 (move rDTR -&gt; r0 (-&gt; wDTR -&gt; local var)) */
+ 		retval = arm11_run_instr_data_from_core_via_r0(arm11,
+-				0xEE100E15, &amp;arm11-&gt;saved_rdtr);
++				ARMV4_5_MRC(14,0,0,0,5,0),
++				&amp;arm11-&gt;saved_rdtr);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 	}
+@@ -212,7 +213,8 @@ static int arm11_debug_entry(struct arm1
+ 		/* Write 0 (reset value) to Control register 0 to disable MMU/Cache etc. */
+ 
+ 		/* MCR p15,0,R0,c1,c0,0 */
+-		retval = arm11_run_instr_data_to_core_via_r0(arm11, 0xee010f10, 0);
++		retval = arm11_run_instr_data_to_core_via_r0(arm11,
++				ARMV4_5_MCR(15,0,0,1,0,0), 0);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+@@ -286,7 +288,8 @@ static int arm11_leave_debug_state(struc
+ 
+ 		/* MCR p14,0,R0,c0,c5,0 */
+ 		retval = arm11_run_instr_data_to_core_via_r0(arm11,
+-				0xee000e15, arm11-&gt;saved_wdtr);
++				ARMV4_5_MCR(14,0,0,0,5,0),
++				arm11-&gt;saved_wdtr);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+@@ -850,7 +853,9 @@ static int arm11_read_memory_inner(struc
+ 		return retval;
+ 
+ 	/* MRC p14,0,r0,c0,c5,0 */
+-	retval = arm11_run_instr_data_to_core1(arm11, 0xee100e15, address);
++	retval = arm11_run_instr_data_to_core1(arm11,
++			ARMV4_5_MRC(14,0,0,0,5,0),
++			address);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -864,11 +869,15 @@ static int arm11_read_memory_inner(struc
+ 			/* ldrb    r1, [r0], #1 */
+ 			/* ldrb    r1, [r0] */
+ 			arm11_run_instr_no_data1(arm11,
+-					!arm11_config_memrw_no_increment ? 0xe4d01001 : 0xe5d01000);
++					!arm11_config_memrw_no_increment
++						? ARMV4_5_LDRB_IP(1, 0)
++						: 0xe5d01000);
+ 
+ 			uint32_t res;
+ 			/* MCR p14,0,R1,c0,c5,0 */
+-			arm11_run_instr_data_from_core(arm11, 0xEE001E15, &amp;res, 1);
++			arm11_run_instr_data_from_core(arm11,
++					ARMV4_5_MCR(14,0,1,0,5,0),
++					&amp;res, 1);
+ 
+ 			*buffer++ = res;
+ 		}
+@@ -882,13 +891,18 @@ static int arm11_read_memory_inner(struc
+ 			for (size_t i = 0; i &lt; count; i++)
+ 			{
+ 				/* ldrh    r1, [r0], #2 */
++				/* ldrh    r1, [r0] */
+ 				arm11_run_instr_no_data1(arm11,
+-					!arm11_config_memrw_no_increment ? 0xe0d010b2 : 0xe1d010b0);
++					!arm11_config_memrw_no_increment
++						? ARMV4_5_LDRH_IP(1, 0)
++						: 0xe1d010b0);
+ 
+ 				uint32_t res;
+ 
+ 				/* MCR p14,0,R1,c0,c5,0 */
+-				arm11_run_instr_data_from_core(arm11, 0xEE001E15, &amp;res, 1);
++				arm11_run_instr_data_from_core(arm11,
++						ARMV4_5_MCR(14,0,1,0,5,0),
++						&amp;res, 1);
+ 
+ 				uint16_t svalue = res;
+ 				memcpy(buffer + i * sizeof(uint16_t), &amp;svalue, sizeof(uint16_t));
+@@ -945,7 +959,9 @@ static int arm11_write_memory_inner(stru
+ 		return retval;
+ 
+ 	/* MRC p14,0,r0,c0,c5,0 */
+-	retval = arm11_run_instr_data_to_core1(arm11, 0xee100e15, address);
++	retval = arm11_run_instr_data_to_core1(arm11,
++			ARMV4_5_MRC(14,0,0,0,5,0),
++			address);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -967,7 +983,9 @@ static int arm11_write_memory_inner(stru
+ 			for (size_t i = 0; i &lt; count; i++)
+ 			{
+ 				/* MRC p14,0,r1,c0,c5,0 */
+-				retval = arm11_run_instr_data_to_core1(arm11, 0xee101e15, *buffer++);
++				retval = arm11_run_instr_data_to_core1(arm11,
++						ARMV4_5_MRC(14,0,1,0,5,0),
++						*buffer++);
+ 				if (retval != ERROR_OK)
+ 					return retval;
+ 
+@@ -975,7 +993,7 @@ static int arm11_write_memory_inner(stru
+ 				/* strb    r1, [r0] */
+ 				retval = arm11_run_instr_no_data1(arm11,
+ 					!no_increment
+-						? 0xe4c01001
++						? ARMV4_5_STRB_IP(1, 0)
+ 						: 0xe5c01000);
+ 				if (retval != ERROR_OK)
+ 					return retval;
+@@ -991,10 +1009,14 @@ static int arm11_write_memory_inner(stru
+ 			for (size_t i = 0; i &lt; count; i++)
+ 			{
+ 				uint16_t value;
+-				memcpy(&amp;value, buffer + i * sizeof(uint16_t), sizeof(uint16_t));
++
++				memcpy(&amp;value, buffer + i * sizeof(uint16_t),
++						sizeof(uint16_t));
+ 
+ 				/* MRC p14,0,r1,c0,c5,0 */
+-				retval = arm11_run_instr_data_to_core1(arm11, 0xee101e15, value);
++				retval = arm11_run_instr_data_to_core1(arm11,
++						ARMV4_5_MRC(14,0,1,0,5,0),
++						value);
+ 				if (retval != ERROR_OK)
+ 					return retval;
+ 
+@@ -1002,7 +1024,7 @@ static int arm11_write_memory_inner(stru
+ 				/* strh    r1, [r0] */
+ 				retval = arm11_run_instr_no_data1(arm11,
+ 					!no_increment
+-						? 0xe0c010b2
++						? ARMV4_5_STRH_IP(1, 0)
+ 						: 0xe1c010b0);
+ 				if (retval != ERROR_OK)
+ 					return retval;
+@@ -1042,7 +1064,9 @@ static int arm11_write_memory_inner(stru
+ 		uint32_t r0;
+ 
+ 		/* MCR p14,0,R0,c0,c5,0 */
+-		retval = arm11_run_instr_data_from_core(arm11, 0xEE000E15, &amp;r0, 1);
++		retval = arm11_run_instr_data_from_core(arm11,
++				ARMV4_5_MCR(14,0,0,0,5,0),
++				&amp;r0, 1);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -29,6 +29,8 @@
+ 
+ #include &lt;helper/time_support.h&gt;
+ 
++#include &quot;arm_opcodes.h&quot;
++
+ #if 0
+ #define JTAG_DEBUG(expr ...)	do { if (1) LOG_DEBUG(expr); } while (0)
+ #else
+@@ -383,9 +385,8 @@ int arm11_run_instr_data_finish(struct a
+  * \param count		Number of opcodes to execute
+  *
+  */
+-static
+-int arm11_run_instr_no_data(struct arm11_common * arm11,
+-		uint32_t * opcode, size_t count)
++static int arm11_run_instr_no_data(struct arm11_common *arm11,
++		uint32_t *opcode, size_t count)
+ {
+ 	arm11_add_IR(arm11, ARM11_ITRSEL, ARM11_TAP_DEFAULT);
+ 
+@@ -398,7 +399,13 @@ int arm11_run_instr_no_data(struct arm11
+ 		{
+ 			uint8_t flag;
+ 
+-			arm11_add_debug_INST(arm11, 0, &amp;flag, count ? TAP_IDLE : TAP_DRPAUSE);
++			/* Poll, issuing RUN/IDLE clocks until we see the
++			 * previous instruction complete or we time out.
++			 * ITR will be loaded with a NOP but we won't be
++			 * running it unless we go through RUN/IDLE.
++			 */
++			arm11_add_debug_INST(arm11, ARMV4_5_NOP, &amp;flag,
++					count ? TAP_IDLE : TAP_DRPAUSE);
+ 
+ 			CHECK_RETVAL(jtag_execute_queue());
+ 
+@@ -458,7 +465,8 @@ int arm11_run_instr_no_data1(struct arm1
+  * \param count		Number of data words and instruction repetitions
+  *
+  */
+-int arm11_run_instr_data_to_core(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count)
++int arm11_run_instr_data_to_core(struct arm11_common *arm11,
++		uint32_t opcode, uint32_t * data, size_t count)
+ {
+ 	arm11_add_IR(arm11, ARM11_ITRSEL, ARM11_TAP_DEFAULT);
+ 
+@@ -767,17 +775,18 @@ int arm11_run_instr_data_from_core(struc
+  * \param data		Pointer to a data word that receives the value from r0 after \p opcode was executed.
+  *
+  */
+-int arm11_run_instr_data_from_core_via_r0(struct arm11_common * arm11, uint32_t opcode, uint32_t * data)
++int arm11_run_instr_data_from_core_via_r0(struct arm11_common *arm11,
++		uint32_t opcode, uint32_t *data)
+ {
+ 	int retval;
++
+ 	retval = arm11_run_instr_no_data1(arm11, opcode);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	/* MCR p14,0,R0,c0,c5,0 (move r0 -&gt; wDTR -&gt; local var) */
+-	arm11_run_instr_data_from_core(arm11, 0xEE000E15, data, 1);
+-
+-	return ERROR_OK;
++	return arm11_run_instr_data_from_core(arm11,
++			ARMV4_5_MCR(14,0,0,0,5,0), data, 1);
+ }
+ 
+ /** Load data into core via DTR then move it to r0 then
+@@ -795,16 +804,14 @@ int arm11_run_instr_data_from_core_via_r
+ int arm11_run_instr_data_to_core_via_r0(struct arm11_common * arm11, uint32_t opcode, uint32_t data)
+ {
+ 	int retval;
+-	/* MRC p14,0,r0,c0,c5,0 */
+-	retval = arm11_run_instr_data_to_core1(arm11, 0xEE100E15, data);
+-	if (retval != ERROR_OK)
+-		return retval;
+ 
+-	retval = arm11_run_instr_no_data1(arm11, opcode);
++	/* MRC p14,0,r0,c0,c5,0 */
++	retval = arm11_run_instr_data_to_core1(arm11,
++			ARMV4_5_MRC(14,0,0,0,5,0), data);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	return ERROR_OK;
++	return arm11_run_instr_no_data1(arm11, opcode);
+ }
+ 
+ /** Apply reads and writes to scan chain 7
+@@ -949,18 +956,24 @@ void arm11_sc7_set_vcr(struct arm11_comm
+  * \param result	Pointer where to store result
+  *
+  */
+-int arm11_read_memory_word(struct arm11_common * arm11, uint32_t address, uint32_t * result)
++int arm11_read_memory_word(struct arm11_common *arm11,
++		uint32_t address, uint32_t *result)
+ {
+ 	int retval;
++
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	/* MRC p14,0,r0,c0,c5,0 (r0 = address) */
+-	CHECK_RETVAL(arm11_run_instr_data_to_core1(arm11, 0xee100e15, address));
++	CHECK_RETVAL(arm11_run_instr_data_to_core1(arm11,
++			ARMV4_5_MRC(14, 0, 0, 0, 5, 0),
++			address));
+ 
+ 	/* LDC p14,c5,[R0],#4 (DTR = [r0]) */
+-	CHECK_RETVAL(arm11_run_instr_data_from_core(arm11, 0xecb05e01, result, 1));
++	CHECK_RETVAL(arm11_run_instr_data_from_core(arm11,
++			0xecb05e01,
++			result, 1));
+ 
+ 	return arm11_run_instr_data_finish(arm11);
+ }
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013582.html">[Openocd-development] Cross Platform Debugger
+</A></li>
+	<LI>Next message: <A HREF="013525.html">[Openocd-development] [patch 1/2] target: further shrink	Jim-awareness
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13500">[ date ]</a>
+              <a href="thread.html#13500">[ thread ]</a>
+              <a href="subject.html#13500">[ subject ]</a>
+              <a href="author.html#13500">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

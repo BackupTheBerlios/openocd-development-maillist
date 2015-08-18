@@ -1,0 +1,211 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 03/10] httpd: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2003/10%5D%20httpd%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100329-14549-4-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012860.html">
+   <LINK REL="Next"  HREF="012863.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 03/10] httpd: use register_commands()</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2003/10%5D%20httpd%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100329-14549-4-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 03/10] httpd: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:22 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012860.html">[Openocd-development] [PATCH 02/10] add jim_handler to	command_registration
+</A></li>
+        <LI>Next message: <A HREF="012863.html">[Openocd-development] [PATCH 04/10] allow scripts to update usage	information
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12862">[ date ]</a>
+              <a href="thread.html#12862">[ thread ]</a>
+              <a href="subject.html#12862">[ subject ]</a>
+              <a href="author.html#12862">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Updates httpd_start() to use register_commands() for 'readform' and
+'writeform' commands.  Adds server/httpd.h to export the new signatures
+for this function (and httpd_stop), which allows removing the obsoleted
+declarations inside openocd.c.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/openocd.c          |    7 ++-----
+ src/server/Makefile.am |    1 +
+ src/server/httpd.c     |   35 ++++++++++++++++++++---------------
+ src/server/httpd.h     |   28 ++++++++++++++++++++++++++++
+ 4 files changed, 51 insertions(+), 20 deletions(-)
+ create mode 100644 src/server/httpd.h
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 63289e4..e38c84e 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -41,6 +41,7 @@
+ #include &quot;telnet_server.h&quot;
+ #include &quot;gdb_server.h&quot;
+ #include &quot;tcl_server.h&quot;
++#include &quot;httpd.h&quot;
+ 
+ #ifdef HAVE_STRINGS_H
+ #include &lt;strings.h&gt;
+@@ -216,10 +217,6 @@ struct command_context *setup_command_handler(void)
+ 	return cmd_ctx;
+ }
+ 
+-int httpd_start(void);
+-void httpd_stop(void);
+-
+-
+ #if !BUILD_HTTPD &amp;&amp; !BUILD_ECOSBOARD
+ /* implementations of OpenOCD that uses multithreading needs to know when
+  * OpenOCD is sleeping. No-op in vanilla OpenOCD
+@@ -269,7 +266,7 @@ int openocd_main(int argc, char *argv[])
+ 		return EXIT_FAILURE;
+ 
+ #if BUILD_HTTPD
+-	if (httpd_start() != ERROR_OK)
++	if (httpd_start(cmd_ctx) != ERROR_OK)
+ 		return EXIT_FAILURE;
+ #endif
+ 
+diff --git a/src/server/Makefile.am b/src/server/Makefile.am
+index bb7d5ef..95fb519 100644
+--- a/src/server/Makefile.am
++++ b/src/server/Makefile.am
+@@ -14,6 +14,7 @@ libserver_la_SOURCES = server.c telnet_server.c gdb_server.c
+ if HTTPD
+ libserver_la_SOURCES += httpd.c
+ endif
++noinst_HEADERS += httpd.h
+ 
+ libserver_la_CFLAGS =
+ if IS_MINGW
+diff --git a/src/server/httpd.c b/src/server/httpd.c
+index 1c5e6d2..8c1d3db 100644
+--- a/src/server/httpd.c
++++ b/src/server/httpd.c
+@@ -460,7 +460,25 @@ static int ahc_echo(void * cls, struct MHD_Connection * connection,
+ 
+ static struct MHD_Daemon * d;
+ 
+-int httpd_start(void)
++static const struct command_registration httpd_command_handlers[] = {
++	{
++		.name = &quot;formfetch&quot;,
++		.jim_handler = &amp;httpd_Jim_Command_formfetch,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;parameter_name&gt;&quot;,
++		.help = &quot;Reads a posted form value.&quot;,
++	},
++	{
++		.name = &quot;writeform&quot;,
++		.jim_handler = &amp;httpd_Jim_Command_writeform,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;parameter_name&gt; &lt;file&gt;&quot;,
++		.help = &quot;Writes a form value to a file.&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++int httpd_start(struct command_context *cmd_ctx)
+ {
+ 	pthread_mutexattr_t attr;
+ 	pthread_mutexattr_init(&amp;attr);
+@@ -475,20 +493,7 @@ int httpd_start(void)
+ 	if (d == NULL)
+ 		return ERROR_FAIL;
+ 
+-	Jim_CreateCommand(interp,
+-						  &quot;formfetch&quot;,
+-						  httpd_Jim_Command_formfetch,
+-						  NULL,
+-						  NULL);
+-
+-    Jim_CreateCommand(interp,
+-                      &quot;writeform&quot;,
+-                      httpd_Jim_Command_writeform,
+-                      NULL,
+-                      NULL);
+-
+-
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, httpd_command_handlers);
+ }
+ 
+ void httpd_stop(void)
+diff --git a/src/server/httpd.h b/src/server/httpd.h
+new file mode 100644
+index 0000000..0502deb
+--- /dev/null
++++ b/src/server/httpd.h
+@@ -0,0 +1,28 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef OPENOCD_SERVER_HTTPD_H
++#define OPENOCD_SERVER_HTTPD_H
++
++struct command_context;
++
++int httpd_start(struct command_context *cmd_ctx);
++void httpd_stop(void);
++
++#endif // OPENOCD_SERVER_HTTPD_H
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012860.html">[Openocd-development] [PATCH 02/10] add jim_handler to	command_registration
+</A></li>
+	<LI>Next message: <A HREF="012863.html">[Openocd-development] [PATCH 04/10] allow scripts to update usage	information
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12862">[ date ]</a>
+              <a href="thread.html#12862">[ thread ]</a>
+              <a href="subject.html#12862">[ subject ]</a>
+              <a href="author.html#12862">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

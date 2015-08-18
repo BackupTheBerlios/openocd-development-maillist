@@ -1,0 +1,977 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtag: cut down on usage of unintended	modification of global end state
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%3A%20cut%20down%20on%20usage%20of%20unintended%0A%09modification%20of%20global%20end%20state&In-Reply-To=%3C1268746378-948-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015257.html">
+   <LINK REL="Next"  HREF="015259.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtag: cut down on usage of unintended	modification of global end state</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%3A%20cut%20down%20on%20usage%20of%20unintended%0A%09modification%20of%20global%20end%20state&In-Reply-To=%3C1268746378-948-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] jtag: cut down on usage of unintended	modification of global end state">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Mar 16 14:32:58 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015257.html">[Openocd-development] [PATCH 2/2] PIC32: add software reset support
+</A></li>
+        <LI>Next message: <A HREF="015259.html">[Openocd-development] [PATCH] gdb_server: improved gdb load	performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15258">[ date ]</a>
+              <a href="thread.html#15258">[ thread ]</a>
+              <a href="subject.html#15258">[ subject ]</a>
+              <a href="author.html#15258">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>There were lots of places in the code where the end state was
+unintentionally modified.
+
+The big Q is whether there were any places where the intention
+was to modify the end state. 0.5 is a long way off, so we'll
+get a fair amount of testing.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nor/str9xpec.c   |   26 +++++++++++++-------------
+ src/jtag/core.c            |    3 +--
+ src/jtag/jtag.h            |    3 +--
+ src/pld/virtex2.c          |   12 ++++++------
+ src/target/arm11_dbgtap.c  |    2 +-
+ src/target/arm720t.c       |    6 +++---
+ src/target/arm7_9_common.c |    2 +-
+ src/target/arm7tdmi.c      |   12 ++++++------
+ src/target/arm920t.c       |    8 ++++----
+ src/target/arm926ejs.c     |    8 ++++----
+ src/target/arm966e.c       |    6 +++---
+ src/target/arm9tdmi.c      |   16 ++++++++--------
+ src/target/arm_adi_v5.c    |    6 +++---
+ src/target/avrt.c          |    5 ++---
+ src/target/dsp563xx.c      |    6 ++----
+ src/target/embeddedice.c   |   14 +++++++-------
+ src/target/etb.c           |    8 ++++----
+ src/target/etm.c           |    6 +++---
+ src/target/feroceon.c      |    2 +-
+ src/target/mips_ejtag.c    |    4 ++--
+ src/target/xscale.c        |   28 ++++++++++++++--------------
+ src/xsvf/xsvf.c            |    8 ++++----
+ 22 files changed, 93 insertions(+), 98 deletions(-)
+
+diff --git a/src/flash/nor/str9xpec.c b/src/flash/nor/str9xpec.c
+index 35fe806..732226f 100644
+--- a/src/flash/nor/str9xpec.c
++++ b/src/flash/nor/str9xpec.c
+@@ -69,7 +69,7 @@ static uint8_t str9xpec_isc_status(struct jtag_tap *tap)
+ 	field.in_value = &status;
+ 
+ 
+-	jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 	jtag_execute_queue();
+ 
+ 	LOG_DEBUG(&quot;status: 0x%2.2x&quot;, status);
+@@ -156,7 +156,7 @@ static int str9xpec_read_config(struct flash_bank *bank)
+ 	field.in_value = str9xpec_info-&gt;options;
+ 
+ 
+-	jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 	jtag_execute_queue();
+ 
+ 	status = str9xpec_isc_status(tap);
+@@ -302,7 +302,7 @@ static int str9xpec_blank_check(struct flash_bank *bank, int first, int last)
+ 	field.out_value = buffer;
+ 	field.in_value = NULL;
+ 
+-	jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 	jtag_add_sleep(40000);
+ 
+ 	/* read blank check result */
+@@ -406,7 +406,7 @@ static int str9xpec_erase_area(struct flash_bank *bank, int first, int last)
+ 	field.out_value = buffer;
+ 	field.in_value = NULL;
+ 
+-	jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 	jtag_execute_queue();
+ 
+ 	jtag_add_sleep(10);
+@@ -466,7 +466,7 @@ static int str9xpec_lock_device(struct flash_bank *bank)
+ 		field.out_value = NULL;
+ 		field.in_value = &status;
+ 
+-		jtag_add_dr_scan(tap, 1, &amp;field, jtag_get_end_state());
++		jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 		jtag_execute_queue();
+ 
+ 	} while (!(status &amp; ISC_STATUS_BUSY));
+@@ -546,7 +546,7 @@ static int str9xpec_set_address(struct flash_bank *bank, uint8_t sector)
+ 	field.out_value = &sector;
+ 	field.in_value = NULL;
+ 
+-	jtag_add_dr_scan(tap, 1, &amp;field, jtag_get_end_state());
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IRPAUSE);
+ 
+ 	return ERROR_OK;
+ }
+@@ -631,7 +631,7 @@ static int str9xpec_write(struct flash_bank *bank, uint8_t *buffer,
+ 			field.out_value = (buffer + bytes_written);
+ 			field.in_value = NULL;
+ 
+-			jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++			jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 
+ 			/* small delay before polling */
+ 			jtag_add_sleep(50);
+@@ -643,7 +643,7 @@ static int str9xpec_write(struct flash_bank *bank, uint8_t *buffer,
+ 				field.out_value = NULL;
+ 				field.in_value = scanbuf;
+ 
+-				jtag_add_dr_scan(tap, 1, &amp;field, jtag_get_end_state());
++				jtag_add_dr_scan(tap, 1, &amp;field, TAP_IRPAUSE);
+ 				jtag_execute_queue();
+ 
+ 				status = buf_get_u32(scanbuf, 0, 8);
+@@ -679,7 +679,7 @@ static int str9xpec_write(struct flash_bank *bank, uint8_t *buffer,
+ 		field.out_value = last_dword;
+ 		field.in_value = NULL;
+ 
+-		jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++		jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 
+ 		/* small delay before polling */
+ 		jtag_add_sleep(50);
+@@ -691,7 +691,7 @@ static int str9xpec_write(struct flash_bank *bank, uint8_t *buffer,
+ 			field.out_value = NULL;
+ 			field.in_value = scanbuf;
+ 
+-			jtag_add_dr_scan(tap, 1, &amp;field, jtag_get_end_state());
++			jtag_add_dr_scan(tap, 1, &amp;field, TAP_IRPAUSE);
+ 			jtag_execute_queue();
+ 
+ 			status = buf_get_u32(scanbuf, 0, 8);
+@@ -744,7 +744,7 @@ COMMAND_HANDLER(str9xpec_handle_part_id_command)
+ 	field.out_value = NULL;
+ 	field.in_value = buffer;
+ 
+-	jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 	jtag_execute_queue();
+ 
+ 	idcode = buf_get_u32(buffer, 0, 32);
+@@ -860,7 +860,7 @@ static int str9xpec_write_options(struct flash_bank *bank)
+ 	field.out_value = str9xpec_info-&gt;options;
+ 	field.in_value = NULL;
+ 
+-	jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_IDLE));
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
+ 
+ 	/* small delay before polling */
+ 	jtag_add_sleep(50);
+@@ -872,7 +872,7 @@ static int str9xpec_write_options(struct flash_bank *bank)
+ 		field.out_value = NULL;
+ 		field.in_value = &status;
+ 
+-		jtag_add_dr_scan(tap, 1, &amp;field, jtag_get_end_state());
++		jtag_add_dr_scan(tap, 1, &amp;field, TAP_IRPAUSE);
+ 		jtag_execute_queue();
+ 
+ 	} while (!(status &amp; ISC_STATUS_BUSY));
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 9792280..207a3db 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -743,7 +743,7 @@ void jtag_add_reset(int req_tlr_or_trst, int req_srst)
+ 	}
+ }
+ 
+-tap_state_t jtag_set_end_state(tap_state_t state)
++void jtag_set_end_state(tap_state_t state)
+ {
+ 	if ((state == TAP_DRSHIFT)||(state == TAP_IRSHIFT))
+ 	{
+@@ -752,7 +752,6 @@ tap_state_t jtag_set_end_state(tap_state_t state)
+ 
+ 	if (state != TAP_INVALID)
+ 		cmd_queue_end_state = state;
+-	return cmd_queue_end_state;
+ }
+ 
+ tap_state_t jtag_get_end_state(void)
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index 0bbea5f..0f16e18 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -556,9 +556,8 @@ void jtag_add_reset(int req_tlr_or_trst, int srst);
+  *
+  * Set a global variable to \a state if \a state != TAP_INVALID.
+  *
+- * Return the value of the global variable.
+  */
+-tap_state_t jtag_set_end_state(tap_state_t state);
++void jtag_set_end_state(tap_state_t state);
+ 
+ /**
+  * Function jtag_get_end_state
+diff --git a/src/pld/virtex2.c b/src/pld/virtex2.c
+index 976535b..93509de 100644
+--- a/src/pld/virtex2.c
++++ b/src/pld/virtex2.c
+@@ -40,7 +40,7 @@ static int virtex2_set_instr(struct jtag_tap *tap, uint32_t new_instr)
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+ 		field.in_value = NULL;
+ 
+-		jtag_add_ir_scan(tap, &amp;field, jtag_set_end_state(TAP_IDLE));
++		jtag_add_ir_scan(tap, &amp;field, TAP_IDLE);
+ 
+ 		free(field.out_value);
+ 	}
+@@ -67,7 +67,7 @@ static int virtex2_send_32(struct pld_device *pld_device,
+ 
+ 	virtex2_set_instr(virtex2_info-&gt;tap, 0x5); /* CFG_IN */
+ 
+-	jtag_add_dr_scan(virtex2_info-&gt;tap, 1, &amp;scan_field, jtag_set_end_state(TAP_DRPAUSE));
++	jtag_add_dr_scan(virtex2_info-&gt;tap, 1, &amp;scan_field, TAP_DRPAUSE);
+ 
+ 	free(values);
+ 
+@@ -96,7 +96,7 @@ static int virtex2_receive_32(struct pld_device *pld_device,
+ 	{
+ 		scan_field.in_value = (uint8_t *)words;
+ 
+-		jtag_add_dr_scan(virtex2_info-&gt;tap, 1, &amp;scan_field, jtag_set_end_state(TAP_DRPAUSE));
++		jtag_add_dr_scan(virtex2_info-&gt;tap, 1, &amp;scan_field, TAP_DRPAUSE);
+ 
+ 		jtag_add_callback(virtexflip32, (jtag_callback_data_t)words);
+ 
+@@ -155,18 +155,18 @@ static int virtex2_load(struct pld_device *pld_device, const char *filename)
+ 	field.num_bits = bit_file.length * 8;
+ 	field.out_value = bit_file.data;
+ 
+-	jtag_add_dr_scan(virtex2_info-&gt;tap, 1, &amp;field, jtag_set_end_state(TAP_DRPAUSE));
++	jtag_add_dr_scan(virtex2_info-&gt;tap, 1, &amp;field, TAP_DRPAUSE);
+ 	jtag_execute_queue();
+ 
+ 	jtag_add_tlr();
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 	virtex2_set_instr(virtex2_info-&gt;tap, 0xc); /* JSTART */
+-	jtag_add_runtest(13, jtag_set_end_state(TAP_IDLE));
++	jtag_add_runtest(13, TAP_IDLE);
+ 	virtex2_set_instr(virtex2_info-&gt;tap, 0x3f); /* BYPASS */
+ 	virtex2_set_instr(virtex2_info-&gt;tap, 0x3f); /* BYPASS */
+ 	virtex2_set_instr(virtex2_info-&gt;tap, 0xc); /* JSTART */
+-	jtag_add_runtest(13, jtag_set_end_state(TAP_IDLE));
++	jtag_add_runtest(13, TAP_IDLE);
+ 	virtex2_set_instr(virtex2_info-&gt;tap, 0x3f); /* BYPASS */
+ 	jtag_execute_queue();
+ 
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index 2b7b4e4..18bf255 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -482,7 +482,7 @@ int arm11_run_instr_data_to_core(struct arm11_common * arm11, uint32_t opcode, u
+ 		{
+ 			Data	    = *data;
+ 
+-			arm11_add_dr_scan_vc(arm11-&gt;arm.target-&gt;tap, ARRAY_SIZE(chain5_fields), chain5_fields, jtag_set_end_state(TAP_IDLE));
++			arm11_add_dr_scan_vc(arm11-&gt;arm.target-&gt;tap, ARRAY_SIZE(chain5_fields), chain5_fields, TAP_IDLE);
+ 
+ 			CHECK_RETVAL(jtag_execute_queue());
+ 
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index 79eb79b..71d4a01 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -75,15 +75,15 @@ static int arm720t_scan_cp15(struct target *target,
+ 	if (in)
+ 	{
+ 		fields[1].in_value = (uint8_t *)in;
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, TAP_DRPAUSE);
+ 		jtag_add_callback(arm7flip32, (jtag_callback_data_t)in);
+ 	} else
+ 	{
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, TAP_DRPAUSE);
+ 	}
+ 
+ 	if (clock)
+-		jtag_add_runtest(0, jtag_get_end_state());
++		jtag_add_runtest(0, TAP_DRPAUSE);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index f9deb83..d91f9fd 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1753,7 +1753,7 @@ int arm7_9_restart_core(struct target *target)
+ 	}
+ 	arm_jtag_set_instr(jtag_info, 0x4, NULL);
+ 
+-	jtag_add_runtest(1, jtag_set_end_state(TAP_IDLE));
++	jtag_add_runtest(1, TAP_IDLE);
+ 	return jtag_execute_queue();
+ }
+ 
+diff --git a/src/target/arm7tdmi.c b/src/target/arm7tdmi.c
+index bd29caf..e102a5a 100644
+--- a/src/target/arm7tdmi.c
++++ b/src/target/arm7tdmi.c
+@@ -72,7 +72,7 @@ static int arm7tdmi_examine_debug_reason(struct target *target)
+ 		}
+ 		arm_jtag_set_instr(&amp;arm7_9-&gt;jtag_info, arm7_9-&gt;jtag_info.intest_instr, NULL);
+ 
+-		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 2, fields, jtag_set_end_state(TAP_DRPAUSE));
++		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 2, fields, TAP_DRPAUSE);
+ 		if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 		{
+ 			return retval;
+@@ -83,7 +83,7 @@ static int arm7tdmi_examine_debug_reason(struct target *target)
+ 		fields[1].in_value = NULL;
+ 		fields[1].out_value = databus;
+ 
+-		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 2, fields, jtag_set_end_state(TAP_DRPAUSE));
++		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 2, fields, TAP_DRPAUSE);
+ 
+ 		if (breakpoint &amp; 1)
+ 			target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
+@@ -147,11 +147,11 @@ static int arm7tdmi_clock_data_in(struct arm_jtag *jtag_info, uint32_t *in)
+ 	fields[1].out_value = NULL;
+ 	fields[1].in_value = (uint8_t *)in;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, TAP_DRPAUSE);
+ 
+ 	jtag_add_callback(arm7flip32, (jtag_callback_data_t)in);
+ 
+-	jtag_add_runtest(0, jtag_get_end_state());
++	jtag_add_runtest(0, TAP_DRPAUSE);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+@@ -232,11 +232,11 @@ static int arm7tdmi_clock_data_in_endianness(struct arm_jtag *jtag_info,
+ 	fields[1].out_value = NULL;
+ 	jtag_alloc_in_value32(&amp;fields[1]);
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, TAP_DRPAUSE);
+ 
+ 	jtag_add_callback4(arm7endianness, (jtag_callback_data_t)in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)fields[1].in_value);
+ 
+-	jtag_add_runtest(0, jtag_get_end_state());
++	jtag_add_runtest(0, TAP_DRPAUSE);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ {
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index a7816fd..68d3997 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -111,11 +111,11 @@ static int arm920t_read_cp15_physical(struct target *target,
+ 	fields[3].out_value = &amp;nr_w_buf;
+ 	fields[3].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 
+ 	fields[1].in_value = (uint8_t *)value;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 
+ 	jtag_add_callback(arm_le_to_h_u32, (jtag_callback_data_t)value);
+ 
+@@ -162,7 +162,7 @@ static int arm920t_write_cp15_physical(struct target *target,
+ 	fields[3].out_value = &amp;nr_w_buf;
+ 	fields[3].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, reg_addr, value);
+@@ -214,7 +214,7 @@ static int arm920t_execute_cp15(struct target *target, uint32_t cp15_opcode,
+ 	fields[3].out_value = &amp;nr_w_buf;
+ 	fields[3].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 
+ 	arm9tdmi_clock_out(jtag_info, arm_opcode, 0, NULL, 0);
+ 	arm9tdmi_clock_out(jtag_info, ARMV4_5_NOP, 0, NULL, 1);
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index f4c4774..ea951e5 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -86,7 +86,7 @@ static int arm926ejs_cp15_read(struct target *target, uint32_t op1, uint32_t op2
+ 	fields[3].out_value = &amp;nr_w_buf;
+ 	fields[3].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 
+ 	long long then = timeval_ms();
+ 
+@@ -95,7 +95,7 @@ static int arm926ejs_cp15_read(struct target *target, uint32_t op1, uint32_t op2
+ 		/* rescan with NOP, to wait for the access to complete */
+ 		access = 0;
+ 		nr_w_buf = 0;
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 
+ 		jtag_add_callback(arm_le_to_h_u32, (jtag_callback_data_t)value);
+ 
+@@ -175,7 +175,7 @@ static int arm926ejs_cp15_write(struct target *target, uint32_t op1, uint32_t op
+ 	fields[3].out_value = &amp;nr_w_buf;
+ 	fields[3].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 
+ 	long long then = timeval_ms();
+ 
+@@ -184,7 +184,7 @@ static int arm926ejs_cp15_write(struct target *target, uint32_t op1, uint32_t op
+ 		/* rescan with NOP, to wait for the access to complete */
+ 		access = 0;
+ 		nr_w_buf = 0;
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 4, fields, TAP_IDLE);
+ 		if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 		{
+ 			return retval;
+diff --git a/src/target/arm966e.c b/src/target/arm966e.c
+index 4f47644..67678c1 100644
+--- a/src/target/arm966e.c
++++ b/src/target/arm966e.c
+@@ -106,11 +106,11 @@ static int arm966e_read_cp15(struct target *target, int reg_addr, uint32_t *valu
+ 	fields[2].out_value = &amp;nr_w_buf;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	fields[1].in_value = (uint8_t *)value;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	jtag_add_callback(arm_le_to_h_u32, (jtag_callback_data_t)value);
+ 
+@@ -158,7 +158,7 @@ int arm966e_write_cp15(struct target *target, int reg_addr, uint32_t value)
+ 	fields[2].out_value = &amp;nr_w_buf;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, reg_addr, value);
+diff --git a/src/target/arm9tdmi.c b/src/target/arm9tdmi.c
+index 7c1e372..385bdd9 100644
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -107,7 +107,7 @@ int arm9tdmi_examine_debug_reason(struct target *target)
+ 		}
+ 		arm_jtag_set_instr(&amp;arm7_9-&gt;jtag_info, arm7_9-&gt;jtag_info.intest_instr, NULL);
+ 
+-		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 3, fields, jtag_set_end_state(TAP_DRPAUSE));
++		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 3, fields, TAP_DRPAUSE);
+ 		if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 		{
+ 			return retval;
+@@ -120,7 +120,7 @@ int arm9tdmi_examine_debug_reason(struct target *target)
+ 		fields[2].in_value = NULL;
+ 		fields[2].out_value = instructionbus;
+ 
+-		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 3, fields, jtag_set_end_state(TAP_DRPAUSE));
++		jtag_add_dr_scan(arm7_9-&gt;jtag_info.tap, 3, fields, TAP_DRPAUSE);
+ 
+ 		if (debug_reason &amp; 0x4)
+ 			if (debug_reason &amp; 0x2)
+@@ -177,13 +177,13 @@ int arm9tdmi_clock_out(struct arm_jtag *jtag_info, uint32_t instr,
+ 	if (in)
+ 	{
+ 		fields[0].in_value = (uint8_t *)in;
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_DRPAUSE);
+ 
+ 		jtag_add_callback(arm_le_to_h_u32, (jtag_callback_data_t)in);
+ 	}
+ 	else
+ 	{
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_DRPAUSE);
+ 	}
+ 
+ 	jtag_add_runtest(0, jtag_get_end_state());
+@@ -233,11 +233,11 @@ int arm9tdmi_clock_data_in(struct arm_jtag *jtag_info, uint32_t *in)
+ 	fields[2].out_value = NULL;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_DRPAUSE);
+ 
+ 	jtag_add_callback(arm_le_to_h_u32, (jtag_callback_data_t)in);
+ 
+-	jtag_add_runtest(0, jtag_get_end_state());
++	jtag_add_runtest(0, TAP_DRPAUSE);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	{
+@@ -300,11 +300,11 @@ int arm9tdmi_clock_data_in_endianness(struct arm_jtag *jtag_info,
+ 	fields[2].out_value = NULL;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_DRPAUSE);
+ 
+ 	jtag_add_callback4(arm9endianness, (jtag_callback_data_t)in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)fields[0].in_value);
+ 
+-	jtag_add_runtest(0, jtag_get_end_state());
++	jtag_add_runtest(0, TAP_DRPAUSE);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+ 	{
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 61cf989..67cd59b 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -137,7 +137,7 @@ static int adi_jtag_dp_scan(struct adiv5_dap *swjdp,
+ 	fields[1].out_value = outvalue;
+ 	fields[1].in_value = invalue;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 2, fields, TAP_IDLE);
+ 
+ 	/* Add specified number of tck clocks after starting memory bus
+ 	 * access, giving the hardware time to complete the access.
+@@ -149,7 +149,7 @@ static int adi_jtag_dp_scan(struct adiv5_dap *swjdp,
+ 				|| ((reg_addr &amp; 0xF0) == AP_REG_BD0))
+ 			&amp;&amp; (swjdp-&gt;memaccess_tck != 0))
+ 		jtag_add_runtest(swjdp-&gt;memaccess_tck,
+-				jtag_set_end_state(TAP_IDLE));
++				TAP_IDLE);
+ 
+ 	return jtag_get_error();
+ }
+@@ -1134,7 +1134,7 @@ static int jtag_idcode_q_read(struct adiv5_dap *dap,
+ 	fields[0].out_value = NULL;
+ 	fields[0].in_value = (void *) data;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 1, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 1, fields, TAP_IDLE);
+ 	retval = jtag_get_error();
+ 	if (retval != ERROR_OK)
+ 		return retval;
+diff --git a/src/target/avrt.c b/src/target/avrt.c
+index 720261e..17f7c24 100644
+--- a/src/target/avrt.c
++++ b/src/target/avrt.c
+@@ -190,8 +190,7 @@ int mcu_write_ir(struct jtag_tap *tap, uint8_t *ir_in, uint8_t *ir_out, int ir_l
+ 	}
+ 
+ 	{
+-		jtag_add_plain_ir_scan(tap-&gt;ir_length, ir_out, ir_in,
+-				jtag_set_end_state(TAP_IDLE));
++		jtag_add_plain_ir_scan(tap-&gt;ir_length, ir_out, ir_in, TAP_IDLE);
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -206,7 +205,7 @@ int mcu_write_dr(struct jtag_tap *tap, uint8_t *dr_in, uint8_t *dr_out, int dr_l
+ 	}
+ 
+ 	{
+-		jtag_add_plain_dr_scan(dr_len, dr_out, dr_in, jtag_set_end_state(TAP_IDLE));
++		jtag_add_plain_dr_scan(dr_len, dr_out, dr_in, TAP_IDLE);
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/dsp563xx.c b/src/target/dsp563xx.c
+index 4be7f3b..b42e7b3 100644
+--- a/src/target/dsp563xx.c
++++ b/src/target/dsp563xx.c
+@@ -863,8 +863,7 @@ int dsp563xx_write_ir(struct jtag_tap *tap, uint8_t * ir_in, uint8_t * ir_out,
+ 	}
+ 
+ 	{
+-		jtag_add_plain_ir_scan(tap-&gt;ir_length, ir_out, ir_in,
+-				       jtag_set_end_state(TAP_IDLE));
++		jtag_add_plain_ir_scan(tap-&gt;ir_length, ir_out, ir_in, TAP_IDLE);
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -880,8 +879,7 @@ int dsp563xx_write_dr(struct jtag_tap *tap, uint8_t * dr_in, uint8_t * dr_out,
+ 	}
+ 
+ 	{
+-		jtag_add_plain_dr_scan(dr_len, dr_out, dr_in,
+-				       jtag_set_end_state(TAP_IDLE));
++		jtag_add_plain_dr_scan(dr_len, dr_out, dr_in, TAP_IDLE);
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/embeddedice.c b/src/target/embeddedice.c
+index 4693fcc..fe266d6 100644
+--- a/src/target/embeddedice.c
++++ b/src/target/embeddedice.c
+@@ -372,7 +372,7 @@ int embeddedice_read_reg_w_check(struct reg *reg,
+ 	fields[2].check_mask = NULL;
+ 
+ 	/* traverse Update-DR, setting address for the next read */
+-	jtag_add_dr_scan(ice_reg-&gt;jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(ice_reg-&gt;jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	/* bits 31:0 -- the data we're reading (and maybe checking) */
+ 	fields[0].in_value = reg-&gt;value;
+@@ -386,7 +386,7 @@ int embeddedice_read_reg_w_check(struct reg *reg,
+ 	fields[1].out_value[0] = eice_regs[EICE_COMMS_CTRL].addr;
+ 
+ 	/* traverse Update-DR, reading but with no other side effects */
+-	jtag_add_dr_scan_check(ice_reg-&gt;jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan_check(ice_reg-&gt;jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	return ERROR_OK;
+ }
+@@ -423,7 +423,7 @@ int embeddedice_receive(struct arm_jtag *jtag_info, uint32_t *data, uint32_t siz
+ 	fields[2].out_value[0] = 0;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	while (size &gt; 0)
+ 	{
+@@ -434,7 +434,7 @@ int embeddedice_receive(struct arm_jtag *jtag_info, uint32_t *data, uint32_t siz
+ 			fields[1].out_value[0] = eice_regs[EICE_COMMS_CTRL].addr;
+ 
+ 		fields[0].in_value = (uint8_t *)data;
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 		jtag_add_callback(arm_le_to_h_u32, (jtag_callback_data_t)data);
+ 
+ 		data++;
+@@ -545,7 +545,7 @@ int embeddedice_send(struct arm_jtag *jtag_info, uint32_t *data, uint32_t size)
+ 	while (size &gt; 0)
+ 	{
+ 		buf_set_u32(fields[0].out_value, 0, 32, *data);
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 		data++;
+ 		size--;
+@@ -594,10 +594,10 @@ int embeddedice_handshake(struct arm_jtag *jtag_info, int hsbit, uint32_t timeou
+ 	fields[2].out_value[0] = 0;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 	gettimeofday(&amp;lap, NULL);
+ 	do {
+-		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++		jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 		if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 			return retval;
+ 
+diff --git a/src/target/etb.c b/src/target/etb.c
+index 2c4e3eb..9971070 100644
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -191,7 +191,7 @@ static int etb_read_ram(struct etb *etb, uint32_t *data, int num_frames)
+ 	buf_set_u32(fields[2].out_value, 0, 1, 0);
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(etb-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(etb-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	for (i = 0; i &lt; num_frames; i++)
+ 	{
+@@ -205,7 +205,7 @@ static int etb_read_ram(struct etb *etb, uint32_t *data, int num_frames)
+ 			buf_set_u32(fields[1].out_value, 0, 7, 0);
+ 
+ 		fields[0].in_value = (uint8_t *)(data + i);
+-		jtag_add_dr_scan(etb-&gt;tap, 3, fields, jtag_get_end_state());
++		jtag_add_dr_scan(etb-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 		jtag_add_callback(etb_getbuf, (jtag_callback_data_t)(data + i));
+ 	}
+@@ -251,7 +251,7 @@ static int etb_read_reg_w_check(struct reg *reg,
+ 	fields[2].check_value = NULL;
+ 	fields[2].check_mask = NULL;
+ 
+-	jtag_add_dr_scan(etb_reg-&gt;etb-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(etb_reg-&gt;etb-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	/* read the identification register in the second run, to make sure we
+ 	 * don't read the ETB data register twice, skipping every second entry
+@@ -261,7 +261,7 @@ static int etb_read_reg_w_check(struct reg *reg,
+ 	fields[0].check_value = check_value;
+ 	fields[0].check_mask = check_mask;
+ 
+-	jtag_add_dr_scan_check(etb_reg-&gt;etb-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan_check(etb_reg-&gt;etb-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	free(fields[1].out_value);
+ 	free(fields[2].out_value);
+diff --git a/src/target/etm.c b/src/target/etm.c
+index 67dac06..a1c77b0 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -528,13 +528,13 @@ static int etm_read_reg_w_check(struct reg *reg,
+ 	fields[2].check_value = NULL;
+ 	fields[2].check_mask = NULL;
+ 
+-	jtag_add_dr_scan(etm_reg-&gt;jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(etm_reg-&gt;jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	fields[0].in_value = reg-&gt;value;
+ 	fields[0].check_value = check_value;
+ 	fields[0].check_mask = check_mask;
+ 
+-	jtag_add_dr_scan_check(etm_reg-&gt;jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan_check(etm_reg-&gt;jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	free(fields[1].out_value);
+ 	free(fields[2].out_value);
+@@ -609,7 +609,7 @@ static int etm_write_reg(struct reg *reg, uint32_t value)
+ 	buf_set_u32(fields[2].out_value, 0, 1, 1);
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(etm_reg-&gt;jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(etm_reg-&gt;jtag_info-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/feroceon.c b/src/target/feroceon.c
+index 133ad4f..928c14e 100644
+--- a/src/target/feroceon.c
++++ b/src/target/feroceon.c
+@@ -101,7 +101,7 @@ int feroceon_dummy_clock_out(struct arm_jtag *jtag_info, uint32_t instr)
+ 	fields[2].out_value = instr_buf;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_DRPAUSE);
+ 
+ 	/* no jtag_add_runtest(0, jtag_get_end_state()) here */
+ 
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 984b535..a9440f3 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -64,7 +64,7 @@ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode)
+ 	field.out_value = NULL;
+ 	field.in_value = (void*)idcode;
+ 
+-	jtag_add_dr_scan(ejtag_info-&gt;tap, 1, &amp;field, jtag_get_end_state());
++	jtag_add_dr_scan(ejtag_info-&gt;tap, 1, &amp;field, TAP_IDLE);
+ 
+ 	if (jtag_execute_queue() != ERROR_OK)
+ 	{
+@@ -86,7 +86,7 @@ int mips_ejtag_get_impcode(struct mips_ejtag *ejtag_info, uint32_t *impcode)
+ 	field.out_value = NULL;
+ 	field.in_value = (void*)impcode;
+ 
+-	jtag_add_dr_scan(ejtag_info-&gt;tap, 1, &amp;field, jtag_get_end_state());
++	jtag_add_dr_scan(ejtag_info-&gt;tap, 1, &amp;field, TAP_IDLE);
+ 
+ 	if (jtag_execute_queue() != ERROR_OK)
+ 	{
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index dd4a7ee..f5aada5 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -213,7 +213,7 @@ static int xscale_read_dcsr(struct target *target)
+ 	uint8_t tmp2;
+ 	fields[2].in_value = &amp;tmp2;
+ 
+-	jtag_add_dr_scan(target-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(target-&gt;tap, 3, fields, TAP_DRPAUSE);
+ 
+ 	jtag_check_value_mask(fields + 0, &amp;field0_check_value, &amp;field0_check_mask);
+ 	jtag_check_value_mask(fields + 2, &amp;field2_check_value, &amp;field2_check_mask);
+@@ -236,7 +236,7 @@ static int xscale_read_dcsr(struct target *target)
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 
+-	jtag_add_dr_scan(target-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(target-&gt;tap, 3, fields, TAP_DRPAUSE);
+ 
+ 	/* DANGER!!! this must be here. It will make sure that the arguments
+ 	 * to jtag_set_check_value() does not go out of scope! */
+@@ -288,7 +288,7 @@ static int xscale_receive(struct target *target, uint32_t *buffer, int num_words
+ 	jtag_set_end_state(TAP_IDLE);
+ 	xscale_jtag_set_instr(target-&gt;tap,
+ 		XSCALE_DBGTX &lt;&lt; xscale-&gt;xscale_variant);
+-	jtag_add_runtest(1, jtag_get_end_state()); /* ensures that we're in the TAP_IDLE state as the above could be a no-op */
++	jtag_add_runtest(1, TAP_IDLE); /* ensures that we're in the TAP_IDLE state as the above could be a no-op */
+ 
+ 	/* repeat until all words have been collected */
+ 	int attempts = 0;
+@@ -304,7 +304,7 @@ static int xscale_receive(struct target *target, uint32_t *buffer, int num_words
+ 
+ 			fields[1].in_value = (uint8_t *)(field1 + i);
+ 
+-			jtag_add_dr_scan_check(target-&gt;tap, 3, fields, jtag_set_end_state(TAP_IDLE));
++			jtag_add_dr_scan_check(target-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 			jtag_add_callback(xscale_getbuf, (jtag_callback_data_t)(field1 + i));
+ 
+@@ -411,7 +411,7 @@ static int xscale_read_tx(struct target *target, int consume)
+ 			jtag_add_pathmove(ARRAY_SIZE(noconsume_path), noconsume_path);
+ 		}
+ 
+-		jtag_add_dr_scan(target-&gt;tap, 3, fields, jtag_set_end_state(TAP_IDLE));
++		jtag_add_dr_scan(target-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 		jtag_check_value_mask(fields + 0, &amp;field0_check_value, &amp;field0_check_mask);
+ 		jtag_check_value_mask(fields + 2, &amp;field2_check_value, &amp;field2_check_mask);
+@@ -489,7 +489,7 @@ static int xscale_write_rx(struct target *target)
+ 	LOG_DEBUG(&quot;polling RX&quot;);
+ 	for (;;)
+ 	{
+-		jtag_add_dr_scan(target-&gt;tap, 3, fields, jtag_set_end_state(TAP_IDLE));
++		jtag_add_dr_scan(target-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 		jtag_check_value_mask(fields + 0, &amp;field0_check_value, &amp;field0_check_mask);
+ 		jtag_check_value_mask(fields + 2, &amp;field2_check_value, &amp;field2_check_mask);
+@@ -521,7 +521,7 @@ static int xscale_write_rx(struct target *target)
+ 
+ 	/* set rx_valid */
+ 	field2 = 0x1;
+-	jtag_add_dr_scan(target-&gt;tap, 3, fields, jtag_set_end_state(TAP_IDLE));
++	jtag_add_dr_scan(target-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+@@ -585,7 +585,7 @@ static int xscale_send(struct target *target, uint8_t *buffer, int count, int si
+ 				3,
+ 				bits,
+ 				t,
+-				jtag_set_end_state(TAP_IDLE));
++				TAP_IDLE);
+ 		buffer += size;
+ 	}
+ 
+@@ -646,7 +646,7 @@ static int xscale_write_dcsr(struct target *target, int hold_rst, int ext_dbg_br
+ 	uint8_t tmp2;
+ 	fields[2].in_value = &amp;tmp2;
+ 
+-	jtag_add_dr_scan(target-&gt;tap, 3, fields, jtag_get_end_state());
++	jtag_add_dr_scan(target-&gt;tap, 3, fields, TAP_IDLE);
+ 
+ 	jtag_check_value_mask(fields + 0, &amp;field0_check_value, &amp;field0_check_mask);
+ 	jtag_check_value_mask(fields + 2, &amp;field2_check_value, &amp;field2_check_mask);
+@@ -707,7 +707,7 @@ static int xscale_load_ic(struct target *target, uint32_t va, uint32_t buffer[8]
+ 	fields[1].num_bits = 27;
+ 	fields[1].out_value = packet;
+ 
+-	jtag_add_dr_scan(target-&gt;tap, 2, fields, jtag_get_end_state());
++	jtag_add_dr_scan(target-&gt;tap, 2, fields, TAP_IDLE);
+ 
+ 	/* rest of packet is a cacheline: 8 instructions, with parity */
+ 	fields[0].num_bits = 32;
+@@ -724,7 +724,7 @@ static int xscale_load_ic(struct target *target, uint32_t va, uint32_t buffer[8]
+ 		memcpy(&amp;value, packet, sizeof(uint32_t));
+ 		cmd = parity(value);
+ 
+-		jtag_add_dr_scan(target-&gt;tap, 2, fields, jtag_get_end_state());
++		jtag_add_dr_scan(target-&gt;tap, 2, fields, TAP_IDLE);
+ 	}
+ 
+ 	return jtag_execute_queue();
+@@ -755,7 +755,7 @@ static int xscale_invalidate_ic_line(struct target *target, uint32_t va)
+ 	fields[1].num_bits = 27;
+ 	fields[1].out_value = packet;
+ 
+-	jtag_add_dr_scan(target-&gt;tap, 2, fields, jtag_get_end_state());
++	jtag_add_dr_scan(target-&gt;tap, 2, fields, TAP_IDLE);
+ 
+ 	return ERROR_OK;
+ }
+@@ -1556,7 +1556,7 @@ static int xscale_deassert_reset(struct target *target)
+ 		/* wait 300ms; 150 and 100ms were not enough */
+ 		jtag_add_sleep(300*1000);
+ 
+-		jtag_add_runtest(2030, jtag_set_end_state(TAP_IDLE));
++		jtag_add_runtest(2030, TAP_IDLE);
+ 		jtag_execute_queue();
+ 
+ 		/* set Hold reset, Halt mode and Trap Reset */
+@@ -1613,7 +1613,7 @@ static int xscale_deassert_reset(struct target *target)
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+-		jtag_add_runtest(30, jtag_set_end_state(TAP_IDLE));
++		jtag_add_runtest(30, TAP_IDLE);
+ 
+ 		jtag_add_sleep(100000);
+ 
+diff --git a/src/xsvf/xsvf.c b/src/xsvf/xsvf.c
+index f2c1a42..dff1a1e 100644
+--- a/src/xsvf/xsvf.c
++++ b/src/xsvf/xsvf.c
+@@ -482,9 +482,9 @@ COMMAND_HANDLER(handle_xsvf_command)
+ 
+ 					if (tap == NULL)
+ 						jtag_add_plain_dr_scan(field.num_bits, field.out_value, field.in_value,
+-								jtag_set_end_state(TAP_DRPAUSE));
++								TAP_DRPAUSE);
+ 					else
+-						jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_DRPAUSE));
++						jtag_add_dr_scan(tap, 1, &amp;field, TAP_DRPAUSE);
+ 
+ 					jtag_check_value_mask(&amp;field, dr_in_buf, dr_in_mask);
+ 
+@@ -939,9 +939,9 @@ COMMAND_HANDLER(handle_xsvf_command)
+ 
+ 					if (tap == NULL)
+ 						jtag_add_plain_dr_scan(field.num_bits, field.out_value, field.in_value,
+-								jtag_set_end_state(TAP_DRPAUSE));
++								TAP_DRPAUSE);
+ 					else
+-						jtag_add_dr_scan(tap, 1, &amp;field, jtag_set_end_state(TAP_DRPAUSE));
++						jtag_add_dr_scan(tap, 1, &amp;field, TAP_DRPAUSE);
+ 
+ 					jtag_check_value_mask(&amp;field, dr_in_buf, dr_in_mask);
+ 
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015257.html">[Openocd-development] [PATCH 2/2] PIC32: add software reset support
+</A></li>
+	<LI>Next message: <A HREF="015259.html">[Openocd-development] [PATCH] gdb_server: improved gdb load	performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15258">[ date ]</a>
+              <a href="thread.html#15258">[ thread ]</a>
+              <a href="subject.html#15258">[ subject ]</a>
+              <a href="author.html#15258">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

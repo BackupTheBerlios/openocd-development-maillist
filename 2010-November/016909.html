@@ -1,0 +1,222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/5 v2] ADIv5: Introduce function to	detect ROM Table location
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/5%20v2%5D%20ADIv5%3A%20Introduce%20function%20to%0A%09detect%20ROM%20Table%20location&In-Reply-To=%3C1288581659-15975-1-git-send-email-marek.vasut%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016908.html">
+   <LINK REL="Next"  HREF="016910.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/5 v2] ADIv5: Introduce function to	detect ROM Table location</H1>
+    <B>Marek Vasut</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/5%20v2%5D%20ADIv5%3A%20Introduce%20function%20to%0A%09detect%20ROM%20Table%20location&In-Reply-To=%3C1288581659-15975-1-git-send-email-marek.vasut%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/5 v2] ADIv5: Introduce function to	detect ROM Table location">marek.vasut at gmail.com
+       </A><BR>
+    <I>Mon Nov  1 04:20:55 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016908.html">[Openocd-development] stellaris.cfg
+</A></li>
+        <LI>Next message: <A HREF="016910.html">[Openocd-development] [PATCH 2/5 v2] ADIv5: Implement function to	lookup CoreSight component
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16909">[ date ]</a>
+              <a href="thread.html#16909">[ thread ]</a>
+              <a href="subject.html#16909">[ subject ]</a>
+              <a href="author.html#16909">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch adds function called &quot;dap_detect_debug_base()&quot;, which should be
+called to get location of the ROM Table. By walking ROM Table, it's possible to
+discover the location of DAP.
+
+Sadly, some CPUs misreport this value, therefore I had to introduce an fixup
+table, which will be used in case such CPU is detected.
+
+Signed-off-by: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marek.vasut at gmail.com</A>&gt;
+---
+v2: Auto-detect the broken CPUs, implement a table of broken CPUs
+
+ src/target/arm_adi_v5.c |   79 +++++++++++++++++++++++++++++++---------------
+ src/target/arm_adi_v5.h |    4 ++-
+ 2 files changed, 56 insertions(+), 27 deletions(-)
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 3414796..4950121 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -906,7 +906,7 @@ extern const struct dap_ops jtag_dp_ops;
+  */
+ int ahbap_debugport_init(struct adiv5_dap *dap)
+ {
+-	uint32_t idreg, romaddr, dummy;
++	uint32_t dummy;
+ 	uint32_t ctrlstat;
+ 	int cnt = 0;
+ 	int retval;
+@@ -985,26 +985,6 @@ int ahbap_debugport_init(struct adiv5_dap *dap)
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	/*
+-	 * REVISIT this isn't actually *initializing* anything in an AP,
+-	 * and doesn't care if it's a MEM-AP at all (much less AHB-AP).
+-	 * Should it?  If the ROM address is valid, is this the right
+-	 * place to scan the table and do any topology detection?
+-	 */
+-	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;idreg);
+-	if (retval != ERROR_OK)
+-		return retval;
+-	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;romaddr);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	if ((retval = dap_run(dap)) != ERROR_OK)
+-		return retval;
+-
+-	LOG_DEBUG(&quot;MEM-AP #%&quot; PRId32 &quot; ID Register 0x%&quot; PRIx32
+-		&quot;, Debug ROM Address 0x%&quot; PRIx32,
+-		dap-&gt;apsel, idreg, romaddr);
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -1026,14 +1006,22 @@ is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
+ 			&amp;&amp; ((cid1 &amp; 0x0f) == 0) &amp;&amp; cid0 == 0x0d;
+ }
+ 
+-static int dap_info_command(struct command_context *cmd_ctx,
+-		struct adiv5_dap *dap, int apsel)
++struct broken_cpu {
++	uint32_t	dbgbase;
++	uint32_t	apid;
++	uint32_t	correct_dbgbase;
++	char		*model;
++} broken_cpus[] = {
++	{ 0x80000000, 0x04770002, 0x60000000, &quot;imx51&quot; },
++};
++
++int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
++			uint32_t *out_dbgbase, uint32_t *out_apid)
+ {
++	uint32_t apselold;
+ 	int retval;
++	unsigned int i;
+ 	uint32_t dbgbase, apid;
+-	int romtable_present = 0;
+-	uint8_t mem_ap;
+-	uint32_t apselold;
+ 
+ 	/* AP address is in bits 31:24 of DP_SELECT */
+ 	if (apsel &gt;= 256)
+@@ -1041,6 +1029,7 @@ static int dap_info_command(struct command_context *cmd_ctx,
+ 
+ 	apselold = dap-&gt;apsel;
+ 	dap_ap_select(dap, apsel);
++
+ 	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;dbgbase);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1051,6 +1040,44 @@ static int dap_info_command(struct command_context *cmd_ctx,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* Some CPUs are messed up, so fixup if needed. */
++	for (i = 0; i &lt; sizeof(broken_cpus)/sizeof(struct broken_cpu); i++)
++		if (broken_cpus[i].dbgbase == dbgbase &amp;&amp;
++			broken_cpus[i].apid == apid) {
++			LOG_WARNING(&quot;Found broken CPU (%s), trying to fixup &quot;
++				&quot;ROM Table location from 0x%08x to 0x%08x&quot;,
++				broken_cpus[i].model, dbgbase,
++				broken_cpus[i].correct_dbgbase);
++			dbgbase = broken_cpus[i].correct_dbgbase;
++			break;
++		}
++
++	dap_ap_select(dap, apselold);
++
++	/* The asignment happens only here to prevent modification of these
++	 * values before they are certain. */
++	*out_dbgbase = dbgbase;
++	*out_apid = apid;
++
++	return ERROR_OK;
++}
++
++static int dap_info_command(struct command_context *cmd_ctx,
++		struct adiv5_dap *dap, int apsel)
++{
++	int retval;
++	uint32_t dbgbase, apid;
++	int romtable_present = 0;
++	uint8_t mem_ap;
++	uint32_t apselold;
++
++	retval = dap_get_debugbase(dap, apsel, &amp;dbgbase, &amp;apid);
++	if (retval != ERROR_OK)
++		return retval;
++
++	apselold = dap-&gt;apsel;
++	dap_ap_select(dap, apsel);
++
+ 	/* Now we read ROM table ID registers, ref. ARM IHI 0029B sec  */
+ 	mem_ap = ((apid&amp;0x10000) &amp;&amp; ((apid&amp;0x0F) != 0));
+ 	command_print(cmd_ctx, &quot;AP ID register 0x%8.8&quot; PRIx32, apid);
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index 92469eb..27a2f2f 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -178,7 +178,6 @@ struct adiv5_dap
+ 	uint32_t	memaccess_tck;
+ 	/* Size of TAR autoincrement block, ARM ADI Specification requires at least 10 bits */
+ 	uint32_t tar_autoincr_block;
+-
+ };
+ 
+ /**
+@@ -380,6 +379,9 @@ int mem_ap_write_buf_u32(struct adiv5_dap *swjdp,
+ /* Initialisation of the debug system, power domains and registers */
+ int ahbap_debugport_init(struct adiv5_dap *swjdp);
+ 
++/* Probe the AP for ROM Table location */
++int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
++			uint32_t *dbgbase, uint32_t *apid);
+ 
+ struct target;
+ 
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016908.html">[Openocd-development] stellaris.cfg
+</A></li>
+	<LI>Next message: <A HREF="016910.html">[Openocd-development] [PATCH 2/5 v2] ADIv5: Implement function to	lookup CoreSight component
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16909">[ date ]</a>
+              <a href="thread.html#16909">[ thread ]</a>
+              <a href="subject.html#16909">[ subject ]</a>
+              <a href="author.html#16909">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

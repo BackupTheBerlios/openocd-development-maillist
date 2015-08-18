@@ -1,0 +1,220 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/3] Add board redbee-econotag.cfg
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20Add%20board%20redbee-econotag.cfg&In-Reply-To=%3C3995f4067e47587063ad7b764a185fe8c46e44f4.1267126939.git.mar%40devl.org%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015020.html">
+   <LINK REL="Next"  HREF="014977.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/3] Add board redbee-econotag.cfg</H1>
+    <B>Mariano Alvira</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/3%5D%20Add%20board%20redbee-econotag.cfg&In-Reply-To=%3C3995f4067e47587063ad7b764a185fe8c46e44f4.1267126939.git.mar%40devl.org%3E"
+       TITLE="[Openocd-development] [PATCH 2/3] Add board redbee-econotag.cfg">mar at devl.org
+       </A><BR>
+    <I>Thu Feb 25 20:45:23 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015020.html">[Openocd-development] [PATCH 1/3] Add target mc13224v.cfg.
+</A></li>
+        <LI>Next message: <A HREF="014977.html">[Openocd-development] [PATCH 3/3] Adds the redbee-usb board which	uses INTERFACE_B.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14974">[ date ]</a>
+              <a href="thread.html#14974">[ thread ]</a>
+              <a href="subject.html#14974">[ subject ]</a>
+              <a href="author.html#14974">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>---
+ src/jtag/drivers/ft2232.c     |   97 +++++++++++++++++++++++++++++++++++++++++
+ tcl/board/redbee-econotag.cfg |    8 +++
+ 2 files changed, 105 insertions(+), 0 deletions(-)
+ create mode 100644 tcl/board/redbee-econotag.cfg
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 4b84fa8..7979b39 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -162,6 +162,7 @@ static int icebear_jtag_init(void);
+ static int cortino_jtag_init(void);
+ static int signalyzer_h_init(void);
+ static int ktlink_init(void);
++static int redbee_init(void);
+ 
+ /* reset procedures for supported layouts */
+ static void usbjtag_reset(int trst, int srst);
+@@ -176,6 +177,7 @@ static void sheevaplug_reset(int trst, int srst);
+ static void icebear_jtag_reset(int trst, int srst);
+ static void signalyzer_h_reset(int trst, int srst);
+ static void ktlink_reset(int trst, int srst);
++static void redbee_reset(int trst, int srst);
+ 
+ /* blink procedures for layouts that support a blinking led */
+ static void olimex_jtag_blink(void);
+@@ -263,6 +265,10 @@ static const struct ft2232_layout  ft2232_layouts[] =
+ 		.reset = ktlink_reset,
+ 		.blink = ktlink_blink
+ 	},
++	{ .name = &quot;redbee-econotag&quot;,
++		.init = redbee_init,
++		.reset = redbee_reset,
++	},
+ 	{ .name = NULL, /* END OF TABLE */ },
+ };
+ 
+@@ -1577,6 +1583,35 @@ static void sheevaplug_reset(int trst, int srst)
+ 	LOG_DEBUG(&quot;trst: %i, srst: %i, high_output: 0x%2.2x, high_direction: 0x%2.2x&quot;, trst, srst, high_output, high_direction);
+ }
+ 
++static void redbee_reset(int trst, int srst)
++{
++	if (trst == 1)
++	{
++		tap_set_state(TAP_RESET);
++		high_output &amp;= ~nTRST;
++	}
++	else if (trst == 0)
++	{
++		high_output |= nTRST;
++	}
++
++	if (srst == 1)
++	{
++		high_output &amp;= ~nSRST;
++	}
++	else if (srst == 0)
++	{
++		high_output |= nSRST;
++	}
++
++	/* command &quot;set data bits low byte&quot; */
++	buffer_write(0x82);
++	buffer_write(high_output);
++	buffer_write(high_direction);
++	LOG_DEBUG(&quot;trst: %i, srst: %i, high_output: 0x%2.2x, high_direction: 0x%2.2x&quot;, trst, srst, high_output,
++			high_direction);
++}
++
+ static int ft2232_execute_runtest(struct jtag_command *cmd)
+ {
+ 	int retval;
+@@ -2409,6 +2444,68 @@ static int axm0432_jtag_init(void)
+ 	return ERROR_OK;
+ }
+ 
++static int redbee_init(void)
++{
++	uint8_t  buf[3];
++	uint32_t bytes_written;
++
++	low_output    = 0x08;
++	low_direction = 0x2b;
++
++	/* initialize low byte for jtag */
++	buf[0] = 0x80;          /* command &quot;set data bits low byte&quot; */
++	buf[1] = low_output;    /* value (TMS = 1,TCK = 0, TDI = 0, nOE = 0) */
++	buf[2] = low_direction; /* dir (output = 1), TCK/TDI/TMS = out, TDO = in, nOE = out */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (((ft2232_write(buf, 3, &amp;bytes_written)) != ERROR_OK) || (bytes_written != 3))
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'redbee' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	nTRST    = 0x08;
++	nTRSTnOE = 0x0;     /* No output enable for TRST*/
++	nSRST    = 0x04;
++	nSRSTnOE = 0x0;     /* No output enable for SRST*/
++	
++	high_output    = 0x0;
++	high_direction = 0x0c;
++
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
++	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
++	{
++		LOG_ERROR(&quot;can't set nTRSTOE to push-pull on redbee&quot;);
++	}
++	else
++	{
++		high_output |= nTRST;
++	}
++
++	if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
++	{
++		LOG_ERROR(&quot;can't set nSRST to push-pull on redbee&quot;);
++	}
++	else
++	{
++		high_output |= nSRST;
++	}
++
++	/* initialize high port */
++	buf[0] = 0x82;              /* command &quot;set data bits high byte&quot; */
++	buf[1] = high_output;       /* value */
++	buf[2] = high_direction;    /* all outputs (xRST and xRSTnOE) */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (((ft2232_write(buf, 3, &amp;bytes_written)) != ERROR_OK) || (bytes_written != 3))
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'redbee' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
+ static int jtagkey_init(void)
+ {
+ 	uint8_t  buf[3];
+diff --git a/tcl/board/redbee-econotag.cfg b/tcl/board/redbee-econotag.cfg
+new file mode 100644
+index 0000000..bda347e
+--- /dev/null
++++ b/tcl/board/redbee-econotag.cfg
+@@ -0,0 +1,8 @@
++source [find target/mc13224v.cfg]
++
++# The redbee-econotag has an onboard ft2232h with channel A wired 
++# to the JTAG pins on the mc13224v
++# channel B is wired to UART1
++interface ft2232
++ft2232_layout redbee-econotag
++ft2232_vid_pid 0x0403 0x6010
+-- 
+1.5.6.5
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015020.html">[Openocd-development] [PATCH 1/3] Add target mc13224v.cfg.
+</A></li>
+	<LI>Next message: <A HREF="014977.html">[Openocd-development] [PATCH 3/3] Adds the redbee-usb board which	uses INTERFACE_B.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14974">[ date ]</a>
+              <a href="thread.html#14974">[ thread ]</a>
+              <a href="subject.html#14974">[ subject ]</a>
+              <a href="author.html#14974">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

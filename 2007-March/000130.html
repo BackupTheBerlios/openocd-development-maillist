@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] openocd on ixp425 failing &quot;load&quot;
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd%20on%20ixp425%20failing%20%22load%22&In-Reply-To=%3C460CADC3.8070504%40snapgear.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000126.html">
+   <LINK REL="Next"  HREF="000131.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] openocd on ixp425 failing &quot;load&quot;</H1>
+    <B>Greg Ungerer</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20openocd%20on%20ixp425%20failing%20%22load%22&In-Reply-To=%3C460CADC3.8070504%40snapgear.com%3E"
+       TITLE="[Openocd-development] openocd on ixp425 failing &quot;load&quot;">gerg at snapgear.com
+       </A><BR>
+    <I>Fri Mar 30 08:27:15 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000126.html">[Openocd-development] openocd on ixp425 failing &quot;load&quot;
+</A></li>
+        <LI>Next message: <A HREF="000131.html">[Openocd-development] openocd on ixp425 failing &quot;load&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#130">[ date ]</a>
+              <a href="thread.html#130">[ thread ]</a>
+              <a href="subject.html#130">[ subject ]</a>
+              <a href="author.html#130">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Hi
+
+Dominic Rath wrote:
+ &gt; I've merged the XScale support into mainline just yesterday.
+ &gt; It would be nice if you could try again using the code from /trunk,
+ &gt; as it contains several improvements to the generic code, including
+ &gt; JTAG.
+
+Ok, tried this. It didn't go so well.
+
+First up openocd startup failed with:
+
+  Debug:   jtag.c:1335 jtag_init(): -
+  Debug:   ft2232.c:1246 ft2232_init(): 'ft2232' interface using libftdi 
+with 'jtagkey' layout
+  Error:   ft2232.c:1352 ft2232_init(): unable to open ftdi device: 
+device not found
+
+So I quickly edited the src/jtag/ft2232.c ftdi_init() call to make it
+the same as in the xscale branch. So changed the call to
+ftdi_usb_open_desc/ftdi_set_interface with just a call to ftdi_usb_open().
+It got further, but then I couldn't connect with gdb - it would just
+hang on the target connection.
+
+That was still using the libftdi driver...
+
+
+ &gt; Libftdi is a likely candidate for causing issues. I've seen problems with
+ &gt; buffers growing too large for libftdi to handle - this might be the issue
+ &gt; you're running into. You could try decreasing the size of
+ &gt; #define FT2232_BUFFER_SIZE    131072
+ &gt; at jtag.c:137.
+
+Changing FT2232_BUFFER_SIZE didn't seem to make any difference.
+
+
+ &gt; If this doesn't help try the (binary only) FTD2XX driver from
+ &gt; FTDI.
+
+Yep, that did it. It works with the ftd2xx driver.
+
+I went back and retried the trunk code again, now with the ftd2xx
+driver, and it still hangs when I try to &quot;target&quot; it from gdb.
+The last trace in the log file is:
+
+  Debug:   gdb_server.c:1347 gdb_init(): gdb service for target xscale 
+at port 8888
+  Debug:   xscale.c:1178 xscale_halt(): target-&gt;state: reset
+  Debug:   xscale.c:1193 xscale_halt(): target-&gt;state == TARGET_RESET
+  Debug:   jtag.c:278 jtag_call_event_callbacks(): jtag event: SRST released
+  Debug:   jtag.c:1126 jtag_reset_callback(): -
+  Debug:   xscale.c:1178 xscale_halt(): target-&gt;state: reset
+  Debug:   xscale.c:1193 xscale_halt(): target-&gt;state == TARGET_RESET
+  Debug:   jtag.c:278 jtag_call_event_callbacks(): jtag event: SRST released
+  Debug:   jtag.c:1126 jtag_reset_callback(): -
+
+
+Now moving on some more :-)
+
+If I try to set the &quot;PC&quot; using strait gdb commands, say with
+
+    set $pc = 0x10000000
+
+then I get errors like:
+
+    Cannot access memory at address 0xe3a011fc
+
+I can set it using &quot;monitor reg pc 0x10000000&quot;, and that seems
+to work ok. Though if I try to single step code (using &quot;monitor
+step&quot;) then I get errors like:
+
+     Reply contains invalid hex digit 84
+
+Is this related to the xscale debug_handler?
+(Which I don't have set in my current config file).
+
+Regards
+Greg
+
+
+
+------------------------------------------------------------------------
+Greg Ungerer  --  Chief Software Dude       EMAIL:     <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">gerg at snapgear.com</A>
+Secure Computing Corporation                PHONE:       +61 7 3435 2888
+825 Stanley St,                             FAX:         +61 7 3891 3630
+Woolloongabba, QLD, 4102, Australia         WEB: <A HREF="http://www.SnapGear.com">http://www.SnapGear.com</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000126.html">[Openocd-development] openocd on ixp425 failing &quot;load&quot;
+</A></li>
+	<LI>Next message: <A HREF="000131.html">[Openocd-development] openocd on ixp425 failing &quot;load&quot;
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#130">[ date ]</a>
+              <a href="thread.html#130">[ thread ]</a>
+              <a href="subject.html#130">[ subject ]</a>
+              <a href="author.html#130">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

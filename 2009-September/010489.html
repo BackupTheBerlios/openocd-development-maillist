@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] How to handle cross target algorithms
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20handle%20cross%20target%20algorithms&In-Reply-To=%3Cc09652430909110057ub2e798r18b489d63b484af9%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010525.html">
+   <LINK REL="Next"  HREF="010492.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] How to handle cross target algorithms</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20How%20to%20handle%20cross%20target%20algorithms&In-Reply-To=%3Cc09652430909110057ub2e798r18b489d63b484af9%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] How to handle cross target algorithms">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Sep 11 09:57:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010525.html">[Openocd-development] arm1136 download problems &amp; performance
+</A></li>
+        <LI>Next message: <A HREF="010492.html">[Openocd-development] How to handle cross target algorithms
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10489">[ date ]</a>
+              <a href="thread.html#10489">[ thread ]</a>
+              <a href="subject.html#10489">[ subject ]</a>
+              <a href="author.html#10489">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Breaking out new subject...
+
+&gt;<i> We also talked a while back about the idea of a standardized download to the
+</I>&gt;<i> target.
+</I>&gt;<i>
+</I>&gt;<i> The general idea i was taking about at the time is described below.
+</I>&gt;<i>
+</I>&gt;<i> -Duane.
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> A small say 2K, 100% position independent common block of arm code.
+</I>&gt;<i> &#160;perhaps - an &quot;armv4&quot; based 32bit code (not thumb)
+</I>&gt;<i> &#160; &#160; why? Because that would cover all arm7 and arm9 chips.
+</I>&gt;<i>
+</I>&gt;<i> &#160;Perhaps - another for cortexM3
+</I>&gt;<i> &#160;perhaps - another for armv7 - (cortexA8)
+</I>&gt;<i>
+</I>&gt;<i> &#160;Maybe other chips are &quot;fixed address&quot; - but generally ARM code can be made
+</I>&gt;<i> &#160;to be PIC in a very simple way.
+</I>&gt;<i>
+</I>&gt;<i> When this idea would be bad: &#160; &#160; &#160;Little quick downloads
+</I>&gt;<i> When this idea would be good: &#160; BULK transfers, flash programing, etc.
+</I>&gt;<i>
+</I>&gt;<i> The idea is this:
+</I>&gt;<i> &#160; &#160;Let us assume there is a 4K block (working space) of ram some where.
+</I>&gt;<i> &#160; &#160;The code could be 2K, set aside 1K for stack (yes 1K)
+</I>&gt;<i> &#160; &#160;And 1K for a download buffer - could be bigger..
+</I>&gt;<i> &#160; Maybe we work with 4K and 4K...
+</I>&gt;<i>
+</I>&gt;<i> &#160;The entry point would be fixed - always at Buffer+0
+</I>&gt;<i> &#160;Set the program counter there, nothing else needs set.
+</I>&gt;<i>
+</I>&gt;<i> &#160;Then, set a SW breakpoint at - a fixed location.
+</I>&gt;<i> &#160;Example: &#160;Buffer + 0x10
+</I>&gt;<i> &#160;This would leave a few bytes @ the start for startup code
+</I>&gt;<i> &#160;And might be easier for different chips (ie: non-arm chips).
+</I>&gt;<i>
+</I>&gt;<i> &#160;The target code *RUNS*, sets up the stack and then enters
+</I>&gt;<i> &#160;some type of &quot;for-ever&quot; loop, that looks like this:
+</I>&gt;<i> &#160;*AND* is 100% written in *C* code - not assembler.
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160;some_c_function( void )
+</I>&gt;<i> &#160; &#160; &#160;{
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; uint32_t &#160; buffer[16];
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; // this example puts the 4K transfer buffer on the stack
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; uint32_t &#160; download_buffer[ 1024 ];
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; int result;
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160;// assume result=success
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160;result = 0;
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; for( ;; ){
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; // buffer[0] = holds result
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; buffer[0] = result;
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;// tell app where transfer buffer is located.
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;buffer[1] = &amp;download_buffer[0];
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;buffer[2] = sizeof(download_buffer);
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; // this hits openocd breakpoint
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;openocd_syscall( &amp;buffer[0] );
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;// openocd stuffs parameters in the buffer.
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;// parameter 0 - is the command.
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;// parameter 1/2/3 ... /15 are command specific
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;switch( buffer[0] ){
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;case CFI_FLASH_ERASE:
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; // params 1,2,3 are address and length
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; result= perform_cfi_erase( &amp;buffer[0] );
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;case HIGH_SPEED_DOWNLOAD:
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; // on ARM this might use CP15 DCC
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; result =perform_high_speed_download( &amp;buffer[0] );
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;case .. other commands
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; // break
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;} // switch
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; } // forever()
+</I>&gt;<i> &#160; &#160; &#160;}
+</I>&gt;<i>
+</I>&gt;<i> ======
+</I>&gt;<i>
+</I>&gt;<i> Why do I suggest C? And the above method...
+</I>&gt;<i> &#160; Because it would work on *ALL* targets!
+</I>&gt;<i> &#160; One only needs to *compile* a small C program.
+</I>&gt;<i> &#160; And little helpers would be very fast.
+</I>
+
+How would you handle the C code for a particular flash chip?
+
+Would that algorithm have to go into the single &quot;giant&quot; app
+that is downloaded?
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://www.zylin.com">http://www.zylin.com</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010525.html">[Openocd-development] arm1136 download problems &amp; performance
+</A></li>
+	<LI>Next message: <A HREF="010492.html">[Openocd-development] How to handle cross target algorithms
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10489">[ date ]</a>
+              <a href="thread.html#10489">[ thread ]</a>
+              <a href="subject.html#10489">[ subject ]</a>
+              <a href="author.html#10489">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

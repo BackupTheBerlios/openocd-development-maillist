@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD SVN /trunk and GDB not showing the	correct PC
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20SVN%20/trunk%20and%20GDB%20not%20showing%20the%0A%09correct%20PC&In-Reply-To=%3C200807222203.05901.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002751.html">
+   <LINK REL="Next"  HREF="002754.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD SVN /trunk and GDB not showing the	correct PC</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20SVN%20/trunk%20and%20GDB%20not%20showing%20the%0A%09correct%20PC&In-Reply-To=%3C200807222203.05901.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] OpenOCD SVN /trunk and GDB not showing the	correct PC">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Tue Jul 22 22:03:04 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002751.html">[Openocd-development] Recommendation for improvement to cfi.c	(automatic clearing of lock bits before erasing flash)
+</A></li>
+        <LI>Next message: <A HREF="002754.html">[Openocd-development] OpenOCD SVN /trunk and GDB not showing	the correct PC
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2753">[ date ]</a>
+              <a href="thread.html#2753">[ thread ]</a>
+              <a href="subject.html#2753">[ subject ]</a>
+              <a href="author.html#2753">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi list,
+
+is it possible that GDB support in OpenOCD is currently at least partially 
+broken? Are there known bugs that came with TCL, is this something unrelated, 
+but known, or is this something new?
+
+I let the OpenOCD attach to a running target (AT91SAM9260, currently executing 
+u-boot), poll the state via telnet, and then attach a GDB connection:
+
+-telnet--------------telnet--------------telnet--------------telnet-------------
+Open On-Chip Debugger
+&gt;<i> poll
+</I>target state: running
+accepting 'gdb' connection from 0
+acknowledgment received, but no packet pending
+target not halted
+target not halted
+target not halted
+target state: halted
+target halted in ARM state due to debug request, current mode: Supervisor
+cpsr: 0x400000d3 pc: 0x23f09764
+MMU: disabled, D-Cache: disabled, I-Cache: enabled
+&gt;<i>                                               
+</I>-telnet--------------telnet--------------telnet--------------telnet-------------
+
+-gdb-----------------gdb-----------------gdb-----------------gdb----------------
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">vmaster at magrathea</A>:~/arm$ 
+ntoarm-gdb /home/vmaster/arm/qnx/workspace/sam9_l9260/Images/startup-at91sam9263ek.sym
+GNU gdb 6.7
+Copyright (C) 2007 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later &lt;<A HREF="http://gnu.org/licenses/gpl.html">http://gnu.org/licenses/gpl.html</A>&gt;
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type &quot;show copying&quot;
+and &quot;show warranty&quot; for details.
+This GDB was configured 
+as &quot;--host=i686-pc-linux-gnu --target=arm-unknown-nto-qnx6.3.0&quot;...
+(no debugging symbols found)
+(gdb) target remote localhost:3333
+Remote debugging using localhost:3333
+warning: while parsing target memory map (at line 2): Required element 
+&lt;memory&gt; is missing
+0x00000000 in ?? ()
+(gdb) 
+-gdb-----------------gdb-----------------gdb-----------------gdb----------------
+
+As you can see, GDB's idea of the current PC is wrong. I'm not completely sure 
+where GDB gets the wrong address from, but a &quot;continue&quot;, &quot;ctrl-c&quot; sequence 
+gets me the correct address:
+
+-gdb-----------------gdb-----------------gdb-----------------gdb----------------
+(gdb) c
+Continuing.
+target state: halted
+target halted in ARM state due to debug request, current mode: Supervisor
+cpsr: 0x400000d3 pc: 0x23f09764
+MMU: disabled, D-Cache: disabled, I-Cache: enabled
+
+Program received signal SIGINT, Interrupt.
+0x23f09764 in ?? ()
+(gdb) c
+Continuing.
+target state: halted
+target halted in ARM state due to debug request, current mode: Supervisor
+cpsr: 0x400000d3 pc: 0x23f09764
+MMU: disabled, D-Cache: disabled, I-Cache: enabled
+-gdb-----------------gdb-----------------gdb-----------------gdb----------------
+
+I've also had problems with breakpoints not taken by GDB, but these problems 
+were not reproduceable so far. I've tested both the GDB that came with QNX 
+Momentics 6.3.2 and the version from Code Sourcery's 2007q3 release.
+
+Attached is the config file I've used. There was no GDB init script involved.
+
+Best regards,
+
+Dominic
+-------------- next part --------------
+#daemon configuration
+telnet_port 4444
+gdb_port 3333
+
+gdb_report_data_abort enable
+
+#interface
+interface ft2232
+#ft2232_device_desc &quot;Olimex OpenOCD JTAG&quot;
+#ft2232_layout olimex-jtag
+#ft2232_vid_pid 0x15ba 0x0003
+ft2232_device_desc &quot;Amontec JTAGkey&quot;
+ft2232_serial AMTJKV31
+#ft2232_serial T1P3S2W8
+ft2232_layout jtagkey
+ft2232_vid_pid 0x0403 0xcff8
+jtag_speed 1400
+#use combined on interfaces or targets that can't set TRST/SRST separately
+reset_config trst_and_srst separate
+
+#jtag scan chain
+#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag_device 4 0x1 0xf 0xe
+
+jtag_nsrst_delay 300
+jtag_ntrst_delay 300
+
+#target configuration
+#target &lt;type&gt; &lt;endianess&gt; &lt;reset mode&gt;
+target arm926ejs little 0
+
+#target_script 0 reset csb337_init.script
+working_area 0 0x00200000 0x1000 nobackup
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002751.html">[Openocd-development] Recommendation for improvement to cfi.c	(automatic clearing of lock bits before erasing flash)
+</A></li>
+	<LI>Next message: <A HREF="002754.html">[Openocd-development] OpenOCD SVN /trunk and GDB not showing	the correct PC
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2753">[ date ]</a>
+              <a href="thread.html#2753">[ thread ]</a>
+              <a href="subject.html#2753">[ subject ]</a>
+              <a href="author.html#2753">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

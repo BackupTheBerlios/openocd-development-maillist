@@ -1,0 +1,530 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%2064%20bit%20fixes%20for%20Windows%20x64%0A%09compilation%20using%20libftdi/libusb&In-Reply-To=%3C1df52aff0910121757o10f93c9bh50968c83a494c43%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011263.html">
+   <LINK REL="Next"  HREF="011172.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb</H1>
+    <B>Redirect &quot;Slash&quot; NIL</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%2064%20bit%20fixes%20for%20Windows%20x64%0A%09compilation%20using%20libftdi/libusb&In-Reply-To=%3C1df52aff0910121757o10f93c9bh50968c83a494c43%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb">redirect.slash.nil at gmail.com
+       </A><BR>
+    <I>Tue Oct 13 02:57:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011263.html">[Openocd-development] NS9360 Unknown EmbeddedICE version and halt problem - SOLVED
+</A></li>
+        <LI>Next message: <A HREF="011172.html">[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11168">[ date ]</a>
+              <a href="thread.html#11168">[ thread ]</a>
+              <a href="subject.html#11168">[ subject ]</a>
+              <a href="author.html#11168">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello all,
+
+I finally managed to compile a GPL compliant version of OpenOCD for Windows
+64 bit system, using libftdi (If you're interested, I  posted some binaries
+in <A HREF="http://forum.sparkfun.com/viewforum.php?f=18">http://forum.sparkfun.com/viewforum.php?f=18</A> and I'll post my compilation
+steps soon)
+
+The toolchain used for this compilation is WPG System64 (
+<A HREF="http://www.cadforte.com/system64.html">http://www.cadforte.com/system64.html</A>), which is basically a 64bit version
+of MinGW.
+
+This required a string of minor 64 bit patches, as well as a not so minor
+patch to libftdi.
+The OpenOCD diff against the 2009.10.12 GIT branch is provided below.
+Most of these changes should be straightforward enough: using PRIi64/PRIu64
+instead of the not so ubiquitous %lld %llu and some 32 bit to 64 bit integer
+conversions here and there.
+
+The most dubious change has to be with ./configure.in &amp; ./src/Makefile.am,
+as 64bit MinGW requires the use of -lws2_32 instead of -lwsock32, and to
+differentiate between 32 and 64 bit MinGW, I just set IS_WIN32 to 0 on
+MinGW-64bit systems.
+If you think this might be a problem, let me know (but if that's the case,
+it would be nice to have an actual IS_64BIT variable in Makefile.am or
+something, and I'm not sure how one would go setting this up)
+
+Also note that, for compilation of OpenOCD on 64 bit Windows system with the
+*proprietary* FTDI library, the following section of configure.in (line
+#683):
+
+    # And calculate the LDFLAGS for the machine
+    case &quot;$host_cpu&quot; in
+    i?86|x86_*)
+      LDFLAGS=&quot;$LDFLAGS -L$with_ftd2xx_win32_zipdir/i386&quot;
+      LIBS=&quot;$LIBS -lftd2xx&quot;
+      f=$with_ftd2xx_win32_zipdir/i386/ftd2xx.lib
+      ;;
+    amd64)
+      LDFLAGS=&quot;$LDFLAGS -L$with_ftd2xx_win32_zipdir/amd64&quot;
+      LIBS=&quot;$LIBS -lftd2xx&quot;
+      f=$with_ftd2xx_win32_zipdir/amd64/ftd2xx.lib
+      ;;
+
+would be better changed to
+
+    # And calculate the LDFLAGS for the machine
+    case &quot;$host_cpu&quot; in
+    i?86|x86_32)
+      LDFLAGS=&quot;$LDFLAGS -L$with_ftd2xx_win32_zipdir/i386&quot;
+      LIBS=&quot;$LIBS -lftd2xx&quot;
+      f=$with_ftd2xx_win32_zipdir/i386/ftd2xx.lib
+      ;;
+    amd64|x86_64)
+      LDFLAGS=&quot;$LDFLAGS -L$with_ftd2xx_win32_zipdir/amd64&quot;
+      LIBS=&quot;$LIBS -lftd2xx&quot;
+      f=$with_ftd2xx_win32_zipdir/amd64/ftd2xx.lib
+      ;;
+
+Since this was not the purpose of this patch, I left it out of the diff.
+
+Regards,
+
+&gt;<i>NIL:
+</I>
+
+------- BEGIN PATCH -------
+
+diff --git a/configure.in b/configure.in
+old mode 100644
+new mode 100755
+index 8e2881c..3f9e4c1
+--- a/configure.in
++++ b/configure.in
+@@ -474,7 +474,18 @@ case $host in
+     ;;
+   *-mingw*)
+     is_mingw=yes
+-    is_win32=yes
++
++        case &quot;${host_cpu}&quot; in
++          i?86|x86_32)
++              is_win32=yes
++            AC_DEFINE(IS_WIN32, 1, [1 if building for Win32.])
++            ;;
++          amd64|x86_64)
++            AC_DEFINE(IS_WIN32, 0, [0 if building for Win64.])
++              is_win32=no
++            ;;
++        esac
++
+     parport_use_ppdev=no
+
+     if test x$parport_use_giveio = xno; then
+@@ -483,7 +494,6 @@ case $host in
+     parport_use_giveio=yes
+
+     AC_DEFINE(IS_MINGW, 1, [1 if building for MinGW.])
+-    AC_DEFINE(IS_WIN32, 1, [1 if building for Win32.])
+     AC_DEFINE(IS_DARWIN, 0, [0 if not building for Darwin.])
+     ;;
+   *darwin*)
+diff --git a/src/Makefile.am b/src/Makefile.am
+old mode 100644
+new mode 100755
+index a223f95..a16027d
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -43,8 +43,12 @@ libopenocd_la_CPPFLAGS += $(AM_CPPFLAGS) $(CPPFLAGS)
+ libopenocd_la_LDFLAGS = $(all_libraries)
+
+ if IS_MINGW
++if IS_WIN32
+ MINGWLDADD = -lwsock32
+ else
++MINGWLDADD = -lws2_32
++endif
++else
+ MINGWLDADD =
+ endif
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+old mode 100644
+new mode 100755
+index d1b023c..5047f76
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -939,7 +939,7 @@ static int handle_flash_write_bank_command(struct
+command_context_s *cmd_ctx, ch
+     if (retval == ERROR_OK)
+     {
+     command_print(cmd_ctx,
+-                  &quot;wrote  %lld byte from file %s to flash bank %li at
+offset 0x%8.8&quot; PRIx32 &quot; in %s (%f kb/s)&quot;,
++                  &quot;wrote  %&quot; PRIi64 &quot; byte from file %s to flash bank %li
+at offset 0x%8.8&quot; PRIx32 &quot; in %s (%f kb/s)&quot;,
+                   fileio.size,
+                   args[1],
+                   strtoul(args[0], NULL, 0),
+diff --git a/src/flash/mflash.c b/src/flash/mflash.c
+old mode 100644
+new mode 100755
+index 208125e..3259f87
+--- a/src/flash/mflash.c
++++ b/src/flash/mflash.c
+@@ -474,8 +474,8 @@ static int mg_mflash_read_sects(void *buff, uint32_t
+sect_num, uint32_t sect_cnt
+     residue = sect_cnt % 256;
+
+     for (i = 0; i &lt; quotient; i++) {
+-        LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIu32 &quot; buff : 0x%0lx&quot;, sect_num,
+-            (unsigned long)buff_ptr);
++        LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIu32 &quot; buff : 0x%0&quot;PRIx64,
+sect_num,
++            (unsigned long long)buff_ptr);
+         ret = mg_mflash_do_read_sects(buff_ptr, sect_num, 256);
+         if (ret != ERROR_OK)
+             return ret;
+@@ -485,8 +485,8 @@ static int mg_mflash_read_sects(void *buff, uint32_t
+sect_num, uint32_t sect_cnt
+     }
+
+     if (residue) {
+-        LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIx32 &quot; buff : %0lx&quot;, sect_num,
+-            (unsigned long)buff_ptr);
++        LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIx32 &quot; buff : %0&quot;PRIx64,
+sect_num,
++            (unsigned long long)buff_ptr);
+         return mg_mflash_do_read_sects(buff_ptr, sect_num, residue);
+     }
+
+@@ -751,7 +751,7 @@ static int mg_write_cmd(struct command_context_s
+*cmd_ctx, char *cmd, char **arg
+
+     duration_stop_measure(&amp;duration, &amp;duration_text);
+
+-    command_print(cmd_ctx, &quot;wrote %lli byte from file %s in %s (%f kB/s)&quot;,
++    command_print(cmd_ctx, &quot;wrote %&quot; PRIi64 &quot; byte from file %s in %s (%f
+kB/s)&quot;,
+         fileio.size, args[1], duration_text,
+         (float)fileio.size / 1024.0 / ((float)duration.duration.tv_sec +
+((float)duration.duration.tv_usec / 1000000.0)));
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+old mode 100644
+new mode 100755
+index 6e45075..d3410a2
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -1609,7 +1609,7 @@ static int handle_nand_dump_command(struct
+command_context_s *cmd_ctx, char *cmd
+             fileio_close(&amp;fileio);
+
+             duration_stop_measure(&amp;duration, &amp;duration_text);
+-            command_print(cmd_ctx, &quot;dumped %lld byte in %s&quot;, fileio.size,
+duration_text);
++            command_print(cmd_ctx, &quot;dumped %&quot; PRIi64 &quot; byte in %s&quot;,
+fileio.size, duration_text);
+             free(duration_text);
+             duration_text = NULL;
+         }
+diff --git a/src/helper/jim-eventloop.c b/src/helper/jim-eventloop.c
+old mode 100644
+new mode 100755
+index 5da00c9..6459e05
+--- a/src/helper/jim-eventloop.c
++++ b/src/helper/jim-eventloop.c
+@@ -498,7 +498,7 @@ static int JimELAfterCommand(Jim_Interp *interp, int
+argc,
+     int tlen ;
+     jim_wide remain = 0;
+     const char *tok = Jim_GetString(argv[2], &amp;tlen);
+-    if (sscanf(tok,&quot;after#%lld&quot;,&amp;id) == 1) {
++    if (sscanf(tok,&quot;after#%&quot; PRIi64 ,&amp;id) == 1) {
+         remain =  Jim_DeleteTimeHandler(interp, id);
+         if (remain &gt; -2)  {
+             Jim_SetResult(interp, Jim_NewIntObj(interp, remain));
+diff --git a/src/helper/jim.c b/src/helper/jim.c
+old mode 100644
+new mode 100755
+index 48e21e9..9b6ef6a
+--- a/src/helper/jim.c
++++ b/src/helper/jim.c
+@@ -4754,7 +4754,7 @@ const char *Jim_GetSharedString(Jim_Interp *interp,
+const char *str)
+         Jim_AddHashEntry(&amp;interp-&gt;sharedStrings, strCopy, (void*)1);
+         return strCopy;
+     } else {
+-        long refCount = (long) he-&gt;val;
++        long long refCount = (long long) he-&gt;val;
+
+         refCount++;
+         he-&gt;val = (void*) refCount;
+@@ -4764,13 +4764,13 @@ const char *Jim_GetSharedString(Jim_Interp *interp,
+const char *str)
+
+ void Jim_ReleaseSharedString(Jim_Interp *interp, const char *str)
+ {
+-    long refCount;
++    long long refCount;
+     Jim_HashEntry *he = Jim_FindHashEntry(&amp;interp-&gt;sharedStrings, str);
+
+     if (he == NULL)
+         Jim_Panic(interp,&quot;Jim_ReleaseSharedString called with &quot;
+               &quot;unknown shared string '%s'&quot;, str);
+-    refCount = (long) he-&gt;val;
++    refCount = (long long) he-&gt;val;
+     refCount--;
+     if (refCount == 0) {
+         Jim_DeleteHashEntry(&amp;interp-&gt;sharedStrings, str);
+diff --git a/src/helper/log.c b/src/helper/log.c
+old mode 100644
+new mode 100755
+index f68c9a3..885f6d3
+--- a/src/helper/log.c
++++ b/src/helper/log.c
+@@ -473,12 +473,12 @@ void keep_alive()
+         if (gdb_actual_connections)
+             LOG_WARNING(&quot;keep_alive() was not invoked in the &quot;
+                 &quot;1000ms timelimit. GDB alive packet not &quot;
+-                &quot;sent! (%lld). Workaround: increase &quot;
++                &quot;sent! (%&quot; PRIi64 &quot;). Workaround: increase &quot;
+                 &quot;\&quot;set remotetimeout\&quot; in GDB&quot;,
+                 current_time-last_time);
+         else
+             LOG_DEBUG(&quot;keep_alive() was not invoked in the &quot;
+-                &quot;1000ms timelimit (%lld). This may cause &quot;
++                &quot;1000ms timelimit (%&quot; PRIi64 &quot;). This may cause &quot;
+                 &quot;trouble with GDB connections.&quot;,
+                 current_time-last_time);
+     }
+diff --git a/src/helper/replacements.c b/src/helper/replacements.c
+old mode 100644
+new mode 100755
+index 77e4ee7..f8ee165
+--- a/src/helper/replacements.c
++++ b/src/helper/replacements.c
+@@ -169,7 +169,12 @@ int win_select(int max_fd, fd_set *rfds, fd_set *wfds,
+fd_set *efds, struct time
+     /* build an array of handles for non-sockets */
+     for (i = 0; i &lt; max_fd; i++) {
+         if (SAFE_FD_ISSET(i, rfds) || SAFE_FD_ISSET(i, wfds) ||
+SAFE_FD_ISSET(i, efds)) {
++    /* Fix cast warnings treated as errors for MinGW-64 */
++#if (defined(_M_X64) || (defined(_M_AMD64)))
++            long long handle = _get_osfhandle(i);
++#else
+             long handle = _get_osfhandle(i);
++#endif
+             handles[n_handles] = (HANDLE)handle;
+             if (handles[n_handles] == INVALID_HANDLE_VALUE) {
+                 /* socket */
+@@ -244,7 +249,12 @@ int win_select(int max_fd, fd_set *rfds, fd_set *wfds,
+fd_set *efds, struct time
+                     if (WAIT_OBJECT_0 == WaitForSingleObject(handles[i],
+0)) {
+                         if (SAFE_FD_ISSET(handle_slot_to_fd[i], rfds)) {
+                             DWORD dwBytes;
++
++#if (defined(_M_X64) || (defined(_M_AMD64)))
++                            long long handle =
+_get_osfhandle(handle_slot_to_fd[i]);
++#else
+                             long handle =
+_get_osfhandle(handle_slot_to_fd[i]);
++#endif
+
+                             if (PeekNamedPipe((HANDLE)handle, NULL, 0,
+NULL, &amp;dwBytes, NULL))
+                             {
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+old mode 100644
+new mode 100755
+index 564b93f..3c30e45
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1008,7 +1008,7 @@ static bool jtag_examine_chain_match_tap(const struct
+jtag_tap_s *tap)
+     for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+     {
+         char msg[32];
+-        snprintf(msg, sizeof(msg), &quot;expected %hhu of %hhu&quot;,
++        snprintf(msg, sizeof(msg), &quot;expected %&quot; PRIu8 &quot; of %&quot; PRIu8,
+                 ii + 1, tap-&gt;expected_ids_cnt);
+         jtag_examine_chain_display(LOG_LVL_ERROR, msg,
+                 tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
+diff --git a/src/pld/pld.c b/src/pld/pld.c
+old mode 100644
+new mode 100755
+index 391fb76..e1fce3f
+--- a/src/pld/pld.c
++++ b/src/pld/pld.c
+@@ -195,9 +195,9 @@ static int handle_pld_load_command(struct
+command_context_s *cmd_ctx,
+         gettimeofday(&amp;end, NULL);
+         timeval_subtract(&amp;duration, &amp;end, &amp;start);
+
+-        command_print(cmd_ctx, &quot;loaded file %s to pld device %lu in %jis
+%jius&quot;,
++        command_print(cmd_ctx, &quot;loaded file %s to pld device %lu in %&quot;
+PRIi64 &quot;s %&quot; PRIi64 &quot;us&quot;,
+             args[1], strtoul(args[0], NULL, 0),
+-            (intmax_t)duration.tv_sec, (intmax_t)duration.tv_usec);
++            (unsigned long long)duration.tv_sec, (unsigned long
+long)duration.tv_usec);
+     }
+
+     return ERROR_OK;
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+old mode 100644
+new mode 100755
+index a25b358..3c9f177
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -442,7 +442,7 @@ static int handle_svf_command(struct command_context_s
+*cmd_ctx, char *cmd, char
+     }
+
+     // print time
+-    command_print(cmd_ctx, &quot;%lld ms used&quot;, timeval_ms() - time_ago);
++    command_print(cmd_ctx, &quot;%&quot; PRIi64 &quot; ms used&quot;, timeval_ms() - time_ago);
+
+ free_all:
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+old mode 100644
+new mode 100755
+index 588ea3c..39e42dc
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1606,10 +1606,10 @@ int arm11_run_algorithm(struct target_s *target, int
+num_mem_params, mem_param_t
+ //        return ERROR_FAIL;
+
+     // Save regs
+-    for (size_t i = 0; i &lt; 16; i++)
++    for (unsigned long long i = 0; i &lt; 16; i++)
+     {
+         context[i] = buf_get_u32((uint8_t*)(&amp;arm11-&gt;reg_values[i]),0,32);
+-        LOG_DEBUG(&quot;Save %zi: 0x%&quot; PRIx32 &quot;&quot;,i,context[i]);
++        LOG_DEBUG(&quot;Save %&quot; PRIu64 &quot;: 0x%&quot; PRIx32 &quot;&quot;,i,context[i]);
+     }
+
+     cpsr = buf_get_u32((uint8_t*)(arm11-&gt;reg_values + ARM11_RC_CPSR),0,32);
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+old mode 100644
+new mode 100755
+index 499d592..b333e15
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -226,7 +226,7 @@ int armv7a_arch_state(struct target_s *target)
+          state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+          state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled]);
+
+-    if (armv4_5-&gt;core_mode == ARMV7A_MODE_ABT)
++    if ((armv7a_t)armv4_5-&gt;core_mode == ARMV7A_MODE_ABT)
+         armv7a_show_fault_registers(target);
+
+     return ERROR_OK;
+diff --git a/src/target/target.c b/src/target/target.c
+old mode 100644
+new mode 100755
+index ced09e9..4716678
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2441,7 +2441,7 @@ static int handle_dump_image_command(struct
+command_context_s *cmd_ctx, char *cm
+
+     if (retval == ERROR_OK)
+     {
+-        command_print(cmd_ctx, &quot;dumped %lld byte in %s&quot;,
++        command_print(cmd_ctx, &quot;dumped %&quot;PRIi64&quot; byte in %s&quot;,
+                 fileio.size, duration_text);
+         free(duration_text);
+     }
+@@ -2831,9 +2831,9 @@ static int handle_virt2phys_command(command_context_t
+*cmd_ctx,
+
+ static void writeData(FILE *f, const void *data, size_t len)
+ {
+-    size_t written = fwrite(data, 1, len, f);
++    unsigned long long written = fwrite(data, 1, len, f);
+     if (written != len)
+-        LOG_ERROR(&quot;failed to write %zu bytes: %s&quot;, len, strerror(errno));
++        LOG_ERROR(&quot;failed to write %&quot; PRIu64 &quot; bytes: %s&quot;, len,
+strerror(errno));
+ }
+
+ static void writeLong(FILE *f, int l)
+diff --git a/src/target/trace.c b/src/target/trace.c
+old mode 100644
+new mode 100755
+index 9387f83..cea3f69
+--- a/src/target/trace.c
++++ b/src/target/trace.c
+@@ -58,7 +58,7 @@ static int handle_trace_point_command(struct
+command_context_s *cmd_ctx, char *c
+
+         for (i = 0; i &lt; trace-&gt;num_trace_points; i++)
+         {
+-            command_print(cmd_ctx, &quot;trace point 0x%8.8&quot; PRIx32 &quot; (%lld
+times hit)&quot;,
++            command_print(cmd_ctx, &quot;trace point 0x%8.8&quot; PRIx32 &quot; (%&quot; PRIi64
+&quot; times hit)&quot;,
+                     trace-&gt;trace_points[i].address,
+                     (long long)trace-&gt;trace_points[i].hit_counter);
+         }
+diff --git a/src/xsvf/xsvf.c b/src/xsvf/xsvf.c
+old mode 100644
+new mode 100755
+index b193509..494463f
+--- a/src/xsvf/xsvf.c
++++ b/src/xsvf/xsvf.c
+@@ -935,9 +935,9 @@ static int handle_xsvf_command(struct command_context_s
+*cmd_ctx, char *cmd, cha
+
+     if (unsupported)
+     {
+-        off_t offset = lseek(xsvf_fd, 0, SEEK_CUR) - 1;
++        unsigned long long offset = lseek(xsvf_fd, 0, SEEK_CUR) - 1;
+         command_print(cmd_ctx,
+-                &quot;unsupported xsvf command (0x%02X) at offset %jd,
+aborting&quot;,
++                &quot;unsupported xsvf command (0x%02X) at offset %&quot; PRIi64 &quot;,
+aborting&quot;,
+                 uc, (intmax_t)offset);
+         return ERROR_FAIL;
+     }
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091013/76b15b5f/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20091013/76b15b5f/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011263.html">[Openocd-development] NS9360 Unknown EmbeddedICE version and halt problem - SOLVED
+</A></li>
+	<LI>Next message: <A HREF="011172.html">[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11168">[ date ]</a>
+              <a href="thread.html#11168">[ thread ]</a>
+              <a href="subject.html#11168">[ subject ]</a>
+              <a href="author.html#11168">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

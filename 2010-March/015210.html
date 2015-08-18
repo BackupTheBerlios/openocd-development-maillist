@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] split &quot;interface&quot; commands from	&quot;jtag&quot; ones
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20split%20%22interface%22%20commands%20from%0A%09%22jtag%22%20ones&In-Reply-To=%3C201003101126.35495.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015209.html">
+   <LINK REL="Next"  HREF="015213.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] split &quot;interface&quot; commands from	&quot;jtag&quot; ones</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20split%20%22interface%22%20commands%20from%0A%09%22jtag%22%20ones&In-Reply-To=%3C201003101126.35495.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] split &quot;interface&quot; commands from	&quot;jtag&quot; ones">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Mar 10 20:26:35 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015209.html">[Openocd-development] Fwd: usbfs not more supported by ubuntu -- W/A
+</A></li>
+        <LI>Next message: <A HREF="015213.html">[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15210">[ date ]</a>
+              <a href="thread.html#15210">[ thread ]</a>
+              <a href="subject.html#15210">[ subject ]</a>
+              <a href="author.html#15210">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We'll need to be able to work with debug adapter interfaces (drivers)
+even when they're not used for JTAG ... for example, while there are
+multi-transport debug adapters which support JTAG *and* several other
+transports (or just one more, like SWD) there are also adapters
+with more limited goals (and no JTAG support at all).
+
+Start decoupling the two concepts (&quot;debug adapter driver&quot;, &quot;jtag&quot;)
+by having two command groups, which initialize separately.
+
+This will help us support OpenOCD sessions using only non-JTAG
+transports, in which JTAG commands should not be registered.
+Update docs to mention that the JTAG, SVF, and XSVF commands
+won't work without a JTAG transport.
+
+Note that at least commands working with SRST are still inappropriately
+coupled  to JTAG ... inappropriate because (a) they're not really part
+of the JTAG standard, and also (b) because they're used with non-JTAG
+debug and programming interfaces, too.  They should perhaps become
+generic &quot;interface&quot; operations at some point.  (Similarly with the
+clock rate to be used by a given adapter.)
+
+---
+This one seems innocuous so I'll likely merge it in a few days unless
+someone raises a solid objection.
+
+A less innocuous patch will be coming soon, adding a basic notion of
+different &quot;transport&quot; protocols and updating initialization to match.
+(Initialization at that level is quite messily JTAG-specific.)
+
+ doc/openocd.texi  |    4 ++++
+ src/jtag/driver.h |    4 ++++
+ src/jtag/tcl.c    |   26 +++++++++++++++++++++-----
+ src/openocd.c     |    2 ++
+ 4 files changed, 31 insertions(+), 5 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -6641,6 +6641,8 @@ the order of TAP state transitions.
+ If you're not debugging OpenOCD internals, or bringing up a
+ new JTAG adapter or a new type of TAP device (like a CPU or
+ JTAG router), you probably won't need to use these commands.
++In a debug session that doesn't use JTAG for its transport protocol,
++these commands are not available.
+ 
+ @deffn Command {drscan} tap [numbits value]+ [@option{-endstate} tap_state]
+ Loads the data register of @var{tap} with a series of bit fields
+@@ -6831,6 +6833,7 @@ OpenOCD also includes some boundary scan
+ 
+ The Serial Vector Format, better known as @dfn{SVF}, is a
+ way to represent JTAG test patterns in text files.
++In a debug session using JTAG for its transport protocol,
+ OpenOCD supports running such test files.
+ 
+ @deffn Command {svf} filename [@option{quiet}]
+@@ -6847,6 +6850,7 @@ each command is logged before it is exec
+ The Xilinx Serial Vector Format, better known as @dfn{XSVF}, is a
+ binary representation of SVF which is optimized for use with
+ Xilinx devices.
++In a debug session using JTAG for its transport protocol,
+ OpenOCD supports running such test files.
+ 
+ @quotation Important
+--- /dev/null
++++ b/src/jtag/driver.h
+@@ -0,0 +1,4 @@
++struct command_context;
++
++int interface_register_commands(struct command_context *ctx);
++
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -985,7 +985,7 @@ COMMAND_HANDLER(handle_interface_list_co
+ 	if (strcmp(CMD_NAME, &quot;interface_list&quot;) == 0 &amp;&amp; CMD_ARGC &gt; 0)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+-	command_print(CMD_CTX, &quot;The following JTAG interfaces are available:&quot;);
++	command_print(CMD_CTX, &quot;The following debug interfaces are available:&quot;);
+ 	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
+ 	{
+ 		const char *name = jtag_interfaces[i]-&gt;name;
+@@ -1038,7 +1038,7 @@ COMMAND_HANDLER(handle_interface_command
+ 	/* no valid interface was found (i.e. the configuration option,
+ 	 * didn't match one of the compiled-in interfaces
+ 	 */
+-	LOG_ERROR(&quot;The specified JTAG interface was not found (%s)&quot;, CMD_ARGV[0]);
++	LOG_ERROR(&quot;The specified debug interface was not found (%s)&quot;, CMD_ARGV[0]);
+ 	CALL_COMMAND_HANDLER(handle_interface_list_command);
+ 	return ERROR_JTAG_INVALID_INTERFACE;
+ }
+@@ -1607,20 +1607,35 @@ COMMAND_HANDLER(handle_tms_sequence_comm
+ 	return ERROR_OK;
+ }
+ 
+-static const struct command_registration jtag_command_handlers[] = {
++static const struct command_registration interface_command_handlers[] = {
+ 	{
+ 		.name = &quot;interface&quot;,
+ 		.handler = handle_interface_command,
+ 		.mode = COMMAND_CONFIG,
+-		.help = &quot;Select a JTAG interface&quot;,
++		.help = &quot;Select a debug adapter interface (driver)&quot;,
+ 		.usage = &quot;driver_name&quot;,
+ 	},
+ 	{
+ 		.name = &quot;interface_list&quot;,
+ 		.handler = handle_interface_list_command,
+ 		.mode = COMMAND_ANY,
+-		.help = &quot;List all built-in interfaces&quot;,
++		.help = &quot;List all built-in debug adapter interfaces (drivers)&quot;,
+ 	},
++	COMMAND_REGISTRATION_DONE
++};
++
++/**
++ * Register the commands which deal with arbitrary debug adapter drivers.
++ *
++ * @todo Remove internal assumptions that all debug adapters use JTAG for
++ * transport.  Various types and data structures are not named generically.
++ */
++int interface_register_commands(struct command_context *ctx)
++{
++	return register_commands(ctx, NULL, interface_command_handlers);
++}
++
++static const struct command_registration jtag_command_handlers[] = {
+ 	{
+ 		.name = &quot;jtag_khz&quot;,
+ 		.handler = handle_jtag_khz_command,
+@@ -1746,6 +1761,7 @@ static const struct command_registration
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
++
+ int jtag_register_commands(struct command_context *cmd_ctx)
+ {
+ 	return register_commands(cmd_ctx, NULL, jtag_command_handlers);
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -29,6 +29,7 @@
+ #endif
+ 
+ #include &quot;openocd.h&quot;
++#include &lt;jtag/driver.h&gt;
+ #include &lt;jtag/jtag.h&gt;
+ #include &lt;helper/ioutil.h&gt;
+ #include &lt;helper/configuration.h&gt;
+@@ -207,6 +208,7 @@ struct command_context *setup_command_ha
+ 		&amp;server_register_commands,
+ 		&amp;gdb_register_commands,
+ 		&amp;log_register_commands,
++		&amp;interface_register_commands,
+ 		&amp;jtag_register_commands,
+ 		&amp;xsvf_register_commands,
+ 		&amp;svf_register_commands,
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015209.html">[Openocd-development] Fwd: usbfs not more supported by ubuntu -- W/A
+</A></li>
+	<LI>Next message: <A HREF="015213.html">[Openocd-development] [patch/rfc] split &quot;interface&quot; commands	from &quot;jtag&quot; ones
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15210">[ date ]</a>
+              <a href="thread.html#15210">[ thread ]</a>
+              <a href="subject.html#15210">[ subject ]</a>
+              <a href="author.html#15210">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

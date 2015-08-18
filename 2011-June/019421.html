@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/5] ft2232: Refactor ft2232_init_*()	into ft2232_initone()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/5%5D%20ft2232%3A%20Refactor%20ft2232_init_%2A%28%29%0A%09into%20ft2232_initone%28%29&In-Reply-To=%3C1307615136-475-2-git-send-email-peter%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019420.html">
+   <LINK REL="Next"  HREF="019440.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/5] ft2232: Refactor ft2232_init_*()	into ft2232_initone()</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/5%5D%20ft2232%3A%20Refactor%20ft2232_init_%2A%28%29%0A%09into%20ft2232_initone%28%29&In-Reply-To=%3C1307615136-475-2-git-send-email-peter%40stuge.se%3E"
+       TITLE="[Openocd-development] [PATCH 2/5] ft2232: Refactor ft2232_init_*()	into ft2232_initone()">peter at stuge.se
+       </A><BR>
+    <I>Thu Jun  9 12:25:33 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019420.html">[Openocd-development] [PATCH 1/5] ft2232: Clean up infinite loop	condition in ft2232_init()
+</A></li>
+        <LI>Next message: <A HREF="019440.html">[Openocd-development] [PATCH 2/5] ft2232: Refactor ft2232_init_*() into ft2232_initone()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19421">[ date ]</a>
+              <a href="thread.html#19421">[ thread ]</a>
+              <a href="subject.html#19421">[ subject ]</a>
+              <a href="author.html#19421">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>ft2232.c is compiled either for ftd2xx or for libftdi. The two init
+functions had slightly different prototypes, making it neccessary to
+distinguish between them not only at declaration, but also when they
+were being called.
+
+Since the code is only compiled for one library type we can homogenize
+the function parameters and contain the abstraction within a single
+ft2232_initone() function, which allows removing the CPP conditional
+in ft2232_init() that determined which function to call.
+
+ft2232_init_libftdi() took an extra channel parameter which came from
+the layout struct. layout is treated as a global variable however,
+already accessed directly both in ft2232_initone() and ft2232_init(),
+so the channel parameter is unneccessary, and can be removed without
+risk for new trouble or limitations.
+
+A context parameter that references the layout could be added if and when
+this code sees more significant cleanup in the future.
+---
+ src/jtag/drivers/ft2232.c |   24 +++++++++---------------
+ 1 files changed, 9 insertions(+), 15 deletions(-)
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 1f0269a..cb50c50 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -2115,7 +2115,8 @@ static int ft2232_execute_queue(void)
+ }
+ 
+ #if BUILD_FT2232_FTD2XX == 1
+-static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_more)
++
++static int ft2232_initone(uint16_t vid, uint16_t pid, int more, int* try_more)
+ {
+ 	FT_STATUS	status;
+ 	DWORD		deviceID;
+@@ -2290,10 +2291,9 @@ static int ft2232_purge_ftd2xx(void)
+ 	return ERROR_OK;
+ }
+ 
+-#endif /* BUILD_FT2232_FTD2XX == 1 */
++#elif BUILD_FT2232_LIBFTDI == 1
+ 
+-#if BUILD_FT2232_LIBFTDI == 1
+-static int ft2232_init_libftdi(uint16_t vid, uint16_t pid, int more, int* try_more, int channel)
++static int ft2232_initone(uint16_t vid, uint16_t pid, int more, int* try_more)
+ {
+ 	uint8_t latency_timer;
+ 
+@@ -2309,9 +2309,9 @@ static int ft2232_init_libftdi(uint16_t vid, uint16_t pid, int more, int* try_mo
+ 		return ERROR_JTAG_INIT_FAILED;
+ 
+ 	/* default to INTERFACE_A */
+-	if(channel == INTERFACE_ANY) { channel = INTERFACE_A; }
++	if(layout-&gt;channel == INTERFACE_ANY) { layout-&gt;channel = INTERFACE_A; }
+ 
+-	if (ftdi_set_interface(&amp;ftdic, channel) &lt; 0)
++	if (ftdi_set_interface(&amp;ftdic, layout-&gt;channel) &lt; 0)
+ 	{
+ 		LOG_ERROR(&quot;unable to select FT2232 channel A: %s&quot;, ftdic.error_str);
+ 		return ERROR_JTAG_INIT_FAILED;
+@@ -2376,7 +2376,7 @@ static int ft2232_purge_libftdi(void)
+ 	return ERROR_OK;
+ }
+ 
+-#endif /* BUILD_FT2232_LIBFTDI == 1 */
++#endif
+ 
+ static int ft2232_set_data_bits_low_byte( uint8_t value, uint8_t direction )
+ {
+@@ -2452,14 +2452,8 @@ static int ft2232_init(void)
+ 		int more     = ft2232_vid[i + 1] || ft2232_pid[i + 1];
+ 		int try_more = 0;
+ 
+-#if BUILD_FT2232_FTD2XX == 1
+-		retval = ft2232_init_ftd2xx(ft2232_vid[i], ft2232_pid[i],
+-				more, &amp;try_more);
+-#elif BUILD_FT2232_LIBFTDI == 1
+-		retval = ft2232_init_libftdi(ft2232_vid[i], ft2232_pid[i],
+-					     more, &amp;try_more, layout-&gt;channel);
+-#endif
+-		if (retval &gt;= 0)
++		retval = ft2232_initone(ft2232_vid[i], ft2232_pid[i], more, &amp;try_more);
++		if (ERROR_OK == retval)
+ 			break;
+ 		if (!more || !try_more)
+ 			return retval;
+-- 
+1.7.4.1.343.ga91df.dirty
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019420.html">[Openocd-development] [PATCH 1/5] ft2232: Clean up infinite loop	condition in ft2232_init()
+</A></li>
+	<LI>Next message: <A HREF="019440.html">[Openocd-development] [PATCH 2/5] ft2232: Refactor ft2232_init_*() into ft2232_initone()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19421">[ date ]</a>
+              <a href="thread.html#19421">[ thread ]</a>
+              <a href="subject.html#19421">[ subject ]</a>
+              <a href="author.html#19421">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

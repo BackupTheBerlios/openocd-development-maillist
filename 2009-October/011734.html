@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] USB bulk write failures when using	FT2232H dongle
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20USB%20bulk%20write%20failures%20when%20using%0A%09FT2232H%20dongle&In-Reply-To=%3C200910281329.24731.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011733.html">
+   <LINK REL="Next"  HREF="011735.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] USB bulk write failures when using	FT2232H dongle</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20USB%20bulk%20write%20failures%20when%20using%0A%09FT2232H%20dongle&In-Reply-To=%3C200910281329.24731.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] USB bulk write failures when using	FT2232H dongle">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Oct 28 21:29:24 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011733.html">[Openocd-development] USB bulk write failures when using	FT2232H dongle
+</A></li>
+        <LI>Next message: <A HREF="011735.html">[Openocd-development] USB bulk write failures when using	FT2232H dongle
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11734">[ date ]</a>
+              <a href="thread.html#11734">[ thread ]</a>
+              <a href="subject.html#11734">[ subject ]</a>
+              <a href="author.html#11734">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>If it fails for you with OHCI, I'd expect you have a fairly clean
+failure mode and that using a fullspeed hub won't change anything.
+
+Now, one thing that's interesting is that you seem to have gotten
+a *different* failure mode at full speed.  Suggesting there are
+two different bugs associated with (this?) FT223H support ...
+
+
+On Wednesday 28 October 2009, Dimitar Dimitrov wrote:
+&gt;<i> Open On-Chip Debugger 0.3.0-dev-00457-g512ae75 (2009-10-28-20:51)
+</I>
+Your repository has at least five commits that aren't in
+mainline  ... they might cause trouble.
+
+
+&gt;<i> $URL$
+</I>&gt;<i> For bug reports, read
+</I>&gt;<i>         <A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>
+</I>&gt;<i> User : 5 0 command.c:400 command_print(): debug_level: 3
+</I>&gt;<i> Debug: 6 0 configuration.c:83 find_file():
+</I>&gt;<i>		 found ../openocd/tcl/interface/olimex-arm-usb-tiny-h.cfg 
+</I>
+Aha!  A new adapter!  Want!
+
+ <A HREF="http://www.olimex.com/dev/arm-usb-tiny-h.html">http://www.olimex.com/dev/arm-usb-tiny-h.html</A>
+
+Not available until November; sigh.  :(
+
+Let me guess ... those extra commits are ft2232 driver
+updates to suport this!  If so, let's take a few steps
+backwards to see where the problem came in:
+
+ - Adaptive clocking ... it might be problematic.
+   Force &quot;jtag_khz 8&quot; so it behaves with the 32K clock.
+
+ - Does this work OK with the D2XX drivers?  If so, that
+   would suggest the issue is specific to libftdi, or its
+   use in this context.  (Related:  does D2XX on Windows
+   behave for you?)
+
+ - If this is really wired like a usb-tiny, except of course
+   for the adaptive clocking, try telling OpenOCD that it's
+   a Tiny not a Tiny-H.  If you see differences at full speed
+   there's something pretty odd going on...  What I'd expect to
+   see is everything working fine.  (Idealy, at both speeds.)
+
+ - You can try using an older libftdi version.  If there
+   seem to be libftdi 0.16 issues, maybe they're coupled
+   to the FT2232H changes in that version..  Related, I
+   came across some interesting libftdi patches on their
+   mailing list, and there are a few in their repository
+   already that will appear in the 0.17 code.
+
+&gt;<i> Info : 75 53 core.c:1367 jtag_interface_init(): RCLK (adaptive clock speed)
+</I>
+Do these problems show up if you don't use adaptive clocking?
+I've noticed that clocking bugs often show up with bitshift
+type symptoms, which you have aplenty (see below).
+
+
+Now as to the specific failure you saw -- and thanks for
+the detailed debug log! -- the key stuff seems to be:
+
+&gt;<i> Info : 146 569 core.c:948 jtag_examine_chain_display():
+</I>&gt;<i>	JTAG tap: at91sam9260.cpu tap/device found: 0x0792603f (mfg: 0x01f, part: 0x7926, ver: 0x0)
+</I>
+Success!! oops, maybe not so fast ...
+
+&gt;<i> Warn : 147 569 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 480 0x603100ff
+</I>&gt;<i> Warn : 148 569 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 512 0x00ff0000
+</I>&gt;<i> Warn : 149 569 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 544 0x00ff0000
+</I>&gt;<i> Warn : 150 569 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 576 0x00ff0000
+</I>&gt;<i> Warn : 151 569 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 608 0x00ff0000
+</I>
+All those should be 0x000000ff ... looks like an 0x6031 got
+inserted at the end of a USB packet, which threw off the rest
+of that scan by 16 bits.
+
+Then it retried later and things got even worse:
+
+&gt;<i> Warn : 245 1093 core.c:948 jtag_examine_chain_display():
+</I>&gt;<i>	JTAG tap: at91sam9260.cpu       UNEXPECTED: 0x00000000 (mfg: 0x000, part: 0x0000, ver: 0x0)
+</I>&gt;<i> Error: 246 1093 core.c:948 jtag_examine_chain_display():
+</I>&gt;<i>	JTAG tap: at91sam9260.cpu  expected 1 of 1: 0x0792603f (mfg: 0x01f, part: 0x7926, ver: 0x0)
+</I>&gt;<i> Warn : 247 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 1 0x301f8000
+</I>&gt;<i> Warn : 248 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 33 0x007f83c9
+</I>&gt;<i> Warn : 249 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 65 0x007f8000
+</I>&gt;<i> Warn : 250 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 97 0x007f8000
+</I>
+Looks like maybe sixteen zero bits got inserted at the *beginning* of a
+packet, which threw everything off ... the 0x007f8000 being the expected
+value of 0x000000ff shifted right by one bit, 301f8 being 603f0 shifted
+right by one bit, etc.  (The first zero byte got consumed, it's what a
+BYPASS instruction emits.  Then there were no more taps listed, so all
+the other values are shifted by 15 bits.)
+
+
+&gt;<i> Warn : 251 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 129 0x007f8000
+</I>&gt;<i> Warn : 252 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 161 0x007f8000
+</I>&gt;<i> Warn : 253 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 193 0x007f8000
+</I>&gt;<i> Warn : 254 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 225 0x007f8000
+</I>&gt;<i> Warn : 255 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 257 0x007f8000
+</I>&gt;<i> Warn : 256 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 289 0x007f8000
+</I>&gt;<i> Warn : 257 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 321 0x007f8000
+</I>&gt;<i> Warn : 258 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 353 0x007f8000
+</I>&gt;<i> Warn : 259 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 385 0x007f8000
+</I>&gt;<i> Warn : 260 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 417 0x007f8000
+</I>&gt;<i> Warn : 261 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 449 0x007f8000
+</I>&gt;<i> Warn : 262 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 481 0x807f8000
+</I>&gt;<i> Warn : 263 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 513 0x80003018
+</I>
+And another hiccup here:  more data stuffed into the bitstream.
+
+&gt;<i> Warn : 264 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 545 0x8000007f
+</I>&gt;<i> Warn : 265 1093 core.c:986 jtag_examine_chain_end(): Unexpected idcode after end of chain: 577 0x8000007f
+</I>
+Notice 0x8000007f is the expected 0x000000ff bitshifted by one bit again...
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011733.html">[Openocd-development] USB bulk write failures when using	FT2232H dongle
+</A></li>
+	<LI>Next message: <A HREF="011735.html">[Openocd-development] USB bulk write failures when using	FT2232H dongle
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11734">[ date ]</a>
+              <a href="thread.html#11734">[ thread ]</a>
+              <a href="subject.html#11734">[ subject ]</a>
+              <a href="author.html#11734">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] mem2array/array2mem fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20mem2array/array2mem%20fixes&In-Reply-To=%3Cc09652430905150252re633b43lc69fa88e190c7e24%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006575.html">
+   <LINK REL="Next"  HREF="006658.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] mem2array/array2mem fixes</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20mem2array/array2mem%20fixes&In-Reply-To=%3Cc09652430905150252re633b43lc69fa88e190c7e24%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] mem2array/array2mem fixes">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri May 15 11:52:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006575.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+        <LI>Next message: <A HREF="006658.html">[Openocd-development] mem2array/array2mem fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6577">[ date ]</a>
+              <a href="thread.html#6577">[ thread ]</a>
+              <a href="subject.html#6577">[ subject ]</a>
+              <a href="author.html#6577">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Please test this patch to see if it fixes mem2array/array2mem.
+
+Perhaps you would consider adding a test to src/target/test/selftest.cfg ?
+
+
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://consulting.zylin.com">http://consulting.zylin.com</A>
+-------------- next part --------------
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/target.c
+===================================================================
+--- src/target/target.c	(revision 1792)
++++ src/target/target.c	(working copy)
+@@ -1285,8 +1285,8 @@
+ 
+ 	/* script procedures */
+ 	register_command(cmd_ctx, NULL, &quot;profile&quot;, handle_profile_command, COMMAND_EXEC, &quot;profiling samples the CPU PC&quot;);
+-	register_jim(cmd_ctx, &quot;ocd_mem2array&quot;, jim_mem2array, &quot;read memory and return as a TCL array for script processing&quot;);
+-	register_jim(cmd_ctx, &quot;ocd_array2mem&quot;, jim_array2mem, &quot;convert a TCL array to memory locations and write the values&quot;);
++	register_jim(cmd_ctx, &quot;ocd_mem2array&quot;, jim_mem2array, &quot;read memory and return as a TCL array for script processing &lt;ARRAYNAME&gt; &lt;WIDTH=32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
++	register_jim(cmd_ctx, &quot;ocd_array2mem&quot;, jim_array2mem, &quot;convert a TCL array to memory locations and write the values  &lt;ARRAYNAME&gt; &lt;WIDTH=32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
+ 
+ 	register_command(cmd_ctx, NULL, &quot;fast_load_image&quot;, handle_fast_load_image_command, COMMAND_ANY,
+ 			&quot;same args as load_image, image stored in memory - mainly for profiling purposes&quot;);
+@@ -2721,7 +2721,7 @@
+ 		return JIM_ERR;
+ 	}
+ 
+-	return 	target_mem2array(interp, target, argc,argv);
++	return 	target_mem2array(interp, target, argc-1, argv+1);
+ }
+ 
+ static int target_mem2array(Jim_Interp *interp, target_t *target, int argc, Jim_Obj *const *argv)
+@@ -2742,25 +2742,25 @@
+ 	 * argv[3] = memory address
+ 	 * argv[4] = count of times to read
+ 	 */
+-	if (argc != 5) {
++	if (argc != 4) {
+ 		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
+ 		return JIM_ERR;
+ 	}
+-	varname = Jim_GetString(argv[1], &amp;len);
++	varname = Jim_GetString(argv[0], &amp;len);
+ 	/* given &quot;foo&quot; get space for worse case &quot;foo(%d)&quot; .. add 20 */
+ 
+-	e = Jim_GetLong(interp, argv[2], &amp;l);
++	e = Jim_GetLong(interp, argv[1], &amp;l);
+ 	width = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+ 
+-	e = Jim_GetLong(interp, argv[3], &amp;l);
++	e = Jim_GetLong(interp, argv[2], &amp;l);
+ 	addr = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+-	e = Jim_GetLong(interp, argv[4], &amp;l);
++	e = Jim_GetLong(interp, argv[3], &amp;l);
+ 	len = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+@@ -2903,7 +2903,7 @@
+ 		return JIM_ERR;
+ 	}
+ 
+-	return target_array2mem( interp,target, argc, argv );
++	return target_array2mem( interp,target, argc-1, argv+1 );
+ }
+ 
+ static int target_array2mem(Jim_Interp *interp, target_t *target, int argc, Jim_Obj *const *argv)
+@@ -2924,25 +2924,25 @@
+ 	 * argv[3] = memory address
+ 	 * argv[4] = count to write
+ 	 */
+-	if (argc != 5) {
++	if (argc != 4) {
+ 		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
+ 		return JIM_ERR;
+ 	}
+-	varname = Jim_GetString(argv[1], &amp;len);
++	varname = Jim_GetString(argv[0], &amp;len);
+ 	/* given &quot;foo&quot; get space for worse case &quot;foo(%d)&quot; .. add 20 */
+ 
+-	e = Jim_GetLong(interp, argv[2], &amp;l);
++	e = Jim_GetLong(interp, argv[1], &amp;l);
+ 	width = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+ 
+-	e = Jim_GetLong(interp, argv[3], &amp;l);
++	e = Jim_GetLong(interp, argv[2], &amp;l);
+ 	addr = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+-	e = Jim_GetLong(interp, argv[4], &amp;l);
++	e = Jim_GetLong(interp, argv[3], &amp;l);
+ 	len = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006575.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+	<LI>Next message: <A HREF="006658.html">[Openocd-development] mem2array/array2mem fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6577">[ date ]</a>
+              <a href="thread.html#6577">[ thread ]</a>
+              <a href="subject.html#6577">[ subject ]</a>
+              <a href="author.html#6577">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,267 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 06/20] flash: use register_commands()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2006/20%5D%20flash%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100314-14391-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012816.html">
+   <LINK REL="Next"  HREF="012845.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 06/20] flash: use register_commands()</H1>
+    <B>zw at superlucidity.net</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2006/20%5D%20flash%3A%20use%20register_commands%28%29&In-Reply-To=%3C1259100314-14391-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 06/20] flash: use register_commands()">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Nov 24 23:05:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012816.html">[Openocd-development] [PATCH 06/11] jlink: use register_commands()
+</A></li>
+        <LI>Next message: <A HREF="012845.html">[Openocd-development] [PATCH 9/9] pld: use static registration	instead of callback
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12823">[ date ]</a>
+              <a href="thread.html#12823">[ thread ]</a>
+              <a href="subject.html#12823">[ subject ]</a>
+              <a href="author.html#12823">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+
+Eliminates 'flash_cmd' global variable.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/flash.c |  167 +++++++++++++++++++++++++++++++++++++----------------
+ 1 files changed, 117 insertions(+), 50 deletions(-)
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index 7bc74ab..de95b62 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -78,7 +78,6 @@ struct flash_driver *flash_drivers[] = {
+ };
+ 
+ struct flash_bank *flash_banks;
+-static 	struct command *flash_cmd;
+ 
+ /* wafer thin wrapper for invoking the flash driver */
+ static int flash_driver_write(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
+@@ -1272,64 +1271,132 @@ int default_flash_blank_check(struct flash_bank *bank)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration flash_exec_command_handlers[] = {
++	{
++		.name = &quot;probe&quot;,
++		.handler = &amp;handle_flash_probe_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt;&quot;,
++		.help = &quot;identify flash bank&quot;,
++	},
++	{
++		.name = &quot;info&quot;,
++		.handler = &amp;handle_flash_info_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt;&quot;,
++		.help = &quot;print bank information&quot;,
++	},
++	{
++		.name = &quot;erase_check&quot;,
++		.handler = &amp;handle_flash_erase_check_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt;&quot;,
++		.help = &quot;check erase state of sectors&quot;,
++	},
++	{
++		.name = &quot;protect_check&quot;,
++		.handler = &amp;handle_flash_protect_check_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt;&quot;,
++		.help = &quot;check protection state of sectors&quot;,
++	},
++	{
++		.name = &quot;erase_sector&quot;,
++		.handler = &amp;handle_flash_erase_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;first&gt; &lt;last&gt;&quot;,
++		.help = &quot;erase sectors&quot;,
++	},
++	{
++		.name = &quot;erase_address&quot;,
++		.handler = &amp;handle_flash_erase_address_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;address&gt; &lt;length&gt;&quot;,
++		.help = &quot;erase address range&quot;,
++
++	},
++	{
++		.name = &quot;fillw&quot;,
++		.handler = &amp;handle_flash_fill_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;address&gt; &lt;word_pattern&gt; &lt;count&gt;&quot;,
++		.help = &quot;fill with pattern (no autoerase)&quot;,
++	},
++	{
++		.name = &quot;fillh&quot;,
++		.handler = &amp;handle_flash_fill_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;address&gt; &lt;halfword_pattern&gt; &lt;count&gt;&quot;,
++		.help = &quot;fill with pattern&quot;,
++	},
++	{
++		.name = &quot;fillb&quot;,
++		.handler = &amp;handle_flash_fill_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;address&gt; &lt;byte_pattern&gt; &lt;count&gt;&quot;,
++		.help = &quot;fill with pattern&quot;,
++
++	},
++	{
++		.name = &quot;write_bank&quot;,
++		.handler = &amp;handle_flash_write_bank_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;file&gt; &lt;offset&gt;&quot;,
++		.help = &quot;write binary data&quot;,
++	},
++	{
++		.name = &quot;write_image&quot;,
++		.handler = &amp;handle_flash_write_image_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; [erase] [unlock] &lt;file&gt; [offset] [type]&quot;,
++		.help = &quot;write an image to flash&quot;
++	},
++	{
++		.name = &quot;protect&quot;,
++		.handler = &amp;handle_flash_protect_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;&lt;bank&gt; &lt;first&gt; &lt;last&gt; &lt;on | off&gt;&quot;,
++		.help = &quot;set protection of sectors&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ int flash_init_drivers(struct command_context *cmd_ctx)
+ {
+ 	register_jim(cmd_ctx, &quot;ocd_flash_banks&quot;,
+ 			jim_flash_banks, &quot;return information about the flash banks&quot;);
+-
+ 	if (!flash_banks)
+ 		return ERROR_OK;
+ 
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;info&quot;,
+-			handle_flash_info_command, COMMAND_EXEC,
+-			&quot;print info about flash bank &lt;num&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;probe&quot;,
+-			handle_flash_probe_command, COMMAND_EXEC,
+-			&quot;identify flash bank &lt;num&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;erase_check&quot;,
+-			handle_flash_erase_check_command, COMMAND_EXEC,
+-			&quot;check erase state of sectors in flash bank &lt;num&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;protect_check&quot;,
+-			handle_flash_protect_check_command, COMMAND_EXEC,
+-			&quot;check protection state of sectors in flash bank &lt;num&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;erase_sector&quot;,
+-			handle_flash_erase_command, COMMAND_EXEC,
+-			&quot;erase sectors at &lt;bank&gt; &lt;first&gt; &lt;last&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;erase_address&quot;,
+-			handle_flash_erase_address_command, COMMAND_EXEC,
+-			&quot;erase address range &lt;address&gt; &lt;length&gt;&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;fillw&quot;,
+-			handle_flash_fill_command, COMMAND_EXEC,
+-			&quot;fill with pattern (no autoerase) &lt;address&gt; &lt;word_pattern&gt; &lt;count&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;fillh&quot;,
+-			handle_flash_fill_command, COMMAND_EXEC,
+-			&quot;fill with pattern &lt;address&gt; &lt;halfword_pattern&gt; &lt;count&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;fillb&quot;,
+-			handle_flash_fill_command, COMMAND_EXEC,
+-			&quot;fill with pattern &lt;address&gt; &lt;byte_pattern&gt; &lt;count&gt;&quot;);
+-
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;write_bank&quot;,
+-			handle_flash_write_bank_command, COMMAND_EXEC,
+-			&quot;write binary data to &lt;bank&gt; &lt;file&gt; &lt;offset&gt;&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;write_image&quot;,
+-			handle_flash_write_image_command, COMMAND_EXEC,
+-			&quot;write_image [erase] [unlock] &lt;file&gt; [offset] [type]&quot;);
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;protect&quot;,
+-			handle_flash_protect_command, COMMAND_EXEC,
+-			&quot;set protection of sectors at &lt;bank&gt; &lt;first&gt; &lt;last&gt; &lt;on | off&gt;&quot;);
+-
+-	return ERROR_OK;
++	struct command *parent = command_find_in_context(cmd_ctx, &quot;flash&quot;);
++	return register_commands(cmd_ctx, parent, flash_exec_command_handlers);
+ }
+ 
++
++static const struct command_registration flash_config_command_handlers[] = {
++	{
++		.name = &quot;bank&quot;,
++		.handler = &amp;handle_flash_bank_command,
++		.mode = COMMAND_CONFIG,
++		.usage = &quot;&lt;name&gt; &lt;driver&gt; &lt;base&gt; &lt;size&gt; &quot;
++			&quot;&lt;chip_width&gt; &lt;bus_width&gt; &lt;target&gt; &quot;
++			&quot;[driver_options ...]&quot;,
++		.help = &quot;Define a new bank with the given name, &quot;
++			&quot;using the specified NOR flash driver.&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++static const struct command_registration flash_command_handlers[] = {
++	{
++		.name = &quot;flash&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;NOR flash command group&quot;,
++		.chain = flash_config_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ int flash_register_commands(struct command_context *cmd_ctx)
+ {
+-	flash_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;flash&quot;,
+-			NULL, COMMAND_ANY, NULL);
+-
+-	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;bank&quot;,
+-			handle_flash_bank_command, COMMAND_CONFIG,
+-			&quot;flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt; &quot;
+-			&quot;&lt;chip_width&gt; &lt;bus_width&gt; &lt;target&gt; [driver_options ...]&quot;);
+-	return ERROR_OK;
++	return register_commands(cmd_ctx, NULL, flash_command_handlers);
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012816.html">[Openocd-development] [PATCH 06/11] jlink: use register_commands()
+</A></li>
+	<LI>Next message: <A HREF="012845.html">[Openocd-development] [PATCH 9/9] pld: use static registration	instead of callback
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12823">[ date ]</a>
+              <a href="thread.html#12823">[ thread ]</a>
+              <a href="subject.html#12823">[ subject ]</a>
+              <a href="author.html#12823">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

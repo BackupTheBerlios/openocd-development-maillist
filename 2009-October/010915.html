@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Updated%20omap3530.cfg%0A%20with%09improved%20reset%20handling&In-Reply-To=%3C4AC44797.5000804%40googlemail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010914.html">
+   <LINK REL="Next"  HREF="010916.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling</H1>
+    <B>Dirk Behme</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Updated%20omap3530.cfg%0A%20with%09improved%20reset%20handling&In-Reply-To=%3C4AC44797.5000804%40googlemail.com%3E"
+       TITLE="[Openocd-development] [PATCH] Updated omap3530.cfg with	improved reset handling">dirk.behme at googlemail.com
+       </A><BR>
+    <I>Thu Oct  1 08:09:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010914.html">[Openocd-development] [PATCH] Updated omap3530.cfg with improved reset handling
+</A></li>
+        <LI>Next message: <A HREF="010916.html">[Openocd-development] [PATCH] Cortex A8 reset handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10915">[ date ]</a>
+              <a href="thread.html#10915">[ thread ]</a>
+              <a href="subject.html#10915">[ subject ]</a>
+              <a href="author.html#10915">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Magnus Lundin wrote:
+&gt;<i> David Brownell wrote:
+</I>&gt;&gt;<i> I think that's not quite following the model which the code in
+</I>&gt;&gt;<i> the src/helper/startup.tcl file is expecting ... a closer match
+</I>&gt;&gt;<i> would use reset-assert-pre (or maybe &quot;post&quot;) not reset-start.
+</I>&gt;&gt;<i>   
+</I>&gt;<i> I have done some more testing and trying to understand the reset 
+</I>&gt;<i> handling in OpenOCD.
+</I>&gt;<i> This is my understanding of the sequence
+</I>&gt;<i> -------------
+</I>&gt;<i> reset-start
+</I>&gt;<i> 
+</I>&gt;<i> jtag-reset
+</I>&gt;<i>     Here the  omap3.dap tap is marked as disabled
+</I>&gt;<i> 
+</I>&gt;<i> reset-assert-pre
+</I>&gt;<i> 
+</I>&gt;<i> target reset assert
+</I>&gt;<i>    This is only called if the tap is enabled
+</I>&gt;<i>    For CortexA8 we want to set target state to reset and invalidate all 
+</I>&gt;<i> cached registers
+</I>&gt;<i> 
+</I>&gt;<i> reset assert post
+</I>&gt;<i> 
+</I>&gt;<i> reset-deassert-pre
+</I>&gt;<i> 
+</I>&gt;<i> target reset deassert
+</I>&gt;<i>    This is only called if the tap is enabled
+</I>&gt;<i>    For CortexA8 we want to halt the target for reset halt, this needs  
+</I>&gt;<i> the tap to be enabled
+</I>&gt;<i> 
+</I>&gt;<i> reset deassert post
+</I>&gt;<i> 
+</I>&gt;<i> reset end
+</I>&gt;<i> ------------------
+</I>&gt;<i> My interpretation is:
+</I>&gt;<i> 
+</I>&gt;<i> We must write the reset command to PRM_RSTCTRL before the jtag reset stuff.
+</I>&gt;<i> Otherwise the tap will be marked as disabled, even if is still
+</I>&gt;<i> enabled, since the reset has not yet happened, and the mww is impossible.
+</I>&gt;<i> ( It actually kills OpenOCD with
+</I>&gt;<i> openocd: driver.c:243: interface_jtag_add_dr_scan: Assertion `field == 
+</I>&gt;<i> out_fields + scan-&gt;num_fields' failed. )
+</I>&gt;<i> 
+</I>&gt;<i> The omap3_debugint must be called after the jtag reset stuff and before 
+</I>&gt;<i> target reset assert
+</I>&gt;<i> Otherwise the CortexA8 reset assert will not be called since the tap is 
+</I>&gt;<i> disabled
+</I>&gt;<i> 
+</I>&gt;<i> This gives the following reset event configurationb:
+</I>&gt;<i> omap3.cpu configure -event reset-start &quot;omap3.cpu mww $PRM_RSTCTRL 2&quot;
+</I>&gt;<i> omap3.cpu configure -event reset-assert-pre &quot;omap3_dbginit&quot;
+</I>
+I updated and tested your patch with this (see attachment), seems to work.
+
+Cheers
+
+Dirk
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: omap3530.cfg_v3.patch
+Type: text/x-patch
+Size: 704 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20091001/92b8da3e/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20091001/92b8da3e/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010914.html">[Openocd-development] [PATCH] Updated omap3530.cfg with improved reset handling
+</A></li>
+	<LI>Next message: <A HREF="010916.html">[Openocd-development] [PATCH] Cortex A8 reset handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10915">[ date ]</a>
+              <a href="thread.html#10915">[ thread ]</a>
+              <a href="subject.html#10915">[ subject ]</a>
+              <a href="author.html#10915">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

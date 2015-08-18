@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/7] pld: factor init to 'pld init'
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/7%5D%20pld%3A%20factor%20init%20to%20%27pld%20init%27&In-Reply-To=%3C1259701278-25425-2-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013297.html">
+   <LINK REL="Next"  HREF="013167.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/7] pld: factor init to 'pld init'</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/7%5D%20pld%3A%20factor%20init%20to%20%27pld%20init%27&In-Reply-To=%3C1259701278-25425-2-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 1/7] pld: factor init to 'pld init'">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Dec  1 22:01:12 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013297.html">[Openocd-development] [PUSHED 7/7] split the 'init' command
+</A></li>
+        <LI>Next message: <A HREF="013167.html">[Openocd-development] [PATCH 2/7] nand: factor init to 'nand init'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13170">[ date ]</a>
+              <a href="thread.html#13170">[ thread ]</a>
+              <a href="subject.html#13170">[ subject ]</a>
+              <a href="author.html#13170">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Split PLD initialization into 'pld init', which gets called from 'init'.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/openocd.c |    5 +++--
+ src/pld/pld.c |   23 +++++++++++++++++++++++
+ 2 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 44e0292..777e630 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -147,9 +147,10 @@ COMMAND_HANDLER(handle_init_command)
+ 		return ERROR_FAIL;
+ 	LOG_DEBUG(&quot;NAND init complete&quot;);
+ 
+-	if (pld_init(CMD_CTX) != ERROR_OK)
++	command_context_mode(CMD_CTX, COMMAND_CONFIG);
++	if (command_run_line(CMD_CTX, &quot;pld init&quot;) != ERROR_OK)
+ 		return ERROR_FAIL;
+-	LOG_DEBUG(&quot;pld init complete&quot;);
++	command_context_mode(CMD_CTX, COMMAND_EXEC);
+ 
+ 	/* initialize telnet subsystem */
+ 	gdb_target_add_all(all_targets);
+diff --git a/src/pld/pld.c b/src/pld/pld.c
+index 24afd07..df7ac0d 100644
+--- a/src/pld/pld.c
++++ b/src/pld/pld.c
+@@ -213,6 +213,23 @@ int pld_init(struct command_context *cmd_ctx)
+ 	return register_commands(cmd_ctx, parent, pld_exec_command_handlers);
+ }
+ 
++COMMAND_HANDLER(handle_pld_init_command)
++{
++	if (CMD_ARGC != 0)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	static bool pld_initialized = false;
++	if (pld_initialized)
++	{
++		LOG_INFO(&quot;'pld init' has already been called&quot;);
++		return ERROR_OK;
++	}
++	pld_initialized = true;
++
++	LOG_DEBUG(&quot;Initializing PLDs...&quot;);
++	return pld_init(CMD_CTX);
++}
++
+ static const struct command_registration pld_config_command_handlers[] = {
+ 	{
+ 		.name = &quot;device&quot;,
+@@ -221,6 +238,12 @@ static const struct command_registration pld_config_command_handlers[] = {
+ 		.help = &quot;configure a PLD device&quot;,
+ 		.usage = &quot;&lt;driver&gt; ...&quot;,
+ 	},
++	{
++		.name = &quot;init&quot;,
++		.mode = COMMAND_CONFIG,
++		.handler = &amp;handle_pld_init_command,
++		.help = &quot;initialize PLD devices&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ static const struct command_registration pld_command_handler[] = {
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013297.html">[Openocd-development] [PUSHED 7/7] split the 'init' command
+</A></li>
+	<LI>Next message: <A HREF="013167.html">[Openocd-development] [PATCH 2/7] nand: factor init to 'nand init'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13170">[ date ]</a>
+              <a href="thread.html#13170">[ thread ]</a>
+              <a href="subject.html#13170">[ subject ]</a>
+              <a href="author.html#13170">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

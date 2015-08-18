@@ -1,0 +1,365 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtag &quot;setup&quot; event;	DaVinci ICEpick updates
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%20%22setup%22%20event%3B%0A%09DaVinci%20ICEpick%20updates&In-Reply-To=%3C200910031945.37030.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010940.html">
+   <LINK REL="Next"  HREF="010934.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtag &quot;setup&quot; event;	DaVinci ICEpick updates</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%20%22setup%22%20event%3B%0A%09DaVinci%20ICEpick%20updates&In-Reply-To=%3C200910031945.37030.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH] jtag &quot;setup&quot; event;	DaVinci ICEpick updates">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Oct  4 04:45:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010940.html">[Openocd-development] NEWS file for 0.3.x
+</A></li>
+        <LI>Next message: <A HREF="010934.html">[Openocd-development] need help with config file
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10929">[ date ]</a>
+              <a href="thread.html#10929">[ thread ]</a>
+              <a href="subject.html#10929">[ subject ]</a>
+              <a href="author.html#10929">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add a new &quot;jtag-setup&quot; event; use for better DaVinci ICEpick support.
+
+The model is that this fires after scanchain verification, when it's
+safe to call &quot;jtag tapenable $TAPNAME&quot;.  So it will fire as part of
+non-error paths of &quot;init&quot; and &quot;reset&quot; command processing.  However it
+will *NOT* trigger during &quot;jtag_reset&quot; processing, which skips all
+scan chain verification, or after verification errors.
+
+ALSO:  unify &quot;enum jtag_event&quot; scripted event notifications; and remove
+JTAG_TAP_EVENT_POST_RESET, we already have JTAG_TRST_ASSERTED which
+means the same thing.
+---
+NOTE:  the dm355 now makes a good example of how an OMAP3 might
+get setup ... since I changed the default EMU0/EMU1 settings to
+match TI's defaults, and thus how OMAP3 behaves.  (Though OMAP3
+won't set its ETB up like this.  Not that we have support for
+ETM/ETB through ADIv5 yet!)
+
+Before this merges, I'll verify this behaves on dm365 and dm6446
+boards too ... but I can't imagine any ICEpick problems there.
+Those boards will need some &quot;there's no SRST here!&quot; solution that
+Beagle boards also need.
+
+ doc/openocd.texi         |   28 ++++++++++++++++++++++------
+ src/jtag/core.c          |   15 ++++++++++++---
+ src/jtag/jtag.h          |   33 +++++++++++++++++++++------------
+ src/jtag/tcl.c           |   12 ++++++------
+ tcl/target/ti_dm355.cfg  |    7 +++++--
+ tcl/target/ti_dm365.cfg  |    3 +++
+ tcl/target/ti_dm6446.cfg |    4 ++++
+ 7 files changed, 73 insertions(+), 29 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2428,12 +2428,18 @@ The TAP events currently defined are:
+ @itemize @bullet
+ @item @b{post-reset}
+ @* The TAP has just completed a JTAG reset.
+-For the first such handler called, the tap is still
+-in the JTAG @sc{reset} state.
++The tap may still be in the JTAG @sc{reset} state.
++Handlers for these events might perform initialization sequences
++such as issuing TCK cycles, TMS sequences to ensure
++exit from the ARM SWD mode, and more.
++
+ Because the scan chain has not yet been verified, handlers for these events
+ @emph{should not issue commands which scan the JTAG IR or DR registers}
+ of any particular target.
+ @b{NOTE:} As this is written (September 2009), nothing prevents such access.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> @b{setup}
++@* The scan chain has been reset and verified.
++This handler may enable TAPs as needed.
+ @item @b{tap-disable}
+ @* The TAP needs to be disabled.  This handler should
+ implement @command{jtag tapdisable}
+@@ -2450,7 +2456,7 @@ contents to be accurate), you might:
+ 
+ @example
+ jtag configure CHIP.jrc -event post-reset @{
+-  echo &quot;Reset done&quot;
++  echo &quot;JTAG Reset done&quot;
+   ... non-scan jtag operations to be done after reset
+ @}
+ @end example
+@@ -2493,20 +2499,30 @@ does include a kind of JTAG router funct
+ In OpenOCD, tap enabling/disabling is invoked by the Tcl commands
+ shown below, and is implemented using TAP event handlers.
+ So for example, when defining a TAP for a CPU connected to
+-a JTAG router, you should define TAP event handlers using
++a JTAG router, your @file{target.cfg} file
++should define TAP event handlers using
+ code that looks something like this:
+ 
+ @example
+ jtag configure CHIP.cpu -event tap-enable @{
+-  echo &quot;Enabling CPU TAP&quot;
+   ... jtag operations using CHIP.jrc
+ @}
+ jtag configure CHIP.cpu -event tap-disable @{
+-  echo &quot;Disabling CPU TAP&quot;
+   ... jtag operations using CHIP.jrc
+ @}
+ @end example
+ 
++Then you might want that CPU's TAP enabled almost all the time:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at example</A>
++jtag configure $CHIP.jrc -event setup &quot;jtag tapenable $CHIP.cpu&quot;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> example
++
++Note how that particular setup event handler declaration
++uses quotes to evaluate @code{$CHIP} when the event is configured.
++Using brackets @{ @} would cause it to be evaluated later,
++at runtime, when it might have a different value.
++
+ @deffn Command {jtag tapdisable} dotted.name
+ If necessary, disables the tap
+ by sending it a @option{tap-disable} event.
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -61,8 +61,8 @@ static int jtag_error = ERROR_OK;
+ static const char *jtag_event_strings[] =
+ {
+ 	[JTAG_TRST_ASSERTED] = &quot;TAP reset&quot;,
++	[JTAG_TAP_EVENT_SETUP] = &quot;TAP setup&quot;,
+ 	[JTAG_TAP_EVENT_ENABLE] = &quot;TAP enabled&quot;,
+-	[JTAG_TAP_EVENT_POST_RESET] = &quot;TAP post reset&quot;,
+ 	[JTAG_TAP_EVENT_DISABLE] = &quot;TAP disabled&quot;,
+ };
+ 
+@@ -489,7 +489,7 @@ void jtag_add_tlr(void)
+ 
+ 	/* NOTE: order here matches TRST path in jtag_add_reset() */
+ 	jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+-	jtag_notify_reset();
++	jtag_notify_event(JTAG_TRST_ASSERTED);
+ }
+ 
+ void jtag_add_pathmove(int num_states, const tap_state_t *path)
+@@ -704,7 +704,7 @@ void jtag_add_reset(int req_tlr_or_trst,
+ 			 * sequence must match jtag_add_tlr().
+ 			 */
+ 			jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+-			jtag_notify_reset();
++			jtag_notify_event(JTAG_TRST_ASSERTED);
+ 		}
+ 	}
+ }
+@@ -1232,6 +1232,7 @@ static int jtag_init_inner(struct comman
+ {
+ 	jtag_tap_t *tap;
+ 	int retval;
++	bool issue_setup = true;
+ 
+ 	LOG_DEBUG(&quot;Init JTAG chain&quot;);
+ 
+@@ -1249,13 +1250,21 @@ static int jtag_init_inner(struct comman
+ 	if (jtag_examine_chain() != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;Trying to use configured scan chain anyway...&quot;);
++		issue_setup = false;
+ 	}
+ 
+ 	if (jtag_validate_ircapture() != ERROR_OK)
+ 	{
+ 		LOG_WARNING(&quot;Errors during IR capture, continuing anyway...&quot;);
++		issue_setup = false;
+ 	}
+ 
++	if (issue_setup)
++		jtag_notify_event(JTAG_TAP_EVENT_SETUP);
++	else
++		LOG_WARNING(&quot;Bypassing JTAG setup events due to errors&quot;);
++
++
+ 	return ERROR_OK;
+ }
+ 
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -192,23 +192,32 @@ extern unsigned jtag_tap_count(void);
+ 
+ 
+ /*
+- * There are three cases when JTAG_TRST_ASSERTED callback is invoked. The
+- * event is invoked *after* TRST is asserted(or queued rather). It is illegal
+- * to communicate with the JTAG interface during the callback(as there is
+- * currently a queue being built).
++ * - TRST_ASSERTED triggers two sets of callbacks, after operations to
++ *   reset the scan chain -- via TMS+TCK signaling, or deasserting the
++ *   nTRST signal -- are queued:
+  *
+- * - TMS reset
+- * - SRST pulls TRST
+- * - TRST asserted
++ *    + Callbacks in C code fire first, patching internal state
++ *    + Then post-reset event scripts fire ... activating JTAG circuits
++ *      via TCK cycles, exiting SWD mode via TMS sequences, etc
+  *
+- * TAP activation/deactivation is currently implemented outside the core
+- * using scripted code that understands the specific router type.
++ *   During those callbacks, scan chain contents have not been validated.
++ *   JTAG operations that address a specific TAP (primarily DR/IR scans)
++ *   must *not* be queued.
++ *
++ * - TAP_EVENT_SETUP is reported after TRST_ASSERTED, and after the scan
++ *   chain has been validated.  JTAG operations including scans that
++ *   target specific TAPs may be performed.
++ *
++ * - TAP_EVENT_ENABLE and TAP_EVENT_DISABLE implement TAP activation and
++ *   deactivation outside the core using scripted code that understands
++ *   the specific JTAG router type.  They might be triggered indirectly
++ *   from EVENT_SETUP operations.
+  */
+ enum jtag_event {
+ 	JTAG_TRST_ASSERTED,
++	JTAG_TAP_EVENT_SETUP,
+ 	JTAG_TAP_EVENT_ENABLE,
+ 	JTAG_TAP_EVENT_DISABLE,
+-	JTAG_TAP_EVENT_POST_RESET,
+ };
+ 
+ struct jtag_tap_event_action_s
+@@ -643,8 +652,8 @@ extern void jtag_execute_queue_noclear(v
+ /// @returns the number of times the scan queue has been flushed
+ int jtag_get_flush_queue_count(void);
+ 
+-/// Notify all TAP's about a TLR reset
+-void jtag_notify_reset(void);
++/// Report Tcl event to all TAPs
++void jtag_notify_event(enum jtag_event);
+ 
+ 
+ /* can be implemented by hw + sw */
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -41,7 +41,8 @@
+ #endif
+ 
+ static const Jim_Nvp nvp_jtag_tap_event[] = {
+-	{ .value = JTAG_TAP_EVENT_POST_RESET,   .name = &quot;post-reset&quot; },
++	{ .value = JTAG_TRST_ASSERTED,		.name = &quot;post-reset&quot; },
++	{ .value = JTAG_TAP_EVENT_SETUP,	.name = &quot;setup&quot; },
+ 	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
+ 	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
+ 
+@@ -373,7 +374,7 @@ static void jtag_tap_handle_event(jtag_t
+ 
+ 	for (jteap = tap-&gt;event_action; jteap != NULL; jteap = jteap-&gt;next) {
+ 		if (jteap-&gt;event == e) {
+-			LOG_DEBUG(&quot;JTAG tap: %s event: %d (%s) action: %s\n&quot;,
++			LOG_DEBUG(&quot;JTAG tap: %s event: %d (%s)\n\taction: %s&quot;,
+ 					tap-&gt;dotted_name,
+ 					e,
+ 					Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name,
+@@ -586,13 +587,12 @@ static int jim_jtag_command(Jim_Interp *
+ }
+ 
+ 
+-void jtag_notify_reset(void)
++void jtag_notify_event(enum jtag_event event)
+ {
+ 	jtag_tap_t *tap;
++
+ 	for (tap = jtag_all_taps(); tap; tap = tap-&gt;next_tap)
+-	{
+-		jtag_tap_handle_event(tap, JTAG_TAP_EVENT_POST_RESET);
+-	}
++		jtag_tap_handle_event(tap, event);
+ }
+ 
+ 
+--- a/tcl/target/ti_dm355.cfg
++++ b/tcl/target/ti_dm355.cfg
+@@ -9,11 +9,11 @@ if { [info exists CHIPNAME] } {
+ 
+ # TI boards default to EMU0/EMU1 *high* -- ARM and ETB are *disabled*
+ # after JTAG reset until ICEpick is used to route them in.
+-#set EMU01 &quot;-disable&quot;
++set EMU01 &quot;-disable&quot;
+ 
+ # With EMU0/EMU1 jumpered *low* ARM and ETB are *enabled* without
+ # needing any ICEpick interaction.
+-set EMU01 &quot;-enable&quot;
++#set EMU01 &quot;-enable&quot;
+ 
+ source [find target/icepick.cfg]
+ 
+@@ -50,6 +50,9 @@ if { [info exists JRC_TAPID ] } {
+ }
+ jtag newtap $_CHIPNAME jrc -irlen 6 -irmask 0x3f -expected-id $_JRC_TAPID
+ 
++jtag configure $_CHIPNAME.jrc -event setup \
++	&quot;jtag tapenable $_CHIPNAME.etb; jtag tapenable $_CHIPNAME.arm&quot;
++
+ ################
+ 
+ # various symbol definitions, to avoid hard-wiring addresses
+--- a/tcl/target/ti_dm365.cfg
++++ b/tcl/target/ti_dm365.cfg
+@@ -46,6 +46,9 @@ if { [info exists JRC_TAPID ] } {
+ }
+ jtag newtap $_CHIPNAME jrc -irlen 6 -irmask 0x3f -expected-id $_JRC_TAPID
+ 
++jtag configure $_CHIPNAME.jrc -event setup \
++	&quot;jtag tapenable $_CHIPNAME.etb; jtag tapenable $_CHIPNAME.arm&quot;
++
+ ################
+ 
+ # various symbol definitions, to avoid hard-wiring addresses
+--- a/tcl/target/ti_dm6446.cfg
++++ b/tcl/target/ti_dm6446.cfg
+@@ -57,6 +57,10 @@ if { [info exists JRC_TAPID ] } {
+ }
+ jtag newtap $_CHIPNAME jrc -irlen 6 -irmask 0x3f -expected-id $_JRC_TAPID
+ 
++jtag configure $_CHIPNAME.jrc -event setup \
++	&quot;jtag tapenable $_CHIPNAME.etb; jtag tapenable $_CHIPNAME.arm&quot;
++
++################
+ # GDB target:  the ARM, using SRAM1 for scratch.  SRAM0 (also 8K)
+ # and the ETB memory (4K) are other options, while trace is unused.
+ # Little-endian; use the OpenOCD default.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010940.html">[Openocd-development] NEWS file for 0.3.x
+</A></li>
+	<LI>Next message: <A HREF="010934.html">[Openocd-development] need help with config file
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10929">[ date ]</a>
+              <a href="thread.html#10929">[ thread ]</a>
+              <a href="subject.html#10929">[ subject ]</a>
+              <a href="author.html#10929">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

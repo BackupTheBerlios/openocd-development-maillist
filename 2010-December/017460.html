@@ -1,0 +1,262 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] (patch) Change target script for LPC2478
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%28patch%29%20Change%20target%20script%20for%20LPC2478&In-Reply-To=%3C4CFA50D9.4000209%40op.pl%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017459.html">
+   <LINK REL="Next"  HREF="017455.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] (patch) Change target script for LPC2478</H1>
+    <B>Freddie Chopin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%28patch%29%20Change%20target%20script%20for%20LPC2478&In-Reply-To=%3C4CFA50D9.4000209%40op.pl%3E"
+       TITLE="[Openocd-development] (patch) Change target script for LPC2478">freddie_chopin at op.pl
+       </A><BR>
+    <I>Sat Dec  4 15:31:53 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017459.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+        <LI>Next message: <A HREF="017455.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17460">[ date ]</a>
+              <a href="thread.html#17460">[ thread ]</a>
+              <a href="subject.html#17460">[ subject ]</a>
+              <a href="author.html#17460">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On 2010-12-04 13:59, Rolf Meeser wrote:
+&gt;<i> Definitely my last post on this thread.
+</I>&gt;<i>
+</I>&gt;<i> On 12/04/2010 12:33 PM, Freddie Chopin wrote:
+</I>&gt;&gt;<i> On 2010-12-04 12:05, Rolf Meeser wrote:
+</I>&gt;&gt;&gt;&gt;<i> When doing &quot;reset halt&quot; (which would halt the chip immediately after
+</I>&gt;&gt;&gt;&gt;<i> reset) the clock would be 4MHz.
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Wrong. I've explained that often enough.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> So you say that after reset and immediate halt the chip clock (for new
+</I>&gt;&gt;<i> LPCs) is not 4MHz? Are you working for NXP and do you know something
+</I>&gt;&gt;<i> that's not public? Because the manuals say something different than
+</I>&gt;&gt;<i> you. Bootloader has nothing to do with it, as &quot;reset halt&quot; will
+</I>&gt;&gt;<i> prevent it from running and changing anything.
+</I>&gt;&gt;<i>
+</I>&gt;<i> One last time. OpenOCD cannot halt an LPC2000 immediately after reset.
+</I>&gt;<i> It must let the CPU run, then try to gain control over the CPU as fast
+</I>&gt;<i> as possible. How fast it can do that depends on the JTAG clock and on
+</I>&gt;<i> delay settings.
+</I>&gt;<i> By the time OpenOCD has taken control, the CPU may have entered ISP mode
+</I>&gt;<i> (it does that if the flash contains no user firmware). In that case the
+</I>&gt;<i> clock will be 14.748 MHz, and not 4 MHz anymore. If there is valid user
+</I>&gt;<i> firmware, this firmware may have set the PLL to any value you like,
+</I>&gt;<i> leaving you with an unknown clock frequency.
+</I>&gt;<i>
+</I>&gt;<i> This process is not under your control. The only possible conclusion is
+</I>&gt;<i> that you cannot have knowledge of the CPU frequency even after reset halt.
+</I>&gt;<i>
+</I>&gt;<i> As a side note: This is the reason why PLL initialization of an LPC2000
+</I>&gt;<i> device should first disconnect and disable the PLL before it
+</I>&gt;<i> configures/starts/connects it again. If the device runs standalone, this
+</I>&gt;<i> step is unnecessary (the PLL is off after reset). However, if you debug
+</I>&gt;<i> the application via JTAG, things are different: Your JTAG box may not be
+</I>&gt;<i> able to stop the CPU before the firmware starts the PLL. The debugger
+</I>&gt;<i> will then just set the program counter to 0, so that it *appears* to be
+</I>&gt;<i> the reset state. But it isn't. Running PLL initialization again on the
+</I>&gt;<i> now already connected PLL will let your system crash.
+</I>&gt;<i>
+</I>&gt;<i> That's a fact which you should accept. Not only because I do indeed work
+</I>&gt;<i> for NXP.
+</I>
+You may work for NXP, but you are wrong on this one. OpenOCD can halt 
+the core before any instructions are executed. You may not believe me, 
+but I've checked that.
+
+I've created a code that changes the value of Timer0 TC register in the 
+second instruction (the first one is loading the address of this register):
+
+	ldr r0, =0xe0004008
+	str r0, [r0]
+
+After this instruction this register should have a value equal to its 
+address. Value after reset is 0. Remember that this is the very first 
+code that will be executed! There is no vector table, these two 
+instructions are placed at address 0 in flash. Value of this register is 
+not used anywhere else, the timer itself also isn't.
+
+Open On-Chip Debugger
+ &gt; reset_config
+trst_and_srst srst_pulls_trst srst_gates_jtag trst_push_pull srst_open_drain
+ &gt; reset halt
+JTAG tap: lpc2103.cpu tap/device found: 0x4f1f0f0f (mfg: 0x787, part: 
+0xf1f0, ver: 0x4)
+srst pulls trst - can not reset into halted mode. Issuing halt after reset.
+target state: halted
+target halted in ARM state due to debug-request, current mode: System
+cpsr: 0x8000001f pc: 0x00000124
+ &gt; mdw 0xe0004008 1
+0xe0004008: e0004008
+ &gt; resume
+ &gt; halt
+target state: halted
+target halted in ARM state due to debug-request, current mode: System
+cpsr: 0x8000001f pc: 0x00000124
+ &gt; mdw 0xe0004008 1
+0xe0004008: e0004008
+ &gt; reset_config separate
+trst_and_srst separate srst_gates_jtag trst_push_pull srst_open_drain
+ &gt; reset halt
+JTAG tap: lpc2103.cpu tap/device found: 0x4f1f0f0f (mfg: 0x787, part: 
+0xf1f0, ver: 0x4)
+target state: halted
+target halted in ARM state due to debug-request, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000000
+ &gt; mdw 0xe0004008 1
+0xe0004008: 00000000
+ &gt; resume
+ &gt; halt
+target state: halted
+target halted in ARM state due to debug-request, current mode: System
+cpsr: 0x8000001f pc: 0x00000170
+ &gt; mdw 0xe0004008 1
+0xe0004008: e0004008
+
+As you see having &quot;reset_config separate&quot; allows you to halt the chip 
+immediatelly after reset - the value of Timer0 TC after &quot;reset halt&quot; is 
+0. That's why having default value (when having reset_config separate) 
+actually is possible for the parts that have internal oscillator.
+
+The core is halted even before executing the code of internal LPC 
+bootloader... I can see the first instructions of it, changing MEMMAP 
+makes it possible to see the code I'm talking about above.
+
+ &gt; mdw 0xe01fc040
+0xe01fc040: 00000000
+ &gt; arm disassemble 0 64
+0x00000000      0xe59f201c      LDR r2, [r15, #0x1c]
+0x00000004      0xe3a03000      MOV r3, #0x0
+0x00000008      0xe1020093      SWP r0, r3, [r2]
+0x0000000c      0xe2822028      ADD r2, r2, #0x28
+0x00000010      0xe1021093      SWP r1, r3, [r2]
+0x00000014      0xe3c03007      BIC r3, r0, #0x7
+0x00000018      0xe5023028      STR r3, [r2, #-0x28]
+0x0000001c      0xe51ff004      LDR r15, [r15, #-0x4]
+0x00000020      0x7fffe178      SVC 0xffe178
+0x00000024      0xe002c014      AND r12, r2, r4, LSL r0
+0x00000028      0xe01fc000      ANDS r12, r15, r0
+0x0000002c      0x00000000      ANDEQ r0, r0, r0
+0x00000030      0x00000000      ANDEQ r0, r0, r0
+0x00000034      0x00000000      ANDEQ r0, r0, r0
+0x00000038      0x00000000      ANDEQ r0, r0, r0
+0x0000003c      0x00000000      ANDEQ r0, r0, r0
+...
+ &gt; mww 0xe01fc040 1
+ &gt; arm disassemble 0 64
+0x00000000      0xe59f00a4      LDR r0, [r15, #0xa4]
+0x00000004      0xe5800000      STR r0, [r0]
+0x00000008      0xea000004      B 0x00000020
+...
+
+Hey, I can even browse through the secret NXP's bootloader:
+
+ &gt; arm disassemble 0x7ffffff0 8 thumb
+0x7ffffff0  0xb580      PUSH    {r7, r14}
+0x7ffffff2  0xf7fffa7b  BL      0x7ffff4ec
+0x7ffffff6  0xbc80      POP     {r7}
+0x7ffffff8  0xbc08      POP     {r3}
+0x7ffffffa  0x4718      BX      r3
+0x7ffffffc  0x6000      STR     r0, [r0, #0]
+0x7ffffffe  0x6000      STR     r0, [r0, #0]
+ &gt; arm disassemble 0x7ffff4ec 16 thumb
+0x7ffff4ec  0xb510      PUSH    {r4, r14}
+0x7ffff4ee  0x6804      LDR     r4, [r0, #0]
+0x7ffff4f0  0x2200      MOVS    r2, #00
+0x7ffff4f2  0x3c32      SUBS    r4, #0x32
+0x7ffff4f4  0x2c08      CMP     r4, #0x08
+0x7ffff4f6  0xd223      BCS     0x7ffff540
+0x7ffff4f8  0xa301      ADD     r3, PC, #0x4
+0x7ffff4fa  0x5d1b      LDRB    r3, [r3, r4]
+0x7ffff4fc  0x005b      LSLS    r3, r3, #0x01
+0x7ffff4fe  0x449f      ADD     r15, r3
+0x7ffff500  0x0803      LSRS    r3, r0, #0x20
+0x7ffff502  0x0e0b      LSRS    r3, r1, #0x18
+0x7ffff504  0x1714      ASRS    r4, r2, #0x1c
+0x7ffff506  0x1c11      ADDS    r1, r2, #0
+0x7ffff508  0xf7ffffdd  BL      0x7ffff4c6
+0x7ffff50c  0xbc10      POP     {r4}
+ &gt; arm disassemble 0x7fffe000 16
+0x7fffe000      0xe59f201c      LDR r2, [r15, #0x1c]
+0x7fffe004      0xe3a03000      MOV r3, #0x0
+0x7fffe008      0xe1020093      SWP r0, r3, [r2]
+0x7fffe00c      0xe2822028      ADD r2, r2, #0x28
+0x7fffe010      0xe1021093      SWP r1, r3, [r2]
+0x7fffe014      0xe3c03007      BIC r3, r0, #0x7
+0x7fffe018      0xe5023028      STR r3, [r2, #-0x28]
+0x7fffe01c      0xe51ff004      LDR r15, [r15, #-0x4]
+0x7fffe020      0x7fffe178      SVC 0xffe178
+0x7fffe024      0xe002c014      AND r12, r2, r4, LSL r0
+0x7fffe028      0xe01fc000      ANDS r12, r15, r0
+0x7fffe02c      0x00000000      ANDEQ r0, r0, r0
+0x7fffe030      0x00000000      ANDEQ r0, r0, r0
+0x7fffe034      0x00000000      ANDEQ r0, r0, r0
+0x7fffe038      0x00000000      ANDEQ r0, r0, r0
+0x7fffe03c      0x00000000      ANDEQ r0, r0, r0
+
+I wonder whether writing to flash can be made in a smarter way bypassing 
+this whole IAP. There's just 8kB of thumb code to be disassembled, 
+probably most of it regarding UART communication that's not interesting 
+in OpenOCD's case.
+
+I once also believed that in LPCs you cannot &quot;reset halt&quot; reliably. I 
+didn't check that - I just believed because everyone told that and I 
+told the same to everyone else. And yet it's not true...
+
+So - once again - are you sure that when &quot;reset_config&quot; is &quot;separate&quot; 
+the core after reset will not be running at 4MHz? Because I know it will 
+and nothing can change that.
+
+&gt;&gt;<i> You say there is none, I say there is. There's no way we can agree.
+</I>&gt;&gt;<i>
+</I>&gt;<i> If you follow the arguments above about clock frequency uncertainty,
+</I>&gt;<i> then with all due respect you cannot but agree :-)
+</I>
+If you follow the arguments above about clock frequency certainty then 
+with all due respect you cannot but agree that there is a default frequency.
+
+As you don't wish to participate in this discussion then I will not 
+reply to the rest of your post.
+
+4\/3!!
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017459.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+	<LI>Next message: <A HREF="017455.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17460">[ date ]</a>
+              <a href="thread.html#17460">[ thread ]</a>
+              <a href="subject.html#17460">[ subject ]</a>
+              <a href="author.html#17460">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

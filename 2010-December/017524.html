@@ -1,0 +1,450 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtag: getting the JTAG speed can fail
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%3A%20getting%20the%20JTAG%20speed%20can%0A%20fail&In-Reply-To=%3C96B69F79515196499AC5034EFA5CDC852B3A15%40NORMBX01.network.int%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017516.html">
+   <LINK REL="Next"  HREF="017546.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtag: getting the JTAG speed can fail</H1>
+    <B>Jonas Hoerberg</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%3A%20getting%20the%20JTAG%20speed%20can%0A%20fail&In-Reply-To=%3C96B69F79515196499AC5034EFA5CDC852B3A15%40NORMBX01.network.int%3E"
+       TITLE="[Openocd-development] [PATCH] jtag: getting the JTAG speed can fail">jhorberg at sauer-danfoss.com
+       </A><BR>
+    <I>Tue Dec  7 15:56:38 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017516.html">[Openocd-development] [PATCH] jtag: getting the JTAG speed can fail
+</A></li>
+        <LI>Next message: <A HREF="017546.html">[Openocd-development] [PATCH] jtag: getting the JTAG speed	can	fail
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17524">[ date ]</a>
+              <a href="thread.html#17524">[ thread ]</a>
+              <a href="subject.html#17524">[ subject ]</a>
+              <a href="author.html#17524">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> -----Original Message-----
+</I>&gt;<i> From: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development-bounces at lists.berlios.de</A> [mailto:openocd-
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">development-bounces at lists.berlios.de</A>] On Behalf Of &#216;yvind Harboe
+</I>&gt;<i> Sent: Monday, December 06, 2010 10:30 PM
+</I>&gt;<i> To: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>
+</I>&gt;<i> Subject: [Openocd-development] [PATCH] jtag: getting the JTAG speed can
+</I>&gt;<i> fail
+</I>&gt;<i> 
+</I>&gt;<i> If the JTAG speed has not been set, then it has no defined value, add code to
+</I>&gt;<i> propagate the error.
+</I>&gt;<i> 
+</I>&gt;<i> Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+</I>&gt;<i> ---
+</I>&gt;<i>  src/jtag/core.c                  |   27 +++++++++++++++++----------
+</I>&gt;<i>  src/jtag/drivers/amt_jtagaccel.c |   19 ++++++++++++-------
+</I>&gt;<i>  src/jtag/drivers/ft2232.c        |    6 +++++-
+</I>&gt;<i>  src/jtag/drivers/gw16012.c       |    6 +++++-
+</I>&gt;<i>  src/jtag/drivers/jlink.c         |    6 +++++-
+</I>&gt;<i>  src/jtag/drivers/parport.c       |    8 ++++++--
+</I>&gt;<i>  src/jtag/drivers/presto.c        |    6 +++++-
+</I>&gt;<i>  src/jtag/drivers/rlink.c         |    6 +++++-
+</I>&gt;<i>  src/jtag/drivers/usb_blaster.c   |    6 +++++-
+</I>&gt;<i>  src/jtag/jtag.h                  |    2 +-
+</I>&gt;<i>  src/jtag/zy1000/zy1000.c         |    6 +++++-
+</I>&gt;<i>  11 files changed, 71 insertions(+), 27 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> diff --git a/src/jtag/core.c b/src/jtag/core.c index c1b64bb..ceb89b9 100644
+</I>&gt;<i> --- a/src/jtag/core.c
+</I>&gt;<i> +++ b/src/jtag/core.c
+</I>&gt;<i> @@ -1384,9 +1384,13 @@ int adapter_init(struct command_context
+</I>&gt;<i> *cmd_ctx)
+</I>&gt;<i> 
+</I>&gt;<i>  	int requested_khz = jtag_get_speed_khz();
+</I>&gt;<i>  	int actual_khz = requested_khz;
+</I>&gt;<i> -	int retval = jtag_get_speed_readable(&amp;actual_khz);
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	retval = jtag_get_speed_readable(&amp;actual_khz);
+</I>&gt;<i>  	if (ERROR_OK != retval)
+</I>&gt;<i> -		LOG_INFO(&quot;adapter-specific clock speed value %d&quot;,
+</I>&gt;<i> jtag_get_speed());
+</I>&gt;<i> +		LOG_INFO(&quot;adapter-specific clock speed value %d&quot;,
+</I>&gt;<i> jtag_speed_t);
+</I>&gt;<i>  	else if (actual_khz)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		/* Adaptive clocking -- JTAG-specific */ @@ -1632,30
+</I>&gt;<i> +1636,33 @@ int jtag_config_rclk(unsigned fallback_speed_khz)
+</I>&gt;<i>  	return (ERROR_OK != retval) ? retval : jtag_set_speed(speed);  }
+</I>&gt;<i> 
+</I>&gt;<i> -int jtag_get_speed(void)
+</I>&gt;<i> +int jtag_get_speed(int *speed)
+</I>&gt;<i>  {
+</I>&gt;<i> -	int speed = 0; /* avoid -O3 warning */
+</I>&gt;<i>  	switch(clock_mode)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		case CLOCK_MODE_SPEED:
+</I>&gt;<i> -			speed = jtag_speed;
+</I>&gt;<i> +			*speed = jtag_speed;
+</I>&gt;<i>  			break;
+</I>&gt;<i>  		case CLOCK_MODE_KHZ:
+</I>&gt;<i> -			adapter_khz_to_speed(jtag_get_speed_khz(),
+</I>&gt;<i> &amp;speed);
+</I>&gt;<i> +			adapter_khz_to_speed(jtag_get_speed_khz(),
+</I>&gt;<i> speed);
+</I>&gt;<i>  			break;
+</I>&gt;<i>  		case CLOCK_MODE_RCLK:
+</I>&gt;<i> -			jtag_rclk_to_speed(rclk_fallback_speed_khz,
+</I>&gt;<i> &amp;speed);
+</I>&gt;<i> +			jtag_rclk_to_speed(rclk_fallback_speed_khz,
+</I>&gt;<i> speed);
+</I>&gt;<i>  			break;
+</I>&gt;<i>  		default:
+</I>&gt;<i>  			LOG_ERROR(&quot;BUG: unknown jtag clock mode&quot;);
+</I>&gt;<i> -			break;
+</I>&gt;<i> +			return ERROR_FAIL;
+</I>&gt;<i>  	}
+</I>&gt;<i> -	return speed;
+</I>&gt;<i> +	return ERROR_OK;
+</I>&gt;<i>  }
+</I>&gt;<i> 
+</I>&gt;<i>  int jtag_get_speed_readable(int *khz)
+</I>&gt;<i>  {
+</I>&gt;<i> -	return jtag ? jtag-&gt;speed_div(jtag_get_speed(), khz) : ERROR_OK;
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	return jtag ? jtag-&gt;speed_div(jtag_speed_t, khz) : ERROR_OK;
+</I>&gt;<i>  }
+</I>&gt;<i> 
+</I>&gt;<i>  void jtag_set_verify(bool enable)
+</I>&gt;<i> diff --git a/src/jtag/drivers/amt_jtagaccel.c
+</I>&gt;<i> b/src/jtag/drivers/amt_jtagaccel.c
+</I>&gt;<i> index fca8cfe..6d77410 100644
+</I>&gt;<i> --- a/src/jtag/drivers/amt_jtagaccel.c
+</I>&gt;<i> +++ b/src/jtag/drivers/amt_jtagaccel.c
+</I>&gt;<i> @@ -191,7 +191,8 @@ static void amt_jtagaccel_state_move(void)
+</I>&gt;<i> 
+</I>&gt;<i>  	aw_scan_tms_5 = 0x40 | (tms_scan[0] &amp; 0x1f);
+</I>&gt;<i>  	AMT_AW(aw_scan_tms_5);
+</I>&gt;<i> -	int jtag_speed = jtag_get_speed();
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed);
+</I>&gt;<i> +	assert(retval == ERROR_OK);
+</I>&gt;<i>  	if (jtag_speed &gt; 3 || rtck_enabled)
+</I>&gt;<i>  		amt_wait_scan_busy();
+</I>&gt;<i> 
+</I>&gt;<i> @@ -249,7 +250,9 @@ static void amt_jtagaccel_scan(bool ir_scan, enum
+</I>&gt;<i> scan_type type, uint8_t *buffe
+</I>&gt;<i>  	uint8_t dr_tdo;
+</I>&gt;<i>  	uint8_t aw_tms_scan;
+</I>&gt;<i>  	uint8_t tms_scan[2];
+</I>&gt;<i> -	int jtag_speed = jtag_get_speed();
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	assert(retval == ERROR_OK);
+</I>&gt;<i> 
+</I>&gt;<i>  	if (ir_scan)
+</I>&gt;<i>  		amt_jtagaccel_end_state(TAP_IRSHIFT);
+</I>&gt;<i> @@ -267,7 +270,7 @@ static void amt_jtagaccel_scan(bool ir_scan, enum
+</I>&gt;<i> scan_type type, uint8_t *buffe
+</I>&gt;<i> 
+</I>&gt;<i>  		dw_tdi_scan = buf_get_u32(buffer, bit_count, (scan_size - 1)
+</I>&gt;<i> % 8) &amp; 0xff;
+</I>&gt;<i>  		AMT_DW(dw_tdi_scan);
+</I>&gt;<i> -		if (jtag_speed &gt; 3 || rtck_enabled)
+</I>&gt;<i> +		if (jtag_speed_t &gt; 3 || rtck_enabled)
+</I>&gt;<i>  			amt_wait_scan_busy();
+</I>&gt;<i> 
+</I>&gt;<i>  		if ((type == SCAN_IN) || (type == SCAN_IO)) @@ -285,7
+</I>&gt;<i> +288,7 @@ static void amt_jtagaccel_scan(bool ir_scan, enum scan_type
+</I>&gt;<i> type, uint8_t *buffe
+</I>&gt;<i>  	{
+</I>&gt;<i>  		dw_tdi_scan = buf_get_u32(buffer, bit_count, 8) &amp; 0xff;
+</I>&gt;<i>  		AMT_DW(dw_tdi_scan);
+</I>&gt;<i> -		if (jtag_speed &gt; 3 || rtck_enabled)
+</I>&gt;<i> +		if (jtag_speed_t &gt; 3 || rtck_enabled)
+</I>&gt;<i>  			amt_wait_scan_busy();
+</I>&gt;<i> 
+</I>&gt;<i>  		if ((type == SCAN_IN) || (type == SCAN_IO)) @@ -302,7
+</I>&gt;<i> +305,7 @@ static void amt_jtagaccel_scan(bool ir_scan, enum scan_type
+</I>&gt;<i> type, uint8_t *buffe
+</I>&gt;<i>  	tms_scan[1] =
+</I>&gt;<i> amt_jtagaccel_tap_move[tap_move_ndx(tap_get_state())][tap_move_ndx
+</I>&gt;<i> (tap_get_end_state())][1];
+</I>&gt;<i>  	aw_tms_scan = 0x40 | (tms_scan[0] &amp; 0x1f) | (buf_get_u32(buffer,
+</I>&gt;<i> bit_count, 1) &lt;&lt; 5);
+</I>&gt;<i>  	AMT_AW(aw_tms_scan);
+</I>&gt;<i> -	if (jtag_speed &gt; 3 || rtck_enabled)
+</I>&gt;<i> +	if (jtag_speed_t &gt; 3 || rtck_enabled)
+</I>&gt;<i>  		amt_wait_scan_busy();
+</I>&gt;<i> 
+</I>&gt;<i>  	if ((type == SCAN_IN) || (type == SCAN_IO)) @@ -316,7 +319,7 @@
+</I>&gt;<i> static void amt_jtagaccel_scan(bool ir_scan, enum scan_type type, uint8_t
+</I>&gt;<i> *buffe
+</I>&gt;<i>  	{
+</I>&gt;<i>  		aw_tms_scan = 0x40 | (tms_scan[1] &amp; 0x1f);
+</I>&gt;<i>  		AMT_AW(aw_tms_scan);
+</I>&gt;<i> -		if (jtag_speed &gt; 3 || rtck_enabled)
+</I>&gt;<i> +		if (jtag_speed_t &gt; 3 || rtck_enabled)
+</I>&gt;<i>  			amt_wait_scan_busy();
+</I>&gt;<i>  	}
+</I>&gt;<i>  	tap_set_state(tap_get_end_state());
+</I>&gt;<i> @@ -502,7 +505,9 @@ static int amt_jtagaccel_init(void)
+</I>&gt;<i>  	aw_control_fsm |= 0x04;
+</I>&gt;<i>  	AMT_AW(aw_control_fsm);
+</I>&gt;<i> 
+</I>&gt;<i> -	amt_jtagaccel_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	amt_jtagaccel_speed(jtag_speed_t);
+</I>&gt;<i> 
+</I>&gt;<i>  	enum reset_types jtag_reset_config = jtag_get_reset_config();
+</I>&gt;<i>  	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN) diff --git
+</I>&gt;<i> a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c index
+</I>&gt;<i> 928ec1c..73bf8ad 100644
+</I>&gt;<i> --- a/src/jtag/drivers/ft2232.c
+</I>&gt;<i> +++ b/src/jtag/drivers/ft2232.c
+</I>&gt;<i> @@ -2395,7 +2395,11 @@ static int ft2232_init(void)
+</I>&gt;<i>  			return ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i>  	}
+</I>&gt;<i> 
+</I>&gt;<i> -	ft2232_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	ft2232_speed(jtag_speed_t);
+</I>&gt;<i> 
+</I>&gt;<i>  	buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+</I>&gt;<i>  	if ((retval = ft2232_write(buf, 1, &amp;bytes_written)) != ERROR_OK) diff
+</I>&gt;<i> --git a/src/jtag/drivers/gw16012.c b/src/jtag/drivers/gw16012.c index
+</I>&gt;<i> cb29d33..fe3d62e 100644
+</I>&gt;<i> --- a/src/jtag/drivers/gw16012.c
+</I>&gt;<i> +++ b/src/jtag/drivers/gw16012.c
+</I>&gt;<i> @@ -529,7 +529,11 @@ static int gw16012_init(void)
+</I>&gt;<i>  	gw16012_input(&amp;status_port);
+</I>&gt;<i>  	gw16012_msb = (status_port &amp; 0x80) ^ 0x80;
+</I>&gt;<i> 
+</I>&gt;<i> -	gw16012_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	gw16012_speed(jtag_speed_t);
+</I>&gt;<i>  	gw16012_reset(0, 0);
+</I>&gt;<i> 
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i> diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c index
+</I>&gt;<i> ff389e9..fd56532 100644
+</I>&gt;<i> --- a/src/jtag/drivers/jlink.c
+</I>&gt;<i> +++ b/src/jtag/drivers/jlink.c
+</I>&gt;<i> @@ -321,7 +321,11 @@ static int jlink_init(void)
+</I>&gt;<i>  	jlink_reset(0, 0);
+</I>&gt;<i>  	jtag_sleep(3000);
+</I>&gt;<i>  	jlink_tap_init();
+</I>&gt;<i> -	jlink_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	jlink_speed(jtag_speed_t);
+</I>&gt;<i> 
+</I>&gt;<i>  	/* v5/6 jlink seems to have an issue if the first tap move
+</I>&gt;<i>  	 * is not divisible by 8, so we send a TLR on first power up */ diff --git
+</I>&gt;<i> a/src/jtag/drivers/parport.c b/src/jtag/drivers/parport.c index
+</I>&gt;<i> 2323ec5..3402bc2 100644
+</I>&gt;<i> --- a/src/jtag/drivers/parport.c
+</I>&gt;<i> +++ b/src/jtag/drivers/parport.c
+</I>&gt;<i> @@ -384,7 +384,9 @@ static int parport_init(void)
+</I>&gt;<i> 
+</I>&gt;<i>  	bitbang_interface = &amp;parport_bitbang;
+</I>&gt;<i> 
+</I>&gt;<i> -	wait_states = jtag_get_speed();
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;wait_states);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> 
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i>  }
+</I>&gt;<i> @@ -475,7 +477,9 @@
+</I>&gt;<i> COMMAND_HANDLER(parport_handle_parport_toggling_time_command)
+</I>&gt;<i>  		}
+</I>&gt;<i> 
+</I>&gt;<i>  		parport_toggling_time_ns = ns;
+</I>&gt;<i> -		wait_states = jtag_get_speed();
+</I>&gt;<i> +		int retval = jtag_get_speed(&amp;wait_states);
+</I>&gt;<i> +		if (retval != ERROR_OK)
+</I>&gt;<i> +			return retval;
+</I>&gt;<i>  	}
+</I>&gt;<i> 
+</I>&gt;<i>  	command_print(CMD_CTX, &quot;parport toggling time = %&quot; PRIu32 &quot; ns&quot;,
+</I>&gt;<i> diff --git a/src/jtag/drivers/presto.c b/src/jtag/drivers/presto.c index
+</I>&gt;<i> 10bed27..5984daa 100644
+</I>&gt;<i> --- a/src/jtag/drivers/presto.c
+</I>&gt;<i> +++ b/src/jtag/drivers/presto.c
+</I>&gt;<i> @@ -770,7 +770,11 @@ static int presto_jtag_init(void)
+</I>&gt;<i>  	LOG_INFO(&quot;PRESTO open, serial number '%s'&quot;, presto-&gt;serial);
+</I>&gt;<i> 
+</I>&gt;<i>  	/* use JTAG speed setting from configuration file */
+</I>&gt;<i> -	presto_jtag_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	presto_jtag_speed(jtag_speed_t);
+</I>&gt;<i> 
+</I>&gt;<i>  	bitq_interface = &amp;presto_bitq;
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i> diff --git a/src/jtag/drivers/rlink.c b/src/jtag/drivers/rlink.c index
+</I>&gt;<i> dde117b..fc504c3 100644
+</I>&gt;<i> --- a/src/jtag/drivers/rlink.c
+</I>&gt;<i> +++ b/src/jtag/drivers/rlink.c
+</I>&gt;<i> @@ -1771,7 +1771,11 @@ int rlink_init(void)
+</I>&gt;<i> 
+</I>&gt;<i>  	tap_state_queue_init();
+</I>&gt;<i>  	dtc_queue_init();
+</I>&gt;<i> -	rlink_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	rlink_speed(jtag_speed_t);
+</I>&gt;<i>  	rlink_reset(0, 0);
+</I>&gt;<i> 
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i> diff --git a/src/jtag/drivers/usb_blaster.c b/src/jtag/drivers/usb_blaster.c
+</I>&gt;<i> index 1679040..6cd7703 100644
+</I>&gt;<i> --- a/src/jtag/drivers/usb_blaster.c
+</I>&gt;<i> +++ b/src/jtag/drivers/usb_blaster.c
+</I>&gt;<i> @@ -442,7 +442,11 @@ static int usb_blaster_init(void)
+</I>&gt;<i> 
+</I>&gt;<i>  	bitbang_interface = &amp;usb_blaster_bitbang;
+</I>&gt;<i> 
+</I>&gt;<i> -	usb_blaster_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	usb_blaster_speed(jtag_speed_t);
+</I>&gt;<i> 
+</I>&gt;<i>  #if 0
+</I>&gt;<i>  #if BUILD_USB_BLASTER_FTD2XX == 1
+</I>&gt;<i> diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h index d6e49e0..db7cd5c 100644
+</I>&gt;<i> --- a/src/jtag/jtag.h
+</I>&gt;<i> +++ b/src/jtag/jtag.h
+</I>&gt;<i> @@ -239,7 +239,7 @@ int jtag_call_event_callbacks(enum jtag_event
+</I>&gt;<i> event);
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i>  /// @returns The current JTAG speed setting.
+</I>&gt;<i> -int jtag_get_speed(void);
+</I>&gt;<i> +int jtag_get_speed(int *speed);
+</I>&gt;<i> 
+</I>&gt;<i>  /**
+</I>&gt;<i>   * Given a @a speed setting, use the interface @c speed_div callback to diff -
+</I>&gt;<i> -git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c index
+</I>&gt;<i> c8bee2f..4e267fc 100644
+</I>&gt;<i> --- a/src/jtag/zy1000/zy1000.c
+</I>&gt;<i> +++ b/src/jtag/zy1000/zy1000.c
+</I>&gt;<i> @@ -1620,7 +1620,11 @@ int zy1000_init(void)
+</I>&gt;<i> 
+</I>&gt;<i>  	 /* deassert resets. Important to avoid infinite loop waiting for SRST
+</I>&gt;<i> to deassert */
+</I>&gt;<i>  	zy1000_reset(0, 0);
+</I>&gt;<i> -	zy1000_speed(jtag_get_speed());
+</I>&gt;<i> +	int jtag_speed_t;
+</I>&gt;<i> +	int retval = jtag_get_speed(&amp;jtag_speed_t);
+</I>&gt;<i> +	if (retval != ERROR_OK)
+</I>&gt;<i> +		return retval;
+</I>&gt;<i> +	zy1000_speed(jtag_speed_t);
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i>  #if BUILD_ECOSBOARD
+</I>&gt;<i> --
+</I>&gt;<i> 1.7.0.4
+</I>&gt;<i> 
+</I>
+Would't the following less invasive patch achieve the same goal?
+
+Signed-off-by: Jonas H&#246;rberg &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jhorberg at sauer-danfoss.com</A>&gt;
+---
+ src/jtag/core.c |   12 ++++++++----
+ 1 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index c1b64bb..d864ab3 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -124,7 +124,7 @@ static struct jtag_event_callback *jtag_event_callbacks;
+ static int speed_khz = 0;
+ /* speed to fallback to when RCLK is requested but not supported */
+ static int rclk_fallback_speed_khz = 0;
+-static enum {CLOCK_MODE_SPEED, CLOCK_MODE_KHZ, CLOCK_MODE_RCLK} clock_mode;
++static enum {CLOCK_MODE_UNSELECTED, CLOCK_MODE_KHZ, CLOCK_MODE_RCLK} clock_mode;
+ static int jtag_speed = 0;
+ 
+ static struct jtag_interface *jtag = NULL;
+@@ -1362,6 +1362,13 @@ int adapter_init(struct command_context *cmd_ctx)
+ 		return ERROR_JTAG_INVALID_INTERFACE;
+ 	}
+ 
++	if (CLOCK_MODE_UNSELECTED == clock_mode)
++	{
++		LOG_ERROR(&quot;An adapter speed is not selected in the init script.&quot;
++			&quot; Insert a call to adapter_speed or jtag_rclk to proceed.&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
+ 	jtag = jtag_interface;
+ 	if (jtag_interface-&gt;init() != ERROR_OK)
+ 	{
+@@ -1637,9 +1644,6 @@ int jtag_get_speed(void)
+ 	int speed = 0; /* avoid -O3 warning */
+ 	switch(clock_mode)
+ 	{
+-		case CLOCK_MODE_SPEED:
+-			speed = jtag_speed;
+-			break;
+ 		case CLOCK_MODE_KHZ:
+ 			adapter_khz_to_speed(jtag_get_speed_khz(), &amp;speed);
+ 			break;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: fail_for_unselected_adapter_speed.patch
+Type: application/octet-stream
+Size: 1393 bytes
+Desc: fail_for_unselected_adapter_speed.patch
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20101207/235316b0/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20101207/235316b0/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017516.html">[Openocd-development] [PATCH] jtag: getting the JTAG speed can fail
+</A></li>
+	<LI>Next message: <A HREF="017546.html">[Openocd-development] [PATCH] jtag: getting the JTAG speed	can	fail
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17524">[ date ]</a>
+              <a href="thread.html#17524">[ thread ]</a>
+              <a href="subject.html#17524">[ subject ]</a>
+              <a href="author.html#17524">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

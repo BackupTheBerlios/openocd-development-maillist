@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS target, big endian host
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3CCAKGHftftnKZQu8TY-kXxwrO_xxWLQwdsxmuppOtpmasBVkQSug%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020023.html">
+   <LINK REL="Next"  HREF="020029.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS target, big endian host</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3CCAKGHftftnKZQu8TY-kXxwrO_xxWLQwdsxmuppOtpmasBVkQSug%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] MIPS target, big endian host">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Thu Jul  7 00:59:34 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020023.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+        <LI>Next message: <A HREF="020029.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20024">[ date ]</a>
+              <a href="thread.html#20024">[ thread ]</a>
+              <a href="subject.html#20024">[ subject ]</a>
+              <a href="author.html#20024">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wed, Jul 6, 2011 at 11:35 PM, &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;wrote:
+
+&gt;<i> On Wed, Jul 6, 2011 at 11:28 PM, Mahr, Stefan &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Stefan.Mahr at sphairon.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i> &gt;&gt;&gt;&gt; &quot;mips32_pracc_read_mem&quot; casts uint32 to void, so we need to cast it
+</I>&gt;<i> &gt;&gt;&gt;&gt; back to uint32. I found no suitable macro in actual sources.
+</I>&gt;<i> &gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt; Hmm.... then I think we ought to define one to get this put to
+</I>&gt;<i> &gt;&gt;&gt; bed once and for all...
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; static inline uint32_t uint32_read_unaligned(const void *data)
+</I>&gt;<i> &gt;&gt; {
+</I>&gt;<i> &gt;&gt; uint32_t t;
+</I>&gt;<i> &gt;&gt;  // Let's trust the compiler to do something very clever here.
+</I>&gt;<i> &gt;&gt; memcpy(&amp;t, data, sizeof(t));
+</I>&gt;<i> &gt;&gt; return t;
+</I>&gt;<i> &gt;&gt; }
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Do we really need a memcpy?
+</I>&gt;<i>
+</I>&gt;<i> Trust the compiler:
+</I>&gt;<i>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind at fierce</A>:~$ cat test.c
+</I>&gt;<i> #include &lt;string.h&gt;
+</I>&gt;<i> #include &lt;stdint.h&gt;
+</I>&gt;<i>
+</I>&gt;<i> uint32_t uint32_read_unaligned(const void *data)
+</I>&gt;<i> {
+</I>&gt;<i> uint32_t t;
+</I>&gt;<i>  // Let's trust the compiler to do something very clever here.
+</I>&gt;<i> memcpy(&amp;t, data, sizeof(t));
+</I>&gt;<i>  return t;
+</I>&gt;<i> }
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind at fierce</A>:~$ gcc -O3 -S test.c
+</I>&gt;<i>
+</I>
+And with the default optimization level (O2, isn't it)?
+
+
+&gt;<i> &gt; Could we ever run into an alignment
+</I>&gt;<i> &gt; issue when simply cast void *back* to uint32 ? If not, I would prefer
+</I>&gt;<i> &gt; the simplifed solution.
+</I>&gt;<i>
+</I>&gt;<i> The below does not work in all cases. It will break on architectures that
+</I>&gt;<i> do not support unaligned access.
+</I>&gt;<i>
+</I>
+No, casting a pointer-to-any-type to a pointer-to-void and back will never
+cause alignment issues. The question is who makes the guarantee that the
+function is only ever called with uint32-aligned generic pointers. If it
+just happens to be so that all *current* callers pass a uint32 pointer cast
+to void pointer, it would be a terribly bad idea to suddenly assume that. If
+it is guaranteed by design/contract, why is a void pointer used at all? Just
+use a pointer to uint32 then.
+
+I have no experience with the MIPS code or arch at all, but if it was up to
+me I'd prefer if a *_read_mem function didn't interpret the data and thus it
+should deal with void pointers. It would by design be totally free from all
+endian issues and conversions. Moreover, a function accepting a
+pointer-to-void should be prepared to handle any kind of alignment thrown at
+it (unless explicitly stated). That excludes direct casts to uint32_t*.
+
+
+&gt;<i> That's why GCC is complaining. Sometimes...
+</I>&gt;<i>
+</I>
+It should never complain when casting a generic pointer to another pointer,
+right? You shouldn't even need an explicit cast IIRC.
+
+/Andreas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110707/543671f5/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110707/543671f5/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020023.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+	<LI>Next message: <A HREF="020029.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20024">[ date ]</a>
+              <a href="thread.html#20024">[ thread ]</a>
+              <a href="subject.html#20024">[ subject ]</a>
+              <a href="author.html#20024">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

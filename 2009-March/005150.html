@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 flash performance
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20flash%20performance&In-Reply-To=%3C49D28904.9030000%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005149.html">
+   <LINK REL="Next"  HREF="005151.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 flash performance</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20flash%20performance&In-Reply-To=%3C49D28904.9030000%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] STM32 flash performance">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Tue Mar 31 23:20:04 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005149.html">[Openocd-development] STM32 flash performance
+</A></li>
+        <LI>Next message: <A HREF="005151.html">[Openocd-development] STM32 flash performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5150">[ date ]</a>
+              <a href="thread.html#5150">[ thread ]</a>
+              <a href="subject.html#5150">[ subject ]</a>
+              <a href="author.html#5150">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&#216;yvind Harboe wrote:
+&gt;<i> Patch? :-)
+</I>&gt;<i>
+</I>&gt;<i> I'd like to take those changes for a spin.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>Im not sure about current path practices, but here is a svn diff from trunk
+
+Regards
+Magnus
+
+
+[lundin trunk 23:17:58]$svn diff
+Index: src/target/cortex_swjdp.c
+===================================================================
+--- src/target/cortex_swjdp.c    (revision 1435)
++++ src/target/cortex_swjdp.c    (working copy)
+@@ -191,10 +191,12 @@
+ 
+     
+<A HREF="https://lists.berlios.de/pipermail/openocd-development/2008-September/003107.html">https://lists.berlios.de/pipermail/openocd-development/2008-September/003107.html</A>
+     */
++/*
+     if ((retval=jtag_execute_queue())!=ERROR_OK)
+     {
+         LOG_ERROR(&quot;BUG: Why does this fail the first time????&quot;);
+     }
++*/
+     /* Why??? second time it works??? */
+     scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, DP_CTRL_STAT, 
+DPAP_READ, 0, &amp;ctrlstat);
+     if ((retval=jtag_execute_queue())!=ERROR_OK)
+@@ -925,7 +927,7 @@
+     /* because the DCB_DCRDR is used for the emulated dcc channel
+      * we gave to save/restore the DCB_DCRDR when used */
+ 
+-    ahbap_read_system_atomic_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++    ahbap_read_system_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
+ 
+     swjdp-&gt;trans_mode = TRANS_MODE_COMPOSITE;
+ 
+@@ -937,8 +939,8 @@
+     ahbap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, 
+DCB_DCRDR &amp; 0xFFFFFFF0);
+     ahbap_read_reg_u32(swjdp, AHBAP_BD0 | (DCB_DCRDR &amp; 0xC), value );
+ 
++    ahbap_write_system_u32(swjdp, DCB_DCRDR, dcrdr);
+     retval = swjdp_transaction_endcheck(swjdp);
+-    ahbap_write_system_atomic_u32(swjdp, DCB_DCRDR, dcrdr);
+     return retval;
+ }
+ 
+@@ -950,7 +952,7 @@
+     /* because the DCB_DCRDR is used for the emulated dcc channel
+      * we gave to save/restore the DCB_DCRDR when used */
+ 
+-    ahbap_read_system_atomic_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++    ahbap_read_system_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
+ 
+     swjdp-&gt;trans_mode = TRANS_MODE_COMPOSITE;
+ 
+@@ -962,8 +964,8 @@
+     ahbap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, 
+DCB_DCRSR &amp; 0xFFFFFFF0);
+     ahbap_write_reg_u32(swjdp, AHBAP_BD0 | (DCB_DCRSR &amp; 0xC), regnum | 
+DCRSR_WnR );
+ 
++    ahbap_write_system_u32(swjdp, DCB_DCRDR, dcrdr);
+     retval = swjdp_transaction_endcheck(swjdp);
+-    ahbap_write_system_atomic_u32(swjdp, DCB_DCRDR, dcrdr);
+     return retval;
+ }
+ 
+Index: src/flash/stm32x.c
+===================================================================
+--- src/flash/stm32x.c    (revision 1435)
++++ src/flash/stm32x.c    (working copy)
+@@ -484,7 +484,7 @@
+ {
+     stm32x_flash_bank_t *stm32x_info = bank-&gt;driver_priv;
+     target_t *target = bank-&gt;target;
+-    u32 buffer_size = 8192;
++    u32 buffer_size = 16384;
+     working_area_t *source;
+     u32 address = bank-&gt;base + offset;
+     reg_param_t reg_params[4];
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005149.html">[Openocd-development] STM32 flash performance
+</A></li>
+	<LI>Next message: <A HREF="005151.html">[Openocd-development] STM32 flash performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5150">[ date ]</a>
+              <a href="thread.html#5150">[ thread ]</a>
+              <a href="subject.html#5150">[ subject ]</a>
+              <a href="author.html#5150">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

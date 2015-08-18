@@ -1,0 +1,279 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3CBANLkTi%3DG9tGi%2Bae%2BXoq4-k%3D5wTCks%2Be-EA%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018659.html">
+   <LINK REL="Next"  HREF="018666.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3CBANLkTi%3DG9tGi%2Bae%2BXoq4-k%3D5wTCks%2Be-EA%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Tue Apr  5 11:39:57 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018659.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+        <LI>Next message: <A HREF="018666.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18660">[ date ]</a>
+              <a href="thread.html#18660">[ thread ]</a>
+              <a href="subject.html#18660">[ subject ]</a>
+              <a href="author.html#18660">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>No, it's one-bit register.
+
+EJTAG spec :
+The width of the Fastdata register is 1 bit. During a Fastdata access,
+the Fastdata register is written and read, i.e., a bit is
+shifted in and a bit is shifted out. (See Section 6.4.3 on page 91 for
+how the Data + Fastdata registers are selected by the
+FASTDATA instruction.) During a Fastdata access, the Fastdata register
+value shifted in specifies whether the Fastdata
+access should be completed or not. The value shifted out is a flag
+that indicates whether the Fastdata access was
+successful or not (if completion was requested).
+
+With this in mind can you please post code variants of these two functions ?
+
+I am currently implementing A), but this keeps me in the infinite loop :
+
+int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int
+write_t, uint32_t *data)
+{
+	struct jtag_tap *tap;
+	tap = ejtag_info-&gt;tap;
+	assert(tap != NULL);
+
+	struct scan_field fields;
+	uint8_t spracc = 0;
+	uint8_t t[4] = {0, 0, 0, 0};
+
+	/* Shift out SPrAcc - Fastdata 1-bit reg */
+	fields.num_bits = 1;
+	fields.out_value = &spracc;
+	fields.in_value = NULL;
+
+	jtag_add_dr_scan(tap, 1, &amp;fields, TAP_IDLE);
+
+
+	/* Shift in SPrAcc - check if access will work */
+	fields.num_bits = 1;
+	fields.out_value = NULL;
+	fields.in_value = &spracc;
+
+	do
+	{
+		jtag_add_dr_scan(tap, 1, &amp;fields, TAP_IDLE);
+
+		int retval;
+		if ((retval = jtag_execute_queue()) != ERROR_OK)
+		{
+			LOG_ERROR(&quot;register read failed&quot;);
+			return retval;
+		}
+	} while (spracc != 1);
+
+	/* processor access data register 32 bit */
+	fields.num_bits = 32;
+	fields.out_value = t;
+
+	if (write_t)
+	{
+		fields.in_value = NULL;
+		buf_set_u32(t, 0, 32, *data);
+	}
+	else
+	{
+		fields.in_value = (uint8_t *) data;
+	}
+
+	jtag_add_dr_scan(tap, 1, &amp;fields, TAP_IDLE);
+
+	return ERROR_OK;
+}
+
+What's wrong here and how it should be implemented ?
+
+BR,
+Drasko
+
+On Tue, Apr 5, 2011 at 11:32 AM, Laurent Gauch
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">laurent.gauch at amontec.com</A>&gt; wrote:
+&gt;<i> Drasko DRASKOVIC wrote:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> On Tue, Apr 5, 2011 at 9:01 AM, Laurent Gauch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">laurent.gauch at amontec.com</A>&gt;
+</I>&gt;&gt;<i> wrote:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> On Mon, Apr 4, 2011 at 7:51 PM, &#370;yvind Harboe &lt;oyvind.harboe at
+</I>&gt;&gt;&gt;&gt;<i> zylin.com
+</I>&gt;&gt;&gt;&gt;<i> &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>&gt;&gt; wrote:
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;&gt;<i> / Any objections to merging 1,2 and 4?
+</I>&gt;&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> /&gt;/
+</I>&gt;&gt;&gt;&gt;<i> /&gt;/ I think #3 needs more discussion or cool-off. My objection is
+</I>&gt;&gt;&gt;&gt;<i> /&gt;/ that we don't know why this makes things better and it certainly
+</I>&gt;&gt;&gt;&gt;<i> /&gt;/ seems to hit performance hard.
+</I>&gt;&gt;&gt;&gt;<i> /
+</I>&gt;&gt;&gt;&gt;<i> OK, I will open the discussion by question : when do we use
+</I>&gt;&gt;&gt;&gt;<i> jtag_execute_queue() ?
+</I>&gt;&gt;&gt;&gt;<i> Based on the answer from &#370;yvind I had before, I could conclude that it
+</I>&gt;&gt;&gt;&gt;<i> serves to clock the data back in, while jtag_add_dr_scan() just puts
+</I>&gt;&gt;&gt;&gt;<i> them in the queue to be shifted out at some point.
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> jtag_add_xxxxxxx function will add new commands in the command queue.
+</I>&gt;&gt;&gt;<i> Note, the command queue could be auto-executed, depending on the
+</I>&gt;&gt;&gt;<i> mechanism/ressource of the JTAG adapter.
+</I>&gt;&gt;&gt;<i> The jtag_execute_queue function force the execution of the command queue,
+</I>&gt;&gt;&gt;<i> and process the response data coming back from the JTAG adapter.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Before comparing a TDO vector, you MUST do a jtag_execute_queue.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> So, if this is correct, then we can avoid using jtag_execute_queue()
+</I>&gt;&gt;&gt;&gt;<i> when we have no data to shift in. But what happens when the TAP will
+</I>&gt;&gt;&gt;&gt;<i> send us bit as a response to FASTDATA, and we are completely ingnoting
+</I>&gt;&gt;&gt;&gt;<i> it ? Will it lead to some collision on the data bus and make ftdi
+</I>&gt;&gt;&gt;&gt;<i> freak out ?
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> The JTAG layer only scan in and scan out the shift registers, and control
+</I>&gt;&gt;&gt;<i> the TAP FSM.
+</I>&gt;&gt;&gt;<i> The TAP will only return data if you do a scan .
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> Here is EJTAG spec on FASTDATA :
+</I>&gt;&gt;&gt;&gt;<i> Both upload and download accesses are attempted by shifting in a zero
+</I>&gt;&gt;&gt;&gt;<i> SPrAcc value (to request access completion) and shifting out SPrAcc to
+</I>&gt;&gt;&gt;&gt;<i> see if the
+</I>&gt;&gt;&gt;&gt;<i> attempt will be successful (i.e., there was an access pending and a
+</I>&gt;&gt;&gt;&gt;<i> legal Fastdata area address was used).
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Actually, two solutions :
+</I>&gt;&gt;&gt;<i> a) checking the SPrAcc
+</I>&gt;&gt;&gt;<i> &#160;1.send command to shift in zero to SPrAcc (jtag_add_scan)
+</I>&gt;&gt;&gt;<i> &#160;2.send command to shift out &#160;SPrAcc (jtag_add_scan)
+</I>&gt;&gt;&gt;<i> &#160;3.execute (jtag_execute)
+</I>&gt;&gt;&gt;<i> &#160;4.compare SPrAcc returned value
+</I>&gt;&gt;&gt;<i> &#160;5. if SprAcc not 0 goto 2.
+</I>&gt;&gt;&gt;<i> &#160;6. send command to shift in your DATA
+</I>&gt;&gt;&gt;<i> -&gt; goto to 1.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> b) unchecking the SPrAcc, but adding specific delay
+</I>&gt;&gt;&gt;<i> &#160;1.send command to shift in zero to SPrAcc (jtag_add_scan)
+</I>&gt;&gt;&gt;<i> &#160;2.wait for x delay allowing your specific hardware to accept SPrAcc
+</I>&gt;&gt;&gt;<i> &#160;3.send command to shift in your DATA
+</I>&gt;&gt;&gt;<i> -&gt; goto to 1.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Note: b)2. the wait could be done &#160;by soft, or adding delay in the
+</I>&gt;&gt;&gt;<i> command
+</I>&gt;&gt;&gt;<i> queue or ...
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> A) will be the most secure
+</I>&gt;&gt;&gt;<i> B) could be very fast, but should be avoid for generic implementation
+</I>&gt;&gt;&gt;<i> (not
+</I>&gt;&gt;&gt;<i> safe)
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Hi Laurent,
+</I>&gt;&gt;<i> this sounds very interesting, and I'd say that in current
+</I>&gt;&gt;<i> mips_ejtag_fastdata_scan() implementation we are doing something
+</I>&gt;&gt;<i> similar to B), but not quite - we never add the delay. However, this
+</I>&gt;&gt;<i> delay is undefined, and might come because of architecture of some
+</I>&gt;&gt;<i> dongles, so we may have situation that somewhere it works, and
+</I>&gt;&gt;<i> somewhere it does not, right ?
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> The jtag_execute_queue maybe generate enough delay in some case.
+</I>&gt;<i> But not safe, since in the case of USB JTAGkey the latency delay added is
+</I>&gt;<i> 1ms, and in the case of USB JTAGkey-2 the latency delay added is 125us ...
+</I>&gt;<i> It is much better to work on stable TAP state and generate some CLK periods.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Can you please paste here to versions of mips_ejtag_fastdata_scan(),
+</I>&gt;&gt;<i> A) (with shifting out &#160;SPrAcc) &#160;and B) (with added delay) as you
+</I>&gt;&gt;<i> described them, so I can try them both and test the results.
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Not so many time today, but I would try to out something before the end of
+</I>&gt;<i> the week.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I would change the code by myself but for A) I do not know - should we
+</I>&gt;&gt;<i> use separate field, or SPrAcc can be return in the same field when
+</I>&gt;&gt;<i> sent, like this :
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160;/* fastdata 1-bit register */
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160;fields[0].num_bits = 1;
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160;fields[0].out_value = &spracc;
+</I>&gt;&gt;<i> &#160; &#160; &#160; &#160;fields[0].in_value = &r;
+</I>&gt;&gt;<i> But this does not work.
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> I have to see again MIPS TAP,.
+</I>&gt;<i> Are you sure about the
+</I>&gt;<i>
+</I>&gt;<i> fields[0].num_bits = 1;
+</I>&gt;<i>
+</I>&gt;<i> Does the register not longer, and need to check one bit ???
+</I>&gt;<i>
+</I>&gt;&gt;<i> And for B) I do not know which function we can use for delay ? Maybe
+</I>&gt;&gt;<i> jtag_add_clocks() ?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> The best thing would be here if you can paste these two variants, and
+</I>&gt;&gt;<i> I will integrate them, test them and report the results.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Best regards,
+</I>&gt;&gt;<i> Drasko
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Regards,
+</I>&gt;<i> Laurent
+</I>&gt;<i> <A HREF="http://www.amontec.com">http://www.amontec.com</A>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018659.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+	<LI>Next message: <A HREF="018666.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18660">[ date ]</a>
+              <a href="thread.html#18660">[ thread ]</a>
+              <a href="subject.html#18660">[ subject ]</a>
+              <a href="author.html#18660">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 0/5] Flash program speedup through	asynchronous algorithms
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%200/5%5D%20Flash%20program%20speedup%20through%0A%09asynchronous%20algorithms&In-Reply-To=%3C1310986922-13799-1-git-send-email-andreas.fritiofson%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020324.html">
+   <LINK REL="Next"  HREF="020312.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 0/5] Flash program speedup through	asynchronous algorithms</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%200/5%5D%20Flash%20program%20speedup%20through%0A%09asynchronous%20algorithms&In-Reply-To=%3C1310986922-13799-1-git-send-email-andreas.fritiofson%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 0/5] Flash program speedup through	asynchronous algorithms">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Mon Jul 18 13:01:57 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020324.html">[Openocd-development] [PATCH 0/7] RLink interface speedup and	fixes
+</A></li>
+        <LI>Next message: <A HREF="020312.html">[Openocd-development] [PATCH 1/5] target: add async algorithm	entries to the target type
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20311">[ date ]</a>
+              <a href="thread.html#20311">[ thread ]</a>
+              <a href="subject.html#20311">[ subject ]</a>
+              <a href="author.html#20311">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch set enables targets to implement asynchronous algorithms that
+can be run in the background while OpenOCD performs other tasks. It also
+implements async algorithm support for ARMv7-M and enables it for the
+Cortex-M3 target. The final two patches rewrites the stm32x flash driver
+to use an async algorithm for block writes.
+
+Speed test on a STM32 Primer (STM32F103 platform with built in RLink) with the following openocd.cfg
+---
+source [find interface/rlink.cfg]
+source [find target/stm32.cfg]
+
+$_TARGETNAME configure -event reset-init {
+      mww 0x40022000 0x32
+      mww 0x40021004 0x3c0400
+      mww 0x40021000 0x01000883
+      sleep 10
+      mww 0x40021004 0x3c0402
+      sleep 10
+      adapter_khz 3000
+}
+
+init
+reset init
+poll off
+stm32x mass_erase 0
+flash write_image test.bin 0x08000000
+verify_image test.bin 0x08000000
+shutdown
+---
+
+Vanilla:
+wrote 65536 bytes from file test.bin in 8.316117s (7.696 KiB/s)
+verified 65536 bytes in 0.748795s (85.471 KiB/s)
+
+Async patch:
+wrote 65536 bytes from file test.bin in 4.084972s (15.667 KiB/s)
+verified 65536 bytes in 0.772365s (82.862 KiB/s)
+
+Speedup of 100%!
+
+Wait, there's more... the last run was limited by the slow RLink throughput.
+The previously sent Rlink patchset increases that, but still has the high
+latency.
+
+RLink patch only:
+wrote 65536 bytes from file test.bin in 7.171075s (8.925 KiB/s)
+verified 65536 bytes in 0.748815s (85.468 KiB/s)
+
+RLink+Async patch
+wrote 65536 bytes from file test.bin in 3.016943s (21.214 KiB/s)
+verified 65536 bytes in 0.773821s (82.706 KiB/s)
+
+Speedup of 137%!
+
+While the RLink patch alone only increases speed by 15%, because the     
+speed is still limited by roundtrip latency, with the async algorithm
+the speed increase from the RLink patch is 35%, since the algorithm
+is now bound by throughput, not latency.                           
+
+It would be nice to see some figures using faster interfaces, say some
+FT2232H design. Unfortunately I don't have one right now.
+
+/Andreas
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020324.html">[Openocd-development] [PATCH 0/7] RLink interface speedup and	fixes
+</A></li>
+	<LI>Next message: <A HREF="020312.html">[Openocd-development] [PATCH 1/5] target: add async algorithm	entries to the target type
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20311">[ date ]</a>
+              <a href="thread.html#20311">[ thread ]</a>
+              <a href="subject.html#20311">[ subject ]</a>
+              <a href="author.html#20311">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] i.MX21+OpenOCD+gdb
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20i.MX21%2BOpenOCD%2Bgdb&In-Reply-To=%3Cf4870a500812191456u5e99dfceie50e60af9cf54790%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003945.html">
+   <LINK REL="Next"  HREF="004165.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] i.MX21+OpenOCD+gdb</H1>
+    <B>Rahul Balani</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20i.MX21%2BOpenOCD%2Bgdb&In-Reply-To=%3Cf4870a500812191456u5e99dfceie50e60af9cf54790%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] i.MX21+OpenOCD+gdb">rahulb at ee.ucla.edu
+       </A><BR>
+    <I>Fri Dec 19 23:56:48 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003945.html">[Openocd-development] i.MX21+OpenOCD+gdb
+</A></li>
+        <LI>Next message: <A HREF="004165.html">[Openocd-development] i.MX21+OpenOCD+gdb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4164">[ date ]</a>
+              <a href="thread.html#4164">[ thread ]</a>
+              <a href="subject.html#4164">[ subject ]</a>
+              <a href="author.html#4164">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+Sorry for getting back to you after a while. I was finally able to solve all
+the issues with CSB735 board (OpenOCD rev: 1187 and latest 1264).
+
+(1) I let the target run for some time to let the flash bootloader
+initialize the PLL's and SDRAM. GDB works fine and I am able to load
+programs into RAM and debug them. Here is the monolithic config file and
+.gdbinit that works with rev 1187. I have also attached the imx21.cfg and
+csb735_imx21.cfg files for latest syntax.
+
+Duane was right: The &quot;remoteaddresssize 16&quot; bug that I mentioned earlier was
+because of the .gdbinit file in my HOME directory that I used for debugging
+MSP430. I did not know that irrespective of the directory where you invoke
+gdb from, it always sources the .gdbinit in HOME directory before searching
+for one in the local directory. I had the right .gdbinit in my local
+directory, but a different one in my HOME directory.
+
+---- openocd.cfg ----
+# OpenOCD daemon configuration
+telnet_port 4444
+gdb_port 3333
+
+gdb_memory_map enable
+gdb_detach resume
+
+#interface
+interface ft2232
+ft2232_device_desc &quot;Olimex OpenOCD JTAG&quot;
+ft2232_layout olimex-jtag
+ft2232_vid_pid 0x15ba 0x0003
+
+jtag_khz 1000
+
+reset_config trst_and_srst srst_pulls_trst
+
+# jtag scan chain
+# format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+jtag_device 4 0x1 0x1 0xe
+
+jtag_nsrst_delay 200
+jtag_ntrst_delay 200
+
+#target configuration
+target create target0 arm926ejs -endian little -chain-position 0 -variant
+arm926ejs
+
+arm7_9 dcc_downloads enable
+
+#dedicate 32KB working area inside RAM
+working_area 0 0xC0800000 0x8000 nobackup
+
+#Spansion s29gl512n 32MB * 16-bit flash ROM
+flash bank cfi 0xC8000000 0x4000000 2 2 0
+
+#Initialize the target
+init
+
+#Let the target run for 500 ms so that the bootloader
+#can initialize the PLL's and SDRAM
+reset run
+sleep 500
+halt
+
+---- .gdbinit ----
+target remote localhost:3333
+set endian little
+-------------------
+
+(2) Earlier, I had been unable to get the target to halt right after reset.
+This was because the reset_config needs srst_pulls_trst. I realized this by
+uncommenting a LOG_DEBUG statement in arm7_9_poll() to display the value of
+the debug status register right after reset. It showed that the value was
+equal to the tap id (= tap reset after which IDCODE instruction is loaded by
+default)! Now, reset halt works fine. Note: I haven't added the PLL and
+SDRAM initialization code to my scripts as I am not using &quot;reset halt&quot; right
+now. I will do that as and when I need it and will post it for submission.
+
+(3) While debugging this problem, I noticed that the variable
+arm7_9-&gt;debug_entry_from_reset was not set to 1 anywhere in the code, but
+was checked while clearing the halt condition in arm7_9_clear_halt(). I
+think it should be set whenever the user issues &quot;reset halt&quot; (in
+assert_reset()) and should be reset in clear_halt(). I have attached the
+corresponding patch.
+
+-Rahul.
+
+
+On Mon, Dec 8, 2008 at 3:23 AM, Alan Carvalho de Assis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">acassis at gmail.com</A>&gt;wrote:
+
+&gt;<i> Hi Duane,
+</I>&gt;<i>
+</I>&gt;<i> On Sun, Dec 7, 2008 at 1:43 PM, Duane Ellis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd at duaneellis.com</A>&gt;
+</I>&gt;<i> wrote:
+</I>&gt;<i> &gt; Alan/Fabio,
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;   The two of you seem to have *vast* knowledge about the IMX series.
+</I>&gt;<i> &gt;   And access to all kinds of IMX boards.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;   Perhaps one of you two could spend some time and help Rahul noodle this
+</I>&gt;<i> &gt; problem out?
+</I>&gt;<i> &gt;   Or perhaps figure this out on some other IMX board.
+</I>&gt;<i> &gt;
+</I>&gt;<i>
+</I>&gt;<i> Yes, we can make some tests here. Please note we didn't get success
+</I>&gt;<i> using OpenOCD with J-Link (IAR firmware) on iMX27. Everything appear
+</I>&gt;<i> works fine, OpenOCD detects board correctly but when gdb sends any
+</I>&gt;<i> command we get many errors.
+</I>&gt;<i>
+</I>&gt;<i> Using a FTDI based interface everything works fine.
+</I>&gt;<i>
+</I>&gt;<i> &gt; -Duane.
+</I>&gt;<i>
+</I>&gt;<i> Regards,
+</I>&gt;<i>
+</I>&gt;<i> Alan
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: imx21.cfg
+Type: application/octet-stream
+Size: 846 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment.obj</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: csb735_imx21.cfg
+Type: application/octet-stream
+Size: 777 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment-0001.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment-0001.obj</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: arm7_9_debug_entry.patch
+Type: text/x-diff
+Size: 1373 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment.patch">https://lists.berlios.de/pipermail/openocd-development/attachments/20081219/7e69149b/attachment.patch</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003945.html">[Openocd-development] i.MX21+OpenOCD+gdb
+</A></li>
+	<LI>Next message: <A HREF="004165.html">[Openocd-development] i.MX21+OpenOCD+gdb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4164">[ date ]</a>
+              <a href="thread.html#4164">[ thread ]</a>
+              <a href="subject.html#4164">[ subject ]</a>
+              <a href="author.html#4164">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

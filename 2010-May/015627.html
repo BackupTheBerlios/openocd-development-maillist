@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] flash: more flash write_image bugfixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20flash%3A%20more%20flash%20write_image%20bugfixes&In-Reply-To=%3C1272957538-25327-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015628.html">
+   <LINK REL="Next"  HREF="015629.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] flash: more flash write_image bugfixes</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20flash%3A%20more%20flash%20write_image%20bugfixes&In-Reply-To=%3C1272957538-25327-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] flash: more flash write_image bugfixes">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue May  4 09:18:58 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015628.html">[Openocd-development] PATCH - Fixed bug in tcl-server [ was:	openocd crash when sending command over tcl_port ]
+</A></li>
+        <LI>Next message: <A HREF="015629.html">[Openocd-development] [PATCH] gdb: connect will now fail if flash	autoprobe fails
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15627">[ date ]</a>
+              <a href="thread.html#15627">[ thread ]</a>
+              <a href="subject.html#15627">[ subject ]</a>
+              <a href="author.html#15627">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Remove/fix lots of bugs in handling of non-contigious sections
+and out of order sections.
+
+Fix a gaffe introduced in previous commit to src/flash/nor/core.c
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nor/core.c |   32 +++++++++++---------------------
+ 1 files changed, 11 insertions(+), 21 deletions(-)
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 9a77353..e6c0eeb 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -602,15 +602,12 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 		while ((run_address + run_size - 1 &lt; c-&gt;base + c-&gt;size - 1)
+ 				&amp;&amp; (section_last + 1 &lt; image-&gt;num_sections))
+ 		{
+-			if (sections[section_last + 1]-&gt;base_address &lt; (run_address + run_size))
++			/* sections are sorted */
++			assert(sections[section_last + 1]-&gt;base_address &gt;= c-&gt;base);
++			if (sections[section_last + 1]-&gt;base_address &gt;= (c-&gt;base + c-&gt;size))
+ 			{
+-				LOG_DEBUG(&quot;section %d out of order &quot;
+-						&quot;(surprising, but supported)&quot;,
+-						section_last + 1);
+-				/* REVISIT this can break with autoerase ...
+-				 * clobbering data after it's written.
+-				 */
+-				break;
++			  /* Done with this bank */
++			  break;
+ 			}
+ 
+ 			/* FIXME This needlessly touches sectors BETWEEN the
+@@ -631,8 +628,6 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 			 * flash programming could fail due to alignment issues
+ 			 * attempt to rebuild a consecutive buffer for the flash loader */
+ 			pad_bytes = (sections[section_last + 1]-&gt;base_address) - (run_address + run_size);
+-			if ((run_address + run_size + pad_bytes) &gt; (c-&gt;base + c-&gt;size))
+-				break;
+ 			padding[section_last] = pad_bytes;
+ 			run_size += sections[++section_last]-&gt;size;
+ 			run_size += pad_bytes;
+@@ -641,16 +636,7 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 				LOG_INFO(&quot;Padding image section %d with %d bytes&quot;, section_last-1, pad_bytes);
+ 		}
+ 
+-		/* fit the run into bank constraints */
+-		if (run_address + run_size - 1 &gt; c-&gt;base + c-&gt;size - 1)
+-		{
+-			/* REVISIT isn't this superfluous, given the while()
+-			 * loop conditions above??
+-			 */
+-			LOG_WARNING(&quot;writing %d bytes only - as image section is %d bytes and bank is only %d bytes&quot;, \
+-				    (int)(c-&gt;base + c-&gt;size - run_address), (int)(run_size), (int)(c-&gt;size));
+-			run_size = c-&gt;base + c-&gt;size - run_address;
+-		}
++		assert (run_address + run_size - 1 &lt;= c-&gt;base + c-&gt;size - 1);
+ 
+ 		/* If we're applying any sector automagic, then pad this
+ 		 * (maybe-combined) segment to the end of its last sector.
+@@ -691,8 +677,12 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 			 * #&#164;%#&quot;%&#164;% we have to figure out the section # from the sorted
+ 			 * list of pointers to sections to invoke image_read_section()...
+ 			 */
+-			int t_section_num = (sections[section] - image-&gt;sections) / sizeof(struct imageection);
++			intptr_t diff = (intptr_t)sections[section] - (intptr_t)image-&gt;sections;
++			int t_section_num = diff / sizeof(struct imageection);
+ 
++			LOG_DEBUG(&quot;image_read_section: section = %d, t_section_num = %d, section_offset = %d, buffer_size = %d, size_read = %d&quot;, 
++				 (int)section,
++(int)t_section_num, (int)section_offset, (int)buffer_size, (int)size_read);
+ 			if ((retval = image_read_section(image, t_section_num, section_offset,
+ 					size_read, buffer + buffer_size, &amp;size_read)) != ERROR_OK || size_read == 0)
+ 			{
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015628.html">[Openocd-development] PATCH - Fixed bug in tcl-server [ was:	openocd crash when sending command over tcl_port ]
+</A></li>
+	<LI>Next message: <A HREF="015629.html">[Openocd-development] [PATCH] gdb: connect will now fail if flash	autoprobe fails
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15627">[ date ]</a>
+              <a href="thread.html#15627">[ thread ]</a>
+              <a href="subject.html#15627">[ subject ]</a>
+              <a href="author.html#15627">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

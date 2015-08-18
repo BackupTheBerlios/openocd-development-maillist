@@ -1,0 +1,105 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] bug in flash image preparation (patch)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20bug%20in%20flash%20image%20preparation%20%28patch%29&In-Reply-To=%3C1218789832.1284.18.camel%40RMISSENDEN-XP%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003063.html">
+   <LINK REL="Next"  HREF="002924.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] bug in flash image preparation (patch)</H1>
+    <B>Richard</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20bug%20in%20flash%20image%20preparation%20%28patch%29&In-Reply-To=%3C1218789832.1284.18.camel%40RMISSENDEN-XP%3E"
+       TITLE="[Openocd-development] bug in flash image preparation (patch)">news at muppet.plus.com
+       </A><BR>
+    <I>Fri Aug 15 10:43:52 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003063.html">[Openocd-development] stellaris oddity
+</A></li>
+        <LI>Next message: <A HREF="002924.html">[Openocd-development] bug in flash image preparation (patch)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2920">[ date ]</a>
+              <a href="thread.html#2920">[ thread ]</a>
+              <a href="subject.html#2920">[ subject ]</a>
+              <a href="author.html#2920">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi, I'm developing a product based on the STM32, we're using openocd for debugging
+and production programming, so it's important to have things working right.
+
+I was having trouble when I added a global initialised variable, which caused 
+a .data section to be created after the .text with padding before the next section,
+which contains setup data. What happened was that the padding would start at the
+beginning of the .text section offset by the number of bytes of .data, which 
+gave me one or two vectors and garbage instead of actual code. 
+
+I tracked it down to where the padding is added to the assembled image, it
+needs to use the offset from the current buffer position rather than the start
+of the buffer. Also, size_read is calculated in a weird way, generating negative
+unsigned ints, which sometimes works depending on the way it gets optimised.
+
+Hope this is useful :)
+
+Richard M.
+
+Index: flash.c
+===================================================================
+--- flash.c     (revision 919)
++++ flash.c     (working copy)
+@@ -1052,9 +1052,8 @@
+                {
+                        u32 size_read;
+
+-                       if (buffer_size - run_size &lt;= image-&gt;sections[section].size - section_offset)
+-                               size_read = buffer_size - run_size;
+-                       else
++                       size_read = run_size - buffer_size;
++                       if (size_read &gt; image-&gt;sections[section].size - section_offset)
+                                size_read = image-&gt;sections[section].size - section_offset;
+
+                        if ((retval = image_read_section(image, section, section_offset,
+@@ -1067,7 +1066,7 @@
+
+                        /* see if we need to pad the section */
+                        while (padding[section]--)
+-                               buffer[size_read++] = 0xff;
++                               (buffer+buffer_size)[size_read++] = 0xff;
+
+                        buffer_size += size_read;
+                        section_offset += size_read;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003063.html">[Openocd-development] stellaris oddity
+</A></li>
+	<LI>Next message: <A HREF="002924.html">[Openocd-development] bug in flash image preparation (patch)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2920">[ date ]</a>
+              <a href="thread.html#2920">[ thread ]</a>
+              <a href="subject.html#2920">[ subject ]</a>
+              <a href="author.html#2920">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

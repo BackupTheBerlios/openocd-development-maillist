@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] C vs C++, was: AR11 warnings
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20C%20vs%20C%2B%2B%2C%20was%3A%20AR11%20warnings&In-Reply-To=%3C47C90D20.4080507%40digenius.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001285.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] C vs C++, was: AR11 warnings</H1>
+    <B>Michael Bruck</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20C%20vs%20C%2B%2B%2C%20was%3A%20AR11%20warnings&In-Reply-To=%3C47C90D20.4080507%40digenius.de%3E"
+       TITLE="[Openocd-development] C vs C++, was: AR11 warnings">mbruck at digenius.de
+       </A><BR>
+    <I>Sat Mar  1 09:00:32 CET 2008</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001285.html">[Openocd-development] C vs C++, was: AR11 warnings
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1283">[ date ]</a>
+              <a href="thread.html#1283">[ thread ]</a>
+              <a href="subject.html#1283">[ subject ]</a>
+              <a href="author.html#1283">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Pavel Chromy wrote:
+&gt;<i> &#216;yvind Harboe wrote:
+</I>&gt;&gt;<i> Could you elaborate on the advantages of sticking with C instead
+</I>&gt;&gt;<i> of *sensible* use of C/C++?
+</I>&gt;<i> 
+</I>&gt;<i> Well, I am not that strict in this, but I would still also rather stay with plain C.
+</I>&gt;<i> Counterargument: What real benefits would C++ bring? I mean *real* benefits, not just coding style.
+</I>&gt;<i> 
+</I>&gt;<i> Both languages provide means to express everything we need, so why switching?
+</I>&gt;<i> I am more hardcore C type and I have to admit I do not like using OOP where it does not bring *significant* benefits.
+</I>&gt;<i> I do not see any strong advantages for project of this type.
+</I>
+In a C++ compiler many common pointer cast errors simply cannot happen 
+because they are detected at compile time (in C they are detected too, 
+at crash time). Consider all the void *'s in the source code, they would 
+mostly be gone, none of those are verified by the compiler.
+
+Or this simple comparison
+
+C:
+int arm966e_read_cp15(target_t *target, int reg_addr, u32 *value)
+{
+	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
+	arm_jtag_t *jtag_info = &amp;arm7_9-&gt;jtag_info;
+
+	...
+	arm_jtag_scann(jtag_info, 0xf);
+
+
+
+C++:
+int arm966e_t::read_cp15(int reg_addr, u32 &amp; value)
+{
+	jtag_info.scann(0xf);
+
+
+which one has more code and therefore more potential for errors? Which 
+one has more copy&amp;paste duplicated code that is especially prone to 
+errors when imported with modifications from other parts of the project? 
+Which one has two void * pointer casts that cannot be examined by the 
+compiler? Which one forces the person verifying the code to focus on 
+bureaucratic details of data access while distracting from what the 
+function actually does at its core?
+
+There are also lots of mallocs in the code that calculate data sizes for 
+structs manually, something the C++ compiler's new/new[] operator can do 
+for you while guaranteeing a bug free result and better readability.
+
+There are endless amounts of data structures where each member gets 
+pre-initialized manually to a default value, something that a C++ 
+constructor not only does more elegantly without code clutter but also 
+consistently across the whole project whenever that structure is 
+extended. This can be implemented in C too with an init function but in 
+C++ its automatic and can not be forgotten by mistake.
+
+If you convert the function pointer structs that serve as interfaces to 
+abstract C++ classes you get predictable error detection whenever you 
+extend the interface (new function; function parameter modification) and 
+one of the implementations is out of sync.
+
+C++ also uses function name mangling. So that functions between 
+different compilation units are matched at link time. Function 
+prototypes are a nice way to achieve the same at compile time, but with 
+headers from different projects mixed together (like f.e. FTDI driver 
+headers) there is potential for hard to trace conflicts (differences in 
+the declarations of basic data types for example), that would be obvious 
+to a c++ linker that is matching mangled function names.
+
+If you consistently add const's the compiler can detect unwanted data 
+modifications in lower layers.
+
+If you use references instead of pointers you can reduce cases where a 
+NULL is accidentally passed as parameter when that is not allowed by the 
+receiving function.
+
+C++ namespaces allow you to reduce function names and make the code 
+better readable. Better readable code in general allows you to focus on 
+the algorithm instead of syntactic redundancy. Simplicity = less error 
+potential.
+
+If rewritten more extensively there are also potential benefits when 
+applying C++ functionality to the core of the project. For example a 
+class that encapsulates all these register values in big/little endian 
+and gets rid of all the malloc/memcpy activity between each layer by 
+using advanced pointer types.
+
+
+Michael
+
+
+&gt;<i> Pavel
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001285.html">[Openocd-development] C vs C++, was: AR11 warnings
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1283">[ date ]</a>
+              <a href="thread.html#1283">[ thread ]</a>
+              <a href="subject.html#1283">[ subject ]</a>
+              <a href="author.html#1283">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

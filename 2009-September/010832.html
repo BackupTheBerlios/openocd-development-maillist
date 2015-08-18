@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rft] &quot;arm11 memwrite ...&quot; bug fixes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rft%5D%20%22arm11%20memwrite%20...%22%20bug%20fixes&In-Reply-To=%3C200909261549.25224.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010827.html">
+   <LINK REL="Next"  HREF="010888.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rft] &quot;arm11 memwrite ...&quot; bug fixes</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rft%5D%20%22arm11%20memwrite%20...%22%20bug%20fixes&In-Reply-To=%3C200909261549.25224.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rft] &quot;arm11 memwrite ...&quot; bug fixes">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Sep 27 00:49:25 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010827.html">[Openocd-development] [patch/rfc] cleanup TAP ircapture/irmask
+</A></li>
+        <LI>Next message: <A HREF="010888.html">[Openocd-development] [patch/rft] &quot;arm11 memwrite ...&quot; bug fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10832">[ date ]</a>
+              <a href="thread.html#10832">[ thread ]</a>
+              <a href="subject.html#10832">[ subject ]</a>
+              <a href="author.html#10832">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Fix glitches in ARM11 command handling:  commands were supposed
+to have been &quot;arm11 memwrite ...&quot; not &quot;memwrite ...&quot;.
+
+Get rid of obfuscatory macros.  Re-alphabetize.
+
+Add docs for &quot;arm11 vcr&quot;.
+---
+Someone with an ARM11 based board, please verify ... I've
+got one but it's not currently set up.
+
+ doc/openocd.texi   |   15 +++++++++-
+ src/target/arm11.c |   76 +++++++++++++++++++++++++--------------------------
+ 2 files changed, 52 insertions(+), 39 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -5412,10 +5412,23 @@ If @var{value} is defined, first assigns
+ @deffn Command {arm11 step_irq_enable}  [value]
+ Displays the value of the flag controlling whether
+ IRQs are enabled during single stepping;
+-they is disabled by default.
++they are disabled by default.
+ If @var{value} is defined, first assigns that.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {arm11 vcr} [value]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at cindex</A> vector_catch
++Displays the value of the @emph{Vector Catch Register (VCR)},
++coprocessor 14 register 7.
++If @var{value} is defined, first assigns that.
++
++Vector Catch hardware provides dedicated breakpoints
++for certain hardware events.
++The specific bit values are core-specific (as in fact is using
++coprocessor 14 register 7 itself) but all current ARM11
++cores @emph{except the ARM1176} use the same six bits.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ @section ARMv7 Architecture
+ @cindex ARMv7
+ 
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1905,19 +1905,6 @@ int arm11_handle_bool_##name(struct comm
+ 	return arm11_handle_bool(cmd_ctx, cmd, args, argc, &amp;arm11_config_##name, print_name); \
+ }
+ 
+-#define RC_TOP(name, descr, more)  \
+-{ \
+-	command_t * new_cmd = register_command(cmd_ctx, top_cmd, name, NULL, COMMAND_ANY, descr);  \
+-	command_t * top_cmd = new_cmd; \
+-	more \
+-}
+-
+-#define RC_FINAL(name, descr, handler)	\
+-	register_command(cmd_ctx, top_cmd, name, handler, COMMAND_ANY, descr);
+-
+-#define RC_FINAL_BOOL(name, descr, var)  \
+-	register_command(cmd_ctx, top_cmd, name, arm11_handle_bool_##var, COMMAND_ANY, descr);
+-
+ BOOL_WRAPPER(memwrite_burst,			&quot;memory write burst mode&quot;)
+ BOOL_WRAPPER(memwrite_error_fatal,		&quot;fatal error mode for memory writes&quot;)
+ BOOL_WRAPPER(memrw_no_increment,		&quot;\&quot;no increment\&quot; mode for memory transfers&quot;)
+@@ -2069,36 +2056,49 @@ int arm11_register_commands(struct comma
+ {
+ 	FNC_INFO;
+ 
+-	command_t * top_cmd = NULL;
+-
+-	RC_TOP(&quot;arm11&quot;,				&quot;arm11 specific commands&quot;,
+-
+-	RC_TOP(&quot;memwrite&quot;,				&quot;Control memory write transfer mode&quot;,
+-
+-		RC_FINAL_BOOL(&quot;burst&quot;,				&quot;Enable/Disable non-standard but fast burst mode (default: enabled)&quot;,
+-						memwrite_burst)
+-
+-		RC_FINAL_BOOL(&quot;error_fatal&quot;,			&quot;Terminate program if transfer error was found (default: enabled)&quot;,
+-						memwrite_error_fatal)
+-) /* memwrite */
++	command_t *top_cmd, *mw_cmd;
+ 
+-	RC_FINAL_BOOL(&quot;no_increment&quot;,			&quot;Don't increment address on multi-read/-write (default: disabled)&quot;,
+-						memrw_no_increment)
++	top_cmd = register_command(cmd_ctx, NULL, &quot;arm11&quot;,
++			NULL, COMMAND_ANY, NULL);
+ 
+-RC_FINAL_BOOL(&quot;step_irq_enable&quot;,		&quot;Enable interrupts while stepping (default: disabled)&quot;,
+-					step_irq_enable)
+-RC_FINAL_BOOL(&quot;hardware_step&quot;,		&quot;hardware single stepping. By default use simulate + breakpoint. This command is only here to check if simulate + breakpoint implementation is broken.&quot;,
+-					hardware_step)
++	/* &quot;hardware_step&quot; is only here to check if the default
++	 * simulate + breakpoint implementation is broken.
++	 * TEMPORARY! NOT DOCUMENTED!
++	 */
++	register_command(cmd_ctx, top_cmd, &quot;hardware_step&quot;,
++			arm11_handle_bool_hardware_step, COMMAND_ANY,
++			&quot;DEBUG ONLY - Hardware single stepping&quot;
++				&quot; (default: disabled)&quot;);
+ 
+-	RC_FINAL(&quot;vcr&quot;,					&quot;Control (Interrupt) Vector Catch Register&quot;,
+-						arm11_handle_vcr)
++	register_command(cmd_ctx, top_cmd, &quot;mcr&quot;,
++			arm11_handle_mcr, COMMAND_ANY,
++			&quot;Write Coprocessor register&quot;);
+ 
+-	RC_FINAL(&quot;mrc&quot;,					&quot;Read Coprocessor register&quot;,
+-						arm11_handle_mrc)
++	mw_cmd = register_command(cmd_ctx, top_cmd, &quot;memwrite&quot;,
++			NULL, COMMAND_ANY, NULL);
++	register_command(cmd_ctx, mw_cmd, &quot;burst&quot;,
++			arm11_handle_bool_memwrite_burst, COMMAND_ANY,
++			&quot;Enable/Disable non-standard but fast burst mode&quot;
++				&quot; (default: enabled)&quot;);
++	register_command(cmd_ctx, mw_cmd, &quot;error_fatal&quot;,
++			arm11_handle_bool_memwrite_error_fatal, COMMAND_ANY,
++			&quot;Terminate program if transfer error was found&quot;
++				&quot; (default: enabled)&quot;);
+ 
+-	RC_FINAL(&quot;mcr&quot;,					&quot;Write Coprocessor register&quot;,
+-						arm11_handle_mcr)
+-) /* arm11 */
++	register_command(cmd_ctx, top_cmd, &quot;mrc&quot;,
++			arm11_handle_mrc, COMMAND_ANY,
++			&quot;Read Coprocessor register&quot;);
++	register_command(cmd_ctx, top_cmd, &quot;no_increment&quot;,
++			arm11_handle_bool_memrw_no_increment, COMMAND_ANY,
++			&quot;Don't increment address on multi-read/-write&quot;
++				&quot; (default: disabled)&quot;);
++	register_command(cmd_ctx, top_cmd, &quot;step_irq_enable&quot;,
++			arm11_handle_bool_step_irq_enable, COMMAND_ANY,
++			&quot;Enable interrupts while stepping&quot;
++				&quot; (default: disabled)&quot;);
++	register_command(cmd_ctx, top_cmd, &quot;vcr&quot;,
++			arm11_handle_vcr, COMMAND_ANY,
++			&quot;Control (Interrupt) Vector Catch Register&quot;);
+ 
+ 	return ERROR_OK;
+ }
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010827.html">[Openocd-development] [patch/rfc] cleanup TAP ircapture/irmask
+</A></li>
+	<LI>Next message: <A HREF="010888.html">[Openocd-development] [patch/rft] &quot;arm11 memwrite ...&quot; bug fixes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10832">[ date ]</a>
+              <a href="thread.html#10832">[ thread ]</a>
+              <a href="subject.html#10832">[ subject ]</a>
+              <a href="author.html#10832">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

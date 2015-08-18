@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH:fix SIGSEGV
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3Afix%20SIGSEGV&In-Reply-To=%3CC8344CEF-2DD1-4C54-9A55-D0DA3F597F9B%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003870.html">
+   <LINK REL="Next"  HREF="003872.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH:fix SIGSEGV</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3Afix%20SIGSEGV&In-Reply-To=%3CC8344CEF-2DD1-4C54-9A55-D0DA3F597F9B%40kc8apf.net%3E"
+       TITLE="[Openocd-development] PATCH:fix SIGSEGV">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Tue Dec  2 19:53:37 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003870.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+        <LI>Next message: <A HREF="003872.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3871">[ date ]</a>
+              <a href="thread.html#3871">[ thread ]</a>
+              <a href="subject.html#3871">[ subject ]</a>
+              <a href="author.html#3871">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Dec 2, 2008, at 10:03 AM, Michael Schwingen wrote:
+
+&gt;<i> Rick Altherr wrote:
+</I>&gt;&gt;<i> I'm also not entirely sure that a structure must always be aligned.
+</I>&gt;&gt;<i> I'm aware that some architectures will trap if an unaligned access is
+</I>&gt;&gt;<i> encountered, but the OS should catch the trap and handle the  
+</I>&gt;&gt;<i> unaligned
+</I>&gt;&gt;<i> access correctly.
+</I>&gt;<i> No. AFAIK, C requires pointers to be aligned, and for good reasons -
+</I>&gt;<i> there are plattforms where unaligned accesses are simply not possible,
+</I>&gt;<i> and many OS's on those platforms *do not* emulate such accesses but
+</I>&gt;<i> simply terminate the offending process.
+</I>&gt;<i>
+</I>&gt;<i> This may sound strange for people who are used to X86 programming  
+</I>&gt;<i> only,
+</I>&gt;<i> but portable code should avoid such constructs and not rely on the  
+</I>&gt;<i> OS to
+</I>&gt;<i> emulate misaligned accesses.
+</I>&gt;<i>
+</I>&gt;<i> cu
+</I>&gt;<i> Michael
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+Ironically, my day job has been exclusively on non-x86 platforms for  
+years and only recently started with x86.
+
+Pointers to data types should be aligned such that the data type is  
+naturally aligned.  That would mean that a 16-bit type should be 16- 
+bit aligned.  The question was related to structures.  Since they are  
+not a native data type, I wasn't sure that they required word  
+alignment.  I'll dig up my copy of the C standard and check.
+
+In practice, most malloc() implementations return word-alignment at a  
+minimum.  This command queue allocation does not do any alignment  
+today.  So, the first item allocated in a command queue page will be  
+malloc() aligned, but subsequent allocations are not guaranteed to be.
+
+A few approaches can be taken to resolve this.  One is to pad the  
+allocations to a word-sized quantity.  Another is to align the start  
+of an allocation but not adjust the size used.  Yet another is to have  
+separate aligned and unaligned allocators.  Yet another is to allow  
+the required alignment to be specified.
+
+To keep with malloc() semantics, guaranteeing that the allocations are  
+at least word aligned is probably a good idea.  That allows the  
+pointer to be used for any types (except vector types) and requires  
+minimal change in the code base.  Padding the allocation size is  
+arguably smaller in terms of code, but if that route is used, a  
+detailed comment should proceed it explaining why the size is being  
+padded.  It should also be done as a modification of the used member  
+of the page structure rather than as part of the requested size.  That  
+way it is clear that the size of the object allocated isn't changed,  
+but that padding was added to force alignment.
+
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/83eb14d1/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20081202/83eb14d1/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003870.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+	<LI>Next message: <A HREF="003872.html">[Openocd-development] PATCH:fix SIGSEGV
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3871">[ date ]</a>
+              <a href="thread.html#3871">[ thread ]</a>
+              <a href="subject.html#3871">[ subject ]</a>
+              <a href="author.html#3871">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

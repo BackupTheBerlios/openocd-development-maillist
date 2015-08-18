@@ -1,0 +1,400 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] implement array2mem in openocd.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20implement%20array2mem%20in%20openocd.c&In-Reply-To=%3C200807101823.m6AINqw5021805%40hades%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002468.html">
+   <LINK REL="Next"  HREF="002469.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] implement array2mem in openocd.c</H1>
+    <B>Charles Hardin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20implement%20array2mem%20in%20openocd.c&In-Reply-To=%3C200807101823.m6AINqw5021805%40hades%3E"
+       TITLE="[Openocd-development] [PATCH] implement array2mem in openocd.c">ckhardin at gmail.com
+       </A><BR>
+    <I>Thu Jul 10 20:23:52 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002468.html">[Openocd-development] Problem with r784, runtime error
+</A></li>
+        <LI>Next message: <A HREF="002469.html">[Openocd-development] [PATCH] implement array2mem in openocd.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2467">[ date ]</a>
+              <a href="thread.html#2467">[ thread ]</a>
+              <a href="subject.html#2467">[ subject ]</a>
+              <a href="author.html#2467">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add semantics to support memwrite(32,16,8) with an array2mem command
+Move the global up in bits2bytes.tcl so the set puts the value in the global
+context.
+Add memwrite procs to memory.tcl
+
+Index: tcl/bitsbytes.tcl
+===================================================================
+--- tcl/bitsbytes.tcl	(revision 784)
++++ tcl/bitsbytes.tcl	(working copy)
+@@ -7,30 +7,28 @@
+ 
+ for { set x 0  } { $x &lt; 32 } { set x [expr $x + 1]} {
+     set vn [format &quot;BIT%d&quot; $x]
+-    set $vn   [expr (1 &lt;&lt; $x)]
+     global $vn
+-
++    set $vn   [expr (1 &lt;&lt; $x)]
+ }
+ 
+ # Create K bytes values
+ #    __1K ... to __2048K
+ for { set x 1  } { $x &lt; 2048 } { set x [expr $x * 2]} {
+     set vn [format &quot;__%dK&quot; $x]
+-    set $vn   [expr (1024 * $x)]
+     global $vn
++    set $vn   [expr (1024 * $x)]
+ }
+ 
+ # Create M bytes values
+ #    __1M ... to __2048K
+ for { set x 1  } { $x &lt; 2048 } { set x [expr $x * 2]} {
+     set vn [format &quot;__%dM&quot; $x] 
+-    set $vn [expr (1024 * 1024 * $x)]
+     global $vn
++    set $vn [expr (1024 * 1024 * $x)]
+ }
+ 
+ proc create_mask { MSB LSB } {
+     return [expr (((1 &lt;&lt; ($MSB - $LSB + 1))-1) &lt;&lt; $LSB)]
+-
+ }
+ 
+ # Cut Bits $MSB to $LSB out of this value.
+Index: tcl/memory.tcl
+===================================================================
+--- tcl/memory.tcl	(revision 784)
++++ tcl/memory.tcl	(working copy)
+@@ -78,31 +78,56 @@
+     return &quot;UNKNOWN 0&quot;
+ }
+ 
+-proc memread32 {ADDR } {
++proc memread32 {ADDR} {
+     set foo(0) 0
+     if ![ catch { mem2array foo 32 $ADDR 1  } msg ] {
+ 	return $foo(0)
+     } else {
+-	error &quot;memead32: $msg&quot;
++	error &quot;memread32: $msg&quot;
+     }
+ }    
+ 
+-proc memread16 {ADDR } {
++proc memread16 {ADDR} {
+     set foo(0) 0
+     if ![ catch { mem2array foo 16 $ADDR 1  } msg ] {
+ 	return $foo(0)
+     } else {
+-	error &quot;memead16: $msg&quot;
++	error &quot;memread16: $msg&quot;
+     }
+ }    
+ 
+-proc memread8 {ADDR } {
++proc memread8 {ADDR} {
+     set foo(0) 0
+     if ![ catch { mem2array foo 8 $ADDR 1  } msg ] {
+ 	return $foo(0)
+     } else {
+-	error &quot;memead8: $msg&quot;
++	error &quot;memread8: $msg&quot;
+     }
+ }    
+ 
++proc memwrite32 {ADDR DATA} {
++    set foo(0) $DATA
++    if ![ catch { array2mem foo 32 $ADDR 1  } msg ] {
++	return $foo(0)
++    } else {
++	error &quot;memwrite32: $msg&quot;
++    }
++}    
+ 
++proc memwrite16 {ADDR DATA} {
++    set foo(0) $DATA
++    if ![ catch { array2mem foo 16 $ADDR 1  } msg ] {
++	return $foo(0)
++    } else {
++	error &quot;memwrite16: $msg&quot;
++    }
++}    
++
++proc memwrite8 {ADDR DATA} {
++    set foo(0) $DATA
++    if ![ catch { array2mem foo 8 $ADDR 1  } msg ] {
++	return $foo(0)
++    } else {
++	error &quot;memwrite8: $msg&quot;
++    }
++}    
+Index: openocd.c
+===================================================================
+--- openocd.c	(revision 784)
++++ openocd.c	(working copy)
+@@ -194,16 +194,24 @@
+ 	int result;
+ 
+ 	namebuf = alloc_printf(&quot;%s(%d)&quot;, varname, idx);
++	if (!namebuf)
++		return JIM_ERR;
+ 	
+ 	nameObjPtr = Jim_NewStringObj(interp, namebuf, -1);
+ 	valObjPtr = Jim_NewIntObj(interp, val);
++	if (!nameObjPtr || !valObjPtr)
++	{
++		free(namebuf);
++		return JIM_ERR;
++	}
++
+ 	Jim_IncrRefCount(nameObjPtr);
+ 	Jim_IncrRefCount(valObjPtr);
+ 	result = Jim_SetVariable(interp, nameObjPtr, valObjPtr);
+ 	Jim_DecrRefCount(interp, nameObjPtr);
+ 	Jim_DecrRefCount(interp, valObjPtr);
+ 	free(namebuf);
+-	/* printf( &quot;%s = 0%08x\n&quot;, namebuf, val ); */
++	/* printf(&quot;%s(%d) &lt;= 0%08x\n&quot;, varname, idx, val); */
+ 	return result;
+ }
+ 
+@@ -223,7 +231,7 @@
+ 	/* argv[1] = name of array to receive the data
+ 	 * argv[2] = desired width
+ 	 * argv[3] = memory address 
+-	 * argv[4] = length in bytes to read
++	 * argv[4] = count of times to read
+ 	 */
+ 	if (argc != 5) {
+ 		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
+@@ -309,7 +317,6 @@
+ 		}
+ 		
+ 		retval = target-&gt;type-&gt;read_memory( target, addr, width, count, buffer );
+-
+ 		if (retval != ERROR_OK) {
+ 			/* BOO !*/
+ 			LOG_ERROR(&quot;mem2array: Read @ 0x%08x, w=%d, cnt=%d, failed&quot;, addr, width, count);
+@@ -342,6 +349,171 @@
+ 	return JIM_OK;
+ }
+ 
++static int get_int_array_element(Jim_Interp * interp, const char *varname, int idx, u32 *val)
++{
++	char *namebuf;
++	Jim_Obj *nameObjPtr, *valObjPtr;
++	int result;
++	long l;
++
++	namebuf = alloc_printf(&quot;%s(%d)&quot;, varname, idx);
++	if (!namebuf)
++		return JIM_ERR;
++
++	nameObjPtr = Jim_NewStringObj(interp, namebuf, -1);
++	if (!nameObjPtr)
++	{
++		free(namebuf);
++		return JIM_ERR;
++	}
++
++	Jim_IncrRefCount(nameObjPtr);
++	valObjPtr = Jim_GetVariable(interp, nameObjPtr, JIM_ERRMSG);
++	Jim_DecrRefCount(interp, nameObjPtr);
++	free(namebuf);
++	if (valObjPtr == NULL)
++		return JIM_ERR;
++
++	result = Jim_GetLong(interp, valObjPtr, &amp;l);
++	/* printf(&quot;%s(%d) =&gt; 0%08x\n&quot;, varname, idx, val); */
++	*val = l;
++	return result;
++}
++
++static int Jim_Command_array2mem(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	target_t *target;
++	long l;
++	u32 width;
++	u32 len;
++	u32 addr;
++	u32 count;
++	u32 v;
++	const char *varname;
++	u8 buffer[4096];
++	int  i, n, e, retval;
++
++	/* argv[1] = name of array to get the data
++	 * argv[2] = desired width
++	 * argv[3] = memory address 
++	 * argv[4] = count to write
++	 */
++	if (argc != 5) {
++		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
++		return JIM_ERR;
++	}
++	varname = Jim_GetString(argv[1], &amp;len);
++	/* given &quot;foo&quot; get space for worse case &quot;foo(%d)&quot; .. add 20 */
++
++	e = Jim_GetLong(interp, argv[2], &amp;l);
++	width = l;
++	if (e != JIM_OK) {
++		return e;
++	}
++	
++	e = Jim_GetLong(interp, argv[3], &amp;l);
++	addr = l;
++	if (e != JIM_OK) {
++		return e;
++	}
++	e = Jim_GetLong(interp, argv[4], &amp;l);
++	len = l;
++	if (e != JIM_OK) {
++		return e;
++	}
++	switch (width) {
++		case 8:
++			width = 1;
++			break;
++		case 16:
++			width = 2;
++			break;
++		case 32:
++			width = 4;
++			break;
++		default:
++			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++			Jim_AppendStrings( interp, Jim_GetResult(interp), &quot;Invalid width param, must be 8/16/32&quot;, NULL );
++			return JIM_ERR;
++	}
++	if (len == 0) {
++		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++		Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;array2mem: zero width read?&quot;, NULL);
++		return JIM_ERR;
++	}
++	if ((addr + (len * width)) &lt; addr) {
++		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++		Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;array2mem: addr + len - wraps to zero?&quot;, NULL);
++		return JIM_ERR;
++	}
++	/* absurd transfer size? */
++	if (len &gt; 65536) {
++		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++		Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;array2mem: absurd &gt; 64K item request&quot;, NULL);
++		return JIM_ERR;
++	}		
++		
++	if ((width == 1) ||
++		((width == 2) &amp;&amp; ((addr &amp; 1) == 0)) ||
++		((width == 4) &amp;&amp; ((addr &amp; 3) == 0))) {
++		/* all is well */
++	} else {
++		char buf[100];
++		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++		sprintf(buf, &quot;array2mem address: 0x%08x is not aligned for %d byte reads&quot;, addr, width); 
++		Jim_AppendStrings(interp, Jim_GetResult(interp), buf , NULL);
++		return JIM_ERR;
++	}
++
++	target = get_current_target(active_cmd_ctx);
++	
++	/* Transfer loop */
++
++	/* index counter */
++	n = 0;
++	/* assume ok */
++	e = JIM_OK;
++	while (len) {
++		/* Slurp... in buffer size chunks */
++		
++		count = len; /* in objects.. */
++		if (count &gt; (sizeof(buffer)/width)) {
++			count = (sizeof(buffer)/width);
++		}
++
++		v = 0; /* shut up gcc */
++		for (i = 0 ;i &lt; count ;i++, n++) {
++			get_int_array_element(interp, varname, n, &amp;v);
++			switch (width) {
++			case 4:
++				target_buffer_set_u32(target, &amp;buffer[i*width], v);
++				break;
++			case 2:
++				target_buffer_set_u16(target, &amp;buffer[i*width], v);
++				break;
++			case 1:
++				buffer[i] = v &amp; 0x0ff;
++				break;
++			}
++		}
++		len -= count;
++
++		retval = target-&gt;type-&gt;write_memory(target, addr, width, count, buffer);
++		if (retval != ERROR_OK) {
++			/* BOO !*/
++			LOG_ERROR(&quot;array2mem: Write @ 0x%08x, w=%d, cnt=%d, failed&quot;, addr, width, count);
++			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++			Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;mem2array: cannot read memory&quot;, NULL);
++			e = JIM_ERR;
++			len = 0;
++		}
++	}
++	
++	Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
++
++	return JIM_OK;
++}
++
+ static void tcl_output(void *privData, const char *file, int line, const char *function, const char *string)
+ {		
+ 	Jim_Obj *tclOutput=(Jim_Obj *)privData;
+@@ -557,7 +729,8 @@
+ 	Jim_CreateCommand(interp, &quot;find&quot;, Jim_Command_find, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;echo&quot;, Jim_Command_echo, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;mem2array&quot;, Jim_Command_mem2array, NULL, NULL );
+-	
++	Jim_CreateCommand(interp, &quot;array2mem&quot;, Jim_Command_array2mem, NULL, NULL );
++
+ 	/* Set Jim's STDIO */
+ 	interp-&gt;cookie_stdin = NULL;
+ 	interp-&gt;cookie_stdout = NULL;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002468.html">[Openocd-development] Problem with r784, runtime error
+</A></li>
+	<LI>Next message: <A HREF="002469.html">[Openocd-development] [PATCH] implement array2mem in openocd.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2467">[ date ]</a>
+              <a href="thread.html#2467">[ thread ]</a>
+              <a href="subject.html#2467">[ subject ]</a>
+              <a href="author.html#2467">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

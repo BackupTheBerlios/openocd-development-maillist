@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] ftdilib problems
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ftdilib%20problems&In-Reply-To=%3C480EE9A3.8000302%40asix.cz%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001975.html">
+   <LINK REL="Next"  HREF="001986.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] ftdilib problems</H1>
+    <B>Pavel Chromy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ftdilib%20problems&In-Reply-To=%3C480EE9A3.8000302%40asix.cz%3E"
+       TITLE="[Openocd-development] ftdilib problems">chromy at asix.cz
+       </A><BR>
+    <I>Wed Apr 23 09:47:47 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001975.html">[Openocd-development] ftdilib problems
+</A></li>
+        <LI>Next message: <A HREF="001986.html">[Openocd-development] ftdilib problems
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1984">[ date ]</a>
+              <a href="thread.html#1984">[ thread ]</a>
+              <a href="subject.html#1984">[ subject ]</a>
+              <a href="author.html#1984">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+Hello Ville,
+
+I suspect that there realy is a problem in openocd+ftdi+libftdi(libusb).
+
+I have notices this when analyzing the sources of the driver for FTDI based dongles
+and also posted some questions about this to the list, but you seem to be the first
+person who spotted the problem in real use (really a surprise, it seems like no one else is using libftdi?).
+
+Although PRESTO (containing FT245) is using a separate driver, it is affected by this too,
+as this is common to all FTDI devices. I have fixed this for PRESTO but not for FT2232 dongles,
+as I have none here to test it.
+
+So back to the problem itself, please see my previous posts first:
+<A HREF="https://lists.berlios.de/pipermail/openocd-development/2008-February/001208.html">https://lists.berlios.de/pipermail/openocd-development/2008-February/001208.html</A>
+<A HREF="https://lists.berlios.de/pipermail/openocd-development/2008-March/001519.html">https://lists.berlios.de/pipermail/openocd-development/2008-March/001519.html</A>
+Especially the first one about PRESTO, the principle is the same for other FTDI devices.
+
+The problem is in the fact, that libusb (on which libftdi relies) is truly synchronous,
+thus it does not read data from the USB device in the background.
+So the limitation is in the buffer size inside the device, which is
+(I believe) just 128 bytes. So if the chunk of data being sent
+to FTDI device induces more than 128 bytes of read back data, the buffer overruns.
+
+As you noticed, this does not happen with FTD2XX, because it continuously reads
+out the data from the USB device in the background and stores it in much larger buffer
+on the host computer (up to 64KB with FTD2XX on Windows, according to observations).
+
+PRESTO driver solves this simply like this:
+
+#if BUILD_PRESTO_FTD2XX == 1
+	if (presto-&gt;buff_out_pos &gt;= BUFFER_SIZE)
+#elif BUILD_PRESTO_LIBFTDI == 1
+	/* libftdi does not do background read, be sure that USB IN buffer does not overflow (128 bytes only!) */
+	if (presto-&gt;buff_out_pos &gt;= BUFFER_SIZE || presto-&gt;buff_in_exp==128)
+#endif
+		return presto_flush();
+
+Please note the test for expected bytes to be read (presto-&gt;buff_in_exp==128).
+
+However, if the chunks are kept short enough to prevent buffer overruns, the performance is certainly
+low because of the USBs round trip time (being several milliseconds).
+
+The only way to obtain good performance with FTDI using open source solution only
+is to completely reimplement libftdi using native OS API like URB in Linux
+(I already mentioned that libusb is synchronous).
+
+Best regards,
+   Pavel
+
+Ville Voipio napsal(a):
+&gt;<i> I have just installed OpenOCD in Ubuntu with ftdilib support.
+</I>&gt;<i> Everything else goes rather fine, but when I try to move larger
+</I>&gt;<i> blocks with arm7_9 fast_memory_access enabled, the FTDI driver
+</I>&gt;<i> dies.
+</I>&gt;<i> 
+</I>&gt;<i> I know this is a known problem. I played around for some time
+</I>&gt;<i> with the FT2232_BUFFER_SIZE. With 1024 it works, with 2048 it
+</I>&gt;<i> does not. The speed is somewhat disappointing with that setting.
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001975.html">[Openocd-development] ftdilib problems
+</A></li>
+	<LI>Next message: <A HREF="001986.html">[Openocd-development] ftdilib problems
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1984">[ date ]</a>
+              <a href="thread.html#1984">[ thread ]</a>
+              <a href="subject.html#1984">[ subject ]</a>
+              <a href="author.html#1984">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

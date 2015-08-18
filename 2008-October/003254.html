@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] external flash support &amp; algorithms.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20external%20flash%20support%20%26%20algorithms.&In-Reply-To=%3C48EA67B1.7000800%40discworld.dascon.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003264.html">
+   <LINK REL="Next"  HREF="003256.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] external flash support &amp; algorithms.</H1>
+    <B>Michael Schwingen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20external%20flash%20support%20%26%20algorithms.&In-Reply-To=%3C48EA67B1.7000800%40discworld.dascon.de%3E"
+       TITLE="[Openocd-development] external flash support &amp; algorithms.">rincewind at discworld.dascon.de
+       </A><BR>
+    <I>Mon Oct  6 21:32:01 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003264.html">[Openocd-development] external flash support &amp; algorithms.
+</A></li>
+        <LI>Next message: <A HREF="003256.html">[Openocd-development] external flash support &amp; algorithms.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3254">[ date ]</a>
+              <a href="thread.html#3254">[ thread ]</a>
+              <a href="subject.html#3254">[ subject ]</a>
+              <a href="author.html#3254">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Duane Ellis wrote:
+&gt;<i> Oyvind/Georg,
+</I>&gt;<i> 
+</I>&gt;<i> I see you both are talking about the flash algorithm support in openocd.
+</I>&gt;<i> 
+</I>&gt;<i> There is a few tricks that I see that could be done to simplify the 
+</I>&gt;<i> situation.
+</I>&gt;<i> 
+</I>&gt;<i> To communicate with a &quot;flash driver&quot; - first - do not call it a flash 
+</I>&gt;<i> driver.
+</I>&gt;<i> Call it an 'execution engine' you'll understand why I say this - below.
+</I>&gt;<i> 
+</I>&gt;<i> I have seen other solutions - far nastier - used by various debuggers.
+</I>&gt;<i> The other solutions assume (a) you can lookup symbols, (b) and many 
+</I>&gt;<i> other things.
+</I>&gt;<i> 
+</I>&gt;<i> -Duane.
+</I>&gt;<i> 
+</I>&gt;<i> ===================================
+</I>&gt;<i> 
+</I>&gt;<i> (A) Take a page from the &quot;arm-semi-hosting&quot;.
+</I>&gt;<i> 
+</I>&gt;<i> The code for OpenOCD to talk to a target resident chunk of code is simple.
+</I>&gt;<i> 
+</I>&gt;<i> In arm, the entry point code would look like this:
+</I>&gt;<i> 
+</I>&gt;<i> #=======================
+</I>&gt;<i> 
+</I>&gt;<i> entrypoint:
+</I>&gt;<i>     adr   sp, stack_top
+</I>&gt;<i>     mov   r0,#0 // code 0 = initialize.
+</I>&gt;<i> again:
+</I>&gt;<i>     adr   r1, the_table
+</I>&gt;<i>     bl      C_handler
+</I>&gt;<i>     // r0 = holds the result
+</I>&gt;<i>     adr   r1,the_table
+</I>&gt;<i>     bkpt
+</I>&gt;<i>     b      again
+</I>&gt;<i> the_table:
+</I>&gt;<i>     .space  (32*4)
+</I>&gt;<i> stack_bottom:
+</I>&gt;<i>     .space (256)
+</I>&gt;<i> stack_top:
+</I>&gt;<i> 
+</I>&gt;<i> #=======================
+</I>&gt;<i> 
+</I>&gt;<i> The idea is this:
+</I>&gt;<i> 
+</I>&gt;<i> 1) OpenOCD loads a binary at some location in memory (hopefully it is 
+</I>&gt;<i> all position independent code :-)
+</I>&gt;<i> 
+</I>&gt;<i> 2) OpenOCD then sets the program counter at byte 0 of that binary. And 
+</I>&gt;<i> resumes.
+</I>
+I think the basic idea looks good. However, I would like to propose some changes.
+
+First, I think the target code should stay as small as possible, because there may be targets where very little RAM is available for the code. This means that there should be multiple small &quot;codelets&quot; like you describe, each for a single function (like writing a block of data to an intel-style CFI flash), instead of a single large target-code block with a dispatcher that runs on the target.
+
+Basically, the host-side code of openocd knows what function the target needs to perform, so it can download and run the appropriate code part without the help of a dispatcher on the target.
+
+Now, assuming the code we download to the target is position-independent and does not need fixups that are performed on the target, I would propose something like this:
+
+entrypoint:
+	.long code_entry - *
+params:
+	.space  (32*4)
+
+code_entry:
+	adr   sp, stack_top
+	bl    C_handler
+	bkpt
+	b     code_entry
+stack_bottom:
+	.space (256)
+stack_top:
+
+The C code reads its parameters directly from params, and writes its result there. That way, the C code is target-indepentent when linked with the above code for a specific target, and we do not depend on the number/kind of registers that the ABI uses for parameter passing - there are non-RISC CPUs that never pass arguments in registers, so on these targets, openocd or the startup code would have to pass the parameters on the stack, which my method avoids. Since the host and target side for a specific function need to agree where which parameters are passed anyway, not using registers has no negative effect IMHO.
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003264.html">[Openocd-development] external flash support &amp; algorithms.
+</A></li>
+	<LI>Next message: <A HREF="003256.html">[Openocd-development] external flash support &amp; algorithms.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3254">[ date ]</a>
+              <a href="thread.html#3254">[ thread ]</a>
+              <a href="subject.html#3254">[ subject ]</a>
+              <a href="author.html#3254">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

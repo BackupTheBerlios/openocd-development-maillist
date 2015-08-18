@@ -1,0 +1,345 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] ARM: rework &quot;arm reg&quot; output for new mode
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM%3A%20rework%20%22arm%20reg%22%20output%20for%0A%20new%20mode&In-Reply-To=%3C1258587995.5344.15159.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012550.html">
+   <LINK REL="Next"  HREF="012554.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] ARM: rework &quot;arm reg&quot; output for new mode</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20ARM%3A%20rework%20%22arm%20reg%22%20output%20for%0A%20new%20mode&In-Reply-To=%3C1258587995.5344.15159.camel%40localhost%3E"
+       TITLE="[Openocd-development] [patch] ARM: rework &quot;arm reg&quot; output for new mode">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 19 00:46:35 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012550.html">[Openocd-development] [patch] ARM: rework &quot;arm reg&quot; output for new	mode
+</A></li>
+        <LI>Next message: <A HREF="012554.html">[Openocd-development] [patch] ARM: rework &quot;arm reg&quot; output for	new mode
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12551">[ date ]</a>
+              <a href="thread.html#12551">[ thread ]</a>
+              <a href="subject.html#12551">[ subject ]</a>
+              <a href="author.html#12551">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Very nice.  Keep 'em comin'.  --Z
+
+On Wed, 2009-11-18 at 16:41 -0700, David Brownell wrote:
+&gt;<i> Change the layout to show the &quot;Secure Monitor&quot; registers too,
+</I>&gt;<i> when they're present.
+</I>&gt;<i> 
+</I>&gt;<i> Instead of lining registers for each of six (or seven) modes up 
+</I>&gt;<i> in adjacent vertical columns, display each mode's registers (or
+</I>&gt;<i> shadows) in a single block, avoiding duplicate value displays.
+</I>&gt;<i> 
+</I>&gt;<i> This also lets us shrink the line length to fits in standard 80
+</I>&gt;<i> character lines ... six or seven 18-character columns can't fit.
+</I>&gt;<i> 
+</I>&gt;<i> Relabel &quot;r13&quot; as &quot;sp&quot;, so it's more meaningful.
+</I>&gt;<i> ---
+</I>&gt;<i> Merged this ... sample output, from an ARM9 (without support
+</I>&gt;<i> for the Secure Monitor mode):
+</I>&gt;<i> 
+</I>&gt;<i> &gt; arm reg
+</I>&gt;<i> System and User mode registers
+</I>&gt;<i>       r0: 000003e8       r1: 00ff8000       r2: 00000601       r3: 00002800 
+</I>&gt;<i>       r4: 00000010       r5: 01e11000       r6: 00000001       r7: 01e11000 
+</I>&gt;<i>       r8: 00000001       r9: 00000002      r10: 00000237      r11: 00ff8000 
+</I>&gt;<i>      r12: 0000023a   sp_usr: 90390944   lr_usr: 238440a9       pc: 00008000 
+</I>&gt;<i>     cpsr: 000000d3 
+</I>&gt;<i> 
+</I>&gt;<i> FIQ mode shadow registers
+</I>&gt;<i>   r8_fiq: 601100a2   r9_fiq: 740f0188  r10_fiq: d1d683b4  r11_fiq: 496c1a00 
+</I>&gt;<i>  r12_fiq: 310549ea   sp_fiq: 00007ffc   lr_fiq: 0000987c spsr_fiq: 00000010 
+</I>&gt;<i> 
+</I>&gt;<i> Supervisor mode shadow registers
+</I>&gt;<i>   sp_svc: 00007f24   lr_svc: 00008a20 spsr_svc: 00000010 
+</I>&gt;<i> 
+</I>&gt;<i> Abort mode shadow registers
+</I>&gt;<i>   sp_abt: 40480085   lr_abt: 4409025c spsr_abt: 00000010 
+</I>&gt;<i> 
+</I>&gt;<i> IRQ mode shadow registers
+</I>&gt;<i>   sp_irq: 2a720808   lr_irq: 0f8e11c4 spsr_irq: 00000010 
+</I>&gt;<i> 
+</I>&gt;<i> Undefined instruction mode shadow registers
+</I>&gt;<i>   sp_und: 2f2082f0   lr_und: 2186812c spsr_und: 00000010 
+</I>&gt;<i> &gt; 
+</I>&gt;<i> 
+</I>&gt;<i>  src/target/armv4_5.c |  148 +++++++++++++++++++++++++++++++++++++------------
+</I>&gt;<i>  1 file changed, 113 insertions(+), 35 deletions(-)
+</I>&gt;<i> 
+</I>&gt;<i> --- a/src/target/armv4_5.c
+</I>&gt;<i> +++ b/src/target/armv4_5.c
+</I>&gt;<i> @@ -39,26 +39,59 @@
+</I>&gt;<i>  static const char *armv4_5_core_reg_list[] =
+</I>&gt;<i>  {
+</I>&gt;<i>  	&quot;r0&quot;, &quot;r1&quot;, &quot;r2&quot;, &quot;r3&quot;, &quot;r4&quot;, &quot;r5&quot;, &quot;r6&quot;, &quot;r7&quot;,
+</I>&gt;<i> -	&quot;r8&quot;, &quot;r9&quot;, &quot;r10&quot;, &quot;r11&quot;, &quot;r12&quot;, &quot;r13_usr&quot;, &quot;lr_usr&quot;, &quot;pc&quot;,
+</I>&gt;<i> +	&quot;r8&quot;, &quot;r9&quot;, &quot;r10&quot;, &quot;r11&quot;, &quot;r12&quot;, &quot;sp_usr&quot;, &quot;lr_usr&quot;, &quot;pc&quot;,
+</I>&gt;<i>  
+</I>&gt;<i> -	&quot;r8_fiq&quot;, &quot;r9_fiq&quot;, &quot;r10_fiq&quot;, &quot;r11_fiq&quot;, &quot;r12_fiq&quot;, &quot;r13_fiq&quot;, &quot;lr_fiq&quot;,
+</I>&gt;<i> +	&quot;r8_fiq&quot;, &quot;r9_fiq&quot;, &quot;r10_fiq&quot;, &quot;r11_fiq&quot;, &quot;r12_fiq&quot;, &quot;sp_fiq&quot;, &quot;lr_fiq&quot;,
+</I>&gt;<i>  
+</I>&gt;<i> -	&quot;r13_irq&quot;, &quot;lr_irq&quot;,
+</I>&gt;<i> +	&quot;sp_irq&quot;, &quot;lr_irq&quot;,
+</I>&gt;<i>  
+</I>&gt;<i> -	&quot;r13_svc&quot;, &quot;lr_svc&quot;,
+</I>&gt;<i> +	&quot;sp_svc&quot;, &quot;lr_svc&quot;,
+</I>&gt;<i>  
+</I>&gt;<i> -	&quot;r13_abt&quot;, &quot;lr_abt&quot;,
+</I>&gt;<i> +	&quot;sp_abt&quot;, &quot;lr_abt&quot;,
+</I>&gt;<i>  
+</I>&gt;<i> -	&quot;r13_und&quot;, &quot;lr_und&quot;,
+</I>&gt;<i> +	&quot;sp_und&quot;, &quot;lr_und&quot;,
+</I>&gt;<i>  
+</I>&gt;<i>  	&quot;cpsr&quot;, &quot;spsr_fiq&quot;, &quot;spsr_irq&quot;, &quot;spsr_svc&quot;, &quot;spsr_abt&quot;, &quot;spsr_und&quot;,
+</I>&gt;<i>  
+</I>&gt;<i> -	&quot;r13_mon&quot;, &quot;lr_mon&quot;, &quot;spsr_mon&quot;,
+</I>&gt;<i> +	&quot;sp_mon&quot;, &quot;lr_mon&quot;, &quot;spsr_mon&quot;,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +static const uint8_t arm_usr_indices[17] = {
+</I>&gt;<i> +	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ARMV4_5_CPSR,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +static const uint8_t arm_fiq_indices[8] = {
+</I>&gt;<i> +	16, 17, 18, 19, 20, 21, 22, ARMV4_5_SPSR_FIQ,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +static const uint8_t arm_irq_indices[3] = {
+</I>&gt;<i> +	23, 24, ARMV4_5_SPSR_IRQ,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +static const uint8_t arm_svc_indices[3] = {
+</I>&gt;<i> +	25, 26, ARMV4_5_SPSR_SVC,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +static const uint8_t arm_abt_indices[3] = {
+</I>&gt;<i> +	27, 28, ARMV4_5_SPSR_ABT,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +static const uint8_t arm_und_indices[3] = {
+</I>&gt;<i> +	29, 30, ARMV4_5_SPSR_UND,
+</I>&gt;<i> +};
+</I>&gt;<i> +
+</I>&gt;<i> +static const uint8_t arm_mon_indices[3] = {
+</I>&gt;<i> +	37, 38, ARM_SPSR_MON,
+</I>&gt;<i>  };
+</I>&gt;<i>  
+</I>&gt;<i>  static const struct {
+</I>&gt;<i>  	const char *name;
+</I>&gt;<i> -	unsigned psr;
+</I>&gt;<i> +	unsigned short psr;
+</I>&gt;<i> +	/* For user and system modes, these list indices for all registers.
+</I>&gt;<i> +	 * otherwise they're just indices for the shadow registers and SPSR.
+</I>&gt;<i> +	 */
+</I>&gt;<i> +	unsigned short n_indices;
+</I>&gt;<i> +	const uint8_t *indices;
+</I>&gt;<i>  } arm_mode_data[] = {
+</I>&gt;<i>  	/* Seven modes are standard from ARM7 on. &quot;System&quot; and &quot;User&quot; share
+</I>&gt;<i>  	 * the same registers; other modes shadow from 3 to 8 registers.
+</I>&gt;<i> @@ -66,30 +99,44 @@ static const struct {
+</I>&gt;<i>  	{
+</I>&gt;<i>  		.name = &quot;User&quot;,
+</I>&gt;<i>  		.psr = ARMV4_5_MODE_USR,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_usr_indices),
+</I>&gt;<i> +		.indices = arm_usr_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  	{
+</I>&gt;<i>  		.name = &quot;FIQ&quot;,
+</I>&gt;<i>  		.psr = ARMV4_5_MODE_FIQ,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_fiq_indices),
+</I>&gt;<i> +		.indices = arm_fiq_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  	{
+</I>&gt;<i>  		.name = &quot;Supervisor&quot;,
+</I>&gt;<i>  		.psr = ARMV4_5_MODE_SVC,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_svc_indices),
+</I>&gt;<i> +		.indices = arm_svc_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  	{
+</I>&gt;<i>  		.name = &quot;Abort&quot;,
+</I>&gt;<i>  		.psr = ARMV4_5_MODE_ABT,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_abt_indices),
+</I>&gt;<i> +		.indices = arm_abt_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  	{
+</I>&gt;<i>  		.name = &quot;IRQ&quot;,
+</I>&gt;<i>  		.psr = ARMV4_5_MODE_IRQ,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_irq_indices),
+</I>&gt;<i> +		.indices = arm_irq_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  	{
+</I>&gt;<i> -		.name = &quot;Undefined&quot; /* instruction */,
+</I>&gt;<i> +		.name = &quot;Undefined instruction&quot;,
+</I>&gt;<i>  		.psr = ARMV4_5_MODE_UND,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_und_indices),
+</I>&gt;<i> +		.indices = arm_und_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  	{
+</I>&gt;<i>  		.name = &quot;System&quot;,
+</I>&gt;<i>  		.psr = ARMV4_5_MODE_SYS,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_usr_indices),
+</I>&gt;<i> +		.indices = arm_usr_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  	/* TrustZone &quot;Security Extensions&quot; add a secure monitor mode.
+</I>&gt;<i>  	 * This is distinct from a &quot;debug monitor&quot; which can support
+</I>&gt;<i> @@ -98,6 +145,8 @@ static const struct {
+</I>&gt;<i>  	{
+</I>&gt;<i>  		.name = &quot;Secure Monitor&quot;,
+</I>&gt;<i>  		.psr = ARM_MODE_MON,
+</I>&gt;<i> +		.n_indices = ARRAY_SIZE(arm_mon_indices),
+</I>&gt;<i> +		.indices = arm_mon_indices,
+</I>&gt;<i>  	},
+</I>&gt;<i>  };
+</I>&gt;<i>  
+</I>&gt;<i> @@ -461,11 +510,10 @@ int armv4_5_arch_state(struct target *ta
+</I>&gt;<i>  
+</I>&gt;<i>  COMMAND_HANDLER(handle_armv4_5_reg_command)
+</I>&gt;<i>  {
+</I>&gt;<i> -	char output[128];
+</I>&gt;<i> -	int output_len;
+</I>&gt;<i> -	int mode, num;
+</I>&gt;<i>  	struct target *target = get_current_target(CMD_CTX);
+</I>&gt;<i>  	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+</I>&gt;<i> +	unsigned num_regs;
+</I>&gt;<i> +	struct reg *regs;
+</I>&gt;<i>  
+</I>&gt;<i>  	if (!is_arm(armv4_5))
+</I>&gt;<i>  	{
+</I>&gt;<i> @@ -476,7 +524,7 @@ COMMAND_HANDLER(handle_armv4_5_reg_comma
+</I>&gt;<i>  	if (target-&gt;state != TARGET_HALTED)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		command_print(CMD_CTX, &quot;error: target must be halted for register accesses&quot;);
+</I>&gt;<i> -		return ERROR_OK;
+</I>&gt;<i> +		return ERROR_FAIL;
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i>  	if (!is_arm_mode(armv4_5-&gt;core_mode))
+</I>&gt;<i> @@ -488,31 +536,61 @@ COMMAND_HANDLER(handle_armv4_5_reg_comma
+</I>&gt;<i>  		return ERROR_FAIL;
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i> -	for (num = 0; num &lt;= 15; num++)
+</I>&gt;<i> -	{
+</I>&gt;<i> -		output_len = 0;
+</I>&gt;<i> -		for (mode = 0; mode &lt; 6; mode++)
+</I>&gt;<i> -		{
+</I>&gt;<i> -			if (!ARMV4_5_CORE_REG_MODENUM(armv4_5-&gt;core_cache, mode, num).valid)
+</I>&gt;<i> -			{
+</I>&gt;<i> -				armv4_5-&gt;full_context(target);
+</I>&gt;<i> -			}
+</I>&gt;<i> -			output_len += snprintf(output + output_len,
+</I>&gt;<i> -					       128 - output_len,
+</I>&gt;<i> +	num_regs = armv4_5-&gt;core_cache-&gt;num_regs;
+</I>&gt;<i> +	regs = armv4_5-&gt;core_cache-&gt;reg_list;
+</I>&gt;<i> +
+</I>&gt;<i> +	for (unsigned mode = 0; mode &lt; ARRAY_SIZE(arm_mode_data); mode++) {
+</I>&gt;<i> +		const char *name;
+</I>&gt;<i> +		char *sep = &quot;\n&quot;;
+</I>&gt;<i> +		char *shadow = &quot;&quot;;
+</I>&gt;<i> +
+</I>&gt;<i> +		/* label this bank of registers (or shadows) */
+</I>&gt;<i> +		switch (arm_mode_data[mode].psr) {
+</I>&gt;<i> +		case ARMV4_5_MODE_SYS:
+</I>&gt;<i> +			continue;
+</I>&gt;<i> +		case ARMV4_5_MODE_USR:
+</I>&gt;<i> +			name = &quot;System and User&quot;;
+</I>&gt;<i> +			sep = &quot;&quot;;
+</I>&gt;<i> +			break;
+</I>&gt;<i> +		case ARM_MODE_MON:
+</I>&gt;<i> +			if (armv4_5-&gt;core_type != ARM_MODE_MON)
+</I>&gt;<i> +				continue;
+</I>&gt;<i> +			/* FALLTHROUGH */
+</I>&gt;<i> +		default:
+</I>&gt;<i> +			name = arm_mode_data[mode].name;
+</I>&gt;<i> +			shadow = &quot;shadow &quot;;
+</I>&gt;<i> +			break;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		command_print(CMD_CTX, &quot;%s%s mode %sregisters&quot;,
+</I>&gt;<i> +				sep, name, shadow);
+</I>&gt;<i> +
+</I>&gt;<i> +		/* display N rows of up to 4 registers each */
+</I>&gt;<i> +		for (unsigned i = 0; i &lt; arm_mode_data[mode].n_indices;) {
+</I>&gt;<i> +			char output[80];
+</I>&gt;<i> +			int output_len = 0;
+</I>&gt;<i> +
+</I>&gt;<i> +			for (unsigned j = 0; j &lt; 4; j++, i++) {
+</I>&gt;<i> +				uint32_t value;
+</I>&gt;<i> +				struct reg *reg = regs;
+</I>&gt;<i> +
+</I>&gt;<i> +				if (i &gt;= arm_mode_data[mode].n_indices)
+</I>&gt;<i> +					break;
+</I>&gt;<i> +
+</I>&gt;<i> +				reg += arm_mode_data[mode].indices[i];
+</I>&gt;<i> +
+</I>&gt;<i> +				/* REVISIT be smarter about faults... */
+</I>&gt;<i> +				if (!reg-&gt;valid)
+</I>&gt;<i> +					armv4_5-&gt;full_context(target);
+</I>&gt;<i> +
+</I>&gt;<i> +				value = buf_get_u32(reg-&gt;value, 0, 32);
+</I>&gt;<i> +				output_len += snprintf(output + output_len,
+</I>&gt;<i> +						sizeof(output) - output_len,
+</I>&gt;<i>  					       &quot;%8s: %8.8&quot; PRIx32 &quot; &quot;,
+</I>&gt;<i> -					       ARMV4_5_CORE_REG_MODENUM(armv4_5-&gt;core_cache, mode, num).name,
+</I>&gt;<i> -					       buf_get_u32(ARMV4_5_CORE_REG_MODENUM(armv4_5-&gt;core_cache, mode, num).value, 0, 32));
+</I>&gt;<i> +					       reg-&gt;name, value);
+</I>&gt;<i> +			}
+</I>&gt;<i> +			command_print(CMD_CTX, &quot;%s&quot;, output);
+</I>&gt;<i>  		}
+</I>&gt;<i> -		command_print(CMD_CTX, &quot;%s&quot;, output);
+</I>&gt;<i>  	}
+</I>&gt;<i> -	command_print(CMD_CTX,
+</I>&gt;<i> -		      &quot;    cpsr: %8.8&quot; PRIx32 &quot; spsr_fiq: %8.8&quot; PRIx32 &quot; spsr_irq: %8.8&quot; PRIx32 &quot; spsr_svc: %8.8&quot; PRIx32 &quot; spsr_abt: %8.8&quot; PRIx32 &quot; spsr_und: %8.8&quot; PRIx32 &quot;&quot;,
+</I>&gt;<i> -			  buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+</I>&gt;<i> -			  buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_SPSR_FIQ].value, 0, 32),
+</I>&gt;<i> -			  buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_SPSR_IRQ].value, 0, 32),
+</I>&gt;<i> -			  buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_SPSR_SVC].value, 0, 32),
+</I>&gt;<i> -			  buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_SPSR_ABT].value, 0, 32),
+</I>&gt;<i> -			  buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_SPSR_UND].value, 0, 32));
+</I>&gt;<i>  
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i>  }
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012550.html">[Openocd-development] [patch] ARM: rework &quot;arm reg&quot; output for new	mode
+</A></li>
+	<LI>Next message: <A HREF="012554.html">[Openocd-development] [patch] ARM: rework &quot;arm reg&quot; output for	new mode
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12551">[ date ]</a>
+              <a href="thread.html#12551">[ thread ]</a>
+              <a href="subject.html#12551">[ subject ]</a>
+              <a href="author.html#12551">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

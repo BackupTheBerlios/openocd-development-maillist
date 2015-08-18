@@ -1,0 +1,334 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] libdcc bugfixes + trace point function
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20libdcc%20bugfixes%20%2B%20trace%20point%20function&In-Reply-To=%3Cf67028d40810071358v10ffe3a0k3dbd8e376a5afd20%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003309.html">
+   <LINK REL="Next"  HREF="003315.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] libdcc bugfixes + trace point function</H1>
+    <B>Frederik Kriewitz</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20libdcc%20bugfixes%20%2B%20trace%20point%20function&In-Reply-To=%3Cf67028d40810071358v10ffe3a0k3dbd8e376a5afd20%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] libdcc bugfixes + trace point function">frederik at kriewitz.eu
+       </A><BR>
+    <I>Tue Oct  7 22:58:21 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003309.html">[Openocd-development] Concerns about testing and availability of	targets
+</A></li>
+        <LI>Next message: <A HREF="003315.html">[Openocd-development] [PATCH] libdcc bugfixes + trace point	function
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3311">[ date ]</a>
+              <a href="thread.html#3311">[ thread ]</a>
+              <a href="subject.html#3311">[ subject ]</a>
+              <a href="author.html#3311">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello once again,
+
+I noticed that the dbg_write_u16() and dbg_write_u8 functions of
+libdcc don't work as expected.
+The following Patch will update it to my modified version (which also
+includes a dbg_trace_point() function.
+
+Signed-off-by: Frederik Kriewitz &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">frederik at kriewitz.eu</A>&gt;
+
+Index: contrib/libdcc/dcc_stdio.h
+===================================================================
+--- contrib/libdcc/dcc_stdio.h	(revision 1027)
++++ contrib/libdcc/dcc_stdio.h	(working copy)
+@@ -23,15 +23,13 @@
+ #ifndef DCC_STDIO_H
+ #define DCC_STDIO_H
+
+-typedef unsigned char u8;
+-typedef unsigned short u16;
+-typedef unsigned long u32;
++void dbg_trace_point(unsigned long number);
+
+-void dbg_write_u32(u32 *val, u32 len);
+-void dbg_write_u16(u16 *val, u32 len);
+-void dbg_write_u8(u8 *val, u32 len);
++void dbg_write_u32(const unsigned long *val, long len);
++void dbg_write_u16(const unsigned short *val, long len);
++void dbg_write_u8(const unsigned char *val, long len);
+
+-void dbg_write_str(u8 *msg);
+-void dbg_write_char(u8 msg);
++void dbg_write_str(const char *msg);
++void dbg_write_char(char msg);
+
+ #endif	/* DCC_STDIO_H */
+Index: contrib/libdcc/dcc_stdio.c
+===================================================================
+--- contrib/libdcc/dcc_stdio.c	(revision 1027)
++++ contrib/libdcc/dcc_stdio.c	(working copy)
+@@ -3,6 +3,8 @@
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>                                                  *
++ *   Copyright (C) 2008 by Frederik Kriewtz                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">frederik at kriewitz.eu</A>                                                  *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -30,33 +32,35 @@
+  * DCRDR[23:16] is used for by host for status
+  * DCRDR[31:24] is used for by host for write buffer */
+
+-#define DCRDR_WRSTS	*((volatile u8*)0xE000EDF8)
+-#define DCRDR_WRDAT	*((volatile u8*)0xE000EDF9)
++#define NVIC_DBG_DATA_R         (*((volatile unsigned short *)0xE000EDF8))
+
++#define TARGET_REQ_TRACEMSG                 0x00
++#define TARGET_REQ_DEBUGMSG_ASCII           0x01
++#define TARGET_REQ_DEBUGMSG_HEXMSG(size)    (0x01 | ((size &amp; 0xff)  &lt;&lt; 8))
++#define TARGET_REQ_DEBUGCHAR                0x02
++
+ #define	BUSY	1
+
+-void dbg_write(u32 dcc_data)
++void dbg_write(unsigned long dcc_data)
+ {
+ 	int len = 4;
+ 	
+ 	while (len--)
+ 	{
+ 		/* wait for data ready */
+-		while (DCRDR_WRSTS &amp; BUSY);
++		while (NVIC_DBG_DATA_R &amp; BUSY);
+ 		
+-		/* write our data */
+-		DCRDR_WRDAT = (u8)(dcc_data &amp; 0xff);
+-		/* set write flag - tell host there is data */
+-		DCRDR_WRSTS = BUSY;
++		/* write our data and set write flag - tell host there is data*/
++		NVIC_DBG_DATA_R = (unsigned short)(((dcc_data &amp; 0xff) &lt;&lt; 8) | BUSY);
+ 		dcc_data &gt;&gt;= 8;
+ 	}
+ }
+
+ #elif defined(__ARM_ARCH_4T__) || defined(__ARM_ARCH_5TE__)
+ 					
+-void dbg_write(u32 dcc_data)
++void dbg_write(unsigned long dcc_data)
+ {
+-	u32 dcc_status;
++	unsigned long dcc_status;
+ 	
+ 	do {
+ 		asm volatile(&quot;mrc p14, 0, %0, c0, c0&quot; : &quot;=r&quot; (dcc_status));
+@@ -69,10 +73,14 @@
+  #error unsupported target
+ #endif
+
++void dbg_trace_point(unsigned long number)
++{	
++	dbg_write(TARGET_REQ_TRACEMSG | (number &lt;&lt; 8));
++}
+
+-void dbg_write_u32(u32 *val, u32 len)
++void dbg_write_u32(const unsigned long *val, long len)
+ {	
+-	dbg_write(0x01 | 0x0400 | ((len &amp; 0xffff) &lt;&lt; 16));
++	dbg_write(TARGET_REQ_DEBUGMSG_HEXMSG(4) | ((len &amp; 0xffff) &lt;&lt; 16));
+
+ 	while (len &gt; 0)
+ 	{
+@@ -83,16 +91,16 @@
+ 	}
+ }
+
+-void dbg_write_u16(u16 *val, u32 len)
++void dbg_write_u16(const unsigned short *val, long len)
+ {
+-	u32 dcc_data;
++	unsigned long dcc_data;
+ 		
+-	dbg_write(0x01 | 0x0200 | ((len &amp; 0xffff) &lt;&lt; 16));
++	dbg_write(TARGET_REQ_DEBUGMSG_HEXMSG(2) | ((len &amp; 0xffff) &lt;&lt; 16));
+
+ 	while (len &gt; 0)
+ 	{
+-		dcc_data = val[0] | (val[1] &lt;&lt; 8)
+-			| ((len &gt; 1) ? (val[2] | (val[3] &lt;&lt; 8)) &lt;&lt; 16 : 0x00);
++		dcc_data = val[0]
++			| ((len &gt; 1) ? val[1] &lt;&lt; 16: 0x0000);
+ 		
+ 		dbg_write(dcc_data);
+ 		
+@@ -101,11 +109,11 @@
+ 	}
+ }
+
+-void dbg_write_u8(u8 *val, u32 len)
++void dbg_write_u8(const unsigned char *val, long len)
+ {	
+-	u32 dcc_data;
++	unsigned long dcc_data;
+
+-	dbg_write(0x01 | 0x0100 | ((len &amp; 0xffff) &lt;&lt; 16));
++	dbg_write(TARGET_REQ_DEBUGMSG_HEXMSG(1) | ((len &amp; 0xffff) &lt;&lt; 16));
+
+ 	while (len &gt; 0)
+ 	{
+@@ -116,22 +124,22 @@
+ 		
+ 		dbg_write(dcc_data);
+ 		
+-		val += 2;
+-		len -= 2;
++		val += 4;
++		len -= 4;
+ 	}
+ }
+
+-void dbg_write_str(u8 *msg)
++void dbg_write_str(const char *msg)
+ {
+-	int len;
+-	u32 dcc_data;
++	long len;
++	unsigned long dcc_data;
+ 	
+ 	for (len = 0; msg[len] &amp;&amp; (len &lt; 65536); len++);
+ 	
+-	dbg_write(0x01 | ((len &amp; 0xffff) &lt;&lt; 16));
++	dbg_write(TARGET_REQ_DEBUGMSG_ASCII | ((len &amp; 0xffff) &lt;&lt; 16));
+ 	
+ 	while (len &gt; 0)
+-	{		
++	{
+ 		dcc_data = msg[0]
+ 			| ((len &gt; 1) ? msg[1] &lt;&lt; 8 : 0x00)
+ 			| ((len &gt; 2) ? msg[2] &lt;&lt; 16 : 0x00)
+@@ -143,7 +151,7 @@
+ 	}
+ }
+
+-void dbg_write_char(u8 msg)
++void dbg_write_char(char msg)
+ {	
+-	dbg_write(0x02 | ((msg &amp; 0xff) &lt;&lt; 16));
++	dbg_write(TARGET_REQ_DEBUGCHAR | ((msg &amp; 0xff) &lt;&lt; 16));
+ }
+Index: contrib/libdcc/example.c
+===================================================================
+--- contrib/libdcc/example.c	(revision 1027)
++++ contrib/libdcc/example.c	(working copy)
+@@ -1,6 +1,8 @@
+ /***************************************************************************
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>                                                  *
++ *   Copyright (C) 2008 by Frederik Kriewtz                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">frederik at kriewitz.eu</A>                                                  *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -20,13 +22,37 @@
+
+ #include &quot;dcc_stdio.h&quot;
+
++/* enable openocd debugmsg at the gdb prompt:
++ * monitor target_request debugmsgs enable
++ *
++ * create a trace point:
++ * monitor trace point 1
++ *
++ * to show how often the trace point was hit:
++ * monitor trace point
++*/
++
+ int main(void)
+ {
+-	/* enable openocd debugmsg at the gdb prompt
+-	 * monitor target_request debugmsgs enable */
++	dbg_write_str(&quot;hello world&quot;);
+
+-	dbg_write_str(&quot;hello world&quot;);
+-	dbg_write_char('a');
+-	
+-	while(1) {}
++	dbg_write_char('t');
++	dbg_write_char('e');
++	dbg_write_char('s');
++	dbg_write_char('t');
++	dbg_write_char('\n');
++
++	unsigned long test_u32 = 0x01234567;
++	dbg_write_u32(&amp;test_u32, 1);
++
++	static const unsigned short test_u16[] = {0x0123, 0x4567, 0x89AB,
+0xCDEF, 0x0123, 0x4567, 0x89AB, 0xCDEF};
++	dbg_write_u16(test_u16, 8);
++
++	static const unsigned char test_u8[] = {0x00, 0x11, 0x22, 0x33,
+0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0XDD, 0xEE,
+0xFF};
++	dbg_write_u8(test_u8, 16);
++
++	while(1)
++	{
++		dbg_trace_point(0);
++	}
+ }
+Index: contrib/libdcc/README
+===================================================================
+--- contrib/libdcc/README	(revision 1027)
++++ contrib/libdcc/README	(working copy)
+@@ -3,12 +3,17 @@
+ Before the message output is seen in the debug window, the functionality
+ will need enabling:
+
+-** GDB **
+-From the gdb prompt: monitor target_request debugmsgs enable
++From the gdb prompt:
++monitor target_request debugmsgs enable
++monitor trace point 1
+
+-** Telnet **
+-From the Telnet prompt: target_request debugmsgs enable
++From the Telnet prompt:
++target_request debugmsgs enable
++trace point 1
+
++To see how many times the trace point was hit:
++(monitor) trace point 1
++
+ Spen
+ <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">spen at spen-soft.co.uk</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003309.html">[Openocd-development] Concerns about testing and availability of	targets
+</A></li>
+	<LI>Next message: <A HREF="003315.html">[Openocd-development] [PATCH] libdcc bugfixes + trace point	function
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3311">[ date ]</a>
+              <a href="thread.html#3311">[ thread ]</a>
+              <a href="subject.html#3311">[ subject ]</a>
+              <a href="author.html#3311">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

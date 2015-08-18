@@ -1,0 +1,116 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] MIPS: fastdata bulk write fallback
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20MIPS%3A%20fastdata%20bulk%20write%20fallback&In-Reply-To=%3C4B44FA9B.2000807%40spen-soft.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013999.html">
+   <LINK REL="Next"  HREF="014008.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] MIPS: fastdata bulk write fallback</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20MIPS%3A%20fastdata%20bulk%20write%20fallback&In-Reply-To=%3C4B44FA9B.2000807%40spen-soft.co.uk%3E"
+       TITLE="[Openocd-development] [PATCH] MIPS: fastdata bulk write fallback">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Wed Jan  6 22:03:23 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013999.html">[Openocd-development] [patch] buildfix with NDEBUG
+</A></li>
+        <LI>Next message: <A HREF="014008.html">[Openocd-development] [PATCH] MIPS: fastdata bulk write fallback
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14005">[ date ]</a>
+              <a href="thread.html#14005">[ thread ]</a>
+              <a href="subject.html#14005">[ subject ]</a>
+              <a href="author.html#14005">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>If fastdata access fails, then fallback to default mips_m4k_write_memory
+Remove unnecessary fastdata loader verify check
+
+Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+  src/target/mips32_pracc.c |   10 +---------
+  src/target/mips_m4k.c     |    6 ++++++
+  2 files changed, 7 insertions(+), 9 deletions(-)
+
+diff --git a/src/target/mips32_pracc.c b/src/target/mips32_pracc.c
+index 26d5a6b..ac1d1b3 100644
+--- a/src/target/mips32_pracc.c
++++ b/src/target/mips32_pracc.c
+@@ -968,15 +968,7 @@ int mips32_pracc_fastdata_xfer(struct mips_ejtag 
+*ejtag_info, struct working_are
+  	/* write program into RAM */
+  	mips32_pracc_write_mem32(ejtag_info, source-&gt;address, 
+ARRAY_SIZE(handler_code), handler_code);
+
+-	/* quick verify RAM is working */
+-	mips32_pracc_read_u32(ejtag_info, source-&gt;address, &amp;val);
+-	if (val != handler_code[0])
+-	{
+-		LOG_ERROR(&quot;fastdata handler verify failed\n&quot;);
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-	}
+-
+-	LOG_INFO(&quot;%s using 0x%.8x for write handler\n&quot;, __func__, 
+source-&gt;address);
++	LOG_DEBUG(&quot;%s using 0x%.8x for write handler\n&quot;, __func__, 
+source-&gt;address);
+
+  	jmp_code[1] |= UPPER16(source-&gt;address);
+  	jmp_code[2] |= LOWER16(source-&gt;address);
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index 4adc1f1..312fc09 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -1001,6 +1001,12 @@ int mips_m4k_bulk_write_memory(struct target 
+*target, uint32_t address, uint32_t
+  	}
+
+  	retval = mips32_pracc_fastdata_xfer(ejtag_info, source, write, 
+address, count, (uint32_t*) buffer);
++	if (retval != ERROR_OK)
++	{
++		/* FASTDATA access failed, try normal memory write */
++		LOG_WARNING(&quot;Fastdata access Failed, falling back to non-bulk write&quot;);
++		retval = mips_m4k_write_memory(target, address, 4, count, buffer);
++	}
+
+  	if (source)
+  		target_free_working_area(target, source);
+-- 
+1.6.5.1.1367.gcd48
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013999.html">[Openocd-development] [patch] buildfix with NDEBUG
+</A></li>
+	<LI>Next message: <A HREF="014008.html">[Openocd-development] [PATCH] MIPS: fastdata bulk write fallback
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14005">[ date ]</a>
+              <a href="thread.html#14005">[ thread ]</a>
+              <a href="subject.html#14005">[ subject ]</a>
+              <a href="author.html#14005">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

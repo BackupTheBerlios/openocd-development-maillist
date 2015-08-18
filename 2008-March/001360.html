@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fixing random crashes due to	uninitialized memory
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fixing%20random%20crashes%20due%20to%0A%09uninitialized%20memory&In-Reply-To=%3C200803031958.25780.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001358.html">
+   <LINK REL="Next"  HREF="001361.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fixing random crashes due to	uninitialized memory</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fixing%20random%20crashes%20due%20to%0A%09uninitialized%20memory&In-Reply-To=%3C200803031958.25780.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] Fixing random crashes due to	uninitialized memory">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Mon Mar  3 19:58:25 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001358.html">[Openocd-development] Fixing random crashes due to	uninitialized memory
+</A></li>
+        <LI>Next message: <A HREF="001361.html">[Openocd-development] Fixing random crashes due to	uninitialized memory
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1360">[ date ]</a>
+              <a href="thread.html#1360">[ thread ]</a>
+              <a href="subject.html#1360">[ subject ]</a>
+              <a href="author.html#1360">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 03 March 2008 19:22:40 you wrote:
+&gt;<i> On Mon, Mar 3, 2008 at 7:18 PM, Dominic Rath &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>&gt; wrote:
+</I>&gt;<i> &gt; On Monday 03 March 2008 19:07:18 you wrote:
+</I>&gt;<i> &gt; &gt; &gt;  I'll revert your patch locally and run a valgrind session on
+</I>&gt;<i> &gt; &gt; &gt; ARM7TDMI and ARM926EJ-S, would be nice if you could let us know what 
+</I>&gt;<i> &gt; &gt; &gt; the culprit with XScale was.
+</I>&gt;<i> &gt; &gt;
+</I>&gt;<i> &gt; &gt; just about every field has a valid default value of 0 and lots of them
+</I>&gt;<i> &gt; &gt; were not initialized by the time arch_state() was invoked.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Any chance that's caused by the new startup behaviour (all commands
+</I>&gt;<i> &gt; allowed within config context etc.)?
+</I>&gt;<i>
+</I>&gt;<i> That's the problem isn't it?
+</I>
+Well, if the rearranged startup behaviour causes some memory to be read before 
+it's initialized, then that's bug that needs fixing.
+
+&gt;<i> It's impossible to analyze.
+</I>
+Uhm, no, not really. That's the beauty of leaving uninitialized values 
+uninitialized till you know what to initialize them with - accessing them 
+before that point can be caught.
+
+See the attached valgrind run:
+
+The interesting part starts at line 375:
+
+375 ==7822== ERROR SUMMARY: 113 errors from 4 contexts (suppressed: 21 from 1)
+
+Not everything valgrind lists as an error is really one, so we'll have to go 
+through the list:
+
+378 ==7822== Invalid read of size 4
+
+This is somewhere in the runtime linker, called on behalf of some pthread 
+function, which is only used by FTD2XX, and can be ignored for our purposes.
+
+407 ==7822== Conditional jump or move depends on uninitialised value(s)
+
+That's the kind of error we're looking for, but again it's within ld-2.6.1.so, 
+called on behalf of FTD2XX.
+
+422 ==7822== Invalid read of size 4
+
+Again, this is beacause of FTD2XX.
+
+450 ==7822== Syscall param ioctl(USBDEVFS_BULK).data points to uninitialised 
+byte(s)
+
+This one could be interesting. Maybe the validate chain function doesn't 
+initialize all the buffers like it should. I'll look into this.
+
+That's it - no more errors during this short test run. I've ran a similar test 
+using daemon_startup reset with the same results. Of course this is by no 
+means complete, but I guess it shows the idea behind leaving unitialized 
+values uninitialized.
+
+Now an example of why zero isn't a sane default:
+
+&gt;<i> typedef struct xscale_common_s
+</I>&gt;<i> {
+</I>&gt;<i>     int common_magic;
+</I>
+ACK, zero would be fine here.
+
+&gt;<i>     /* XScale registers (CP15, DBG) */
+</I>&gt;<i>     reg_cache_t *reg_cache;
+</I>
+ACK, a NULL pointer is something that an be caught
+
+&gt;<i>     /* pxa250, pxa255, pxa27x, ixp42x, ... */
+</I>&gt;<i>     char *variant;
+</I>
+ACK, a NULL pointer is something that an be caught
+
+&gt;<i>     xscale_jtag_t jtag_info;
+</I>
+Not a pointer, but the structure itself. Let's have a look at xscale_jtag_t:
+
+&gt;<i> typedef struct xscale_jtag_s
+</I>&gt;<i> {
+</I>&gt;<i>     /* position in JTAG scan chain */
+</I>&gt;<i>     int chain_pos;
+</I>
+Zero certainly isn't a good default value for chain_pos. If there was any code 
+accessing chain_pos before it's initialized with the value from the target 
+config line, I'd definitely like to know.
+
+This is just an example - I don't know whether there's a chance of reading 
+chain_pos before its initialized - but it clearly shows what potential 
+problems can be hidden by using calloc without need.
+
+Best regards,
+
+Dominic
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: at91sam9260_halt_resume_valgrind.log.zip
+Type: application/x-zip
+Size: 7383 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080303/352f425e/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20080303/352f425e/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001358.html">[Openocd-development] Fixing random crashes due to	uninitialized memory
+</A></li>
+	<LI>Next message: <A HREF="001361.html">[Openocd-development] Fixing random crashes due to	uninitialized memory
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1360">[ date ]</a>
+              <a href="thread.html#1360">[ thread ]</a>
+              <a href="subject.html#1360">[ subject ]</a>
+              <a href="author.html#1360">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

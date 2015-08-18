@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Provisional eCos RTOS support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Provisional%20eCos%20RTOS%20support&In-Reply-To=%3C2DFD360E328B3941911E6D28B085D990175EB6D22A%40SJEXCHCCR01.corp.ad.broadcom.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019203.html">
+   <LINK REL="Next"  HREF="019193.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Provisional eCos RTOS support</H1>
+    <B>Evan Hunter</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Provisional%20eCos%20RTOS%20support&In-Reply-To=%3C2DFD360E328B3941911E6D28B085D990175EB6D22A%40SJEXCHCCR01.corp.ad.broadcom.com%3E"
+       TITLE="[Openocd-development] Provisional eCos RTOS support">ehunter at broadcom.com
+       </A><BR>
+    <I>Thu May 26 01:04:04 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019203.html">[Openocd-development] Verify checksum command patch and FT2232 channels patch
+</A></li>
+        <LI>Next message: <A HREF="019193.html">[Openocd-development] Provisional eCos RTOS support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19179">[ date ]</a>
+              <a href="thread.html#19179">[ thread ]</a>
+              <a href="subject.html#19179">[ subject ]</a>
+              <a href="author.html#19179">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Alan,
+
+
+
+I might be able to help:
+
+Could you provide a list of what order you give GDB/OpenOCD commands and which GDB-Remote commands/responses you see?
+
+If you haven't already, I suggest putting packet prints into gdb_put_packet() and gdb_input_inner().
+
+
+
+Attached is a trace from my system with FreeRTOS.
+
+
+
+The way I did it in the RTOS's was that if the current thread was set to 0 or 1 then it returned the current running context (i.e. the true register values). This seems to avoid the problem you're having.
+
+
+
+
+
+Some notes regarding RTOS awareness:
+
+*         You may need to fix the GDB bug described in <A HREF="http://sourceware.org/bugzilla/show_bug.cgi?id=12648">http://sourceware.org/bugzilla/show_bug.cgi?id=12648</A>
+
+*         Generally you will want to make your OpenOCD script blank the device memory so that the RTOS awareness does not read old, invalid thread information
+
+
+
+Regards,
+
+
+
+Evan Hunter
+
+
+
+
+
+
+
+
+
+
+
+
+
+Date: Tue, 24 May 2011 21:59:55 +0100
+
+From: Alan Bowman &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">alan.michael.bowman at gmail.com</A>&lt;mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">alan.michael.bowman at gmail.com</A>&gt;&gt;
+
+To: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>&lt;mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>&gt;
+
+Subject: [Openocd-development] Provisional eCos RTOS support
+
+Message-ID: &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">BANLkTinHpe7tFZAx78cUk1W_2z0_3ykUFg at mail.gmail.com</A>&lt;mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">BANLkTinHpe7tFZAx78cUk1W_2z0_3ykUFg at mail.gmail.com</A>&gt;&gt;
+
+Content-Type: text/plain; charset=&quot;iso-8859-1&quot;
+
+
+
+I have been trying to add eCos/Cortex-M3 RTOS support to OpenOCD, and
+
+have some code that seems to go some way toward doing the right thing.
+
+The first patch adds that support - it contains a new file (based
+
+heavily on the existing ThreadX/FreeRTOS model) to parse the thread
+
+list.  It's not the most efficient - it iterates over a linked list
+
+twice - once to count the entries and once to parse out the
+
+information.  I couldn't see an explicit thread count variable to
+
+parse, and I wanted to keep the code as similar to previous to
+
+minimise my chances of making mistakes.  I have also added a different
+
+register-stacking structure in another file.
+
+
+
+With that first patch in place, I found GDB would display the thread
+
+list with &quot;info threads&quot; but would then become unstable (as described
+
+in a previous email).  I found that when GDB requested the current
+
+thread (&quot;qC&quot;) OpenOCD always replied with a generic response (&quot;QC0&quot;).
+
+I altered this to try to report the actual current thread, as in the
+
+second patch.  The first time GDB runs up, the instability still
+
+occurs, since the request is sent before OpenOCD has parsed the thread
+
+data.  Stopping GDB and restarting it then seems to work OK, since a
+
+current thread value is retained in OpenOCD's rtos data structure from
+
+the last session.  This seems like the wrong behaviour, but is
+
+coincidentally sufficient to prevent GDB from complaining.  I'd be
+
+interested to hear if anyone has seen similar behaviour with other
+
+RTOSs.
+
+
+
+Testing for these patches has been performed using top-of-trunk eCos
+
+running in a ROM startup configuration from a board like an
+
+STM3210E-EVAL (but only using internal RAM).  I've been using the
+
+thread&lt;x&gt; test programs that are part of the kernel test suite as test
+
+applications.
+
+
+
+I'm not sure how to take this further - I'm not sufficiently familiar
+
+with GDB to diagnose the problem I'm seeing with the current-thread
+
+reporting, but I want to put eCos support in front of others to get
+
+some feedback.
+
+
+
+Alan
+
+-------------- next part --------------
+
+A non-text attachment was scrubbed...
+
+Name: 0001-Add-eCos-Cortex-RTOS-support.patch
+
+Type: application/octet-stream
+
+Size: 19262 bytes
+
+Desc: not available
+
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110524/2396f62b/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20110524/2396f62b/attachment.obj</A>&gt;
+
+-------------- next part --------------
+
+A non-text attachment was scrubbed...
+
+Name: 0002-Report-actual-current-thread.patch
+
+Type: application/octet-stream
+
+Size: 950 bytes
+
+Desc: not available
+
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110524/2396f62b/attachment-0001.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20110524/2396f62b/attachment-0001.obj</A>&gt;
+
+
+
+------------------------------
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110525/fd05cadc/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20110525/fd05cadc/attachment.html</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: GDB-Remote-trace.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110525/fd05cadc/attachment.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20110525/fd05cadc/attachment.txt</A>&gt;
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: gdb-commands.txt
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110525/fd05cadc/attachment-0001.txt">https://lists.berlios.de/pipermail/openocd-development/attachments/20110525/fd05cadc/attachment-0001.txt</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019203.html">[Openocd-development] Verify checksum command patch and FT2232 channels patch
+</A></li>
+	<LI>Next message: <A HREF="019193.html">[Openocd-development] Provisional eCos RTOS support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19179">[ date ]</a>
+              <a href="thread.html#19179">[ thread ]</a>
+              <a href="subject.html#19179">[ subject ]</a>
+              <a href="author.html#19179">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

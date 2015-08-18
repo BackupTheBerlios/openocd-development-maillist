@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] arm: dcc_downloads and	fast_memory_access are now enabled by default
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm%3A%20dcc_downloads%20and%0A%09fast_memory_access%20are%20now%20enabled%20by%20default&In-Reply-To=%3C1259593582-2935-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013084.html">
+   <LINK REL="Next"  HREF="013087.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] arm: dcc_downloads and	fast_memory_access are now enabled by default</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20arm%3A%20dcc_downloads%20and%0A%09fast_memory_access%20are%20now%20enabled%20by%20default&In-Reply-To=%3C1259593582-2935-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] arm: dcc_downloads and	fast_memory_access are now enabled by default">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Nov 30 16:06:22 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013084.html">[Openocd-development] [PATCH 0/4] add stack backtracing
+</A></li>
+        <LI>Next message: <A HREF="013087.html">[Openocd-development] [PATCH] arm: dcc_downloads and	fast_memory_access are now enabled by default
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13086">[ date ]</a>
+              <a href="thread.html#13086">[ thread ]</a>
+              <a href="subject.html#13086">[ subject ]</a>
+              <a href="author.html#13086">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Those few targets that have problems with fast_memory_access
+or dcc_downloads must add event handlers to the reset sequence
+to deal with this. The typical example are CPUs that run
+at kHz clocks.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ doc/openocd.texi           |   15 ++++++++++-----
+ src/target/arm7_9_common.c |    8 ++++----
+ 2 files changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index ea30092..43ea0d8 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -5642,18 +5642,23 @@ including ARM9TDMI, ARM920T, and ARM926EJ-S.
+ 
+ @deffn Command {arm7_9 dcc_downloads} (@option{enable}|@option{disable})
+ @cindex DCC
+-Control the use of the debug communications channel (DCC) to write larger (&gt;128 byte)
++Enabled by default. Control the use of the debug communications channel (DCC) to write larger (&gt;128 byte)
+ amounts of memory. DCC downloads offer a huge speed increase, but might be
+-unsafe, especially with targets running at very low speeds. This command was introduced
+-with OpenOCD rev. 60, and requires a few bytes of working area.
++unsafe, especially with targets running at very low speeds. This command requires 
++a few bytes of working area. This is implemented as an open loop where
++OpenOCD pours data into the target. If the target is not able to keep
++up, then OpenOCD will print an error message after the transfer
++from OpenOCD is complete.
+ @end deffn
+ 
+ @anchor{arm7_9 fast_memory_access}
+ @deffn Command {arm7_9 fast_memory_access} (@option{enable}|@option{disable})
+-Enable or disable memory writes and reads that don't check completion of
++Enabled by default. Enable or disable memory writes and reads that don't check completion of
+ the operation. This provides a huge speed increase, especially with USB JTAG
+ cables (FT2232), but might be unsafe if used with targets running at very low
+-speeds, like the 32kHz startup clock of an AT91RM9200.
++speeds, like the 32kHz startup clock of an AT91RM9200. Targets that
++require such low speeds during reset, will have to add reset event
++handlers to turn this option off temporarily.
+ @end deffn
+ 
+ @subsection ARM720T specific commands
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index b5553cd..5438855 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2828,8 +2828,8 @@ int arm7_9_init_arch_info(struct target *target, struct arm7_9_common *arm7_9)
+ 
+ 	arm7_9-&gt;wp_available_max = 2;
+ 
+-	arm7_9-&gt;fast_memory_access = false;
+-	arm7_9-&gt;dcc_downloads = false;
++	arm7_9-&gt;fast_memory_access = true;
++	arm7_9-&gt;dcc_downloads = true;
+ 
+ 	armv4_5-&gt;arch_info = arm7_9;
+ 	armv4_5-&gt;read_core_reg = arm7_9_read_core_reg;
+@@ -2858,14 +2858,14 @@ static const struct command_registration arm7_9_any_command_handlers[] = {
+ 		.mode = COMMAND_ANY,
+ 		.usage = &quot;&lt;enable|disable&gt;&quot;,
+ 		.help = &quot;use fast memory accesses instead of slower &quot;
+-			&quot;but potentially safer accesses&quot;,
++			&quot;but potentially safer accesses. Enabled by default.&quot;,
+ 	},
+ 	{
+ 		&quot;dcc_downloads&quot;,
+ 		.handler = &amp;handle_arm7_9_dcc_downloads_command,
+ 		.mode = COMMAND_ANY,
+ 		.usage = &quot;&lt;enable | disable&gt;&quot;,
+-		.help = &quot;use DCC downloads for larger memory writes&quot;,
++		.help = &quot;use DCC downloads for larger memory writes. Enabled by default.&quot;,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013084.html">[Openocd-development] [PATCH 0/4] add stack backtracing
+</A></li>
+	<LI>Next message: <A HREF="013087.html">[Openocd-development] [PATCH] arm: dcc_downloads and	fast_memory_access are now enabled by default
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13086">[ date ]</a>
+              <a href="thread.html#13086">[ thread ]</a>
+              <a href="subject.html#13086">[ subject ]</a>
+              <a href="author.html#13086">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] SVN COMMIT - config with ftd2xx &amp; libftdi
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SVN%20COMMIT%20-%20config%20with%20ftd2xx%20%26%20libftdi&In-Reply-To=%3C49564065.4010708%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004277.html">
+   <LINK REL="Next"  HREF="004249.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] SVN COMMIT - config with ftd2xx &amp; libftdi</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20SVN%20COMMIT%20-%20config%20with%20ftd2xx%20%26%20libftdi&In-Reply-To=%3C49564065.4010708%40duaneellis.com%3E"
+       TITLE="[Openocd-development] SVN COMMIT - config with ftd2xx &amp; libftdi">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Dec 27 15:49:09 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004277.html">[Openocd-development] freebsd &amp; openocd - [was: SVN COMMIT -	config with ftd2xx &amp;libftdi]
+</A></li>
+        <LI>Next message: <A HREF="004249.html">[Openocd-development] svn commit - Packager Notes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4241">[ date ]</a>
+              <a href="thread.html#4241">[ thread ]</a>
+              <a href="subject.html#4241">[ subject ]</a>
+              <a href="author.html#4241">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>dirk&gt; I would prefer shared to be default.
+
+SHARED is the default, if the libftd2xx0.4.16 package is installed - &quot;in 
+a proper way&quot; 
+
+By proper way - I mean
+=========================
+
+This should work:
+
+     &quot;gcc  myprogram.c  -lftd2xx&quot;
+
+Which requires:
+
+(1) the two .H files are in a standard include directory
+
+(2) The .SO file has been copied
+     And required symlinks be made...
+
+(3) Or - the STATIC lib be installed instead.
+
+As for &quot;shared or static&quot; - what matters is what *You* the developer 
+install. OpenOCD expects the *standard* idiom &quot;-lftd2xx&quot; to work if it 
+is installed.
+
+An example of these steps can be found here:
+
+${openocd}/testing/build.test1/Makefile
+     TARGET:  linux.ftd2xx_installed.setup
+
+=========================
+Non-Installed - Why SHARED will not work by default
+=========================
+
+If it is not installed - then there is no way to link *shared* without 
+manual intervention.
+
+As delivered, the &quot;tar.gz&quot; file contains the file:  libftd2xx.so.0.4.16,
+
+GCC will not link &quot;shared&quot; with the above,
+The application will *NOT* run &quot;shared&quot; with the file named that way.
+
+It is missing:  libftd2xx.so - which is what GCC/LD requires to link.
+It is missing:  libftd2xx.so.0 - which is required to *RUN* (ldd wants this)
+
+In fact, I think FTDICHIP.COM builds the library the wrong way, via 
+&quot;-soname&quot;.
+
+The *person building openocd* (ie: you) must - manually modify the 
+ftd2xx.so.0.4.16 directory to make it work.  Either:  COPY or SYMLINK 
+those two files into existence *SOMEWHERE* appropriate. 
+
+It would be *WRONG* for openocd to *fix* it for you.
+It would be *WRONG* for openocd to point &quot;rpath&quot; into that *wrong* 
+directory.
+
+Thus, the default in this scenario is &quot;static&quot; - the only thing that 
+works with the &quot;as-delivered&quot; tar file.
+
+In fact, I wrote this part of the configure script to be (I hope) 
+&quot;future proofed&quot; in this way:
+   If the &quot;un-numbered&quot; static lib version is present - we use that.
+   Otherwise - we hunt for a triple-numbered static library and use that.
+
+=========================
+Not Fully Installed Shard Build Problems
+(AKA: You followed the Broken Install Instructions)
+========================
+
+In effect, this is like having the evil two different RPM files under 
+RedHat.
+    (1) rpm holding the .SO files ... - which is installed
+    (2) rpm holding the .H files... - which are *NOT* installed
+
+If one follows the *BROKEN* instructions from FTDICHIP.COM
+the .SO files are installed, but the .H files are not.
+
+The brokenness is the .H files not being installed.
+
+The solution here is:
+
+./configure  --with-ftd2xx-lib=shared  \
+           --with-ftd2xx-linux-dir=&lt;PATH&gt;
+
+The &quot;--with-ftd2xx-lib=shared&quot; idiom means the *standard* idiom:  
+&quot;-lftd2xx&quot; - should work
+
+========================
+Non-Installed Static Build Problems
+========================
+
+To be complete, there are similar problems with &quot;in-place&quot; STATIC 
+library build on Linux.
+
+ In the static_lib directory, the '.a' file is numbered Example: 
+libftd2xx.a.0.4.16
+
+GCC will not accept that with &quot;-L&quot; - the numbers are not valid, GCC/LD 
+only link with &quot;.so&quot; and &quot;.a&quot; files via a (dash)(lower-letter-el) idiom.
+
+Thus, in that case, the configure script actually has to figure out what 
+the triple-numbered filename is - (ie: future proofing in case version 
+numbers change) - and specify that file on command line, without the 
+standard &quot;(dash)(lower-letter-el)&quot; idiom in front of it.
+
+========================
+Win32/Cygwin/MingW32
+========================
+
+If one ignores the *SPACES* in the ZIP filename!!!!
+It is not as *MESSY* as the Linux side of this...
+
+========================
+MacOS -
+========================
+
+I have no idea:
+
+1) I have no mac :-(
+2) The MAC file is a DMG file... I don't know how to unpack.
+
+I wonder if it is *JUST* as messy as the Linux solution.
+I don't know.
+
+========================
+All of this seems *VERY* complicated...
+Why doesn't FTDICHIP fix the stuff they are producing.
+Why don't we approach FTDICHIP and ask them to fix.
+========================
+
+Well - first they should, and I believe they will, and I have.
+
+You should note that they are coming out with a *NEW* version of the 
+FTD2232 chip, the REV H file.
+
+Big pluses:
+
+* USB 2.0 high speed (480mbit)
+* 30mhz jtag speed, not 6mhz,
+* support for RTCK
+* sadly only 3.3V io, no 1.8V io support
+
+I should have an eval board in a 3 to 4 weeks. I do not know when 
+end-product will be on the consumer shelf space.
+
+I'm sure they will be updating their LIBs and files to support these chips.
+&quot;in a proper way&quot; - and will fix their documentation &quot;in a proper way&quot;..
+
+==========
+*** END ***
+==========
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004277.html">[Openocd-development] freebsd &amp; openocd - [was: SVN COMMIT -	config with ftd2xx &amp;libftdi]
+</A></li>
+	<LI>Next message: <A HREF="004249.html">[Openocd-development] svn commit - Packager Notes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4241">[ date ]</a>
+              <a href="thread.html#4241">[ thread ]</a>
+              <a href="subject.html#4241">[ subject ]</a>
+              <a href="author.html#4241">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

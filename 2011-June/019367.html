@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3CBANLkTiktKiCaUAMKiMfqnkJC_W9ioHhEAQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019383.html">
+   <LINK REL="Next"  HREF="019380.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred</H1>
+    <B>Tomek CEDRO</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Outstanding%20patches%20%3D%3E%20Fix%3A%20Correctly%0A%20exit%20function%3A%20ft2232_init%20when%20an%20error%20occurred&In-Reply-To=%3CBANLkTiktKiCaUAMKiMfqnkJC_W9ioHhEAQ%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred">tomek.cedro at gmail.com
+       </A><BR>
+    <I>Mon Jun  6 18:29:32 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019383.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+        <LI>Next message: <A HREF="019380.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19367">[ date ]</a>
+              <a href="thread.html#19367">[ thread ]</a>
+              <a href="subject.html#19367">[ subject ]</a>
+              <a href="author.html#19367">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Laurent,
+
+Sorry if my comment seems not meritoric, I am not mentioning about
+coding style because this leaves a lot to tell in case of all program
+source tree. I am not advanced OpenOCD developer, I am learning code
+internals for some time and I have some grasp on it already (enough to
+recognize the function we are talking about without looking at the
+code because I have already worked on it). Please take a look at my
+explanation why I think this patch is not that good ant try to
+convince me (maybe others?) that I am wrong :-)
+
+1. The reason to propose this patch was improper error handling.
+OpenOCD works in a manner where functions return ERROR_OK or
+ERROR_FAIL, all additional/verbose information are provided by LOG_*
+messages. This is also the case in ft2232_init(), so no need to
+change. If you change this all other interfaces will behave different,
+so the code gets dirty and unpredictable. This is a standard behavior
+for all of the code.
+
+2. The malloc() problem can be solved in a simple way as demonstrated
+by my patch. No need to complicate things, no need to add other
+functions that makes code less readable.
+
+3. All interfaces have init() and quit() functions. If you change this
+for one type of driver the code will get dirty as one drivers will
+behave other than another interfaces. This should be avoided.
+
+4. What is the real benefit of implementing/splitting open() and
+init() for interface? Interface is a platform for further program
+operation. Without interface program cannot work properly, so what
+would you like to do with interface that is opened but
+unusable/uninitialized? The current behavior is simple - interface
+initialization failed, so will other things, retry or quit, don't go
+futher. Interface init() checks if interface is connected and sets up
+its state, this is enough for one function, why you want to split it?
+
+5. There is a transport layer above interface, transport has select()
+and init() - maybe this is the place you should place your code?
+Transport select() function sets up interface and memory/registers for
+transport internals, while transport init() can interrogate connected
+targets (as the interface and transport are ready). Transport is
+initialized automatically just after interface is initialized.
+
+Long story short - there is already presented open/init mechanism at
+transport layer, interface is only a platform for this to happen.
+There is not much use of interface that is opened but unusable - this
+is common for all interfaces, not only ft2232 - it is simply ready for
+use or not.
+
+There are more things to be fixed and changes in the OpenOCD internal
+organization (i.e. program flow, global variables rewrite into common
+context passed as function parameter, etc), but this should be done in
+non-invasive, clean and rational manner. If we want to change
+interface behavior, this change should apply to all interfaces. We
+cannot allow one interface behave in other way than the others because
+this will only bring confusion. The program flow is unclear enough to
+complicate it even more right now. This is why I would freeze the
+changes for a moment where general interface architecture will change
+to become non-jtag-specific. Again please specify the benefits of
+open() and init() for interface, and why it cannot happen in transport
+layer as it is done right now.
+
+About the (c) in the header fields I think that those should be
+reserved for people that bring more than patching/rewrite but this is
+a minor issue :-)
+
+Best regards,
+Tomek
+
+-- 
+CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019383.html">[Openocd-development] Outstanding patches =&gt; Fix:	Correctly	exit function: ft2232_init when an error occurred
+</A></li>
+	<LI>Next message: <A HREF="019380.html">[Openocd-development] Outstanding patches =&gt; Fix: Correctly exit function: ft2232_init when an error occurred
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19367">[ date ]</a>
+              <a href="thread.html#19367">[ thread ]</a>
+              <a href="subject.html#19367">[ subject ]</a>
+              <a href="author.html#19367">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

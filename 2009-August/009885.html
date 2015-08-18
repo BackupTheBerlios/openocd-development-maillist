@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] J-Link Reset Init Issue
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20J-Link%20Reset%20Init%20Issue&In-Reply-To=%3CC6A0AA46.408D%25gcarlson%40carlson-minot.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009875.html">
+   <LINK REL="Next"  HREF="009905.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] J-Link Reset Init Issue</H1>
+    <B>Gary Carlson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20J-Link%20Reset%20Init%20Issue&In-Reply-To=%3CC6A0AA46.408D%25gcarlson%40carlson-minot.com%3E"
+       TITLE="[Openocd-development] J-Link Reset Init Issue">gcarlson at carlson-minot.com
+       </A><BR>
+    <I>Fri Aug  7 00:41:58 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009875.html">[Openocd-development] R: Halt not working on arm926jes (s3c2450)
+</A></li>
+        <LI>Next message: <A HREF="009905.html">[Openocd-development] J-Link Reset Init Issue
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9885">[ date ]</a>
+              <a href="thread.html#9885">[ thread ]</a>
+              <a href="subject.html#9885">[ subject ]</a>
+              <a href="author.html#9885">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Ferdinand,
+
+Using two patches, (yours + mine) I have &quot;reset halt&quot; and &quot;reset run&quot;
+working reliably for the jlink dongle.  While &quot;reset init&quot; works sometimes I
+am finding the command can cause the jlink dongle to permanently lose
+communication in some cases:
+
+reset init
+JTAG tap: at91sam9260.cpu tap/device found: 0x0792603f (mfg: 0x01f, part:
+0x7926, ver: 0x0)
+JTAG Tap/device matched
+target state: halted
+target halted in ARM state due to breakpoint, current mode: Supervisor
+cpsr: 0x000000d3 pc: 0x00000000
+MMU: disabled, D-Cache: disabled, I-Cache: disabled
+8 kHz
+WARNING: unknown debug reason: 0x0
+invalid mode value encountered 0
+cpsr contains invalid mode value - communication failure
+Runtime error, file
+&quot;/usr/local/openocd-config/target/unknown-board-atmel-at91sam9260.cfg&quot;, line
+3:
+    
+WARNING: unknown debug reason: 0x0
+invalid mode value encountered 0
+cpsr contains invalid mode value - communication failure
+WARNING: unknown debug reason: 0x0
+invalid mode value encountered 0
+cpsr contains invalid mode value - communication failure
+invalid mode value encountered 30
+cpsr contains invalid mode value - communication failure
+invalid mode value encountered 0
+cpsr contains invalid mode value - communication failure
+.
+.
+.
+
+You have a different type of dongle so I am curious whether you see this
+problem as well.  Knowing this will help me narrow the problem down further.
+
+Thanks,
+
+
+Gary
+
+
+On 8/6/09 2:48 PM, &quot;Ferdinand Postema&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ferdinand at postema.eu</A>&gt; wrote:
+
+&gt;<i> ==&gt; How did you discover this fix?
+</I>&gt;<i> 
+</I>&gt;<i> First I tried if the breakpoint version worked. It did.Then I inserted
+</I>&gt;<i> some commands to read back the vector catch register, to see if it was
+</I>&gt;<i> writen correctly. Then the vector catch worked! Then I tried a couple of
+</I>&gt;<i> things to see what was minimal neccesary. I tried waiting for 100000 us,
+</I>&gt;<i> but that did not work. Then I tried the extra cycle in state TEST
+</I>&gt;<i> RUN/IDLE and that worked. I think this should not influence other
+</I>&gt;<i> targets. It's just one extra cycle of doing nothing before the reset. I
+</I>&gt;<i> think it can be committed.
+</I>&gt;<i> 
+</I>&gt;<i> Gary Carlson schreef:
+</I>&gt;&gt;<i> On 8/6/09 2:14 PM, &quot;Ferdinand Postema&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ferdinand at postema.eu</A>&gt; wrote:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i>   
+</I>&gt;&gt;&gt;<i> I found a solution to my problem. It seems that this module needs one
+</I>&gt;&gt;&gt;<i> clock cycle in state RUN TEST/IDLE between the setting of the vector
+</I>&gt;&gt;&gt;<i> catch and the reset. Then it works perfectly. I tested it with the
+</I>&gt;&gt;&gt;<i> RTCK-feature and on 1 kHz, 2 kHz and 4 kHz. It didn't work at 8kHz,
+</I>&gt;&gt;&gt;<i> because the chip clock falls back to 32 kHz at reset. I have attached a
+</I>&gt;&gt;&gt;<i> patch file to include the extra cycle in state RUN TEST/IDLE.
+</I>&gt;&gt;&gt;<i> 
+</I>&gt;&gt;&gt;<i> Ferdinand Postema schreef:
+</I>&gt;&gt;&gt;<i> Index: src/target/arm7_9_common.c
+</I>&gt;&gt;&gt;<i> ===================================================================
+</I>&gt;&gt;&gt;<i> --- src/target/arm7_9_common.c (revision 2571)
+</I>&gt;&gt;&gt;<i> +++ src/target/arm7_9_common.c (working copy)
+</I>&gt;&gt;&gt;<i> @@ -1015,6 +1015,7 @@
+</I>&gt;&gt;&gt;<i> {
+</I>&gt;&gt;&gt;<i>     
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009875.html">[Openocd-development] R: Halt not working on arm926jes (s3c2450)
+</A></li>
+	<LI>Next message: <A HREF="009905.html">[Openocd-development] J-Link Reset Init Issue
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9885">[ date ]</a>
+              <a href="thread.html#9885">[ thread ]</a>
+              <a href="subject.html#9885">[ subject ]</a>
+              <a href="author.html#9885">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

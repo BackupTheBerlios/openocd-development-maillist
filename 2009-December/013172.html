@@ -1,0 +1,255 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 6/7] target: factor target_init() into	pieces
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/7%5D%20target%3A%20factor%20target_init%28%29%20into%0A%09pieces&In-Reply-To=%3C1259701278-25425-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013171.html">
+   <LINK REL="Next"  HREF="013173.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 6/7] target: factor target_init() into	pieces</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/7%5D%20target%3A%20factor%20target_init%28%29%20into%0A%09pieces&In-Reply-To=%3C1259701278-25425-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 6/7] target: factor target_init() into	pieces">zw at superlucidity.net
+       </A><BR>
+    <I>Tue Dec  1 22:01:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013171.html">[Openocd-development] [PATCH 0/7] split the 'init' command
+</A></li>
+        <LI>Next message: <A HREF="013173.html">[Openocd-development] [PATCH 7/7] target: factor init to 'target	init'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13172">[ date ]</a>
+              <a href="thread.html#13172">[ thread ]</a>
+              <a href="subject.html#13172">[ subject ]</a>
+              <a href="author.html#13172">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Moves body of target initialization loop into a helper function,
+cleaning up its visual flow in the process.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/target.c |  153 ++++++++++++++++++++++++++++-----------------------
+ 1 files changed, 84 insertions(+), 69 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 88931b5..abf8bfd 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -681,94 +681,109 @@ err_write_phys_memory(struct target *target, uint32_t address,
+ 
+ static int handle_target(void *priv);
+ 
+-int target_init(struct command_context *cmd_ctx)
++static int target_init_one(struct command_context *cmd_ctx,
++		struct target *target)
+ {
+-	struct target *target;
+-	int retval;
++	target_reset_examined(target);
+ 
+-	for (target = all_targets; target; target = target-&gt;next) {
+-		struct target_type *type = target-&gt;type;
++	struct target_type *type = target-&gt;type;
++	if (type-&gt;examine == NULL)
++		type-&gt;examine = default_examine;
+ 
+-		target_reset_examined(target);
+-		if (target-&gt;type-&gt;examine == NULL)
+-		{
+-			target-&gt;type-&gt;examine = default_examine;
+-		}
++	int retval = type-&gt;init_target(cmd_ctx, target);
++	if (ERROR_OK != retval)
++	{
++		LOG_ERROR(&quot;target '%s' init failed&quot;, target_name(target));
++		return retval;
++	}
+ 
+-		if ((retval = target-&gt;type-&gt;init_target(cmd_ctx, target)) != ERROR_OK)
+-		{
+-			LOG_ERROR(&quot;target '%s' init failed&quot;, target_name(target));
+-			return retval;
+-		}
++	/**
++	 * @todo get rid of those *memory_imp() methods, now that all
++	 * callers are using target_*_memory() accessors ... and make
++	 * sure the &quot;physical&quot; paths handle the same issues.
++	 */
++	/* a non-invasive way(in terms of patches) to add some code that
++	 * runs before the type-&gt;write/read_memory implementation
++	 */
++	type-&gt;write_memory_imp = target-&gt;type-&gt;write_memory;
++	type-&gt;write_memory = target_write_memory_imp;
+ 
++	type-&gt;read_memory_imp = target-&gt;type-&gt;read_memory;
++	type-&gt;read_memory = target_read_memory_imp;
+ 
+-		/**
+-		 * @todo get rid of those *memory_imp() methods, now that all
+-		 * callers are using target_*_memory() accessors ... and make
+-		 * sure the &quot;physical&quot; paths handle the same issues.
+-		 */
++	type-&gt;soft_reset_halt_imp = target-&gt;type-&gt;soft_reset_halt;
++	type-&gt;soft_reset_halt = target_soft_reset_halt_imp;
+ 
+-		/* a non-invasive way(in terms of patches) to add some code that
+-		 * runs before the type-&gt;write/read_memory implementation
+-		 */
+-		target-&gt;type-&gt;write_memory_imp = target-&gt;type-&gt;write_memory;
+-		target-&gt;type-&gt;write_memory = target_write_memory_imp;
+-		target-&gt;type-&gt;read_memory_imp = target-&gt;type-&gt;read_memory;
+-		target-&gt;type-&gt;read_memory = target_read_memory_imp;
+-		target-&gt;type-&gt;soft_reset_halt_imp = target-&gt;type-&gt;soft_reset_halt;
+-		target-&gt;type-&gt;soft_reset_halt = target_soft_reset_halt_imp;
+-		target-&gt;type-&gt;run_algorithm_imp = target-&gt;type-&gt;run_algorithm;
+-		target-&gt;type-&gt;run_algorithm = target_run_algorithm_imp;
+-
+-		/* Sanity-check MMU support ... stub in what we must, to help
+-		 * implement it in stages, but warn if we need to do so.
+-		 */
+-		if (type-&gt;mmu) {
+-			if (type-&gt;write_phys_memory == NULL) {
+-				LOG_ERROR(&quot;type '%s' is missing %s&quot;,
+-						type-&gt;name,
+-						&quot;write_phys_memory&quot;);
+-				type-&gt;write_phys_memory = err_write_phys_memory;
+-			}
+-			if (type-&gt;read_phys_memory == NULL) {
+-				LOG_ERROR(&quot;type '%s' is missing %s&quot;,
+-						type-&gt;name,
+-						&quot;read_phys_memory&quot;);
+-				type-&gt;read_phys_memory = err_read_phys_memory;
+-			}
+-			if (type-&gt;virt2phys == NULL) {
+-				LOG_ERROR(&quot;type '%s' is missing %s&quot;,
+-						type-&gt;name,
+-						&quot;virt2phys&quot;);
+-				type-&gt;virt2phys = identity_virt2phys;
+-			}
++	type-&gt;run_algorithm_imp = target-&gt;type-&gt;run_algorithm;
++	type-&gt;run_algorithm = target_run_algorithm_imp;
+ 
++	/* Sanity-check MMU support ... stub in what we must, to help
++	 * implement it in stages, but warn if we need to do so.
++	 */
++	if (type-&gt;mmu)
++	{
++		if (type-&gt;write_phys_memory == NULL)
++		{
++			LOG_ERROR(&quot;type '%s' is missing write_phys_memory&quot;,
++					type-&gt;name);
++			type-&gt;write_phys_memory = err_write_phys_memory;
++		}
++		if (type-&gt;read_phys_memory == NULL)
++		{
++			LOG_ERROR(&quot;type '%s' is missing read_phys_memory&quot;,
++					type-&gt;name);
++			type-&gt;read_phys_memory = err_read_phys_memory;
++		}
++		if (type-&gt;virt2phys == NULL)
++		{
++			LOG_ERROR(&quot;type '%s' is missing virt2phys&quot;, type-&gt;name);
++			type-&gt;virt2phys = identity_virt2phys;
++		}
++	}
++	else
++	{
+ 		/* Make sure no-MMU targets all behave the same:  make no
+ 		 * distinction between physical and virtual addresses, and
+ 		 * ensure that virt2phys() is always an identity mapping.
+ 		 */
+-		} else {
+-			if (type-&gt;write_phys_memory
+-					|| type-&gt;read_phys_memory
+-					|| type-&gt;virt2phys)
+-				LOG_WARNING(&quot;type '%s' has broken MMU hooks&quot;,
+-						type-&gt;name);
+-
+-			type-&gt;mmu = no_mmu;
+-			type-&gt;write_phys_memory = type-&gt;write_memory;
+-			type-&gt;read_phys_memory = type-&gt;read_memory;
+-			type-&gt;virt2phys = identity_virt2phys;
++		if (type-&gt;write_phys_memory || type-&gt;read_phys_memory
++				|| type-&gt;virt2phys)
++		{
++			LOG_WARNING(&quot;type '%s' has bad MMU hooks&quot;, type-&gt;name);
+ 		}
++
++		type-&gt;mmu = no_mmu;
++		type-&gt;write_phys_memory = type-&gt;write_memory;
++		type-&gt;read_phys_memory = type-&gt;read_memory;
++		type-&gt;virt2phys = identity_virt2phys;
+ 	}
++	return ERROR_OK;
++}
+ 
+-	if (all_targets)
++int target_init(struct command_context *cmd_ctx)
++{
++	struct target *target;
++	int retval;
++
++	for (target = all_targets; target; target = target-&gt;next)
+ 	{
+-		if ((retval = target_register_user_commands(cmd_ctx)) != ERROR_OK)
+-			return retval;
+-		if ((retval = target_register_timer_callback(&amp;handle_target, 100, 1, cmd_ctx-&gt;interp)) != ERROR_OK)
++		retval = target_init_one(cmd_ctx, target);
++		if (ERROR_OK != retval)
+ 			return retval;
+ 	}
+ 
++	if (!all_targets)
++		return ERROR_OK;
++
++	retval = target_register_user_commands(cmd_ctx);
++	if (ERROR_OK != retval)
++		return retval;
++
++	retval = target_register_timer_callback(&amp;handle_target,
++			100, 1, cmd_ctx-&gt;interp);
++	if (ERROR_OK != retval)
++		return retval;
++
+ 	return ERROR_OK;
+ }
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013171.html">[Openocd-development] [PATCH 0/7] split the 'init' command
+</A></li>
+	<LI>Next message: <A HREF="013173.html">[Openocd-development] [PATCH 7/7] target: factor init to 'target	init'
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13172">[ date ]</a>
+              <a href="thread.html#13172">[ thread ]</a>
+              <a href="subject.html#13172">[ subject ]</a>
+              <a href="author.html#13172">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

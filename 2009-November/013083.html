@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/4] add 'stack' command handler
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20add%20%27stack%27%20command%20handler&In-Reply-To=%3C1259579057-11547-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013081.html">
+   <LINK REL="Next"  HREF="013084.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/4] add 'stack' command handler</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20add%20%27stack%27%20command%20handler&In-Reply-To=%3C1259579057-11547-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/4] add 'stack' command handler">zw at superlucidity.net
+       </A><BR>
+    <I>Mon Nov 30 12:04:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013081.html">[Openocd-development] [PATCH 3/4] add -rdynamic to CFLAGS
+</A></li>
+        <LI>Next message: <A HREF="013084.html">[Openocd-development] [PATCH 0/4] add stack backtracing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13083">[ date ]</a>
+              <a href="thread.html#13083">[ thread ]</a>
+              <a href="subject.html#13083">[ subject ]</a>
+              <a href="author.html#13083">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The new 'stack' command displays the openocd C stack from TCL as a
+debugging aid.  Takes an optional parameter: the depth of the stack
+or 'fault' (which creates an immediate segfault by dereferencing
+a bad pointer).  This demonstrates the new segfault handling nicely.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   40 ++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 40 insertions(+), 0 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 1cbedae..ca7418b 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -42,6 +42,7 @@
+ #include &quot;log.h&quot;
+ #include &quot;time_support.h&quot;
+ #include &quot;jim-eventloop.h&quot;
++#include &quot;stack.h&quot;
+ 
+ 
+ /* nice short description of source file */
+@@ -1201,6 +1202,36 @@ COMMAND_HANDLER(handle_sleep_command)
+ 	return ERROR_OK;
+ }
+ 
++static int stack_command_walker(struct stack_walk_state *state, intptr_t data)
++{
++	struct command_context *cmd_ctx = (struct command_context *)data;
++	command_print(cmd_ctx, &quot;%d: %s&quot;, state-&gt;level, state-&gt;frame);
++	return 0;
++}
++
++COMMAND_HANDLER(handle_stack_command)
++{
++	if (CMD_ARGC &gt; 1)
++		return ERROR_INVALID_ARGUMENTS;
++
++	unsigned depth = 10;
++	if (CMD_ARGC == 1)
++	{
++		if (strcmp(CMD_ARGV[0], &quot;fault&quot;) == 0)
++		{
++			long *bad_ptr = (void*)-1;
++			*bad_ptr = 0xDEADBEEF;
++			// unreachable... we should have just caused a crash!
++			LOG_ERROR(&quot;unable to fake a segmentation fault?!?!&quot;);
++		}
++		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], depth);
++		if (depth &gt; 200)
++			return ERROR_INVALID_ARGUMENTS;
++	}
++
++	return stack_walk(depth, &amp;stack_command_walker, (intptr_t)CMD_CTX);
++}
++
+ static const struct command_registration command_subcommand_handlers[] = {
+ 	{
+ 		.name = &quot;mode&quot;,
+@@ -1246,6 +1277,15 @@ static const struct command_registration command_builtin_handlers[] = {
+ 		.usage = &quot;&lt;n&gt; [busy]&quot;,
+ 	},
+ 	{
++		.name = &quot;stack&quot;,
++		.mode = COMMAND_ANY,
++		.handler = &amp;handle_stack_command,
++		.usage = &quot;[&lt;depth&gt;]&quot;,
++		.help = &quot;Display the C stack up to &lt;depth&gt;, with the &quot;
++			&quot;default of 10 and limit of 200.&quot;,
++
++	},
++	{
+ 		.name = &quot;help&quot;,
+ 		.handler = &amp;handle_help_command,
+ 		.mode = COMMAND_ANY,
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013081.html">[Openocd-development] [PATCH 3/4] add -rdynamic to CFLAGS
+</A></li>
+	<LI>Next message: <A HREF="013084.html">[Openocd-development] [PATCH 0/4] add stack backtracing
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13083">[ date ]</a>
+              <a href="thread.html#13083">[ thread ]</a>
+              <a href="subject.html#13083">[ subject ]</a>
+              <a href="author.html#13083">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

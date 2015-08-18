@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/9] NAND/LPC3180: remove private	&quot;target&quot; copy
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/9%5D%20NAND/LPC3180%3A%20remove%20private%0A%09%22target%22%20copy&In-Reply-To=%3C1293795969-6485-5-git-send-email-borneo.antonio%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017803.html">
+   <LINK REL="Next"  HREF="017805.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/9] NAND/LPC3180: remove private	&quot;target&quot; copy</H1>
+    <B>Antonio Borneo</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/9%5D%20NAND/LPC3180%3A%20remove%20private%0A%09%22target%22%20copy&In-Reply-To=%3C1293795969-6485-5-git-send-email-borneo.antonio%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 4/9] NAND/LPC3180: remove private	&quot;target&quot; copy">borneo.antonio at gmail.com
+       </A><BR>
+    <I>Fri Dec 31 12:46:04 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017803.html">[Openocd-development] [PATCH 3/9] NAND/DAVINCI: remove private	&quot;target&quot; copy
+</A></li>
+        <LI>Next message: <A HREF="017805.html">[Openocd-development] [PATCH 5/9] NAND/MX2: remove private &quot;target&quot;	copy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17804">[ date ]</a>
+              <a href="thread.html#17804">[ thread ]</a>
+              <a href="subject.html#17804">[ subject ]</a>
+              <a href="author.html#17804">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Remove &quot;target&quot; form private data, and use
+common one in struct nand_block.
+
+Signed-off-by: Antonio Borneo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">borneo.antonio at gmail.com</A>&gt;
+---
+ src/flash/nand/lpc3180.c |   39 ++++++++++++++++-----------------------
+ src/flash/nand/lpc3180.h |    1 -
+ 2 files changed, 16 insertions(+), 24 deletions(-)
+
+diff --git a/src/flash/nand/lpc3180.c b/src/flash/nand/lpc3180.c
+index 3285c42..4cd4c6f 100644
+--- a/src/flash/nand/lpc3180.c
++++ b/src/flash/nand/lpc3180.c
+@@ -49,13 +49,6 @@ NAND_DEVICE_COMMAND_HANDLER(lpc3180_nand_device_command)
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+ 
+-	struct target *target = get_target(CMD_ARGV[1]);
+-	if (NULL == target)
+-	{
+-		LOG_ERROR(&quot;target '%s' not defined&quot;, CMD_ARGV[1]);
+-		return ERROR_NAND_DEVICE_INVALID;
+-	}
+-
+ 	uint32_t osc_freq;
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], osc_freq);
+ 
+@@ -63,7 +56,6 @@ NAND_DEVICE_COMMAND_HANDLER(lpc3180_nand_device_command)
+ 	lpc3180_info = malloc(sizeof(struct lpc3180_nand_controller));
+ 	nand-&gt;controller_priv = lpc3180_info;
+ 
+-	lpc3180_info-&gt;target = target;
+ 	lpc3180_info-&gt;osc_freq = osc_freq;
+ 
+ 	if ((lpc3180_info-&gt;osc_freq &lt; 1000) || (lpc3180_info-&gt;osc_freq &gt; 20000))
+@@ -106,9 +98,10 @@ static int lpc3180_pll(int fclkin, uint32_t pll_ctrl)
+ 		return (m / (2 * p)) * (fclkin / n);
+ }
+ 
+-static float lpc3180_cycle_time(struct lpc3180_nand_controller *lpc3180_info)
++static float lpc3180_cycle_time(struct nand_device *nand)
+ {
+-	struct target *target = lpc3180_info-&gt;target;
++	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
++	struct target *target = nand-&gt;target;
+ 	uint32_t sysclk_ctrl, pwr_ctrl, hclkdiv_ctrl, hclkpll_ctrl;
+ 	int sysclk;
+ 	int hclk;
+@@ -159,7 +152,7 @@ static float lpc3180_cycle_time(struct lpc3180_nand_controller *lpc3180_info)
+ static int lpc3180_init(struct nand_device *nand)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 	int bus_width = nand-&gt;bus_width ? : 8;
+ 	int address_cycles = nand-&gt;address_cycles ? : 3;
+ 	int page_size = nand-&gt;page_size ? : 512;
+@@ -234,7 +227,7 @@ static int lpc3180_init(struct nand_device *nand)
+ 		target_write_u32(target, 0x200b8030, mlc_icr_value);
+ 
+ 		/* calculate NAND controller timings */
+-		cycle = lpc3180_cycle_time(lpc3180_info);
++		cycle = lpc3180_cycle_time(nand);
+ 
+ 		twp = ((40 / cycle) + 1);
+ 		twh = ((20 / cycle) + 1);
+@@ -280,7 +273,7 @@ static int lpc3180_init(struct nand_device *nand)
+             
+ 
+ 		/* calculate NAND controller timings */
+-		cycle = lpc3180_cycle_time(lpc3180_info);
++		cycle = lpc3180_cycle_time(nand);
+ 
+ 		r_setup = w_setup = 0;
+ 		r_hold = w_hold = 10 / cycle;
+@@ -301,7 +294,7 @@ static int lpc3180_init(struct nand_device *nand)
+ static int lpc3180_reset(struct nand_device *nand)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -343,7 +336,7 @@ static int lpc3180_reset(struct nand_device *nand)
+ static int lpc3180_command(struct nand_device *nand, uint8_t command)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -373,7 +366,7 @@ static int lpc3180_command(struct nand_device *nand, uint8_t command)
+ static int lpc3180_address(struct nand_device *nand, uint8_t address)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -403,7 +396,7 @@ static int lpc3180_address(struct nand_device *nand, uint8_t address)
+ static int lpc3180_write_data(struct nand_device *nand, uint16_t data)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -433,7 +426,7 @@ static int lpc3180_write_data(struct nand_device *nand, uint16_t data)
+ static int lpc3180_read_data(struct nand_device *nand, void *data)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -495,7 +488,7 @@ static int lpc3180_read_data(struct nand_device *nand, void *data)
+ static int lpc3180_write_page(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 	int retval;
+ 	uint8_t status;
+ 	uint8_t *page_buffer;
+@@ -831,7 +824,7 @@ static int lpc3180_write_page(struct nand_device *nand, uint32_t page, uint8_t *
+ static int lpc3180_read_page(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 	uint8_t *page_buffer;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+@@ -1146,7 +1139,7 @@ static int lpc3180_read_page(struct nand_device *nand, uint32_t page, uint8_t *d
+ static int lpc3180_controller_ready(struct nand_device *nand, int timeout)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -1194,7 +1187,7 @@ static int lpc3180_controller_ready(struct nand_device *nand, int timeout)
+ static int lpc3180_nand_ready(struct nand_device *nand, int timeout)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -1242,7 +1235,7 @@ static int lpc3180_nand_ready(struct nand_device *nand, int timeout)
+ static int lpc3180_tc_ready(struct nand_device *nand, int timeout)
+ {
+ 	struct lpc3180_nand_controller *lpc3180_info = nand-&gt;controller_priv;
+-	struct target *target = lpc3180_info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+diff --git a/src/flash/nand/lpc3180.h b/src/flash/nand/lpc3180.h
+index 88280f3..d524cfe 100644
+--- a/src/flash/nand/lpc3180.h
++++ b/src/flash/nand/lpc3180.h
+@@ -29,7 +29,6 @@ enum lpc3180_selected_controller
+ 
+ struct lpc3180_nand_controller
+ {
+-	struct target *target;
+ 	int osc_freq;
+ 	enum lpc3180_selected_controller selected_controller;
+ 	int is_bulk;
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017803.html">[Openocd-development] [PATCH 3/9] NAND/DAVINCI: remove private	&quot;target&quot; copy
+</A></li>
+	<LI>Next message: <A HREF="017805.html">[Openocd-development] [PATCH 5/9] NAND/MX2: remove private &quot;target&quot;	copy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17804">[ date ]</a>
+              <a href="thread.html#17804">[ thread ]</a>
+              <a href="subject.html#17804">[ subject ]</a>
+              <a href="author.html#17804">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

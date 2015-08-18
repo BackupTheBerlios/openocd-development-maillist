@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/3] remove #if logic for	openocd_sleep_*lude
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20remove%20%23if%20logic%20for%0A%09openocd_sleep_%2Alude&In-Reply-To=%3C1259726822-26322-2-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013191.html">
+   <LINK REL="Next"  HREF="013194.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/3] remove #if logic for	openocd_sleep_*lude</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20remove%20%23if%20logic%20for%0A%09openocd_sleep_%2Alude&In-Reply-To=%3C1259726822-26322-2-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 1/3] remove #if logic for	openocd_sleep_*lude">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Dec  2 05:07:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013191.html">[Openocd-development] [PATCH 0/3] remove all #if logic from	openocd.c
+</A></li>
+        <LI>Next message: <A HREF="013194.html">[Openocd-development] [PATCH 2/3] remove BUILD_IOUTIL symbol
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13193">[ date ]</a>
+              <a href="thread.html#13193">[ thread ]</a>
+              <a href="subject.html#13193">[ subject ]</a>
+              <a href="author.html#13193">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Adds server_stubs.c to hold these routines, using automake logic to
+ensure it gets included under the right conditions.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/openocd.c             |   14 --------------
+ src/openocd.h             |    5 -----
+ src/server/Makefile.am    |    4 ++++
+ src/server/server.h       |    9 +++++++++
+ src/server/server_stubs.c |   32 ++++++++++++++++++++++++++++++++
+ 5 files changed, 45 insertions(+), 19 deletions(-)
+ create mode 100644 src/server/server_stubs.c
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 12bcf44..2043a92 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -215,20 +215,6 @@ struct command_context *setup_command_handler(Jim_Interp *interp)
+ 	return cmd_ctx;
+ }
+ 
+-#if !BUILD_HTTPD &amp;&amp; !BUILD_ECOSBOARD
+-/* implementations of OpenOCD that uses multithreading needs to know when
+- * OpenOCD is sleeping. No-op in vanilla OpenOCD
+- */
+-void openocd_sleep_prelude(void)
+-{
+-}
+-
+-void openocd_sleep_postlude(void)
+-{
+-}
+-#endif
+-
+-
+ /* normally this is the main() function entry, but if OpenOCD is linked
+  * into application, then this fn will not be invoked, but rather that
+  * application will have it's own implementation of main(). */
+diff --git a/src/openocd.h b/src/openocd.h
+index a91d46f..e43f156 100644
+--- a/src/openocd.h
++++ b/src/openocd.h
+@@ -31,11 +31,6 @@
+  */
+ int openocd_main(int argc, char *argv[]);
+ 
+-/// used by the server_loop() function in src/server/server.c
+-void openocd_sleep_prelude(void);
+-/// used by the server_loop() function in src/server/server.c
+-void openocd_sleep_postlude(void);
+-
+ /// provides a hard-coded command environment setup
+ extern const char openocd_startup_tcl[];
+ 
+diff --git a/src/server/Makefile.am b/src/server/Makefile.am
+index 95fb519..b47b8d0 100644
+--- a/src/server/Makefile.am
++++ b/src/server/Makefile.am
+@@ -13,6 +13,10 @@ libserver_la_SOURCES = server.c telnet_server.c gdb_server.c
+ 
+ if HTTPD
+ libserver_la_SOURCES += httpd.c
++else
++if !ECOSBOARD
++libserver_la_SOURCES += server_stubs.c
++endif
+ endif
+ noinst_HEADERS += httpd.h
+ 
+diff --git a/src/server/server.h b/src/server/server.h
+index 173de95..e632bf1 100644
+--- a/src/server/server.h
++++ b/src/server/server.h
+@@ -82,6 +82,15 @@ int server_loop(struct command_context *command_context);
+ int server_register_commands(struct command_context *context);
+ 
+ /**
++ * Used by server_loop(), defined in server_stubs.c, httpd.c, or ecosboard.c
++ */
++void openocd_sleep_prelude(void);
++/**
++ * Used by server_loop(), defined in server_stubs.c, httpd.c, or ecosboard.c
++ */
++void openocd_sleep_postlude(void);
++
++/**
+  * Defines an extended command handler function declaration to enable
+  * access to (and manipulation of) the server port number.
+  * Call server_port like a normal COMMAND_HANDLER with an extra @a out parameter
+diff --git a/src/server/server_stubs.c b/src/server/server_stubs.c
+new file mode 100644
+index 0000000..dcddec0
+--- /dev/null
++++ b/src/server/server_stubs.c
+@@ -0,0 +1,32 @@
++/***************************************************************************
++ *   Copyright (C) 2009 Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &lt;config.h&gt;
++#endif
++#include &quot;server.h&quot;
++
++void openocd_sleep_prelude(void)
++{
++	// no-op
++}
++void openocd_sleep_postlude(void)
++{
++	// no-op
++}
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013191.html">[Openocd-development] [PATCH 0/3] remove all #if logic from	openocd.c
+</A></li>
+	<LI>Next message: <A HREF="013194.html">[Openocd-development] [PATCH 2/3] remove BUILD_IOUTIL symbol
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13193">[ date ]</a>
+              <a href="thread.html#13193">[ thread ]</a>
+              <a href="subject.html#13193">[ subject ]</a>
+              <a href="author.html#13193">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

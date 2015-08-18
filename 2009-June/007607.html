@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [RFC] Some jtag changes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20Some%20jtag%20changes&In-Reply-To=%3C4A242EFE.9060205%40mlu.mine.nu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007604.html">
+   <LINK REL="Next"  HREF="007615.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [RFC] Some jtag changes</H1>
+    <B>Magnus Lundin</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BRFC%5D%20Some%20jtag%20changes&In-Reply-To=%3C4A242EFE.9060205%40mlu.mine.nu%3E"
+       TITLE="[Openocd-development] [RFC] Some jtag changes">lundin at mlu.mine.nu
+       </A><BR>
+    <I>Mon Jun  1 21:41:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007604.html">[Openocd-development] [RFC] Some jtag changes
+</A></li>
+        <LI>Next message: <A HREF="007615.html">[Openocd-development] [RFC] Some jtag changes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7607">[ date ]</a>
+              <a href="thread.html#7607">[ thread ]</a>
+              <a href="subject.html#7607">[ subject ]</a>
+              <a href="author.html#7607">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&#216;yvind Harboe wrote:
+&gt;<i> On Mon, Jun 1, 2009 at 11:39 AM, Magnus Lundin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">lundin at mlu.mine.nu</A>&gt; wrote:
+</I>&gt;<i>   
+</I>&gt;&gt;<i> I propose some changes to the  jtag subsystem
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> - Add jtag_add_statmove( endstate )  call,  the code is already in
+</I>&gt;&gt;<i> jtag_add_tlr()
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Could you write the documentation for this fn as a separate proposal?
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>This is simply the jtag api wrapper for the JTAG_STATEMOVE command type.
+Move from current state to (stable state) endstate using the current 
+state_table. If we are already in endstate do nothing
+&gt;<i> You are here talking about the application code communicating to the
+</I>&gt;<i> driver that somehow the JTAG state machine state has changed &quot;behind
+</I>&gt;<i> the scenes&quot;...?
+</I>&gt;<i>   
+</I>No,  that concernes the use in jtag_tlr(). This  is useful after reset 
+or some communication failure, usually signaled by a failed IR scan 
+verification check.  In my experience we get IR verification errors 
+when  there is some error causing  the actual hw tap state and the 
+drivers  idea  about current tap state to disagree.
+&gt;<i> I don't understand the motivation for allowing access to this fn, but I
+</I>&gt;<i> vaguely recall that something was written about this on the list recently.
+</I>&gt;<i>
+</I>&gt;<i> Post 0.2?
+</I>&gt;<i>
+</I>&gt;<i> Or are you talking about something along the lines of xsvf_add_statemove()
+</I>&gt;<i> in xsvf.c?
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>Without knowledge about  xsvf_add_statemove, probabky so.
+&gt;&gt;<i> - Implement jtag_add_tlr() as
+</I>&gt;&gt;<i>    jtag_add_statemovet(TAP_RESET)
+</I>&gt;&gt;<i>    jtag_stableclocks(6)    /* I am not 100% sure about this here */
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Why?
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>To remove different driver &quot;interpretations&quot; of how this should be done.
+&gt;&gt;<i> - Make sure that JTAG_STABLECLOCKS is implemented in all drivers (we
+</I>&gt;&gt;<i> will soon fingd out otherwise )
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> Don't we already have this in jtag_add_clocks()?
+</I>&gt;<i>   
+</I>Look for JTAG_STABLECLOCKS in the current JLink driver.
+
+ 
+
+&gt;<i> Another thing I'd like first is to see if we can retire
+</I>&gt;<i> jtag_add_end_state(), as this
+</I>&gt;<i> would effectively make removing jtag_add_runtest() that little bit easier...
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>I do not propose to remove jtag_add_runtest. I propose to remove the 
+JTAG_RUNTEST command type and do the implementation in jtag.c layer.
+
+This can be done before or after  jtag_add_end_state(), there is very 
+little interation.
+
+And why am I doing this ? 
+Testing a lot of reset and connect  failures  for different targets, 
+with diffrent reset configurations for both ft2232 and jlink my 
+conclusion is that the drivers should be smart about efficiently 
+flipping jtag pins using the interface haredware, but jtag command logic 
+and reset logic should be handled in jtag.c layer. So this proposal is 
+part of mw work to make at least ft2232 and jlink drivers behave as 
+similarily as possible. Or we could say &quot;move common functionality upwards&quot;.
+
+Best regards
+Magnus
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007604.html">[Openocd-development] [RFC] Some jtag changes
+</A></li>
+	<LI>Next message: <A HREF="007615.html">[Openocd-development] [RFC] Some jtag changes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7607">[ date ]</a>
+              <a href="thread.html#7607">[ thread ]</a>
+              <a href="subject.html#7607">[ subject ]</a>
+              <a href="author.html#7607">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

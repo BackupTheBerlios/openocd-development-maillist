@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] streamline and document helptext mode	displays
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20streamline%20and%20document%20helptext%20mode%0A%09displays&In-Reply-To=%3C201001020949.54272.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013935.html">
+   <LINK REL="Next"  HREF="013937.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] streamline and document helptext mode	displays</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20streamline%20and%20document%20helptext%20mode%0A%09displays&In-Reply-To=%3C201001020949.54272.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [PATCH] streamline and document helptext mode	displays">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Jan  2 18:49:54 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013935.html">[Openocd-development] [PATCH] Added ST FlashLINK interface	config file.
+</A></li>
+        <LI>Next message: <A HREF="013937.html">[Openocd-development] [patch 0/5] various bits of ARM code cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13936">[ date ]</a>
+              <a href="thread.html#13936">[ thread ]</a>
+              <a href="subject.html#13936">[ subject ]</a>
+              <a href="author.html#13936">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Most commands are usable only at runtime; so don't bother saying
+that, it's noise.  Moreover, tokens like EXEC are cryptic.
+Be more clear: highlight only the commands which may (also) be
+used during the config stage, thus matching the docs more closely.
+There are
+
+ - Configuration commands (per documentation)
+ - And also some commands that valid at *any* time.
+
+Update the docs to note that &quot;help&quot; now shows this mode info.
+
+This also highlighted a few mistakes in command configuration,
+mostly commands listed as &quot;valid at any time&quot; which shouldn't
+have been.  This just fixes ones I noted when sanity testing.
+---
+ doc/openocd.texi          |   16 +++++++++++-----
+ src/flash/nor/stellaris.c |    2 +-
+ src/helper/command.c      |   32 ++++++++++++++++++++++----------
+ src/server/gdb_server.c   |    3 ++-
+ src/target/armv7m.c       |    2 +-
+ src/target/cortex_m3.c    |    2 +-
+ src/target/target.c       |    2 +-
+ src/target/trace.c        |    2 +-
+ 8 files changed, 40 insertions(+), 21 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -1630,9 +1630,13 @@ supported.
+ When the OpenOCD server process starts up, it enters a
+ @emph{configuration stage} which is the only time that
+ certain commands, @emph{configuration commands}, may be issued.
++Normally, configuration commands are only available
++inside startup scripts.
++
+ In this manual, the definition of a configuration command is
+-presented as a @emph{Config Command}, not as a @emph{Command}
+-which may be issued interactively.
++presented as a @emph{Config Command}.
++The runtime @command{help} command also highlights configuration
++commands, and those which may be issued at any time.
+ 
+ Those configuration commands include declaration of TAPs,
+ flash banks,
+@@ -5093,13 +5097,15 @@ port is 5555.
+ Exits the current telnet session.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> note EXTREMELY ANNOYING word wrap at column 75
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> even when lines are e.g. 100+ columns ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> coded in startup.tcl
+ @deffn {Command} help [string]
+ With no parameters, prints help text for all commands.
+ Otherwise, prints each helptext containing @var{string}.
+ Not every command provides helptext.
++
++Configuration commands, and commands valid at any time, are
++explicitly noted in parenthesis.
++In most cases, no such restriction is listed; this indicates commands
++which are only available after the configuration stage has completed.
+ @end deffn
+ 
+ @deffn Command sleep msec [@option{busy}]
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -1182,7 +1182,7 @@ static const struct command_registration
+ static const struct command_registration stellaris_command_handlers[] = {
+ 	{
+ 		.name = &quot;stellaris&quot;,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_EXEC,
+ 		.help = &quot;Stellaris flash command group&quot;,
+ 		.chain = stellaris_exec_command_handlers,
+ 	},
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -914,7 +914,7 @@ static COMMAND_HELPER(command_help_show,
+ 	bool is_match = (strstr(cmd_name, match) != NULL) ||
+ 	((c-&gt;usage != NULL) &amp;&amp; (strstr(c-&gt;usage, match) != NULL)) ||
+ 	((c-&gt;help != NULL) &amp;&amp; (strstr(c-&gt;help, match) != NULL));
+-	
++
+ 	if (is_match)
+ 	{
+ 		command_help_show_indent(n);
+@@ -934,15 +934,27 @@ static COMMAND_HELPER(command_help_show,
+ 
+ 	if (is_match &amp;&amp; show_help)
+ 	{
+-		const char *stage_msg;
+-		switch (c-&gt;mode) {
+-		case COMMAND_CONFIG: stage_msg = &quot;CONFIG&quot;; break;
+-		case COMMAND_EXEC: stage_msg = &quot;EXEC&quot;; break;
+-		case COMMAND_ANY: stage_msg = &quot;CONFIG or EXEC&quot;; break;
+-		default: stage_msg = &quot;***UNKNOWN***&quot;; break;
+-		}
+-		char *msg = alloc_printf(&quot;%s%sValid Modes: %s&quot;,
+-			c-&gt;help ? : &quot;&quot;, c-&gt;help ? &quot;  &quot; : &quot;&quot;, stage_msg);
++		char *msg;
++
++		/* Normal commands are runtime-only; highlight exceptions */
++		if (c-&gt;mode != COMMAND_EXEC) {
++			const char *stage_msg = &quot;&quot;;
++
++			switch (c-&gt;mode) {
++			case COMMAND_CONFIG:
++				stage_msg = &quot; (configuration command)&quot;;
++				break;
++			case COMMAND_ANY:
++				stage_msg = &quot; (command valid any time)&quot;;
++				break;
++			default:
++				stage_msg = &quot; (?mode error?)&quot;;
++				break;
++			}
++			msg = alloc_printf(&quot;%s%s&quot;, c-&gt;help ? : &quot;&quot;, stage_msg);
++		} else
++			msg = alloc_printf(&quot;%s&quot;, c-&gt;help ? : &quot;&quot;);
++
+ 		if (NULL != msg)
+ 		{
+ 			command_help_show_wrap(msg, n + 3, n + 3);
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2272,6 +2272,7 @@ static int gdb_target_start(struct targe
+ 	return ERROR_OK;
+ }
+ 
++/* FIXME static */
+ int gdb_target_add_one(struct target *target)
+ {
+ 	if (gdb_port == 0 &amp;&amp; server_use_pipes == 0)
+@@ -2420,7 +2421,7 @@ static const struct command_registration
+ 	{
+ 		.name = &quot;gdb_port&quot;,
+ 		.handler = &amp;handle_gdb_port_command,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_CONFIG,
+ 		.help = &quot;daemon configuration command gdb_port&quot;,
+ 		.usage = &quot;&lt;port&gt;&quot;,
+ 	},
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -834,7 +834,7 @@ static const struct command_registration
+ const struct command_registration armv7m_command_handlers[] = {
+ 	{
+ 		.name = &quot;dap&quot;,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_EXEC,
+ 		.help = &quot;Cortex DAP command group&quot;,
+ 		.chain = armv7m_exec_command_handlers,
+ 	},
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -2003,7 +2003,7 @@ static const struct command_registration
+ 	},
+ 	{
+ 		.name = &quot;cortex_m3&quot;,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_EXEC,
+ 		.help = &quot;Cortex-M3 command group&quot;,
+ 		.chain = cortex_m3_exec_command_handlers,
+ 	},
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -4866,7 +4866,7 @@ static const struct command_registration
+ 	{
+ 		.name = &quot;fast_load&quot;,
+ 		.handler = &amp;handle_fast_load_command,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_EXEC,
+ 		.help = &quot;loads active fast load image to current target &quot;
+ 			&quot;- mainly for profiling purposes&quot;,
+ 	},
+--- a/src/target/trace.c
++++ b/src/target/trace.c
+@@ -177,7 +177,7 @@ static const struct command_registration
+ static const struct command_registration trace_command_handlers[] = {
+ 	{
+ 		.name = &quot;trace&quot;,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_EXEC,
+ 		.help = &quot;trace command group&quot;,
+ 		.chain = trace_exec_command_handlers,
+ 	},
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013935.html">[Openocd-development] [PATCH] Added ST FlashLINK interface	config file.
+</A></li>
+	<LI>Next message: <A HREF="013937.html">[Openocd-development] [patch 0/5] various bits of ARM code cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13936">[ date ]</a>
+              <a href="thread.html#13936">[ thread ]</a>
+              <a href="subject.html#13936">[ subject ]</a>
+              <a href="author.html#13936">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

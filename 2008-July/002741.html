@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Reset Madness
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20Madness&In-Reply-To=%3C488552D6.7070700%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002759.html">
+   <LINK REL="Next"  HREF="002724.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Reset Madness</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Reset%20Madness&In-Reply-To=%3C488552D6.7070700%40duaneellis.com%3E"
+       TITLE="[Openocd-development] Reset Madness">openocd at duaneellis.com
+       </A><BR>
+    <I>Tue Jul 22 05:24:06 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002759.html">[Openocd-development] Reset Madness
+</A></li>
+        <LI>Next message: <A HREF="002724.html">[Openocd-development] Odd openocd &amp; DDD behavior.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2741">[ date ]</a>
+              <a href="thread.html#2741">[ thread ]</a>
+              <a href="subject.html#2741">[ subject ]</a>
+              <a href="author.html#2741">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Duane Ellis wrote:
+&gt;<i> &#216;yvind Harboe wrote:
+</I>&gt;&gt;<i> Would you be interested in porting target_process_reset to Tcl?
+</I>&gt;&gt;<i>  
+</I>&gt;<i> Let me read through this code a bit and digest it.
+</I>&gt;<i>
+</I>
+I've done some reading - What I have to say will take a while to digest.
+So think about it for a little bit - you might need to read this a few
+times.
+
+To resolve the &quot;process_reset&quot; - I think we need to tackle some lower
+level things first.
+
+For example - we need a &quot;target&quot; that is in TCL style first.
+
+This is important - because:
+
+The higher level scripts will need to invoke specific things on each
+target in some order.
+
+Details follow:
+
+-Duane.
+
+=========
+Background:
+=========
+
+I'm not sure if you (or others) have done TK stuff - the graphics side
+of TCL or not. Basically, in Tcl/TK when you create a &quot;button&quot; - you
+create a new command that is specific to that button. In TK there are
+two ways of creating a button:
+
+(1) Specifying lots of options all at once... when creating.
+
+       button  .foobar  -background red -foreground green -font 10x20
+-text &quot;Hi Mom&quot;
+
+OR (2) - Creating the button, then modifying the button using the new
+command.
+
+       button .foobar [with no options]
+
+      Which - creates a new command, in this case called &quot;.foobar&quot;.
+
+       Which you can &quot;configure&quot; as desired, for example:
+
+          .foobar configure -background red -foreground green
+          .foobar configure -font 10x20 -text &quot;Hi Mom&quot;
+          .foobar -command { puts &quot;Hi duane&quot; }
+
+When we create a target, - like the button example above - we need to
+create a new command for that target.
+
+=========
+The New &quot;target&quot; command.
+=========
+
+I propose a new &quot;target&quot; command - that works like the Tcl/TK button
+command does.
+
+For compatibility reasons only...
+          if argv[0] = is a known target type, ie: &quot;arm7tdmi&quot; or &quot;cortex_m3&quot;
+          we assume all other parameters are positional.
+
+If the argv[0] is not a known target type, we do something else.
+     We demand it be one of these 4 things:
+
+(1)     target create NAME [configure options]
+             [ as described above, sort of like 'button']
+
+(2)     target delete NAME
+              [Destroys a target.]
+
+(3)     target invoke NAME COMMAND
+             [see below, same as: &quot;NAME COMMAND&quot;]
+
+(4)     target list
+         [You use it like this:]
+
+          proc poll_all_targets {
+                  foreach T [ target list ] {
+                           $T poll
+                 }
+          }
+
+==========
+TK Events - but OpenOCD events.
+==========
+
+TK has a command called &quot;bind&quot;.
+
+You can use the BIND command to BIND X-window events to specific Tcl
+Procedures.
+
+We need something similar -an-  EVENT command.
+{If you can suggest a better name... please do} it would work like this:
+
+    eventcommand  NAME   -command  &quot;some command&quot;
+
+Some ideas/examples would be:
+
+       eventcommand  gdbconnect   -command &quot;source gdb-connect-script&quot;
+
+       eventcommand  prereset   -command &quot;DO SOMETHING...&quot;
+
+Other names could be:
+
+          gdbdisconnect
+          gdbstep
+          ... you name it ...
+
+This would roughly replace what is today: target_invoke_script()
+
+==========
+The key here is: &quot;target invoke NAME COMMAND&quot;.
+==========
+
+there are two ways of invoking a TARGET command.
+Option 1 -
+       target invoke NAME COMMAND
+
+Or Option 2
+       Because the 'target create' created a new command..
+       You can do this instead:
+
+       NAME COMMAND
+
+==========
+This is important because:
+==========
+
+This lets higher level scripts invoke certain target specific function
+calls.
+
+For example, STEP 1 - create target called &quot;T_foobar&quot;.
+
+     target create T_foobar -type arm7tdmi -endian little -chainpos 3
+-varient xyz
+
+We now have a &quot;T_foobar&quot; command we later can create these commands.
+
+          T_foobar halt
+          T_foobar step
+          T_foobar ... what ever ...
+
+For example - today the &quot;mww&quot; only works with the current target.
+Yes, you *can* use the &quot;targets&quot; command to change targets - by number.
+
+But with the new idea - we can eventually can do this:
+
+          T_foobar poke32 0x1234 0xdeadbeef
+          set VALUE [ T_foobar peek16 0x44432]
+
+Or
+          T_foobar step -  which ONLY steps the target named T_foobar
+          T_foobar reg NAME  VALUE
+
+==========
+What I need right now to redo process_reset is something like this:
+==========
+
+          T_foobar  reset assert  [calls the assert reset]
+          T_foobar  reset deassert [ calls the other function ]
+
+    The above &quot;come along for free&quot; - with this.
+
+==========
+I also need a &quot;jtag&quot; command of some sort.
+==========
+
+Specifically - i need something that lets me mess with or &quot;enque&quot; commands.
+Or at least &quot;execute the que&quot;.
+
+Today - there are many commands like:
+
+       jtag_khz
+       jtag_nsrt_delay
+    .. and others ..
+
+There is nothing that does:   jtag_execute_queue()
+
+====
+Thus, one can do this:
+====
+
+    During the various &quot;reset&quot; steps.  Events occur.
+    if an event procedure is defined for that event - it is invoked.
+
+    In each of those events - a specific target command can occur.
+    One can now - define the &quot;post-reset&quot; event procedure to
+
+       1) Halt target FOO - because there is no other way.
+       2) Set target FOO register: PC to 0xFFFF0000
+
+    And other complicated things - like:
+        starting with a slow jtag speed.
+        Programing the clocks &amp; sdram
+        Changing the jtag speed to fast
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002759.html">[Openocd-development] Reset Madness
+</A></li>
+	<LI>Next message: <A HREF="002724.html">[Openocd-development] Odd openocd &amp; DDD behavior.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2741">[ date ]</a>
+              <a href="thread.html#2741">[ thread ]</a>
+              <a href="subject.html#2741">[ subject ]</a>
+              <a href="author.html#2741">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

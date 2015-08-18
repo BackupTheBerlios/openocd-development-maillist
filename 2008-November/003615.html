@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] JTAG emulator with openocd for beagleboard
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20emulator%20with%20openocd%20for%20beagleboard&In-Reply-To=%3C896619.63666.qm%40web54403.mail.yahoo.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003658.html">
+   <LINK REL="Next"  HREF="003671.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] JTAG emulator with openocd for beagleboard</H1>
+    <B>David Anders</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20emulator%20with%20openocd%20for%20beagleboard&In-Reply-To=%3C896619.63666.qm%40web54403.mail.yahoo.com%3E"
+       TITLE="[Openocd-development] JTAG emulator with openocd for beagleboard">dave123_aml at yahoo.com
+       </A><BR>
+    <I>Sat Nov  8 19:10:48 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003658.html">[Openocd-development] parport.cfg question
+</A></li>
+        <LI>Next message: <A HREF="003671.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3615">[ date ]</a>
+              <a href="thread.html#3615">[ thread ]</a>
+              <a href="subject.html#3615">[ subject ]</a>
+              <a href="author.html#3615">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Duane,
+
+&gt;<i>  Can we get confirmation about how the JRC works in OMAP?
+</I>&gt;<i>
+</I>&gt;<i> Is the following assertion true?
+</I>&gt;<i>
+</I>&gt;<i> When a TAP is enabled, it is always enabled at a FIXED
+</I>&gt;<i> position within the chain?
+</I>&gt;<i>
+</I>
+i've done some tests comparing the davinci dm-355 board(it has basically the same ICEPick as the OMAP35xx) with the openocd config and bdi2000 configs. it does appear that the taps are in a fixed position.
+
+&gt;<i> To describe it another way - Assume there are 3 taps.
+</I>&gt;<i>
+</I>&gt;<i>    (1) ICE Pick - the JRC
+</I>&gt;<i>    (2) An ARM CPU Tap
+</I>&gt;<i>    (3) A DSP CPU Tap
+</I>&gt;<i>
+</I>&gt;<i> The ARM CPU - if it is enabled is ALWAYS after the JRC and
+</I>&gt;<i> ALWAYS before the DSP (if it is enabled).
+</I>&gt;<i>
+</I>&gt;<i> The JRC can *NEVER* swap the order of any two taps.
+</I>&gt;<i>
+</I>
+for the davinci, the order is:
+
+1) ARM
+2) ETB
+3) ICEPick
+
+when EMU0/EMU1 are pulled low, the ICEPick TAP is on and is forced to default with the two TAPS enabled. when EMU0/EMU1 are pulled high, the ICEPick has to be programmed in the same manner as the OMAP35xx's ICEPick.
+
+
+
+&gt;<i> It sure seems like this is true.
+</I>&gt;<i>
+</I>&gt;<i> Today - OpenOCD - and most other JTAG programs assume the
+</I>&gt;<i> following:
+</I>&gt;<i>
+</I>&gt;<i>    1) The tap is IN BYPASS (and has length 1)
+</I>&gt;<i> or
+</I>&gt;<i>    2) The tap is *NOT* in BYPASS (and has length N)
+</I>&gt;<i>
+</I>&gt;<i> It seems, all we must do is introduce a 3rd state.
+</I>&gt;<i>
+</I>&gt;<i>    3) The tap is Disabled and has Length 0.
+</I>&gt;<i>
+</I>
+this sounds completely reasonable. if you compare the bdi config files for the davinci and the omap35xx there are some differences:
+
+davinci
+
+; Configure ICEPick module to make ARM926 TAP visible
+SCANINIT    r0:w10000:
+SCANINIT    r1:t1:w1000:t0:w1000:  ;assert reset and toggle TRST
+SCANINIT    i6=07:d8=89:i6=02:     ;connect and select router
+SCANINIT    d32=81000082:          ;set IP control
+SCANINIT    d32=a018206f:          ;configure TAP0
+SCANINIT    d32=a018216f:cl5:      ;enable TAP0, clock 5 times in RTI
+SCANINIT    i10=ffff               ;scan bypass
+
+
+omap35xx
+
+; Configure ICEPick module to make Cortex-A8 DAP-TAP visible
+SCANINIT    t1:w1000:t0:w1000:  ;toggle TRST,
+SCANINIT    ch10:w1000:         ;clock TCK with TMS high and wait
+SCANINIT    i6=07:d8=89:i6=02:  ;connect and select router
+SCANINIT    d32=81000080:       ;IP control: KeepPowered
+SCANINIT    d32=a3002048:       ;TAP3: DebugConnect, ForcePower, ForceActive
+SCANINIT    d32=81000081:       ;IP control: KeepPowered, SysReset
+SCANINIT    d32=a3002148:       ;enable TAP3
+SCANINIT    cl10:i10=ffff       ;clock 10 times in RTI, scan bypass
+
+
+
+notice the arm core on the davinci is at TAP0 and the arm core on the omap is at TAP3. based on the documents that have been posted for the OMAP35xx combined with the information from the BDI config, the OMAP35xx tap looks like this:
+
+1) DSP
+2) ETB
+3) ARM
+4) ICEPick
+
+
+any changes/development we do to support JRC's can be tested currently with the DM-355 and related davinci boards, as they already have debug support in the main tree of openocd. this gives you a reference for testing.
+
+
+Dave Anders
+TinCanTools
+
+
+
+
+      
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003658.html">[Openocd-development] parport.cfg question
+</A></li>
+	<LI>Next message: <A HREF="003671.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3615">[ date ]</a>
+              <a href="thread.html#3615">[ thread ]</a>
+              <a href="subject.html#3615">[ subject ]</a>
+              <a href="author.html#3615">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

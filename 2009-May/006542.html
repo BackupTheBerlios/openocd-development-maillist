@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] CFI driver chip/bus width.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20CFI%20driver%20chip/bus%20width.&In-Reply-To=%3C19CA9E279FDA5246B7D7A1C91A4AF7F4A626%40dealogicserver.DEALogic.nl%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006756.html">
+   <LINK REL="Next"  HREF="006544.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] CFI driver chip/bus width.</H1>
+    <B>Nico Coesel</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20CFI%20driver%20chip/bus%20width.&In-Reply-To=%3C19CA9E279FDA5246B7D7A1C91A4AF7F4A626%40dealogicserver.DEALogic.nl%3E"
+       TITLE="[Openocd-development] CFI driver chip/bus width.">ncoesel at DEALogic.nl
+       </A><BR>
+    <I>Thu May 14 22:58:26 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006756.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+        <LI>Next message: <A HREF="006544.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6542">[ date ]</a>
+              <a href="thread.html#6542">[ thread ]</a>
+              <a href="subject.html#6542">[ subject ]</a>
+              <a href="author.html#6542">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Ra&#250;l,
+I posted a patch that does take the bus and chip width into account a short while ago. Anyway, if your flash is 8 bit, then your bus must be 8 bits wide. It is not clear whether you have two 8 bit flashes in parallel to form a 16 bit flash.
+
+Nico
+
+ 
+  Hello all:
+
+  I have noticed some issues on CFI flash driver related to chip and bus width  
+affecting read and writes.
+
+  The system I'm dealing with is based on a Vitesse switch chip which embeds 
+an ARM926ejs processor. It additionally provides RAM and flash controller. In 
+this case we are using an spansion S29GL128 16MB flash chip, using a 8bit width 
+data bus layout, so on each read/write cycle we can only retrieve 1byte at 
+once. The flash chip data bus width is 16bit.
+
+ I declare the flash like this:
+
+flash bank cfi 0x80000000 0x1000000 1 2 0
+
+=&gt; 1st problem (writing):
+
+  This clashes somehow with the current CFI driver operations as designed now. 
+I have discovered that when the connected flash is 8 bit, only byte writes will 
+be performed correctly so even this call:
+
+  target-&gt;type-&gt;write_memory(target, address, 4, 1, value_buf)
+
+will succeed, the operation isn't carried out correctly.
+
+  I got to workaround the problem for just cfi flash probe. See attached cfi-
+write-width.diff What I do there is using chip width instead of bus width for 
+each write. This works in my case but I'm not sure it's the general way to go.
+
+  This effect expands to larger write operations, for instance in 
+target_write_u32 (cfi.c:1220) you would need to repeat a byte write operation 4 
+times.
+
+=&gt; 2nd problem (reading)
+
+  But writing is not the only problem. In reading, when chip width is 8bit 
+whereas bus width is 16bit, single byte operation could 	be acceptable, 
+whereas this is no longer valid for halfword or word operations, 16bit and 
+32bit, respectively. When you call, for example cfi_query_u16, expected return 
+is 0xAABB, where 0xAA is the MSB and 0xBB is the LSB. Current return is always 
+0xBBBB. Similar problem for cfi_query_u32
+
+  The solution is iterating the necessary times for a 1byte read and then 
+aggregate each iteration result properly. See attached cfi-read_iteration.diff
+
+  I guess the x16_as_x8 option defined but not used should be aimed at handling 
+this, but this is unimplemented currently.
+
+  I would like to write a patch addressing this issues, but I thought that I'd 
+rather bring the topic to the list so I can directly go for a ultimate 
+solution and not workarounds as I'm using right now.
+
+  Comments are welcome. Regards,
+
+-- 
+Ra&#250;l S&#225;nchez Siles
+
+Departamento de Montaje
+
+INFOGLOBAL, S. A.
+
+* C/ Virgilio, 2. Ciudad de la Imagen.
+28223 Pozuelo de Alarc&#243;n (Madrid), Espa&#241;a
+* T: +34 91 506 40 00
+* F: +34 91 506 40 01
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090514/fbdc07ed/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20090514/fbdc07ed/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006756.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+	<LI>Next message: <A HREF="006544.html">[Openocd-development] CFI driver chip/bus width.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6542">[ date ]</a>
+              <a href="thread.html#6542">[ thread ]</a>
+              <a href="subject.html#6542">[ subject ]</a>
+              <a href="author.html#6542">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

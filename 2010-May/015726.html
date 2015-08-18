@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] Re: Possible reset halt startup	bug?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Re%3A%20Possible%20reset%20halt%20startup%0A%09bug%3F&In-Reply-To=%3CC818B01D.AC4E%25gcarlson%40carlson-minot.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015725.html">
+   <LINK REL="Next"  HREF="015727.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] Re: Possible reset halt startup	bug?</H1>
+    <B>Gary Carlson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20Re%3A%20Possible%20reset%20halt%20startup%0A%09bug%3F&In-Reply-To=%3CC818B01D.AC4E%25gcarlson%40carlson-minot.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] Re: Possible reset halt startup	bug?">gcarlson at carlson-minot.com
+       </A><BR>
+    <I>Wed May 19 05:59:07 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015725.html">[Openocd-development] [PATCH 2/2] Re: Possible reset halt startup	bug?
+</A></li>
+        <LI>Next message: <A HREF="015727.html">[Openocd-development] [PATCH 1/2] Re: Possible reset halt	startup bug?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15726">[ date ]</a>
+              <a href="thread.html#15726">[ thread ]</a>
+              <a href="subject.html#15726">[ subject ]</a>
+              <a href="author.html#15726">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I was finally able to figure out the cause of this problem.  There are two
+parts to the patch.  The first patch modifies the configuration file I
+originally generated for the Atmel AT91SAM9G20 board and achieves the
+following:
+
++++ Splits the reset-init handler into a reset-start handler for some of the
+initial configuration activities and keeps the remainder in the reset-init
+handler as was the case before.  This was the real issue that was causing
+the timing problems I identified before.  This solution was confirmed with
+an o-scope on actual target hardware.
+
++++ Adds a new instruction in the reset-start handler to disable fast memory
+accesses in the reset-start handler.  When the target jtag clock is started
+out at 2 kHz during system clock initialization, memory writes (i.e.
+register write to enable external reset pin -- basically to RSTC_MR) are
+naturally slow and cause GDB keep-alive issues (refer to PATCH 2/2 for
+additional fixes).
+
++++ Modifies the configuration file to use srst_only reset action. The
+reset-start/reset-init handler split also now allows the correct behavior to
+be used in the configuration file (previously had to use both SRST and TRST
+even though only SRST is actually used and connected on the evaluation
+board).
+
++++ Adds external NandFlash configuration support to take advantage of flash
+driver added earlier.  Doesn't fix any bugs but adds functionality that was
+marked as TBD before and thrown in when I did other work on the
+configuration file.
+
+
+Gary Carlson
+
+Gary Carlson, MSEE
+Principal Engineer
+Carlson-Minot Inc.
+
+
+
+
+On 5/7/10 1:16 PM, &quot;Gary Carlson&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">gcarlson at carlson-minot.com</A>&gt; wrote:
+
+&gt;<i> Hi &#216;yvind,
+</I>&gt;<i> 
+</I>&gt;<i> Yeah...that actually is the problem.  When I run OpenOCD under GDB -- even
+</I>&gt;<i> without breakpoints -- the problem goes away completely (naturally of
+</I>&gt;<i> course).  I have no doubt that your assessment that it is related to timing
+</I>&gt;<i> is likely correct.
+</I>&gt;<i> 
+</I>&gt;<i> In the absence of not being able to use GDB to solve this problem, any
+</I>&gt;<i> suggestions on particular areas of the code to focus?
+</I>&gt;<i> 
+</I>&gt;<i> Gary
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> On 5/4/10 9:22 PM, &quot;&#216;yvind Harboe&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt; wrote:
+</I>&gt;<i> 
+</I>&gt;&gt;<i> Maybe it's a timing issue? Have you tried single stepping through assert
+</I>&gt;&gt;<i> reset?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: at91sam9g20-ek.patch
+Type: application/octet-stream
+Size: 6527 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20100518/9f0e4823/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20100518/9f0e4823/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015725.html">[Openocd-development] [PATCH 2/2] Re: Possible reset halt startup	bug?
+</A></li>
+	<LI>Next message: <A HREF="015727.html">[Openocd-development] [PATCH 1/2] Re: Possible reset halt	startup bug?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15726">[ date ]</a>
+              <a href="thread.html#15726">[ thread ]</a>
+              <a href="subject.html#15726">[ subject ]</a>
+              <a href="author.html#15726">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

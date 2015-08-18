@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/3] ARM11: basic watchpoint support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20ARM11%3A%20basic%20watchpoint%20support&In-Reply-To=%3C200912041845.52184.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013353.html">
+   <LINK REL="Next"  HREF="013354.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/3] ARM11: basic watchpoint support</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20ARM11%3A%20basic%20watchpoint%20support&In-Reply-To=%3C200912041845.52184.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/3] ARM11: basic watchpoint support">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec  5 03:45:52 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013353.html">[Openocd-development] [patch 1/3] ARM11: tweak TAP ops and debugging
+</A></li>
+        <LI>Next message: <A HREF="013354.html">[Openocd-development] [patch 3/3/] ARM11: report watchpoint trigger	insn
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13352">[ date ]</a>
+              <a href="thread.html#13352">[ thread ]</a>
+              <a href="subject.html#13352">[ subject ]</a>
+              <a href="author.html#13352">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Use the DPM watchpoint support; remove old incomplete stubs.
+---
+So at this point, add watchpoint support to the DPM framework
+and several hundred lines can vanish from ARM11 and Cortex-A8...
+
+ NEWS                      |    2 
+ src/target/arm11.c        |    3 -
+ src/target/arm11.h        |    3 -
+ src/target/arm11_dbgtap.c |  102 ++++++++++++++++++++++++++++++++++++++++----
+ src/target/arm11_dbgtap.h |    1 
+ 5 files changed, 102 insertions(+), 9 deletions(-)
+
+--- a/NEWS
++++ b/NEWS
+@@ -24,10 +24,12 @@ Target Layer:
+ 		- accelerated GDB memory checksum
+ 		- support &quot;arm regs&quot; command
+ 		- can access all core modes and registers
++		- watchpoint support
+ 	Cortex-A8
+ 		- support &quot;arm regs&quot; command
+ 		- can access all core modes and registers
+ 		- supports &quot;reset-assert&quot; event (used on OMAP3530)
++		- watchpoint support
+ 	Cortex-M3
+ 		- Exposed DWT registers like cycle counter
+ 
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -286,6 +286,8 @@ static int arm11_leave_debug_state(struc
+ 	 */
+ 	retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm, bpwp);
+ 
++	retval = arm11_bpwp_flush(arm11);
++
+ 	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+ 	/* restore DSCR */
+@@ -1212,7 +1214,6 @@ static int arm11_examine(struct target *
+ 	}
+ 
+ 	arm11-&gt;brp = ((didr &gt;&gt; 24) &amp; 0x0F) + 1;
+-	arm11-&gt;wrp = ((didr &gt;&gt; 28) &amp; 0x0F) + 1;
+ 
+ 	/** \todo TODO: reserve one brp slot if we allow breakpoints during step */
+ 	arm11-&gt;free_brps = arm11-&gt;brp;
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -53,9 +53,10 @@ struct arm11_common
+ 
+ 	/** Debug module state. */
+ 	struct arm_dpm dpm;
++	struct arm11_sc7_action *bpwp_actions;
++	unsigned bpwp_n;
+ 
+ 	size_t	brp;			/**&lt; Number of Breakpoint Register Pairs from DIDR	*/
+-	size_t	wrp;			/**&lt; Number of Watchpoint Register Pairs from DIDR	*/
+ 	size_t	free_brps;		/**&lt; Number of breakpoints allocated */
+ 
+ 	uint32_t dscr;			/**&lt; Last retrieved DSCR value. */
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -892,7 +892,7 @@ int arm11_sc7_run(struct arm11_common * 
+  */
+ void arm11_sc7_clear_vbw(struct arm11_common * arm11)
+ {
+-	size_t clear_bw_size = arm11-&gt;brp + arm11-&gt;wrp + 1;
++	size_t clear_bw_size = arm11-&gt;brp + 1;
+ 	struct arm11_sc7_action		*clear_bw = malloc(sizeof(struct arm11_sc7_action) * clear_bw_size);
+ 	struct arm11_sc7_action *	pos = clear_bw;
+ 
+@@ -905,11 +905,6 @@ void arm11_sc7_clear_vbw(struct arm11_co
+ 	for (size_t i = 0; i &lt; arm11-&gt;brp; i++)
+ 		(pos++)-&gt;address = ARM11_SC7_BCR0 + i;
+ 
+-
+-	for (size_t i = 0; i &lt; arm11-&gt;wrp; i++)
+-		(pos++)-&gt;address = ARM11_SC7_WCR0 + i;
+-
+-
+ 	(pos++)-&gt;address = ARM11_SC7_VCR;
+ 
+ 	arm11_sc7_run(arm11, clear_bw, clear_bw_size);
+@@ -1013,6 +1008,88 @@ static int arm11_dpm_instr_read_data_r0(
+ 			opcode, data);
+ }
+ 
++/* Because arm11_sc7_run() takes a vector of actions, we batch breakpoint
++ * and watchpoint operations instead of running them right away.  Since we
++ * pre-allocated our vector, we don't need to worry about space.
++ */
++static int arm11_bpwp_enable(struct arm_dpm *dpm, unsigned index,
++		uint32_t addr, uint32_t control)
++{
++	struct arm11_common *arm11 = dpm_to_arm11(dpm);
++	struct arm11_sc7_action *action;
++
++	action = arm11-&gt;bpwp_actions + arm11-&gt;bpwp_n;
++
++	/* Invariant:  this bp/wp is disabled.
++	 * It also happens that the core is halted here, but for
++	 * DPM-based cores we don't actually care about that.
++	 */
++
++	action[0].write = action[1].write = true;
++
++	action[0].value = addr;
++	action[1].value = control;
++
++	switch (index) {
++	case 0 ... 15:
++		action[0].address = ARM11_SC7_BVR0 + index;
++		action[1].address = ARM11_SC7_BCR0 + index;
++		break;
++	case 16 ... 32:
++		index -= 16;
++		action[0].address = ARM11_SC7_WVR0 + index;
++		action[1].address = ARM11_SC7_WCR0 + index;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++
++	arm11-&gt;bpwp_n += 2;
++
++	return ERROR_OK;
++}
++
++static int arm11_bpwp_disable(struct arm_dpm *dpm, unsigned index)
++{
++	struct arm11_common *arm11 = dpm_to_arm11(dpm);
++	struct arm11_sc7_action *action;
++
++	action = arm11-&gt;bpwp_actions + arm11-&gt;bpwp_n;
++
++	action[0].write = true;
++	action[0].value = 0;
++
++	switch (index) {
++	case 0 ... 15:
++		action[0].address = ARM11_SC7_BCR0 + index;
++		break;
++	case 16 ... 32:
++		index -= 16;
++		action[0].address = ARM11_SC7_WCR0 + index;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++
++	arm11-&gt;bpwp_n += 1;
++
++	return ERROR_OK;
++}
++
++/** Flush any pending breakpoint and watchpoint updates. */
++int arm11_bpwp_flush(struct arm11_common *arm11)
++{
++	int retval;
++
++	if (!arm11-&gt;bpwp_n)
++		return ERROR_OK;
++
++	retval = arm11_sc7_run(arm11, arm11-&gt;bpwp_actions, arm11-&gt;bpwp_n);
++	arm11-&gt;bpwp_n = 0;
++
++	return retval;
++}
++
+ /** Set up high-level debug module utilities */
+ int arm11_dpm_init(struct arm11_common *arm11, uint32_t didr)
+ {
+@@ -1032,11 +1109,22 @@ int arm11_dpm_init(struct arm11_common *
+ 	dpm-&gt;instr_read_data_dcc = arm11_dpm_instr_read_data_dcc;
+ 	dpm-&gt;instr_read_data_r0 = arm11_dpm_instr_read_data_r0;
+ 
++	dpm-&gt;bpwp_enable = arm11_bpwp_enable;
++	dpm-&gt;bpwp_disable = arm11_bpwp_disable;
++
+ 	retval = arm_dpm_setup(dpm);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* alloc enough to enable all breakpoints and watchpoints at once */
++	arm11-&gt;bpwp_actions = calloc(2 * (dpm-&gt;nbp + dpm-&gt;nwp),
++			sizeof *arm11-&gt;bpwp_actions);
++	if (!arm11-&gt;bpwp_actions)
++		return ERROR_FAIL;
++
+ 	retval = arm_dpm_initialize(dpm);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+-	return retval;
++	return arm11_bpwp_flush(arm11);
+ }
+--- a/src/target/arm11_dbgtap.h
++++ b/src/target/arm11_dbgtap.h
+@@ -59,5 +59,6 @@ int arm11_read_memory_word(struct arm11_
+ 		uint32_t address, uint32_t *result);
+ 
+ int arm11_dpm_init(struct arm11_common *arm11, uint32_t didr);
++int arm11_bpwp_flush(struct arm11_common *arm11);
+ 
+ #endif // ARM11_DBGTAP_H
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013353.html">[Openocd-development] [patch 1/3] ARM11: tweak TAP ops and debugging
+</A></li>
+	<LI>Next message: <A HREF="013354.html">[Openocd-development] [patch 3/3/] ARM11: report watchpoint trigger	insn
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13352">[ date ]</a>
+              <a href="thread.html#13352">[ thread ]</a>
+              <a href="subject.html#13352">[ subject ]</a>
+              <a href="author.html#13352">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

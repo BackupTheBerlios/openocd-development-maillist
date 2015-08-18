@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] flash_write issue, was: R194+195,	Presto support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20flash_write%20issue%2C%20was%3A%20R194%2B195%2C%0A%09Presto%20support&In-Reply-To=%3C200708141500.41180.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000287.html">
+   <LINK REL="Next"  HREF="000289.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] flash_write issue, was: R194+195,	Presto support</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20flash_write%20issue%2C%20was%3A%20R194%2B195%2C%0A%09Presto%20support&In-Reply-To=%3C200708141500.41180.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] flash_write issue, was: R194+195,	Presto support">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Tue Aug 14 15:00:40 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000287.html">[Openocd-development] flash_write issue, was: R194+195,	Presto support
+</A></li>
+        <LI>Next message: <A HREF="000289.html">[Openocd-development] flash_write issue, was: R194+195, Presto support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#288">[ date ]</a>
+              <a href="thread.html#288">[ thread ]</a>
+              <a href="subject.html#288">[ subject ]</a>
+              <a href="author.html#288">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Pavel,
+
+On Tuesday 14 August 2007 14:34:54 Pavel Chromy wrote:
+&gt;<i> Hello Dominic and everyone on the list,
+</I>&gt;<i>
+</I>&gt;<i> the flash_write() function in revision 195 is broken and stucks in an
+</I>&gt;<i> infinite loop. Well, flash_write() function became too complex so that it
+</I>&gt;<i> it not clear how it behaves at a glance.
+</I>&gt;<i>
+</I>I only briefly tested it but so far it was working fine for me. I'll run some 
+more tests. All current revisions should be considered experimental because 
+of the large number of changes.
+There'll be no enhancements during the near future from my side, and I hope to 
+stabilize the recent changes in the next few days.
+
+&gt;<i> I am going to fix this issue, but before that, I would like to ask for some
+</I>&gt;<i> opinions:
+</I>&gt;<i>
+</I>&gt;<i> 1) The flash_write() function is trying to merge consecutive sections.
+</I>&gt;<i> I am not sure if this is necessary - anyway, the way it does it
+</I>&gt;<i> is not really perfect, the sections need not to appear in order of
+</I>&gt;<i> increasing addresses.
+</I>
+Merging of consecutive sections is necessary, otherwise flash writing fails on 
+the LPC2000. Here's part of the objdump output from a simple LED blinking 
+example that runs in the internal flash of a LPC2294:
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .text         000002f4  00000000  00000000  00008000  2**2
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  1 .data         00000018  40000200  000002f4  00010200  2**2
+                  CONTENTS, ALLOC, LOAD, DATA
+  2 .bss          0000001c  40000218  40000218  00010218  2**2
+                  ALLOC
+
+The text section ranges from 0x0 to 0x2f3, immediately followed by the data 
+section that's loaded to 0x2f4 and then relocated by startup code to 
+0x40000200. The IAP functions implemented in the LPC2000 bootloader require 
+flash writes to be aligned to 256 or 512 byte boundaries. While this could be 
+worked around, the LPCs flash architecture further CRCs every 16 bytes, 
+making it impossible to change less than that amount.
+The LPC2000 code pads the last block up to the minimum size and alignment with 
+0xff, but for this it needs to know when that last block is to be flashed.
+
+&gt;<i> 2) If merging of sections in flash_write is really necessary for some
+</I>&gt;<i> reason, I think it might be a good idea to do it the right way, not relying
+</I>&gt;<i> on their order.
+</I>
+Agreed. I always had the GDB example in mind where sections are guaranteed to 
+be in increasing order, and the ELF files I looked at had the sections sorted 
+that way, too, but you're right that this order isn't always guaranteed.
+
+&gt;<i> 3) If 2) is done, is it still necessary to merge data to existing last
+</I>&gt;<i> section in image.c image_add_section()? I think rather not as it only
+</I>&gt;<i> brings overhead of memory reallocation.
+</I>
+The merging in flash_write was added after I realized that flashing fails for 
+the LPC otherwise. Basically the merging in image_add_section shouldn't be 
+necessary anymore, but I doubt the cost of memory reallocation matters on 
+todays machines.
+
+&gt;<i> 4) If 2) is done, how do we handle overlapping sections? I suppose the
+</I>&gt;<i> correct way is to issue an error.
+</I>
+I can't think of an example where sections would legitimately overlap, and I 
+wouldn't know how to write them to flash anyway, so yes, an error should be 
+issued.
+
+&gt;<i> 5) If the image contains a section with address not assigned to any of the
+</I>&gt;<i> flash banks, the section is marked as failed, but no error is returned. Why
+</I>&gt;<i> does it behave this way, is this because of sections which shall go to RAM?
+</I>
+Right. I don't have an example ready, but when I wrote that code I thought 
+about images that specify sections both in Flash and in RAM. I didn't find it 
+reasonable to completely fail the flashing process, so I decided to list the 
+failing sections.
+
+&gt;<i> I am looking forward for you opinions.
+</I>&gt;<i>
+</I>&gt;<i>    Pavel
+</I>
+Best regards,
+
+Dominic
+
+&gt;<i> Dominic Rath napsal(a):
+</I>&gt;<i> &gt; I've just committed my latest changes that include the various patches
+</I>&gt;<i> &gt; sent during the last few days and a few enhancements.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I've started reworking the Presto support to allow use with both FTD2XX
+</I>&gt;<i> &gt; and libftdi on both Windows and Linux/*BSD. Currently only the FTD2XX
+</I>&gt;<i> &gt; variant is working for me, and it only finds the device at about every
+</I>&gt;<i> &gt; third attempt, but the FTD2XX functionality didn't change, so I suppose
+</I>&gt;<i> &gt; it'll work OK on windows.
+</I>&gt;<i> &gt; The libftdi variant fails with a usb_bulk_write error, I'll have to
+</I>&gt;<i> &gt; further investiagte this problem when I find some time.
+</I>&gt;<i> &gt; Compilation worked for both Linux and windows (i586-mingw32msvc).
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000287.html">[Openocd-development] flash_write issue, was: R194+195,	Presto support
+</A></li>
+	<LI>Next message: <A HREF="000289.html">[Openocd-development] flash_write issue, was: R194+195, Presto support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#288">[ date ]</a>
+              <a href="thread.html#288">[ thread ]</a>
+              <a href="subject.html#288">[ subject ]</a>
+              <a href="author.html#288">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

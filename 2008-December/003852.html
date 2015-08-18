@@ -1,0 +1,248 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH: ep93xx.c speed up.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%20ep93xx.c%20speed%20up.&In-Reply-To=%3C20081202.144844.35473200.ito%40mlb.co.jp%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003851.html">
+   <LINK REL="Next"  HREF="003855.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH: ep93xx.c speed up.</H1>
+    <B>Hiroshi Ito</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%20ep93xx.c%20speed%20up.&In-Reply-To=%3C20081202.144844.35473200.ito%40mlb.co.jp%3E"
+       TITLE="[Openocd-development] PATCH: ep93xx.c speed up.">ito at mlb.co.jp
+       </A><BR>
+    <I>Tue Dec  2 06:48:44 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003851.html">[Openocd-development] PATCH:fix ep93xx.c
+</A></li>
+        <LI>Next message: <A HREF="003855.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3852">[ date ]</a>
+              <a href="thread.html#3852">[ thread ]</a>
+              <a href="subject.html#3852">[ subject ]</a>
+              <a href="author.html#3852">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'm running openocd on EP9307(arm925t) CPU, as a HOST.
+and target is EP9307 and ARM926t with EP9307 GPIO.
+
+this patch is,
+1. speed up to usable speed.
+  nanosleep is too slow on my machine.
+  (linux is running 10mS timer, and I compiled openocd with uClibc.)
+
+2. signal logic can be inverted with compile time.
+
+it can apply after my last patch.
+  From: Hiroshi Ito &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ito at mlb.co.jp</A>&gt;
+  Subject: Re: [Openocd-development] PATCH:fix ep93xx.c
+  Date: Tue, 02 Dec 2008 13:56:34 +0900 (JST)
+  Message-ID: &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">20081202.135634.85685825.ito at mlb.co.jp</A>&gt;
+
+--------
+Hiroshi Ito
+Media Lab. Inc.,
+URL <A HREF="http://www.mlb.co.jp">http://www.mlb.co.jp</A> ( Sorry, Japanese only. )
+TEL +81-3-5294-7255  FAX +81-3-5294-7256
+-------------- next part --------------
+--- src/jtag/ep93xx.c.old	2008-12-02 13:29:35.000000000 +0900
++++ src/jtag/ep93xx.c	2008-12-02 14:31:55.000000000 +0900
+@@ -25,6 +25,9 @@
+ #include &quot;jtag.h&quot;
+ #include &quot;bitbang.h&quot;
+ 
++#if 1
++#define INITIALIZE_GONK	1
++
+ #define TDO_BIT		1
+ #define TDI_BIT		2
+ #define TCK_BIT		4
+@@ -32,12 +35,25 @@
+ #define TRST_BIT	16
+ #define SRST_BIT	32
+ #define VCC_BIT		64
++#define INVERT_BITS  	0
++#else
++/* yet aonother cable */
++#define INITIALIZE_PORTD_AS_FLOAT	1
++
++#define VCC_BIT		0
++#define TMS_BIT		1
++#define SRST_BIT	2
++#define TDI_BIT		4
++#define TDO_BIT		8
++#define TRST_BIT	16
++#define TCK_BIT		128
++#define INVERT_BITS  	0/*(SRST_BIT|TRST_BIT)*/
++#endif
+ 
+ /* system includes */
+ #include &lt;string.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;stdio.h&gt;
+-#include &lt;time.h&gt;
+ #include &lt;sys/mman.h&gt;
+ #include &lt;unistd.h&gt;
+ #include &lt;fcntl.h&gt;
+@@ -59,8 +75,6 @@
+ int ep93xx_init(void);
+ int ep93xx_quit(void);
+ 
+-struct timespec ep93xx_zzzz;
+-
+ jtag_interface_t ep93xx_interface = 
+ {
+ 	.name = &quot;ep93xx&quot;,
+@@ -83,7 +97,15 @@
+ 
+ int ep93xx_read(void)
+ {
+-	return !!(*gpio_data_register &amp; TDO_BIT);
++	return !!((*gpio_data_register ^ INVERT_BITS ) &amp; TDO_BIT);
++}
++
++static void output_data(void)
++{
++	int i;
++	*gpio_data_register = output_value ^ INVERT_BITS;
++	for ( i = 0; i &lt; 10; i++ )
++	    ;
+ }
+ 
+ void ep93xx_write(int tck, int tms, int tdi)
+@@ -103,8 +125,7 @@
+ 	else
+ 		output_value &amp;= ~TDI_BIT;
+ 
+-	*gpio_data_register = output_value;
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
++	output_data();
+ }
+ 
+ /* (1) assert or (0) deassert reset lines */
+@@ -120,8 +141,7 @@
+ 	else if (srst == 1)
+ 		output_value &amp;= ~SRST_BIT;
+ 	
+-	*gpio_data_register = output_value;
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
++	output_data();
+ }
+ 
+ int ep93xx_speed(int speed)
+@@ -136,6 +156,8 @@
+ 	return ERROR_OK;
+ }
+ 
++#ifdef INITIALIZE_GONK
++/* set a keypad interface as a GPIO PORT C and PORT D. */
+ static int set_gonk_mode(void)
+ {
+ 	void *syscon;
+@@ -156,16 +178,16 @@
+ 
+ 	return ERROR_OK;
+ }
++#endif
+ 
+ int ep93xx_init(void)
+ {
++#ifdef INITIALIZE_GONK
+ 	int ret;
++#endif
+ 
+ 	bitbang_interface = &amp;ep93xx_bitbang;	
+ 
+-	ep93xx_zzzz.tv_sec = 0;
+-	ep93xx_zzzz.tv_nsec = 10000000;
+-
+ 	dev_mem_fd = open(&quot;/dev/mem&quot;, O_RDWR | O_SYNC);
+ 	if (dev_mem_fd &lt; 0) {
+ 		perror(&quot;open&quot;);
+@@ -180,12 +202,14 @@
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
++#ifdef INITIALIZE_GONK
+ 	ret = set_gonk_mode();
+ 	if (ret != ERROR_OK) {
+ 		munmap(gpio_controller, 4096);
+ 		close(dev_mem_fd);
+ 		return ret;
+ 	}
++#endif
+ 
+ #if 0
+ 	/* Use GPIO port A.  */
+@@ -206,6 +230,12 @@
+ 	gpio_data_direction_register = gpio_controller + 0x1c;
+ #endif
+ 
++#ifdef INITIALIZE_PORTD_AS_FLOAT
++	/* unused pin is set to input(port D).  */
++	gpio_data_direction_register = gpio_controller + 0x1c;
++	*gpio_data_direction_register = 0;
++#endif
++
+ 	/* Use GPIO port C.  */
+ 	gpio_data_register = gpio_controller + 0x08;
+ 	gpio_data_direction_register = gpio_controller + 0x18;
+@@ -218,8 +248,7 @@
+ 	 * TMS/TRST/SRST high.
+ 	 */
+ 	output_value = TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+-	*gpio_data_register = output_value;
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
++	output_data();
+ 
+ 	/*
+ 	 * Configure the direction register.  1 = output, 0 = input.
+@@ -227,12 +256,12 @@
+ 	*gpio_data_direction_register =
+ 		TDI_BIT | TCK_BIT | TMS_BIT | TRST_BIT | SRST_BIT | VCC_BIT;
+ 
+-	nanosleep(&amp;ep93xx_zzzz, NULL);
+ 	return ERROR_OK;
+ }
+ 
+ int ep93xx_quit(void)
+ {
++	*gpio_data_direction_register = 0;
+ 
+ 	return ERROR_OK;
+ }
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003851.html">[Openocd-development] PATCH:fix ep93xx.c
+</A></li>
+	<LI>Next message: <A HREF="003855.html">[Openocd-development] PATCH: ep93xx.c speed up.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3852">[ date ]</a>
+              <a href="thread.html#3852">[ thread ]</a>
+              <a href="subject.html#3852">[ subject ]</a>
+              <a href="author.html#3852">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

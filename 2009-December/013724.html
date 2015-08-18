@@ -1,0 +1,323 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/4] ETM trigger_percent becomes an	ETB command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20ETM%20trigger_percent%20becomes%20an%0A%09ETB%20command&In-Reply-To=%3C200912191245.07007.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013723.html">
+   <LINK REL="Next"  HREF="013726.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/4] ETM trigger_percent becomes an	ETB command</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/4%5D%20ETM%20trigger_percent%20becomes%20an%0A%09ETB%20command&In-Reply-To=%3C200912191245.07007.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/4] ETM trigger_percent becomes an	ETB command">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec 19 21:45:06 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013723.html">[Openocd-development] [patch 0/4] ETM updates
+</A></li>
+        <LI>Next message: <A HREF="013726.html">[Openocd-development] [patch 2/4] ETM: start cleaning up ETM_CTRL	bit handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13724">[ date ]</a>
+              <a href="thread.html#13724">[ thread ]</a>
+              <a href="subject.html#13724">[ subject ]</a>
+              <a href="author.html#13724">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This command was misplaced; it's not generic to all traceport drivers,
+only the ETB supports this kind of configuration.  So move it, and
+update the relevant documentation.
+---
+ NEWS             |    2 +
+ doc/openocd.texi |   44 ++++++++++++++++++++--------------------
+ src/target/etb.c |   57 +++++++++++++++++++++++++++++++++++++++++++++++++++--
+ src/target/etb.h |    3 ++
+ src/target/etm.c |   49 ---------------------------------------------
+ src/target/etm.h |    1 
+ 6 files changed, 82 insertions(+), 74 deletions(-)
+
+--- a/NEWS
++++ b/NEWS
+@@ -32,6 +32,8 @@ Target Layer:
+ 		- watchpoint support
+ 	Cortex-M3
+ 		- Exposed DWT registers like cycle counter
++	ETM, ETB
++		- &quot;trigger_percent&quot; command moved ETM --&gt; ETB
+ 
+ Flash Layer:
+ 	'flash bank' and 'nand device' take &lt;bank_name&gt; as first argument.
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -5521,28 +5521,6 @@ trace stream without an image of the cod
+ @end itemize
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at deffn</A> Command {etm trigger_percent} [percent]
+-This displays, or optionally changes, the trace port driver's
+-behavior after the ETM's configured @emph{trigger} event fires.
+-It controls how much more trace data is saved after the (single)
+-trace trigger becomes active.
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> The default corresponds to @emph{trace around} usage,
+-recording 50 percent data before the event and the rest
+-afterwards.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> The minimum value of @var{percent} is 2 percent,
+-recording almost exclusively data before the trigger.
+-Such extreme @emph{trace before} usage can help figure out
+-what caused that event to happen.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at item</A> The maximum value of @var{percent} is 100 percent,
+-recording data almost exclusively after the event.
+-This extreme @emph{trace after} usage might help sort out
+-how the event caused trouble.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at c</A> REVISIT allow &quot;break&quot; too -- enter debug mode.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">- at end</A> deffn
+-
+ @subsection ETM Trace Operation
+ 
+ After setting up the ETM, you can use it to collect data.
+@@ -5626,6 +5604,28 @@ to use on-chip ETB memory.
+ Associates the ETM for @var{target} with the ETB at @var{etb_tap}.
+ You can see the ETB registers using the @command{reg} command.
+ @end deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at deffn</A> Command {etb trigger_percent} [percent]
++This displays, or optionally changes, ETB behavior after the
++ETM's configured @emph{trigger} event fires.
++It controls how much more trace data is saved after the (single)
++trace trigger becomes active.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> The default corresponds to @emph{trace around} usage,
++recording 50 percent data before the event and the rest
++afterwards.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> The minimum value of @var{percent} is 2 percent,
++recording almost exclusively data before the trigger.
++Such extreme @emph{trace before} usage can help figure out
++what caused that event to happen.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A> The maximum value of @var{percent} is 100 percent,
++recording data almost exclusively after the event.
++This extreme @emph{trace after} usage might help sort out
++how the event caused trouble.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at c</A> REVISIT allow &quot;break&quot; too -- enter debug mode.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> deffn
++
+ @end deffn
+ 
+ @deffn {Trace Port Driver} oocd_trace
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -402,12 +402,63 @@ COMMAND_HANDLER(handle_etb_config_comman
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(handle_etb_trigger_percent_command)
++{
++	struct target *target;
++	struct arm *arm;
++	struct etm_context *etm;
++	struct etb *etb;
++
++	target = get_current_target(CMD_CTX);
++	arm = target_to_arm(target);
++	if (!is_arm(arm))
++	{
++		command_print(CMD_CTX, &quot;ETB: current target isn't an ARM&quot;);
++		return ERROR_FAIL;
++	}
++
++	etm = arm-&gt;etm;
++	if (!etm) {
++		command_print(CMD_CTX, &quot;ETB: target has no ETM configured&quot;);
++		return ERROR_FAIL;
++	}
++	if (etm-&gt;capture_driver != &amp;etb_capture_driver) {
++		command_print(CMD_CTX, &quot;ETB: target not using ETB&quot;);
++		return ERROR_FAIL;
++	}
++	etb = arm-&gt;etm-&gt;capture_driver_priv;
++
++	if (CMD_ARGC &gt; 0) {
++		uint32_t new_value;
++
++		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], new_value);
++		if ((new_value &lt; 2) || (new_value &gt; 100))
++			command_print(CMD_CTX,
++				&quot;valid percentages are 2%% to 100%%&quot;);
++		else
++			etb-&gt;trigger_percent = (unsigned) new_value;
++	}
++
++	command_print(CMD_CTX, &quot;%d percent of tracebuffer fills after trigger&quot;,
++			etb-&gt;trigger_percent);
++
++	return ERROR_OK;
++}
++
+ static const struct command_registration etb_config_command_handlers[] = {
+ 	{
+ 		.name = &quot;config&quot;,
+ 		.handler = &amp;handle_etb_config_command,
+ 		.mode = COMMAND_CONFIG,
+-		.usage = &quot;&lt;target&gt; &lt;tap&gt;&quot;,
++		.usage = &quot;target tap&quot;,
++	},
++	{
++		.name = &quot;trigger_percent&quot;,
++		.handler = &amp;handle_etb_trigger_percent_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;percent of trace buffer to be filled &quot;
++			&quot;after the trigger occurs&quot;,
++		.usage = &quot;[percent]&quot;,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+@@ -435,6 +486,8 @@ static int etb_init(struct etm_context *
+ 	etb-&gt;ram_depth = buf_get_u32(etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_DEPTH].value, 0, 32);
+ 	etb-&gt;ram_width = buf_get_u32(etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_WIDTH].value, 0, 32);
+ 
++	etb-&gt;trigger_percent = 50;
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -661,7 +714,7 @@ static int etb_start_capture(struct etm_
+ 		return ERROR_ETM_PORTMODE_NOT_SUPPORTED;
+ 	}
+ 
+-	trigger_count = (etb-&gt;ram_depth * etm_ctx-&gt;trigger_percent) / 100;
++	trigger_count = (etb-&gt;ram_depth * etb-&gt;trigger_percent) / 100;
+ 
+ 	etb_write_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_TRIGGER_COUNTER], trigger_count);
+ 	etb_write_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_WRITE_POINTER], 0x0);
+--- a/src/target/etb.h
++++ b/src/target/etb.h
+@@ -44,6 +44,9 @@ struct etb
+ 	/* ETB parameters */
+ 	uint32_t ram_depth;
+ 	uint32_t ram_width;
++
++	/** how much trace buffer to fill after trigger */
++	unsigned trigger_percent;
+ };
+ 
+ struct etb_reg
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1494,7 +1494,6 @@ COMMAND_HANDLER(handle_etm_config_comman
+ 	}
+ 
+ 	etm_ctx-&gt;target = target;
+-	etm_ctx-&gt;trigger_percent = 50;
+ 	etm_ctx-&gt;trace_data = NULL;
+ 	etm_ctx-&gt;portmode = portmode;
+ 	etm_ctx-&gt;core_state = ARM_STATE_ARM;
+@@ -1923,47 +1922,6 @@ COMMAND_HANDLER(handle_etm_load_command)
+ 	return ERROR_OK;
+ }
+ 
+-COMMAND_HANDLER(handle_etm_trigger_percent_command)
+-{
+-	struct target *target;
+-	struct arm *arm;
+-	struct etm_context *etm_ctx;
+-
+-	target = get_current_target(CMD_CTX);
+-	arm = target_to_arm(target);
+-	if (!is_arm(arm))
+-	{
+-		command_print(CMD_CTX, &quot;ETM: current target isn't an ARM&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	etm_ctx = arm-&gt;etm;
+-	if (!etm_ctx)
+-	{
+-		command_print(CMD_CTX, &quot;current target doesn't have an ETM configured&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (CMD_ARGC &gt; 0)
+-	{
+-		uint32_t new_value;
+-		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], new_value);
+-
+-		if ((new_value &lt; 2) || (new_value &gt; 100))
+-		{
+-			command_print(CMD_CTX, &quot;valid settings are 2%% to 100%%&quot;);
+-		}
+-		else
+-		{
+-			etm_ctx-&gt;trigger_percent = new_value;
+-		}
+-	}
+-
+-	command_print(CMD_CTX, &quot;%i percent of the tracebuffer reserved for after the trigger&quot;, ((int)(etm_ctx-&gt;trigger_percent)));
+-
+-	return ERROR_OK;
+-}
+-
+ COMMAND_HANDLER(handle_etm_start_command)
+ {
+ 	struct target *target;
+@@ -2129,13 +2087,6 @@ static const struct command_registration
+ 		.help = &quot;display info about the current target's ETM&quot;,
+ 	},
+ 	{
+-		.name = &quot;trigger_percent&quot;,
+-		.handler = &amp;handle_etm_trigger_percent_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;amount (&lt;percent&gt;) of trace buffer &quot;
+-			&quot;to be filled after the trigger occured&quot;,
+-	},
+-	{
+ 		.name = &quot;status&quot;,
+ 		.handler = &amp;handle_etm_status_command,
+ 		.mode = COMMAND_EXEC,
+--- a/src/target/etm.h
++++ b/src/target/etm.h
+@@ -158,7 +158,6 @@ struct etm_context
+ 	struct reg_cache *reg_cache;		/* ETM register cache */
+ 	struct etm_capture_driver *capture_driver;	/* driver used to access ETM data */
+ 	void *capture_driver_priv;	/* capture driver private data */
+-	uint32_t trigger_percent;	/* how much trace buffer to fill after trigger */
+ 	trace_status_t capture_status;	/* current state of capture run */
+ 	struct etmv1_trace_data *trace_data;	/* trace data */
+ 	uint32_t trace_depth;		/* number of cycles to be analyzed, 0 if no data available */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013723.html">[Openocd-development] [patch 0/4] ETM updates
+</A></li>
+	<LI>Next message: <A HREF="013726.html">[Openocd-development] [patch 2/4] ETM: start cleaning up ETM_CTRL	bit handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13724">[ date ]</a>
+              <a href="thread.html#13724">[ thread ]</a>
+              <a href="subject.html#13724">[ subject ]</a>
+              <a href="author.html#13724">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

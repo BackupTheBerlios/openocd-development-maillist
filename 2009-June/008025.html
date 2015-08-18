@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] mips32 big endian fix
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20mips32%20big%20endian%20fix&In-Reply-To=%3C19CA9E279FDA5246B7D7A1C91A4AF7F45329F3%40dealogicserver.DEALogic.nl%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007935.html">
+   <LINK REL="Next"  HREF="008042.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] mips32 big endian fix</H1>
+    <B>Nico Coesel</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20mips32%20big%20endian%20fix&In-Reply-To=%3C19CA9E279FDA5246B7D7A1C91A4AF7F45329F3%40dealogicserver.DEALogic.nl%3E"
+       TITLE="[Openocd-development] mips32 big endian fix">ncoesel at DEALogic.nl
+       </A><BR>
+    <I>Mon Jun 15 16:53:25 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007935.html">[Openocd-development] mips32 big endian fix
+</A></li>
+        <LI>Next message: <A HREF="008042.html">[Openocd-development] mips32 big endian fix
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8025">[ date ]</a>
+              <a href="thread.html#8025">[ thread ]</a>
+              <a href="subject.html#8025">[ subject ]</a>
+              <a href="author.html#8025">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> -----Original Message-----
+</I>&gt;<i> From: David Claffey [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dnclaffey at gmail.com</A>]
+</I>&gt;<i> Sent: vrijdag 12 juni 2009 13:50
+</I>&gt;<i> To: Nico Coesel
+</I>&gt;<i> Cc: Zach Welch; openocd-development
+</I>&gt;<i> Subject: Re: [Openocd-development] mips32 big endian fix
+</I>&gt;<i> 
+</I>&gt;<i> Nico,
+</I>&gt;<i> 
+</I>&gt;<i> You are correct, target.c modifies for endianness.  This is helpful
+</I>when I
+&gt;<i> set
+</I>&gt;<i> openocd to -endian big; it sets the word order for mw and md commands
+</I>to the
+&gt;<i> same endianness as the binary files I want to load.  The problem is
+</I>the
+&gt;<i> mips_m4k
+</I>&gt;<i> target does not adjust for endianness like the xscale target does.
+</I>&gt;<i> 
+</I>&gt;<i> My board is a Atheros ar71xx with a MIPS 24Kc hardcore.  The cpu
+</I>endianness
+&gt;<i> cannot be changed and there is no other endianness in the SoC. The
+</I>special
+&gt;<i> registers read and write correctly when I configure openocd in little
+</I>endian
+&gt;<i> mode.  When I saw the discrepancy I thought, I have a big endian
+</I>target, why
+&gt;<i> should I not set &quot;-endian big&quot;. So as a fix, I followed the practice
+</I>in
+&gt;<i> src/target/xscale.c:xscale_send() where word order is swapped
+</I>depending on
+&gt;<i> target-&gt;endianness. I can now read/write the special registers
+</I>correctly and
+&gt;<i> download a binary from my toolchain without modification.
+</I>
+David,
+I think the following is happening with your patch applied and OpenOCD
+in big endian mode:
+
+mww command -&gt; endian shuffle in target.c -&gt; endian shuffle in mips
+target driver -&gt; target
+
+binary file -&gt; endian shuffle in mips target driver -&gt; target
+
+
+I tried to read the SFRs in the AU1100 using the mdb and the mdh command
+with OpenOCD in little endian mode. It reads the correct values on 4
+bytes boundaries while the CPU is in big endian mode. This proofs the
+EJTAG access port is doing the proper endian conversion. 
+
+In other words: the binary file should be changed for proper endianess
+before loading it. The MIPS implementation in OpenOCD doesn't need to be
+fixed regarding the endianess.
+
+Nico Coesel
+
+PS: It seems reading data on non 4 byte boundaries needs to be fixed for
+MIPS targets.
+ 
+
+&gt;<i> Nico Coesel wrote:
+</I>&gt;<i> &gt;&gt; -----Original Message-----
+</I>&gt;<i> &gt;&gt; From: Zach Welch [mailto:<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>]
+</I>&gt;<i> &gt;&gt; Sent: vrijdag 12 juni 2009 10:39
+</I>&gt;<i> &gt;&gt; To: Nico Coesel
+</I>&gt;<i> &gt;&gt; Cc: David Claffey; openocd-development
+</I>&gt;<i> &gt;&gt; Subject: Re: [Openocd-development] mips32 big endian fix
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; On Fri, 2009-06-12 at 09:55 +0200, Nico Coesel wrote:
+</I>&gt;<i> &gt;&gt;&gt;&gt; -----Original Message-----
+</I>&gt;<i> &gt;&gt;&gt;&gt; From: <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development-bounces at lists.berlios.de</A>
+</I>&gt;<i> &gt; [mailto:openocd-
+</I>&gt;<i> &gt;&gt;&gt;&gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">development-bounces at lists.berlios.de</A>] On Behalf Of David Claffey
+</I>&gt;<i> &gt;&gt;&gt;&gt; Sent: donderdag 11 juni 2009 23:18
+</I>&gt;<i> &gt;&gt;&gt;&gt; To: openocd-development
+</I>&gt;<i> &gt;&gt;&gt;&gt; Subject: [Openocd-development] mips32 big endian fix
+</I>&gt;<i> &gt;&gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt;&gt; A patch is needed for MIPS big endian (elf32-tradbigmips)
+</I>targets.
+&gt;<i> &gt;&gt;&gt; Perhaps
+</I>&gt;<i> &gt;&gt;&gt;&gt; I'm the first to test trunk with a MIPS big endian target.
+</I>&gt;<i> &gt;&gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt;&gt; If &quot;-endian big&quot; is not set in target create, the endianess
+</I>&gt;<i> &gt; defaults
+</I>&gt;<i> &gt;&gt;&gt; to
+</I>&gt;<i> &gt;&gt;&gt;&gt; little.
+</I>&gt;<i> &gt;&gt;&gt;&gt;  mw and md commands will still work, but binary file loads will
+</I>&gt;<i> &gt; have
+</I>&gt;<i> &gt;&gt;&gt; the
+</I>&gt;<i> &gt;&gt;&gt;&gt; incorrect word order loaded into memory.
+</I>&gt;<i> &gt;&gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt;&gt; The EJTAG processor access data register (PrAcc) is little endian
+</I>&gt;<i> &gt;&gt;&gt; regardless
+</I>&gt;<i> &gt;&gt;&gt;&gt; of the CPU endianness; it is always loaded LSB first. This is
+</I>&gt;<i> &gt;&gt;&gt; confirmed by
+</I>&gt;<i> &gt;&gt;&gt;&gt; the fact that mips_ejtag_drscan_32() uses buf_set_u32() to load
+</I>&gt;<i> &gt; the
+</I>&gt;<i> &gt;&gt;&gt; scan
+</I>&gt;<i> &gt;&gt;&gt;&gt; field;
+</I>&gt;<i> &gt;&gt;&gt;&gt; buf_set_u32() is a little-endian formatter. For big endian
+</I>&gt;<i> &gt; targets,
+</I>&gt;<i> &gt;&gt;&gt; data
+</I>&gt;<i> &gt;&gt;&gt;&gt; buffers have to be modified so the LSB of each u32 or u16 is at
+</I>&gt;<i> &gt; the
+</I>&gt;<i> &gt;&gt;&gt; lower
+</I>&gt;<i> &gt;&gt;&gt;&gt; (first) memory location.
+</I>&gt;<i> &gt;&gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt;&gt; The attached patch for src/target/mips_m4k.c fixes the problem.
+</I>&gt;<i> &gt;&gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt;&gt; Included is a patch for src/target/mips_ejtag.c that fixes the
+</I>&gt;<i> &gt; case of
+</I>&gt;<i> &gt;&gt;&gt; a big
+</I>&gt;<i> &gt;&gt;&gt;&gt; endian host.  Again it is related to PrAcc.  If the drscan
+</I>&gt;<i> &gt; out_value
+</I>&gt;<i> &gt;&gt;&gt; word
+</I>&gt;<i> &gt;&gt;&gt;&gt; order is set using buf_set_u32() then it makes sense to also
+</I>fixup
+&gt;<i> &gt; the
+</I>&gt;<i> &gt;&gt;&gt;&gt; in_value with buf_get_u32(); a symmetry argument. This has no
+</I>&gt;<i> &gt; affect
+</I>&gt;<i> &gt;&gt;&gt; on
+</I>&gt;<i> &gt;&gt;&gt;&gt; little endian hosts.
+</I>&gt;<i> &gt;&gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt; David,
+</I>&gt;<i> &gt;&gt;&gt; I strongly doubt your patch is required. AFAIK OpenOCD already
+</I>&gt;<i> &gt; modifies
+</I>&gt;<i> &gt;&gt;&gt; the loaded data for correct endianess at a higher level. Secondly
+</I>I
+&gt;<i> &gt;&gt;&gt; think endianess conversions should not be done inside a target
+</I>&gt;<i> &gt; specific
+</I>&gt;<i> &gt;&gt;&gt; file.
+</I>&gt;<i> &gt;&gt;&gt;
+</I>&gt;<i> &gt;&gt;&gt; I'm using OpenOCD with a MIPS target (AU1100) as well which is
+</I>also
+&gt;<i> &gt; big
+</I>&gt;<i> &gt;&gt;&gt; endian. I've configured OpenOCD to use little endian mode and that
+</I>&gt;<i> &gt; seems
+</I>&gt;<i> &gt;&gt;&gt; to be the proper setting. A thing to look out for is that the MIPS
+</I>&gt;<i> &gt; EJTAG
+</I>&gt;<i> &gt;&gt;&gt; interface may do the endian conversion for you. Is the order of
+</I>the
+&gt;<i> &gt;&gt;&gt; special function registers correct when OpenOCD is in little
+</I>endian
+&gt;<i> &gt;&gt;&gt; mode? This the case with 'my' AU1100 target. You might want to
+</I>check
+&gt;<i> &gt;&gt;&gt; that first. If the special function registers read correctly in
+</I>&gt;<i> &gt; little
+</I>&gt;<i> &gt;&gt;&gt; endian mode then you'll need to modify the endianess of the binary
+</I>&gt;<i> &gt; file
+</I>&gt;<i> &gt;&gt;&gt; before loading it with OpenOCD. There are tools to do that. If I'm
+</I>&gt;<i> &gt;&gt;&gt; correct the bootloader Yamon comes with a tool called 'smunge'
+</I>which
+&gt;<i> &gt; can
+</I>&gt;<i> &gt;&gt;&gt; be used to modify the endianess of a file.
+</I>&gt;<i> &gt;&gt; As you probably noticed, I already committed these changes, but
+</I>they
+&gt;<i> &gt;&gt; will be trivial to revert.  Please let me know if I should remove
+</I>&gt;<i> &gt; them.
+</I>&gt;<i> &gt;&gt; That said, why require an external tool manage the conversion?  Can
+</I>&gt;<i> &gt;&gt; OpenOCD reasonably offer such support built-in?
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Zach,
+</I>&gt;<i> &gt; In case of the AU1100 the answer is no. The AU1100 SOC is a complete
+</I>&gt;<i> &gt; endian mess. For starters: the MIPS core starts in big endian but
+</I>the
+&gt;<i> &gt; external memory controller starts in little endian. This would imply
+</I>&gt;<i> &gt; endian conversion depending on the address. Way too complicated.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Anyway when I use OpenOCD I can load the binary file (bootloader)
+</I>&gt;<i> &gt; without need for byte shuffling. If I use the MacGraigor software I
+</I>need
+&gt;<i> &gt; to shuffle the data first.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; I would like to hear from David first before a final judgement about
+</I>his
+&gt;<i> &gt; patches is made. I'm curious about the target he is working on.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; Nico Coesel
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt;
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007935.html">[Openocd-development] mips32 big endian fix
+</A></li>
+	<LI>Next message: <A HREF="008042.html">[Openocd-development] mips32 big endian fix
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8025">[ date ]</a>
+              <a href="thread.html#8025">[ thread ]</a>
+              <a href="subject.html#8025">[ subject ]</a>
+              <a href="author.html#8025">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

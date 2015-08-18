@@ -1,0 +1,253 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Fix naming a bit
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20naming%20a%20bit&In-Reply-To=%3Cc09652430804080608i597fb13au6db1b1eab7b64c25%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001791.html">
+   <LINK REL="Next"  HREF="001765.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Fix naming a bit</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Fix%20naming%20a%20bit&In-Reply-To=%3Cc09652430804080608i597fb13au6db1b1eab7b64c25%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Fix naming a bit">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Apr  8 15:08:45 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001791.html">[Openocd-development] Reset and startup work in progress
+</A></li>
+        <LI>Next message: <A HREF="001765.html">[Openocd-development] stellaris flash driver: write_image not	working (R546)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1762">[ date ]</a>
+              <a href="thread.html#1762">[ thread ]</a>
+              <a href="subject.html#1762">[ subject ]</a>
+              <a href="author.html#1762">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+Pavel pointed out that jtag_add_tlr() is better than jtag_add_tms().
+
+Committing now to reduce size of subsequent patches.
+
+Index: C:/workspace/trunk/src/jtag/jtag.c
+===================================================================
+--- C:/workspace/trunk/src/jtag/jtag.c	(revision 546)
++++ C:/workspace/trunk/src/jtag/jtag.c	(working copy)
+@@ -785,7 +785,7 @@
+ 	return ERROR_OK;
+ }
+
+-void jtag_add_tms()
++void jtag_add_tlr()
+ {
+ 	jtag_prelude(TAP_TLR);
+ 	
+@@ -790,7 +790,7 @@
+ 	jtag_prelude(TAP_TLR);
+ 	
+ 	int retval;
+-	retval=interface_jtag_add_tms();
++	retval=interface_jtag_add_tlr();
+ 	if (retval!=ERROR_OK)
+ 		jtag_error=retval;
+ }
+@@ -795,7 +795,7 @@
+ 		jtag_error=retval;
+ }
+
+-int MINIDRIVER(interface_jtag_add_tms)()
++int MINIDRIVER(interface_jtag_add_tlr)()
+ {
+ 	enum tap_state state = TAP_TLR;
+ 	jtag_command_t **last_cmd = jtag_get_last_command_p();
+@@ -893,9 +893,9 @@
+ 		jtag_error=retval;
+ }
+
+-void jtag_add_reset(int req_tms_or_trst, int req_srst)
++void jtag_add_reset(int req_tlr_or_trst, int req_srst)
+ {
+-	int trst_with_tms = 0;
++	int trst_with_tlr = 0;
+ 	int retval;
+ 	
+ 	/* Make sure that jtag_reset_config allows the requested reset */
+@@ -900,7 +900,7 @@
+ 	
+ 	/* Make sure that jtag_reset_config allows the requested reset */
+ 	/* if SRST pulls TRST, we can't fulfill srst == 1 with trst == 0 */
+-	if (((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) &amp;&amp; (req_srst == 1))
+&amp;&amp; (!req_tms_or_trst))
++	if (((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) &amp;&amp; (req_srst == 1))
+&amp;&amp; (!req_tlr_or_trst))
+ 	{
+ 		LOG_ERROR(&quot;BUG: requested reset would assert trst&quot;);
+ 		jtag_error=ERROR_FAIL;
+@@ -908,9 +908,9 @@
+ 	}
+ 		
+ 	/* if TRST pulls SRST, we reset with TAP T-L-R */
+-	if (((jtag_reset_config &amp; RESET_TRST_PULLS_SRST) &amp;&amp;
+(req_tms_or_trst)) &amp;&amp; (req_srst == 0))
++	if (((jtag_reset_config &amp; RESET_TRST_PULLS_SRST) &amp;&amp;
+(req_tlr_or_trst)) &amp;&amp; (req_srst == 0))
+ 	{
+-		trst_with_tms = 1;
++		trst_with_tlr = 1;
+ 	}
+ 	
+ 	if (req_srst &amp;&amp; !(jtag_reset_config &amp; RESET_HAS_SRST))
+@@ -920,9 +920,9 @@
+ 		return;
+ 	}
+ 	
+-	if (req_tms_or_trst)
++	if (req_tlr_or_trst)
+ 	{
+-		if (!trst_with_tms &amp;&amp; (jtag_reset_config &amp; RESET_HAS_TRST))
++		if (!trst_with_tlr &amp;&amp; (jtag_reset_config &amp; RESET_HAS_TRST))
+ 		{
+ 			jtag_trst = 1;
+ 		} else
+@@ -927,7 +927,7 @@
+ 			jtag_trst = 1;
+ 		} else
+ 		{
+-			trst_with_tms = 1;
++			trst_with_tlr = 1;
+ 		}
+ 	} else
+ 	{
+@@ -954,11 +954,11 @@
+ 			jtag_add_sleep(jtag_nsrst_delay * 1000);
+ 	}
+ 	
+-	if (trst_with_tms)
++	if (trst_with_tlr)
+ 	{
+ 		LOG_DEBUG(&quot;JTAG reset with tms instead of TRST&quot;);
+ 		jtag_add_end_state(TAP_TLR);
+-		jtag_add_tms();
++		jtag_add_tlr();
+ 		jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+ 		return;
+ 	}
+@@ -1427,9 +1427,9 @@
+ 	register_command(cmd_ctx, NULL, &quot;reset_config&quot;, handle_reset_config_command,
+ 		COMMAND_CONFIG, NULL);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_nsrst_delay&quot;,
+handle_jtag_nsrst_delay_command,
+-		COMMAND_CONFIG, NULL);
++		COMMAND_ANY, &quot;jtag_nsrst_delay &lt;ms&gt; - delay after deasserting srst in ms&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;,
+handle_jtag_ntrst_delay_command,
+-		COMMAND_CONFIG, NULL);
++		COMMAND_ANY, &quot;jtag_ntrst_delay &lt;ms&gt; - delay after deasserting trst in ms&quot;);
+ 		
+ 	register_command(cmd_ctx, NULL, &quot;scan_chain&quot;, handle_scan_chain_command,
+ 		COMMAND_EXEC, &quot;print current scan chain configuration&quot;);
+@@ -1497,7 +1497,7 @@
+ 		device = device-&gt;next;
+ 	}
+ 	
+-	jtag_add_tms();
++	jtag_add_tlr();
+ 	jtag_execute_queue();
+
+ 	/* examine chain first, as this could discover the real chain layout */
+Index: C:/workspace/trunk/src/jtag/jtag.h
+===================================================================
+--- C:/workspace/trunk/src/jtag/jtag.h	(revision 546)
++++ C:/workspace/trunk/src/jtag/jtag.h	(working copy)
+@@ -268,8 +268,8 @@
+ /* run a TAP_TLR reset. End state is TAP_TLR, regardless
+  * of start state.
+  */
+-extern void jtag_add_tms();
+-extern int interface_jtag_add_tms();
++extern void jtag_add_tlr();
++extern int interface_jtag_add_tlr();
+ /* Do not use jtag_add_pathmove() unless you need to, but do use it
+  * if you have to.
+  *
+@@ -326,7 +326,7 @@
+  * are supported.
+  *
+  */
+-extern void jtag_add_reset(int req_tms_or_trst, int srst);
++extern void jtag_add_reset(int req_tlr_or_trst, int srst);
+ /* this drives the actual srst and trst pins. srst will always be 0
+  * if jtag_reset_config &amp; RESET_SRST_PULLS_TRST != 0 and ditto for
+  * trst.
+@@ -331,7 +331,7 @@
+  * if jtag_reset_config &amp; RESET_SRST_PULLS_TRST != 0 and ditto for
+  * trst.
+  *
+- * the higher level jtag_add_reset will invoke jtag_add_tms() if
++ * the higher level jtag_add_reset will invoke jtag_add_tlr() if
+  * approperiate
+  */
+ extern int interface_jtag_add_reset(int trst, int srst);
+Index: C:/workspace/trunk/src/pld/virtex2.c
+===================================================================
+--- C:/workspace/trunk/src/pld/virtex2.c	(revision 546)
++++ C:/workspace/trunk/src/pld/virtex2.c	(working copy)
+@@ -137,7 +137,7 @@
+ {
+ 	u32 data[5];
+ 	
+-	jtag_add_tms();
++	jtag_add_tlr();
+ 	
+ 	data[0] = 0xaa995566; /* synch word */
+ 	data[1] = 0x2800E001; /* Type 1, read, address 7, 1 word */
+@@ -192,7 +192,7 @@
+ 	jtag_add_dr_scan(1, &amp;field, TAP_PD);
+ 	jtag_execute_queue();
+ 	
+-	jtag_add_tms();
++	jtag_add_tlr();
+ 	
+ 	jtag_add_end_state(TAP_RTI);
+ 	virtex2_set_instr(virtex2_info-&gt;chain_pos, 0xc); /* JSTART */
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001791.html">[Openocd-development] Reset and startup work in progress
+</A></li>
+	<LI>Next message: <A HREF="001765.html">[Openocd-development] stellaris flash driver: write_image not	working (R546)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1762">[ date ]</a>
+              <a href="thread.html#1762">[ thread ]</a>
+              <a href="subject.html#1762">[ subject ]</a>
+              <a href="author.html#1762">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

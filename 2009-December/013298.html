@@ -1,0 +1,277 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/3] ARM11: use shared DSCR bit names
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20ARM11%3A%20use%20shared%20DSCR%20bit%20names&In-Reply-To=%3C200912031454.02839.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013299.html">
+   <LINK REL="Next"  HREF="013300.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/3] ARM11: use shared DSCR bit names</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20ARM11%3A%20use%20shared%20DSCR%20bit%20names&In-Reply-To=%3C200912031454.02839.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/3] ARM11: use shared DSCR bit names">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Dec  3 23:54:02 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013299.html">[Openocd-development] [patch 1/3] ARM DPM: make DSCR bit defs	sharable
+</A></li>
+        <LI>Next message: <A HREF="013300.html">[Openocd-development] [patch 3/3] ARM DPM: share debug reason logic
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13298">[ date ]</a>
+              <a href="thread.html#13298">[ thread ]</a>
+              <a href="subject.html#13298">[ subject ]</a>
+              <a href="author.html#13298">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>For the bits now defined in &quot;arm_dpm.h&quot;, switch to the
+shared DSCR_* symbol and remove the ARM11_DSCR_* version.
+
+Define DSCR_INT_DIS and use it instead of the ARM11_DSCR_*
+sibling symbol.  (Note:  for both ARM11 and Cortex-A8, this
+should arguably be enabled by default when single stepping.)
+
+Remove some other unused declarations in &quot;arm11.h&quot;.
+---
+ src/target/arm11.c   |   42 ++++++++++++++++++++++--------------------
+ src/target/arm11.h   |   23 +----------------------
+ src/target/arm_dpm.h |    1 +
+ 3 files changed, 24 insertions(+), 42 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -40,6 +40,10 @@
+ #define _DEBUG_INSTRUCTION_EXECUTION_
+ #endif
+ 
++
++/* FIXME none of these flags should be global to all ARM11 cores!
++ * Most of them shouldn't exist at all, once the code works...
++ */
+ static bool arm11_config_memwrite_burst = true;
+ static bool arm11_config_memwrite_error_fatal = true;
+ static uint32_t arm11_vcr = 0;
+@@ -59,18 +63,18 @@ static int arm11_check_init(struct arm11
+ 	CHECK_RETVAL(arm11_read_DSCR(arm11));
+ 	LOG_DEBUG(&quot;DSCR %08x&quot;, (unsigned) arm11-&gt;dscr);
+ 
+-	if (!(arm11-&gt;dscr &amp; ARM11_DSCR_MODE_SELECT))
++	if (!(arm11-&gt;dscr &amp; DSCR_HALT_DBG_MODE))
+ 	{
+ 		LOG_DEBUG(&quot;Bringing target into debug mode&quot;);
+ 
+-		arm11-&gt;dscr |= ARM11_DSCR_MODE_SELECT;		/* Halt debug-mode */
++		arm11-&gt;dscr |= DSCR_HALT_DBG_MODE;
+ 		arm11_write_DSCR(arm11, arm11-&gt;dscr);
+ 
+ 		/* add further reset initialization here */
+ 
+ 		arm11-&gt;simulate_reset_on_next_halt = true;
+ 
+-		if (arm11-&gt;dscr &amp; ARM11_DSCR_CORE_HALTED)
++		if (arm11-&gt;dscr &amp; DSCR_CORE_HALTED)
+ 		{
+ 			/** \todo TODO: this needs further scrutiny because
+ 			  * arm11_debug_entry() never gets called.  (WHY NOT?)
+@@ -113,7 +117,7 @@ static int arm11_debug_entry(struct arm1
+ 	/* See e.g. ARM1136 TRM, &quot;14.8.4 Entering Debug state&quot; */
+ 
+ 	/* maybe save wDTR (pending DCC write to debug SW, e.g. libdcc) */
+-	arm11-&gt;is_wdtr_saved = !!(arm11-&gt;dscr &amp; ARM11_DSCR_WDTR_FULL);
++	arm11-&gt;is_wdtr_saved = !!(arm11-&gt;dscr &amp; DSCR_DTR_TX_FULL);
+ 	if (arm11-&gt;is_wdtr_saved)
+ 	{
+ 		arm11_add_debug_SCAN_N(arm11, 0x05, ARM11_TAP_DEFAULT);
+@@ -131,15 +135,13 @@ static int arm11_debug_entry(struct arm1
+ 
+ 	}
+ 
+-	/* DSCR: set ARM11_DSCR_EXECUTE_ARM_INSTRUCTION_ENABLE
++	/* DSCR: set the Execute ARM instruction enable bit.
+ 	 *
+ 	 * ARM1176 spec says this is needed only for wDTR/rDTR's &quot;ITR mode&quot;,
+-	 * but not to issue ITRs. ARM1136 seems to require this to issue
+-	 * ITR's as well...
++	 * but not to issue ITRs(?).  The ARMv7 arch spec says it's required
++	 * for executing instructions via ITR.
+ 	 */
+-
+-	arm11_write_DSCR(arm11, ARM11_DSCR_EXECUTE_ARM_INSTRUCTION_ENABLE
+-				| arm11-&gt;dscr);
++	arm11_write_DSCR(arm11, DSCR_ITR_EN | arm11-&gt;dscr);
+ 
+ 
+ 	/* From the spec:
+@@ -188,7 +190,7 @@ static int arm11_debug_entry(struct arm1
+ 		return retval;
+ 
+ 	/* maybe save rDTR (pending DCC read from debug SW, e.g. libdcc) */
+-	arm11-&gt;is_rdtr_saved = !!(arm11-&gt;dscr &amp; ARM11_DSCR_RDTR_FULL);
++	arm11-&gt;is_rdtr_saved = !!(arm11-&gt;dscr &amp; DSCR_DTR_RX_FULL);
+ 	if (arm11-&gt;is_rdtr_saved)
+ 	{
+ 		/* MRC p14,0,R0,c0,c5,0 (move rDTR -&gt; r0 (-&gt; wDTR -&gt; local var)) */
+@@ -248,7 +250,7 @@ static int arm11_leave_debug_state(struc
+ 	{
+ 		CHECK_RETVAL(arm11_read_DSCR(arm11));
+ 
+-		if (arm11-&gt;dscr &amp; (ARM11_DSCR_RDTR_FULL | ARM11_DSCR_WDTR_FULL))
++		if (arm11-&gt;dscr &amp; (DSCR_DTR_RX_FULL | DSCR_DTR_TX_FULL))
+ 		{
+ 			/*
+ 			The wDTR/rDTR two registers that are used to send/receive data to/from
+@@ -324,7 +326,7 @@ static int arm11_poll(struct target *tar
+ 
+ 	CHECK_RETVAL(arm11_check_init(arm11));
+ 
+-	if (arm11-&gt;dscr &amp; ARM11_DSCR_CORE_HALTED)
++	if (arm11-&gt;dscr &amp; DSCR_CORE_HALTED)
+ 	{
+ 		if (target-&gt;state != TARGET_HALTED)
+ 		{
+@@ -401,7 +403,7 @@ static int arm11_halt(struct target *tar
+ 	{
+ 		CHECK_RETVAL(arm11_read_DSCR(arm11));
+ 
+-		if (arm11-&gt;dscr &amp; ARM11_DSCR_CORE_HALTED)
++		if (arm11-&gt;dscr &amp; DSCR_CORE_HALTED)
+ 			break;
+ 
+ 
+@@ -529,7 +531,7 @@ static int arm11_resume(struct target *t
+ 
+ 		LOG_DEBUG(&quot;DSCR %08x&quot;, (unsigned) arm11-&gt;dscr);
+ 
+-		if (arm11-&gt;dscr &amp; ARM11_DSCR_CORE_RESTARTED)
++		if (arm11-&gt;dscr &amp; DSCR_CORE_RESTARTED)
+ 			break;
+ 
+ 
+@@ -674,9 +676,9 @@ static int arm11_step(struct target *tar
+ 
+ 		if (arm11_config_step_irq_enable)
+ 			/* this disable should be redundant ... */
+-			arm11-&gt;dscr &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;
++			arm11-&gt;dscr &amp;= ~DSCR_INT_DIS;
+ 		else
+-			arm11-&gt;dscr |= ARM11_DSCR_INTERRUPTS_DISABLE;
++			arm11-&gt;dscr |= DSCR_INT_DIS;
+ 
+ 
+ 		CHECK_RETVAL(arm11_leave_debug_state(arm11, handle_breakpoints));
+@@ -690,8 +692,8 @@ static int arm11_step(struct target *tar
+ 
+ 		while (1)
+ 		{
+-			const uint32_t mask = ARM11_DSCR_CORE_RESTARTED
+-					| ARM11_DSCR_CORE_HALTED;
++			const uint32_t mask = DSCR_CORE_RESTARTED
++					| DSCR_CORE_HALTED;
+ 
+ 			CHECK_RETVAL(arm11_read_DSCR(arm11));
+ 			LOG_DEBUG(&quot;DSCR %08x e&quot;, (unsigned) arm11-&gt;dscr);
+@@ -722,7 +724,7 @@ static int arm11_step(struct target *tar
+ 		CHECK_RETVAL(arm11_debug_entry(arm11));
+ 
+ 		/* restore default state */
+-		arm11-&gt;dscr &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;
++		arm11-&gt;dscr &amp;= ~DSCR_INT_DIS;
+ 
+ 	}
+ 
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -38,6 +38,7 @@
+ 		}				\
+ 	} while (0)
+ 
++/* bits from ARMv7 DIDR */
+ enum arm11_debug_version
+ {
+ 	ARM11_DEBUG_V6			= 0x01,
+@@ -95,8 +96,6 @@ enum arm11_instructions
+ 
+ enum arm11_dscr
+ {
+-	ARM11_DSCR_CORE_HALTED									= 1 &lt;&lt; 0,
+-	ARM11_DSCR_CORE_RESTARTED								= 1 &lt;&lt; 1,
+ 
+ 	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_MASK					= 0x0F &lt;&lt; 2,
+ 	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_HALT					= 0x00 &lt;&lt; 2,
+@@ -105,20 +104,6 @@ enum arm11_dscr
+ 	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_BKPT_INSTRUCTION		= 0x03 &lt;&lt; 2,
+ 	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_EDBGRQ					= 0x04 &lt;&lt; 2,
+ 	ARM11_DSCR_METHOD_OF_DEBUG_ENTRY_VECTOR_CATCH			= 0x05 &lt;&lt; 2,
+-
+-	ARM11_DSCR_STICKY_PRECISE_DATA_ABORT					= 1 &lt;&lt; 6,
+-	ARM11_DSCR_STICKY_IMPRECISE_DATA_ABORT					= 1 &lt;&lt; 7,
+-	ARM11_DSCR_INTERRUPTS_DISABLE							= 1 &lt;&lt; 11,
+-	ARM11_DSCR_EXECUTE_ARM_INSTRUCTION_ENABLE				= 1 &lt;&lt; 13,
+-	ARM11_DSCR_MODE_SELECT									= 1 &lt;&lt; 14,
+-	ARM11_DSCR_WDTR_FULL									= 1 &lt;&lt; 29,
+-	ARM11_DSCR_RDTR_FULL									= 1 &lt;&lt; 30,
+-};
+-
+-enum arm11_cpsr
+-{
+-	ARM11_CPSR_T				= 1 &lt;&lt; 5,
+-	ARM11_CPSR_J				= 1 &lt;&lt; 24,
+ };
+ 
+ enum arm11_sc7
+@@ -132,10 +117,4 @@ enum arm11_sc7
+ 	ARM11_SC7_WCR0				= 112,
+ };
+ 
+-struct arm11_reg_state
+-{
+-	uint32_t				def_index;
+-	struct target *			target;
+-};
+-
+ #endif /* ARM11_H */
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -141,6 +141,7 @@ void arm_dpm_report_wfar(struct arm_dpm 
+  */
+ #define DSCR_CORE_HALTED	(1 &lt;&lt; 0)
+ #define DSCR_CORE_RESTARTED	(1 &lt;&lt; 1)
++#define DSCR_INT_DIS		(1 &lt;&lt; 11)
+ #define DSCR_ITR_EN		(1 &lt;&lt; 13)
+ #define DSCR_HALT_DBG_MODE	(1 &lt;&lt; 14)
+ #define DSCR_MON_DBG_MODE	(1 &lt;&lt; 15)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013299.html">[Openocd-development] [patch 1/3] ARM DPM: make DSCR bit defs	sharable
+</A></li>
+	<LI>Next message: <A HREF="013300.html">[Openocd-development] [patch 3/3] ARM DPM: share debug reason logic
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13298">[ date ]</a>
+              <a href="thread.html#13298">[ thread ]</a>
+              <a href="subject.html#13298">[ subject ]</a>
+              <a href="author.html#13298">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

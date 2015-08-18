@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] JTAG emulator with openocd for beagleboard
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20emulator%20with%20openocd%20for%20beagleboard&In-Reply-To=%3C49262608.2040405%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003682.html">
+   <LINK REL="Next"  HREF="003698.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] JTAG emulator with openocd for beagleboard</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20JTAG%20emulator%20with%20openocd%20for%20beagleboard&In-Reply-To=%3C49262608.2040405%40duaneellis.com%3E"
+       TITLE="[Openocd-development] JTAG emulator with openocd for beagleboard">openocd at duaneellis.com
+       </A><BR>
+    <I>Fri Nov 21 04:07:52 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003682.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+        <LI>Next message: <A HREF="003698.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3696">[ date ]</a>
+              <a href="thread.html#3696">[ thread ]</a>
+              <a href="subject.html#3696">[ subject ]</a>
+              <a href="author.html#3696">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>snip snip .. [lots of back and forth about beagle board support]
+
+The general idea I had is below.
+(Sorry - been quite busy for a while - and lying low)
+
+-Duane.
+
+We had an old &quot;target syntax&quot; - today - we have a new target syntax.
+The NEW command - recognizes &amp; converts the old syntax to the new syntax.
+
+=====================
+
+Specifically - the command:
+
+Today:    jtag_device 4 0x1 0xf 0xe
+
+Always adds a new device to the end of the current list.
+
+Tomorrow, becomes a new &quot;jtag&quot; tcl command.
+
+             jtag  newtap NAME  -position N -irlength N  -expected N 
+-expected-mask N 
+
+=====================
+
+When converting the old syntax to the new syntax, the &quot;NAME&quot; is created, 
+ie: 
+Names would be something like    tapfoo0, tapfoo1, tapfoo2 ... etc.
+
+{If  you do not know, this is the same idea as the &quot;tk&quot; button, label, 
+etc command}
+
+That &quot;NAME&quot; also becomes a first class command.
+
+=====================
+
+Once created, you could then do anything you want to it. This is 
+something that does not exist/work today - why?
+Today, the &quot;jtag-device&quot; command always *ADDS* to the list  It never 
+*modifies* an existing tap - that is the key thing the beagle solution 
+needs.
+
+For example:
+
+          tapfoo configure -irlength 0
+
+Would change the IR register length to 0, or perhaps 
+
+       tapfoo  configure -disable
+
+=============================
+
+Also by the way, there would be other commands, for example:
+
+        tapfoo cget -tapid-expected
+and   tapfoo cget -tapid-actual
+
+Would return either the expected or actual tap id found on the chain.
+
+=============================
+
+For example, for an ARM926 target - one could do this with the TCL code
+
+    jtag newtap -name MYARM926 ... blah blah blah ... {setup an arm926}
+
+Then later,
+
+    set x [MYARM926 cget -tapid-actual]
+
+    if { [expr (x &amp; 0x0fff0000) == 0x09260000] } then {
+          puts &quot;Yea, we really found an arm926&quot;
+   } else {
+          set actual [jtag tapid-lookup $x]
+         puts [format &quot;This is not an arm926.... I think it is: %s\n&quot; 
+$actual]
+    }
+
+=============================
+
+We should also be able to do all kinds of tricks with the RESET operation.
+
+For example - we could define &quot;reset&quot; as a tcl script, that - by default 
+- does the normal thing for *normal* cpus.
+
+But - for these OMAP beagle boards... It would do things like:
+
+proc beagle_board_reset {
+      assert the RESET pin
+      # all taps disabled.
+      shift X into the IR register
+      shift Y into the IR register
+       ... blah blah blah ..
+}
+
+Then - one could - for example - create a GDB attach event proc.
+
+   eventproc  -event  gdbattach  -command  beagle_board_reset
+
+=============================
+
+What needs to be done - the road map.
+
+1)   The new &quot;tcl jtag&quot; command = needs expanding.
+
+    The &quot;Newtap&quot; command needs to be added.
+    It replaces the &quot;handle_jtag_device_command()&quot; function
+    And the &quot;jtag_device&quot; command.
+
+    The model is the &quot;target&quot; command.
+    specificall, &quot;jim_target()&quot; - target.c - line 3967, the 
+&quot;TG_CMD_CREATE&quot; enumeration.
+    Which calls &quot;target_create()&quot;
+
+2)    You'll notice that &quot;target_create()&quot; calls &quot;target_configure()&quot; 
+about half way through.
+    And - at the end, it calls: &quot;Jim_CreateCommand()&quot; - creating the new 
+target command.
+
+3) Housekeeping functions.
+
+   We'll need a few other commands - for example:
+          Like : CURRENT, and NUMBER, and COUNT
+          For the same reason that &quot;target&quot; needs them.
+
+4) A function simular to &quot;tcl_target_func()&quot; - perhaps called 
+tcl_tap_func() will need to be created.
+    It needs to at least respond to the: &quot;configure&quot; and &quot;cget&quot; commands.
+    And - implement the &quot;-enable&quot; and &quot;-disable&quot; commands.
+   
+5)   The variable:  &quot;struct target-&gt;target_Number&quot; needs to go away.
+
+    Likewise: &quot;get_target_by_number()&quot; must die.
+    And its simular reverse functions must die.
+
+    All access changes to &quot;target_by_name()&quot;
+
+    The variable: &quot;struct target-&gt;chain_position&quot; needs to go away
+    And be replaced with:  &quot;struct target-&gt;tap_name&quot; as a const char ptr
+   
+    Likewise, changes to &quot;struct jtag_device_t&quot; needs to happen.
+    For example: &quot;jtag_get_device()&quot; needs to die
+    And be replaced with:  jtag_get_device_by_name()
+
+6) We need some function -
+
+    jtag_build_device_chain() - which - builds the chain &quot;as it is 
+configured today&quot;
+    Effectively - dropping or adding a tap based on &quot;enabled&quot; or not.
+    Or - if the chain order changes.
+
+    This is needed for example @ jtag.c - line 476
+    The &quot;for()&quot; loop that iterates over the devices.
+
+    The idea is this:
+          struct jtag_tap_order {
+             struct jtag_device_t *this_device;
+             struct jtag_tap_order *next_device;
+          }
+
+=============================
+
+
+
+ 
+
+
+
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003682.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+	<LI>Next message: <A HREF="003698.html">[Openocd-development] JTAG emulator with openocd for beagleboard
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3696">[ date ]</a>
+              <a href="thread.html#3696">[ thread ]</a>
+              <a href="subject.html#3696">[ subject ]</a>
+              <a href="author.html#3696">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

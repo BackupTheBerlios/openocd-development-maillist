@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Target Reset - Rework -
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Target%20Reset%20-%20Rework%20-&In-Reply-To=%3Cc09652430809011450i309ecdc5obff7ea46426fa760%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003091.html">
+   <LINK REL="Next"  HREF="003093.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Target Reset - Rework -</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Target%20Reset%20-%20Rework%20-&In-Reply-To=%3Cc09652430809011450i309ecdc5obff7ea46426fa760%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Target Reset - Rework -">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Sep  1 23:50:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003091.html">[Openocd-development] Target Reset - Rework -
+</A></li>
+        <LI>Next message: <A HREF="003093.html">[Openocd-development] Target Reset - Rework -
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3092">[ date ]</a>
+              <a href="thread.html#3092">[ thread ]</a>
+              <a href="subject.html#3092">[ subject ]</a>
+              <a href="author.html#3092">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Mon, Sep 1, 2008 at 11:34 PM, Duane Ellis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd at duaneellis.com</A>&gt; wrote:
+&gt;<i> All -
+</I>&gt;<i>
+</I>&gt;<i> Specifically:
+</I>&gt;<i>        Valentin Longchamp [iMX31?? issues]
+</I>&gt;<i>        Oyvind Harboe [general stuff]
+</I>&gt;<i>        Spen Oliver [str9 hackery]
+</I>&gt;<i>        Kees Jongenburger [ie: beagle board &amp; adding targets on the fly]
+</I>&gt;<i>        Nishanth Menon [ie: beagle board &amp; cortex-a8 &amp; etc]
+</I>&gt;<i>
+</I>&gt;<i> I am now at the hear of the reset changes - and I need some input.
+</I>&gt;<i>
+</I>&gt;<i>    I am now at the 'heart of the matter'.
+</I>&gt;<i>
+</I>&gt;<i> I need some input on the next step in the process.
+</I>&gt;<i>
+</I>&gt;<i> See below.
+</I>&gt;<i>
+</I>&gt;<i> -Duane.
+</I>&gt;<i>
+</I>&gt;<i> ========================================
+</I>&gt;<i>
+</I>&gt;<i> I'm looking at the *existing* &quot;target_process_reset()&quot; - and what I need
+</I>&gt;<i> to do next.
+</I>&gt;<i>
+</I>&gt;<i> FYI - in the work, the prefix &quot;arp_&lt;NAME&gt;&quot; stands for &quot;advanced reset
+</I>&gt;<i> process&quot;.
+</I>&gt;<i>
+</I>&gt;<i> (a)    I need a convent/smart place to put the &quot;keep alive&quot; call form
+</I>&gt;<i> JimTCL.
+</I>&gt;<i>
+</I>&gt;<i>    Location: target.c - numerous places in &quot;target_process_reset()&quot;
+</I>&gt;<i>
+</I>&gt;<i>    While this is very &quot;gdb&quot; specific - Oddly - it is in the file
+</I>&gt;<i> &quot;log.c&quot; not 'gdb_server.c'    Strange...
+</I>
+keep_alive() was implemented via the log system for historical reasons.
+
+Refactoring has influenced me w.r.t. choice of placing functions. Until
+I have a firm reason to place something somewhere, I just leave it where
+it is.
+
+The keep_alive() is basically stolen from cooperative multitasking
+thinking. Invoke it often enough that preemptive multuthreading is not needed...
+
+For now I consider keep_alive() a mechanism that *could* be generalized
+but is only used by GDB. I don't want to promote complicated ideas when
+GDB is the only user. Already we saw that Tcl has an analogue fn to keep_alive()
+that needs to be invoked though(to make the Tcl timer callbacks work).
+
+&gt;<i>
+</I>&gt;<i>    Proposed idea:  a &quot;gdb&quot; - tcl root command is the right idea.
+</I>&gt;<i>        This may one day take over the various &quot;gdb_&lt;foobar&gt;&quot; commands.
+</I>&gt;<i>    Or be a place to 'hang other gdb commands on'
+</I>&gt;<i>
+</I>&gt;<i>    The 1st command needed is:
+</I>&gt;<i>                  gdb keepalive
+</I>
+Above you are addressing two different matters. A root tcl &quot;gdb&quot; command
+and the keepalive stuff. A root tcl &quot;gdb&quot; command sounds like a good
+idea, but I think it makes sense to keep &quot;keepalive&quot; a dirty little openocd
+secret for now.
+
+&gt;<i>
+</I>&gt;<i> (b)  Likewise, I need a &quot;jtag&quot; command or something - to implement:
+</I>&gt;<i>
+</I>&gt;<i>        jtag_init_reset()
+</I>&gt;<i>
+</I>&gt;<i>    What should I name it?
+</I>&gt;<i>
+</I>&gt;<i>             raw_tap_control
+</I>&gt;<i>             jtag_tap
+</I>&gt;<i>             tap
+</I>&gt;<i>
+</I>&gt;<i>    Where should it be?
+</I>
+I worry making &quot;dirty little secrets&quot; available through APIs...
+
+Though to move target_process_reset into Tcl such that it is
+overridable by the target configuration script is generally the
+direction that I'd like to see things move in.
+
+&gt;<i> (j) I'm not certain bout this &quot;target_call_timer_callbacks_now()&quot; thing.
+</I>&gt;<i>
+</I>&gt;<i>    How should I name this?
+</I>
+Don't expose it. It is a dirtly little secret and tied to keepalive.
+
+&gt;<i>
+</I>&gt;<i>          target  arp_flushcallbacks
+</I>
+uh?  What is this?
+
+What's &quot;arp&quot;?
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003091.html">[Openocd-development] Target Reset - Rework -
+</A></li>
+	<LI>Next message: <A HREF="003093.html">[Openocd-development] Target Reset - Rework -
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3092">[ date ]</a>
+              <a href="thread.html#3092">[ thread ]</a>
+              <a href="subject.html#3092">[ subject ]</a>
+              <a href="author.html#3092">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

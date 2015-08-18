@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Problem when tryng to flash LPC2368
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problem%20when%20tryng%20to%20flash%20LPC2368&In-Reply-To=%3C4B2A0616.5050202%40tecnequip.com.br%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013607.html">
+   <LINK REL="Next"  HREF="013660.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Problem when tryng to flash LPC2368</H1>
+    <B>Marcelo Utikawa da Fonseca</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Problem%20when%20tryng%20to%20flash%20LPC2368&In-Reply-To=%3C4B2A0616.5050202%40tecnequip.com.br%3E"
+       TITLE="[Openocd-development] Problem when tryng to flash LPC2368">marcelo.fonseca at tecnequip.com.br
+       </A><BR>
+    <I>Thu Dec 17 11:21:10 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013607.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+        <LI>Next message: <A HREF="013660.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13659">[ date ]</a>
+              <a href="thread.html#13659">[ thread ]</a>
+              <a href="subject.html#13659">[ subject ]</a>
+              <a href="author.html#13659">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>About html, I am sorry! I think that it is fixed now.
+
+I can post the complete solution, no problem. If I forgot to post 
+something, please tell it to me!
+I am using the 0.2.0 version because I already was using it before to 
+write some LPC2109 boards.
+Now I will try the 0.3.1 version... :-)
+
+I am still having some problems to write the flash with gdb. If I use 
+the telnet connection to write directly in OpenOCD it is working.
+I agree that the write to MEMMAP register should be placed inside the 
+config file but I got an error when trying it, I will try again later.
+
+All that I need to do to write the memory in LPC2368 is:
+
+1) Programmer configuration file
+
+1.1) J-Link: jlink.cfg
+
+#
+# Segger J-Link
+#
+# <A HREF="http://www.segger.com/jlink.html">http://www.segger.com/jlink.html</A>
+#
+
+interface jlink
+
+1.2) J-TEC (it is our own programmer based in FT2232, I will send a 
+patch to add it to OpenOCD later): jtec.cfg
+
+#
+# Tecnequip J-TEC
+#
+# <A HREF="http://www.tecnequip.com.br">http://www.tecnequip.com.br</A>
+#
+
+interface ft2232
+ft2232_layout jtec_jtag
+ft2232_device_desc &quot;Dual RS232 A&quot;
+
+2) CPU configuration file: lpc2368.cfg
+
+# NXP LPC2103 ARM7TDMI-S with 32kB Flash and 8kB SRAM, clocked with 
+12MHz crystal
+
+if { [info exists CHIPNAME] } {   
+   set _CHIPNAME $CHIPNAME
+} else {
+   set _CHIPNAME lpc2368
+}
+
+if { [info exists ENDIAN] } {
+   set _ENDIAN $ENDIAN
+} else {
+   set _ENDIAN little
+}
+
+if { [info exists CPUTAPID ] } {
+   set _CPUTAPID $CPUTAPID
+} else {
+   set _CPUTAPID 0x4f1f0f0f
+}
+
+# LPC2000 -&gt; SRST causes TRST
+reset_config trst_and_srst srst_pulls_trst
+
+# reset delays
+jtag_nsrst_delay 100
+jtag_ntrst_delay 100
+
+jtag_reset 1 1
+jtag_reset 0 0
+
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf 
+-expected-id $_CPUTAPID
+
+set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+
+target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position 
+$_TARGETNAME -variant arm7tdmi-s_r4
+
+# 8kB of internal SRAM
+$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x40000000 
+-work-area-size 0x8000 -work-area-backup 0
+
+# 32kB of internal Flash, core clocked with 12MHz crystal
+# flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt; &lt;variant&gt; &lt;clock&gt; 
+[calc_checksum]
+flash bank lpc2000 0x0 0x80000 0 0 0 lpc2000_v2 12000 calc_checksum
+
+3) Execute OpenOCD:
+
+sudo openocd -f jtec.cfg -f lpc2368.cfg
+
+4) Connect by telnet and send commands:
+
+$ telnet 127.0.0.1 4444
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+Open On-Chip Debugger
+ &gt; halt
+target state: halted
+target halted in ARM state due to debug-request, current mode: Abort
+cpsr: 0x400000d7 pc: 0x00066a3c
+ &gt; flash write_image erase 
+/Projetos/linux/Linux/ARM/Programas/GDB/elfs/minilpc.elf
+auto erase enabled
+Padding image section 0 with 0 bytes
+wrote 69996 byte from file 
+/Projetos/linux/Linux/ARM/Programas/GDB/elfs/minilpc.elf in 23.154978s 
+(2.952085 kb/s)
+ &gt; verify_image 
+/Projetos/linux/Linux/ARM/Programas/GDB/elfs/minilpc.elf          
+verified 69996 bytes in 2.292830s
+ &gt;
+
+When I fix the GDB configuration I will send it to the list.
+
+Best regards,
+Marcelo Utikawa da Fonseca
+
+&#195;&#152;yvind Harboe escreveu:
+&gt;<i> On Wed, Dec 16, 2009 at 5:52 PM, Marcelo Utikawa da Fonseca
+</I>&gt;<i> &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">marcelo.fonseca at tecnequip.com.br</A>&gt; wrote:
+</I>&gt;<i>   
+</I>&gt;&gt;<i> Great, now it is working! :-)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I put the following line in my gdb config file:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> monitor mwb 0xe01fc040 0x01
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Thank you!
+</I>&gt;&gt;<i>     
+</I>&gt;<i>
+</I>&gt;<i> That's great, but actually that mwb should probably go into the
+</I>&gt;<i> reset init sequence inside the config file I think.
+</I>&gt;<i>
+</I>&gt;<i> Now please post to the complete solution to the list.
+</I>&gt;<i>
+</I>&gt;<i> You probably want to see that config file go into the the next
+</I>&gt;<i> release of OpenOCD, right?
+</I>&gt;<i>
+</I>&gt;<i> Also what version of OpenOCD are you running? It says 0.2.0 and
+</I>&gt;<i> that's an old version.
+</I>&gt;<i>
+</I>&gt;<i> Can I ask where you got it and why you
+</I>&gt;<i> decided to try with an older version?
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>   
+</I>
+
+---------------------------------------------
+Tecnequip Tecnologia em Equipamentos
+Endere&#231;o/Address: R. Ganges, 557
+Cidade/City: S&#227;o Paulo
+Estado/State: SP
+Pa&#237;s/Country: Brasil
+CEP/Postal Code: 03445-030
+Fone/Phone: 55-11-20937199
+FAX: 55-11-29412289
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013607.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+	<LI>Next message: <A HREF="013660.html">[Openocd-development] Problem when tryng to flash LPC2368
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13659">[ date ]</a>
+              <a href="thread.html#13659">[ thread ]</a>
+              <a href="subject.html#13659">[ subject ]</a>
+              <a href="author.html#13659">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

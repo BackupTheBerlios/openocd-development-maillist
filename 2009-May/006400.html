@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] trunk broken since rev 1730 (segfault)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20trunk%20broken%20since%20rev%201730%20%28segfault%29&In-Reply-To=%3Calpine.LFD.2.00.0905120032520.6741%40xanadu.home%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006382.html">
+   <LINK REL="Next"  HREF="006403.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] trunk broken since rev 1730 (segfault)</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20trunk%20broken%20since%20rev%201730%20%28segfault%29&In-Reply-To=%3Calpine.LFD.2.00.0905120032520.6741%40xanadu.home%3E"
+       TITLE="[Openocd-development] trunk broken since rev 1730 (segfault)">nico at cam.org
+       </A><BR>
+    <I>Tue May 12 07:17:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006382.html">[Openocd-development] svn head build issues
+</A></li>
+        <LI>Next message: <A HREF="006403.html">[Openocd-development] trunk broken since rev 1730 (segfault)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6400">[ date ]</a>
+              <a href="thread.html#6400">[ thread ]</a>
+              <a href="subject.html#6400">[ subject ]</a>
+              <a href="author.html#6400">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+This is a really nasty breakage since the symptom consists of stack 
+corruption.  In my case, I was able to observe the problem by adding 
+some printf's in src/flash/nand.c with the execution path below.
+
+src/flash/nand.c, line 1200, in handle_nand_erase_command():
+
+        p = get_nand_device_by_num(strtoul(args[0], NULL, 0));
+        if (p)
+        {
+                int first = strtoul(args[1], NULL, 0);
+                int last = strtoul(args[2], NULL, 0);
+
+                if ((retval = nand_erase(p, first, last)) == ERROR_OK)
+[...]
+
+Here the variable p is assigned the same value as the global variable 
+nand_devices because there is only one device.  Then p is passed to 
+nand_erase().  So far so good.
+
+src/flash/nand.c, line 697, in nand_erase():
+
+            retval = device-&gt;controller-&gt;nand_ready ?
+                            device-&gt;controller-&gt;nand_ready(device, 1000) :
+                            nand_poll_ready(device, 1000);
+
+Here the variable p is called &quot;device&quot; instead.  Just before the code 
+above, the global variable nand_devices and local variable device have 
+the same value as before.  So far so good.  nand_poll_ready() is called 
+with the value of the local variable &quot;device&quot;.
+
+src/flash/nand.c, line 410, in nand_poll_ready():
+
+More instrumentation within nand_poll_ready() still shows that global 
+nand_devices and local device are the same.  A call to 
+device-&gt;controller-&gt;read_data() is performed, which in my case is 
+orion_nand_read() wrapping a call to target_read_u8().  So far so good.
+
+src/flash/nand.c, line 700, back in nand_erase():
+
+As soon as nand_poll_ready() returns, then the _local_ variable &quot;device&quot; 
+is corrupted!!!  The global variable nand_devices is still unchanged, 
+but local variable device is crap, pointing to a bad address.  On line 
+705 the call to nand_read_status() is passing that bad device pointer, 
+and a segmentation fault occurs within that function.
+
+Now this is extremely worrisome that a local variable on the stack gets 
+corrupted by some buggy code down the call chain of target_read_u8().  
+Backing to rev 1729 apparently &quot;fixes&quot; the issue, but I can't tell if at 
+that point the corruption simply moved elsewhere unnoticed.
+
+Also, rev 1729 is dog slow for NAND flashing.  It takes more than 5 
+minutes to flash 400KB, while before the recent shurn it took only 80 
+secs.  USB performance is supposed to be back in latest svn trunk but I 
+can't test it.
+
+The host machine is a x86-64 running Fedora 10 while the target is a 
+Feroceon/SheevaPlug.
+
+
+Nicolas
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006382.html">[Openocd-development] svn head build issues
+</A></li>
+	<LI>Next message: <A HREF="006403.html">[Openocd-development] trunk broken since rev 1730 (segfault)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6400">[ date ]</a>
+              <a href="thread.html#6400">[ thread ]</a>
+              <a href="subject.html#6400">[ subject ]</a>
+              <a href="author.html#6400">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

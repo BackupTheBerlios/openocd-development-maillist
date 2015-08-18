@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%27flash%20write_image%27%20and%20%27verify_image%27%0A%09commands%20fail%20if%20there%20are%20no%20more%20hardware%20breakpoints%20available&In-Reply-To=%3C001301c8f2ed%24bbc88230%24e207fea9%40MatchPoint%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002827.html">
+   <LINK REL="Next"  HREF="002829.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available</H1>
+    <B>Dario Vecchio</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%27flash%20write_image%27%20and%20%27verify_image%27%0A%09commands%20fail%20if%20there%20are%20no%20more%20hardware%20breakpoints%20available&In-Reply-To=%3C001301c8f2ed%24bbc88230%24e207fea9%40MatchPoint%3E"
+       TITLE="[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available">dariovecchio at tiscali.it
+       </A><BR>
+    <I>Thu Jul 31 11:13:44 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002827.html">[Openocd-development] Some things...
+</A></li>
+        <LI>Next message: <A HREF="002829.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2828">[ date ]</a>
+              <a href="thread.html#2828">[ thread ]</a>
+              <a href="subject.html#2828">[ subject ]</a>
+              <a href="author.html#2828">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+
+I found that after manually setting hardware breakpoints 'flash write_image' 
+and 'verify_image' commands fail if there are no more hardware breakpoints 
+available.
+
+I think they should be removed before command execution and then restored.
+
+---------------------------------------------------------
+(STR9comStick, ARM966E, FT2232, openocd svn 881)
+---------------------------------------------------------
+&gt;<i> bp 0x40 4 hw
+</I>&gt;<i> bp 0x100 4 hw
+</I>&gt;<i> verify_image prog.elf
+</I>no watchpoint unit available for hardware breakpoint
+can't add hardware breakpoint, resource not available
+can't add breakpoint to finish algorithm execution
+error executing arm7_9 crc algorithm
+Runtime error, file &quot;?&quot;, line 1:
+    no watchpoint unit available for hardware breakpoint
+can't add hardware breakpoint, resource not available
+can't add breakpoint to finish algorithm execution
+error executing arm7_9 crc algorithm
+
+In procedure 'verify_image' called at file &quot;?&quot;, line 1
+&gt;<i>
+</I>&gt;<i> rbp 0x40
+</I>&gt;<i> rbp 0x100
+</I>&gt;<i> verify_image prog.elf
+</I>verified 5588 bytes in 0.109375s
+&gt;<i>
+</I>---------------------------------------------------------
+
+Another question, about 'working_area'.
+
+By default scripts (at least str9comstick.cfg) point at the beginning of 
+SRAM.
+For this reason it is not very clear what 'working_area' is (unless you read 
+the documentation...) and one can believe (me, for example...) it is the 
+beginning of internal SRAM.
+If you load an application into the RAM at the same address (normally at the 
+beginning of SRAM) using 'load-image' there is no check of this conflict and 
+the load_image algorithm will overwrite itself while running.
+
+Similar problem can happen if you are stepping an application (loaded in 
+flash) and you want to load an image (data for debugging purpose) into the 
+RAM at a known free address and then resume the application.
+The beginning of the RAM will be overwritten by the algorithm code so some 
+variable of your running application is now dirty (registers too?).
+In this case you can use the 'backup' option of 'working_area' command but 
+it is not in the default script (should it be?) nor a warning is given to 
+the user.
+
+The problem is evident only with 'dcc_downloads' enabled.
+
+-----------------------------------------------------------------------------------
+(STR9comStick, ARM966E, FT2232, openocd svn 881)
+using default scripts (nobackup)
+-----------------------------------------------------------------------------------
+&gt;<i> mdw 0x50000000 64
+</I>0x50000000: e1a02000 e3e00000 e1a03001 e3a04000 ea00000b e7d21004 e59f7030 
+e0200c01
+0x50000020: e3a05000 e3500000 e1a06080 e2855001 e1a00006 b0260007 e3550008 
+1afffff8
+0x50000040: e2844001 e1540003 1afffff1 eafffffe 04c11db7 00000000 00000000 
+00000000
+0x50000060: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000080: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000e0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+&gt;<i> mww 0x50000000 0 64
+</I>&gt;<i> mdw 0x50000000 64
+</I>0x50000000: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000020: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000040: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000060: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000080: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000e0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+&gt;<i> dump_image zero.img 0x50000000 256
+</I>dumped 256 byte in 0.015625s
+&gt;<i> load_image zero.img 0x50000000 bin
+</I>256 byte written at address 0x50000000
+downloaded 256 byte in 0.015625s
+&gt;<i> mdw 0x50000000 64
+</I>0x50000000: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000020: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000040: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000060: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000   [OK]
+0x50000080: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000e0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+&gt;<i> arm7_9 dcc_downloads enable
+</I>dcc downloads are enabled
+&gt;<i> load_image zero.img 0x50000000 bin
+</I>256 byte written at address 0x50000000
+downloaded 256 byte in 0.015625s
+&gt;<i> mdw 0x50000000 64
+</I>0x50000000: 00000000 e3110001 0afffffc ee111e10 e4801004 eafffff9 00000000 
+00000000
+0x50000020: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000040: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000060: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000   [NOT OK]
+0x50000080: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000e0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+&gt;<i> mww 0x50000000 0x11111111 64
+</I>&gt;<i> mdw 0x50000000 64
+</I>0x50000000: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x50000020: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x50000040: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x50000060: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x50000080: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x500000a0: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x500000c0: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x500000e0: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+&gt;<i> load_image zero.img 0x50000000 bin
+</I>256 byte written at address 0x50000000
+downloaded 256 byte in 0.015625s
+&gt;<i> mdw 0x50000000 64
+</I>0x50000000: 50000410 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x50000020: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x50000040: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x50000060: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111   [NOT OK]
+0x50000080: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x500000a0: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x500000c0: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+0x500000e0: 11111111 11111111 11111111 11111111 11111111 11111111 11111111 
+11111111
+&gt;<i> arm7_9 dcc_downloads disable
+</I>dcc downloads are disabled
+&gt;<i> load_image zero.img 0x50000000 bin
+</I>256 byte written at address 0x50000000
+downloaded 256 byte in 0.015625s
+&gt;<i> mdw 0x50000000 64
+</I>0x50000000: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000020: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000040: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x50000060: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000   [OK]
+0x50000080: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+0x500000e0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 
+00000000
+&gt;<i>
+</I>-----------------------------------------------------------------------------------
+
+Best regards,
+
+              Dario 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002827.html">[Openocd-development] Some things...
+</A></li>
+	<LI>Next message: <A HREF="002829.html">[Openocd-development] 'flash write_image' and 'verify_image'	commands fail if there are no more hardware breakpoints available
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2828">[ date ]</a>
+              <a href="thread.html#2828">[ thread ]</a>
+              <a href="subject.html#2828">[ subject ]</a>
+              <a href="author.html#2828">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

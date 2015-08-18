@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20regression%20-%20first%20%22load%22%20after%0A%09power-up%20fails&In-Reply-To=%3Cc09652431001171040v4efd15aby6a8d7926ab358767%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014237.html">
+   <LINK REL="Next"  HREF="014252.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20regression%20-%20first%20%22load%22%20after%0A%09power-up%20fails&In-Reply-To=%3Cc09652431001171040v4efd15aby6a8d7926ab358767%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Sun Jan 17 19:40:09 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014237.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+        <LI>Next message: <A HREF="014252.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14246">[ date ]</a>
+              <a href="thread.html#14246">[ thread ]</a>
+              <a href="subject.html#14246">[ subject ]</a>
+              <a href="author.html#14246">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'm not sure we have a regression here.
+
+A regression test should minimally include:
+
+1. test sequence
+
+2. expected result
+
+If we agree that both are according to OpenOCD documentation/support,
+and it fails on one version and not the other, then we have a regression.
+
+Could you provide 1+2? (I could perhaps extract that information from
+the logs, but
+I want to hear more about what you intended and what you expected to see.)
+
+
+
+A few comments relating to the gdb sync feature and openocd/gdb
+making fewer assumptions about the target:
+
+Targets and interfaces will have some state when OpenOCD is not
+running and/or the target is not connected. Obviously openocd should not try
+to make much in the way of assumptions about disconnected targets.
+
+I made a change where I made OpenOCD do *nothing* upon
+connecting w/GDB, not even query the target.
+
+This solves a raft of issues w.r.t. configuring what should happen upon
+connect and how you put the target into a particular state.
+
+You simply put whatever you want into
+the gdb init sequence, no config options, fancy events, etc. Previously
+openocd would issue a halt upon gdb connect, whether or not that
+was something that the user needed or wanted to happen. Most likely
+the user was unaware of it.
+
+So, typically when connecting with GDB and loading you should do
+something like:
+
+target remote xxx
+# the target is not affected or queried by a gdb connnect. Dummy values are
+# returned and a white lie takes place w.r.t. that the target is halted.
+# OpenOCD allows gdb to be in the halted state and have the
+# target running or halted. You can resume openocd when the target
+# is either running or halted, as the openocd GDB server will
+# sync up to the target upon a stepi/continue.
+#
+# halt can *fail* before monitor reset init, so fortunally
+# we have *complete* control over the gdb init sequence now
+monitor reset init
+load
+# the gdb sync flag is set upon GDB connect,
+# stepi will not step here, but cause a fresh set of registers
+# to be fetched into gdb
+stepi
+
+
+Example #2:
+
+I want to get fancy and try to hotplug to a target and halt it:
+
+# 1. start openocd
+# 2. hotplug a target we want to examine
+target remote xxxx
+# we're now connected to the GDB server, OpenOCD has not
+# talked to the target yet. GDB is &quot;halted&quot;, but really the target
+# could be running or halted, we don't know. The sync flag
+# is set upon connect, so &quot;stepi&quot; will not stepi, but wait for the target to be
+# halted, if it isn't already and then fetch a fresh set of registers
+stepi
+=&gt; press ctrl - c, if we're lucky, we can now debug the hot plugged target
+
+
+Now.... hotplugging *can* work on simpler CPUs, but anything reasonably
+complex(Cortex-A8, XScale, etc.), naive hotplugging is *very* unlikely to
+be of much use.
+
+-- 
+&#216;yvind Harboe
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014237.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+	<LI>Next message: <A HREF="014252.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14246">[ date ]</a>
+              <a href="thread.html#14246">[ thread ]</a>
+              <a href="subject.html#14246">[ subject ]</a>
+              <a href="author.html#14246">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

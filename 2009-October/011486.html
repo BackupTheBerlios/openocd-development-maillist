@@ -1,0 +1,243 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] mrc / mcr low level interface
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20mrc%20/%20mcr%20low%20level%20interface&In-Reply-To=%3Cc09652430910230013v3378a60bwc4528e9791258d45%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011485.html">
+   <LINK REL="Next"  HREF="011492.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] mrc / mcr low level interface</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20mrc%20/%20mcr%20low%20level%20interface&In-Reply-To=%3Cc09652430910230013v3378a60bwc4528e9791258d45%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] mrc / mcr low level interface">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Oct 23 09:13:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011485.html">[Openocd-development] mrc / mcr low level interface
+</A></li>
+        <LI>Next message: <A HREF="011492.html">[Openocd-development] mrc / mcr low level interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11486">[ date ]</a>
+              <a href="thread.html#11486">[ thread ]</a>
+              <a href="subject.html#11486">[ subject ]</a>
+              <a href="author.html#11486">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Complete patch w/arm926ejs example implementation.
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+-------------- next part --------------
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 9c9628a..f4984a5 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2007 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2009 by &#216;yvind Harboe                                   *
++ *   Copyright (C) 2007,2008,2009 by &#216;yvind Harboe                         *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+@@ -52,6 +52,29 @@ int arm926ejs_write_phys_memory(struct target_s *target, uint32_t address, uint3
+ static int arm926ejs_virt2phys(struct target_s *target, uint32_t virtual, uint32_t *physical);
+ static int arm926ejs_mmu(struct target_s *target, int *enabled);
+ 
++int arm926ejs_cp15_read(target_t *target, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value);
++int arm926ejs_cp15_write(target_t *target, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value);
++
++static int arm926ejs_mrc(target_t *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value)
++{
++	if (cpnum!=15)
++	{
++		LOG_ERROR(&quot;Only cp15 is supported&quot;);
++		return ERROR_FAIL;
++	}
++	return arm926ejs_cp15_read(target, op1, op2, CRn, CRm, value);
++}
++
++static int arm926ejs_mcr(target_t *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value)
++{
++	if (cpnum!=15)
++	{
++		LOG_ERROR(&quot;Only cp15 is supported&quot;);
++		return ERROR_FAIL;
++	}
++	return arm926ejs_cp15_write(target, op1, op2, CRn, CRm, value);
++}
++
+ target_type_t arm926ejs_target =
+ {
+ 	.name = &quot;arm926ejs&quot;,
+@@ -94,6 +117,8 @@ target_type_t arm926ejs_target =
+ 
+ 	.read_phys_memory = arm926ejs_read_phys_memory,
+ 	.write_phys_memory = arm926ejs_write_phys_memory,
++	.mrc = arm926ejs_mrc,
++	.mcr = arm926ejs_mcr,
+ };
+ 
+ int arm926ejs_catch_broken_irscan(uint8_t *captured, void *priv, scan_field_t *field)
+diff --git a/src/target/target.c b/src/target/target.c
+index 4516207..bed1633 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -687,6 +687,60 @@ void target_reset_examined(struct target_s *target)
+ }
+ 
+ 
++
++static int default_mrc(struct target_s *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value)
++{
++	LOG_ERROR(&quot;Not implemented&quot;);
++	return ERROR_FAIL;
++}
++
++static int default_mcr(struct target_s *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value)
++{
++	LOG_ERROR(&quot;Not implemented&quot;);
++	return ERROR_FAIL;
++}
++
++static int arm_cp_check(struct target_s *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm)
++{
++	/* basic check */
++	if (!target_was_examined(target))
++	{
++		LOG_ERROR(&quot;Target not examined yet&quot;);
++		return ERROR_FAIL;
++	}
++
++	if ((cpnum &lt;0) || (cpnum &gt; 15))
++	{
++		LOG_ERROR(&quot;Illegal co-processor %d&quot;, cpnum);
++		return ERROR_FAIL;
++	}
++
++	return ERROR_OK;
++}
++
++int target_mrc(struct target_s *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value)
++{
++	int retval;
++
++	retval = arm_cp_check(target, cpnum, op1, op2, CRn, CRm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	return target-&gt;type-&gt;mrc(target, cpnum, op1, op2, CRn, CRm, value);
++}
++
++int target_mcr(struct target_s *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value)
++{
++	int retval;
++
++	retval = arm_cp_check(target, cpnum, op1, op2, CRn, CRm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	return target-&gt;type-&gt;mcr(target, cpnum, op1, op2, CRn, CRm, value);
++}
++
++
+ int target_init(struct command_context_s *cmd_ctx)
+ {
+ 	target_t *target = all_targets;
+@@ -722,6 +776,17 @@ int target_init(struct command_context_s *cmd_ctx)
+ 			target-&gt;type-&gt;write_phys_memory = target-&gt;type-&gt;write_memory;
+ 		}
+ 
++		if (target-&gt;type-&gt;mcr == NULL)
++		{
++			target-&gt;type-&gt;mcr = default_mcr;
++		}
++
++		if (target-&gt;type-&gt;mrc == NULL)
++		{
++			target-&gt;type-&gt;mrc = default_mrc;
++		}
++
++
+ 		/* a non-invasive way(in terms of patches) to add some code that
+ 		 * runs before the type-&gt;write/read_memory implementation
+ 		 */
+diff --git a/src/target/target.h b/src/target/target.h
+index 19d8013..ef57837 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   Copyright (C) 2007,2008,2009 &#216;yvind Harboe                            *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index aab4321..83baa25 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   Copyright (C) 2007,2008,2009 &#216;yvind Harboe                            *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+@@ -202,6 +202,11 @@ struct target_type_s
+ 
+ 	int (*mmu)(struct target_s *target, int *enabled);
+ 
++	/* Read coprocessor - arm specific. Default implementation returns error. */
++	int (*mrc)(struct target_s *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t *value);
++
++	/* Write coprocessor. Default implementation returns error.  */
++	int (*mcr)(struct target_s *target, int cpnum, uint32_t op1, uint32_t op2, uint32_t CRn, uint32_t CRm, uint32_t value);
+ };
+ 
+ #endif // TARGET_TYPE_H
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011485.html">[Openocd-development] mrc / mcr low level interface
+</A></li>
+	<LI>Next message: <A HREF="011492.html">[Openocd-development] mrc / mcr low level interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11486">[ date ]</a>
+              <a href="thread.html#11486">[ thread ]</a>
+              <a href="subject.html#11486">[ subject ]</a>
+              <a href="author.html#11486">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

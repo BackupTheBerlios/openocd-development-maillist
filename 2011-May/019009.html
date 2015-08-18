@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20adapter%20speed%3A%20require%20init%0A%20script%20setting%20and%20centralize%20activation%20from%20drivers%20to%20core.c&In-Reply-To=%3C96B69F79515196499AC5034EFA5CDC85055561CC%40NORMBX01.network.int%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019008.html">
+   <LINK REL="Next"  HREF="019010.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c</H1>
+    <B>Jonas Hoerberg</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20adapter%20speed%3A%20require%20init%0A%20script%20setting%20and%20centralize%20activation%20from%20drivers%20to%20core.c&In-Reply-To=%3C96B69F79515196499AC5034EFA5CDC85055561CC%40NORMBX01.network.int%3E"
+       TITLE="[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c">jhorberg at sauer-danfoss.com
+       </A><BR>
+    <I>Thu May  5 10:02:21 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019008.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+        <LI>Next message: <A HREF="019010.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19009">[ date ]</a>
+              <a href="thread.html#19009">[ thread ]</a>
+              <a href="subject.html#19009">[ subject ]</a>
+              <a href="author.html#19009">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday, May 04, 2011 8:08 PM , &#216;yvind Harboe wrote:
+&gt;<i> On Wed, May 4, 2011 at 7:51 PM, Jean-Christophe PLAGNIOL-VILLARD
+</I>&gt;<i> &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">plagnioj at jcrosoft.com</A>&gt; wrote:
+</I>&gt;<i> &gt; On 04:17 Wed 04 May &#160; &#160; , &#370;yvind Harboe wrote:
+</I>&gt;<i> &gt;&gt; &gt; why do you want to set one the adapter is in auto adaptive mode by default
+</I>&gt;<i> &gt;&gt; &gt; no need to set any speed
+</I>&gt;<i> &gt;&gt;
+</I>&gt;<i> &gt;&gt; OpenOCD doesn't have an auto-adaptive mode, so I guess you need
+</I>&gt;<i> &gt;&gt; to explain what you are referring to.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; on J-Link
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; if you set the speed to 0xffff
+</I>&gt;<i> &gt; then the adapter will automaticly adaptive clocking
+</I>&gt;<i> 
+</I>&gt;<i> Are you talking about RCLK? Sounds like the RCLK support
+</I>&gt;<i> in jlink adapter does not report back properly to OpenOCD.
+</I>&gt;<i> 
+</I>&gt;<i> OpenOCD uses &quot;0&quot; to -&gt;speed() to mean RCLK.
+</I>&gt;<i> 
+</I>&gt;<i> If jlink has some other magic value, then the jlink driver needs
+</I>&gt;<i> to do the translation.
+</I>
+
+/* Sets speed in kHz. */
+static int jlink_speed(int speed)
+{
+...
+	/* check for RTCK setting */
+	if (speed == 0)
+		speed = -1;
+
+	usb_out_buffer[0] = EMU_CMD_SET_SPEED;
+	usb_out_buffer[1] = (speed &gt;&gt; 0) &amp; 0xff;
+	usb_out_buffer[2] = (speed &gt;&gt; 8) &amp; 0xff;
+...
+}
+...
+static int jlink_khz(int khz, int *jtag_speed)
+{
+	*jtag_speed = khz;
+
+	return ERROR_OK;
+}
+
+So the translation is in place.
+
+The previous behaviour for all adapters when no speed was set in the init script resulted in that jtag-&gt;speed()  was called with 0 as the parameter.
+For jlink (jlink_speed(0)) this resulted in setting the adapter to the RTCK mode.
+This is not a good default mode because not all target boards supports RTCK.
+
+The at91rm9200-ek.cfg script is fixed by taking the lowest speed setting from the reset init procedure. See the patch below.
+The same must be done for many of the other board scripts.
+If the target board support RTCK then I also suggest that the adapter_khz calls is replaced by jtag_rclk. This will benefit adapters with RTCK support.
+
+Best regards
+Jonas H&#246;rberg
+
+diff --git a/tcl/board/at91rm9200-ek.cfg b/tcl/board/at91rm9200-ek.cfg
+index 07a006b..cf0fb7a 100644
+--- a/tcl/board/at91rm9200-ek.cfg
++++ b/tcl/board/at91rm9200-ek.cfg
+@@ -18,6 +18,8 @@ $_TARGETNAME configure -event reset-init { at91rm9200_ek_init }
+ set _FLASHNAME $_CHIPNAME.flash
+ flash bank $_FLASHNAME cfi 0x10000000 0x00800000 2 2 $_TARGETNAME
+ 
++# The chip may run @ 32khz, so set a really low JTAG speed
++adapter_khz 8
+ 
+ proc at91rm9200_ek_init { } {
+ 	# Try to run at 1khz... Yea, that slow!
+ 	# Chip is really running @ 32khz
+ 	adapter_khz 8
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019008.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+	<LI>Next message: <A HREF="019010.html">[Openocd-development] [PATCH] adapter speed: require init script setting and centralize activation from drivers to core.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19009">[ date ]</a>
+              <a href="thread.html#19009">[ thread ]</a>
+              <a href="subject.html#19009">[ subject ]</a>
+              <a href="author.html#19009">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

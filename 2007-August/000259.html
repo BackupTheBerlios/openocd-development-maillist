@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] vFlash* support patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20vFlash%2A%20support%20patch&In-Reply-To=%3C200708081748.42068.Dominic.Rath%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000253.html">
+   <LINK REL="Next"  HREF="000260.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] vFlash* support patch</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20vFlash%2A%20support%20patch&In-Reply-To=%3C200708081748.42068.Dominic.Rath%40gmx.de%3E"
+       TITLE="[Openocd-development] vFlash* support patch">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Wed Aug  8 17:48:41 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000253.html">[Openocd-development] vFlash* support patch
+</A></li>
+        <LI>Next message: <A HREF="000260.html">[Openocd-development] vFlash* support patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#259">[ date ]</a>
+              <a href="thread.html#259">[ thread ]</a>
+              <a href="subject.html#259">[ subject ]</a>
+              <a href="author.html#259">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello Pavel,
+
+I've finally had time to look at your patch.
+
+There are a few problems with it, but I'm currently working on fixing these:
+- a global buffer for vflash data isn't a good idea. There could be multiple 
+GDB connection, each carrying out flash operations. This data belongs to a 
+connection, so I made it a member of gdb_connection_t
+- The GDB documentation only guarantees that vFlash sections don't overlap, 
+and that they're sent for increasing addresses, but it doesn't say that there 
+can't be gaps. I think it's better to build an image_t object with the 
+vFlashWrite parts. The flash_write function could then just take an image_t 
+pointer, and is then useable for both the GDB code and the &quot;flash write&quot; 
+command.
+- On errors you reply with &quot;E nn&quot; - the documentation lists it with a space in 
+between, those spaces aren't part of an actual reply - I don't know if your 
+application is expecting &quot;E&lt;space&gt;nn&quot;, but I don't think GDB could live with 
+that.
+
+Regards,
+
+Dominic
+
+On Thursday 02 August 2007 10:26:20 Pavel Chromy wrote:
+&gt;<i> Hello list,
+</I>&gt;<i>
+</I>&gt;<i> here is a patch for support of vFlash* commands.
+</I>&gt;<i> Supported commands are vFlashErase, vFlashWrite, vFlashDone.
+</I>&gt;<i> Command qXfer:memory-map:read:: is not supported yet.
+</I>&gt;<i>
+</I>&gt;<i> The patch includes:
+</I>&gt;<i>
+</I>&gt;<i> -- flash.[ch] --
+</I>&gt;<i> These functions lookup flash bank by address and perform erase/write on it:
+</I>&gt;<i> int flash_erase(u32 addr, u32 length);
+</I>&gt;<i> int flash_write(u8 *buffer, u32 addr, u32 length);
+</I>&gt;<i> flash_bank_t *get_flash_bank_by_addr(u32 addr);
+</I>&gt;<i> The erase/write region may not span multiple banks.
+</I>&gt;<i>
+</I>&gt;<i> -- gdb_server.c --
+</I>&gt;<i> added function gdb_v_packet() for handling vFlash* commands.
+</I>&gt;<i> vFlashErase calls flash_erase() immediately, while vFlashWrite
+</I>&gt;<i> stores data to dynamically reallocated buffer. vFlashDone commits
+</I>&gt;<i> the whole buffer by calling flash_write().
+</I>&gt;<i>
+</I>&gt;<i> -- at91sam7.c --
+</I>&gt;<i> at91sam7_probe() did not set bank-&gt;num_sectors, now it sets
+</I>&gt;<i> num_sectors=1, as only bulk erase of the whole chip is supported by
+</I>&gt;<i> at91sam7 flash driver (so there is only a single erase sector spanning
+</I>&gt;<i> whole device).
+</I>&gt;<i>
+</I>&gt;<i> at91sam7_erase() checked last sector to be erased against number of
+</I>&gt;<i> lockbits, which is wrong, as the erase sectors are not completely related
+</I>&gt;<i> to lockbits and moreover, only a single erase sector is supported (see
+</I>&gt;<i> above). This is corrected so that last is checked againts
+</I>&gt;<i> bank-&gt;num_sectors.
+</I>&gt;<i>
+</I>&gt;<i> I also include complete file at91sam7.c, which is reformatted (trimmed
+</I>&gt;<i> trailing spaces at end of lines, unified indentation using tabs etc. -
+</I>&gt;<i> cosmetic changes). I recommend to place it to HEAD revision - the original
+</I>&gt;<i> one contains a lot of formatting issues like this.
+</I>&gt;<i>
+</I>&gt;<i> Regards,
+</I>&gt;<i>    Pavel
+</I>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000253.html">[Openocd-development] vFlash* support patch
+</A></li>
+	<LI>Next message: <A HREF="000260.html">[Openocd-development] vFlash* support patch
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#259">[ date ]</a>
+              <a href="thread.html#259">[ thread ]</a>
+              <a href="subject.html#259">[ subject ]</a>
+              <a href="author.html#259">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

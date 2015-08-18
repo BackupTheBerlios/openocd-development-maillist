@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/4] add at91sam9263-ek support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20add%20at91sam9263-ek%20support&In-Reply-To=%3C1302322062-6445-4-git-send-email-plagnioj%40jcrosoft.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018731.html">
+   <LINK REL="Next"  HREF="018727.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/4] add at91sam9263-ek support</H1>
+    <B>Jean-Christophe PLAGNIOL-VILLARD</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/4%5D%20add%20at91sam9263-ek%20support&In-Reply-To=%3C1302322062-6445-4-git-send-email-plagnioj%40jcrosoft.com%3E"
+       TITLE="[Openocd-development] [PATCH 4/4] add at91sam9263-ek support">plagnioj at jcrosoft.com
+       </A><BR>
+    <I>Sat Apr  9 06:07:42 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018731.html">[Openocd-development] [PATCH] at91: add chip register definition and generic init support
+</A></li>
+        <LI>Next message: <A HREF="018727.html">[Openocd-development] [PATCH 1/4] at91: add at91sam9261 chip register definition
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18723">[ date ]</a>
+              <a href="thread.html#18723">[ thread ]</a>
+              <a href="subject.html#18723">[ subject ]</a>
+              <a href="author.html#18723">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">plagnioj at jcrosoft.com</A>&gt;
+Cc: Nicolas Ferre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">nicolas.ferre at atmel.com</A>&gt;
+Cc: Patrice Vilchez &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">patrice.vilchez at atmel.com</A>&gt;
+---
+ tcl/board/at91sam9263-ek.cfg |   63 ++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 63 insertions(+), 0 deletions(-)
+ create mode 100644 tcl/board/at91sam9263-ek.cfg
+
+diff --git a/tcl/board/at91sam9263-ek.cfg b/tcl/board/at91sam9263-ek.cfg
+new file mode 100644
+index 0000000..645b1a7
+--- /dev/null
++++ b/tcl/board/at91sam9263-ek.cfg
+@@ -0,0 +1,63 @@
++################################################################################
++# Atmel AT91SAM9263-EK eval board
++################################################################################
++
++source [find mem_helper.tcl]
++source [find target/at91sam9263.cfg]
++uplevel #0 [list source [find chip/atmel/at91/hardware.cfg]]
++uplevel #0 [list source [find chip/atmel/at91/at91sam9263.cfg]]
++uplevel #0 [list source [find chip/atmel/at91/at91sam9263_matrix.cfg]]
++uplevel #0 [list source [find chip/atmel/at91/at91sam9_init.cfg]]
++
++# By default S1 is open and this means that NTRST is not connected.
++# The reset_config in target/at91sam9263.cfg is overridden here.
++# (or S1 must be populated with a 0 Ohm resistor)
++reset_config srst_only
++
++scan_chain
++$_TARGETNAME configure -event gdb-attach { reset init }
++$_TARGETNAME configure -event reset-init { at91sam9263ek_reset_init }
++$_TARGETNAME configure -event reset-start { at91sam9_reset_start }
++
++proc at91sam9263ek_reset_init { } {
++
++	set config(master_pll_div)	14
++	set config(master_pll_mul)	171
++
++	set val	[expr $::AT91_WDT_WDV]			;# Counter Value
++	set val	[expr ($val | $::AT91_WDT_WDDIS)]	;# Watchdog Disable
++	set val	[expr ($val | $::AT91_WDT_WDD)]		;# Delta Value
++	set val	[expr ($val | $::AT91_WDT_WDDBGHLT)]	;# Debug Halt
++	set val	[expr ($val | $::AT91_WDT_WDIDLEHLT)]	;# Idle Halt
++
++	set config(wdt_mr_val) $val
++
++	set config(sdram_piod) 1
++	;# EBI_CSA, no pull-ups for D[15:0], CS1 SDRAM, CS3 NAND Flash
++	set config(matrix_ebicsa_addr)	$::AT91_MATRIX_EBI0CSA
++
++	set val	[expr $::AT91_MATRIX_EBI0_DBPUC]
++	set val [expr ($val | $::AT91_MATRIX_EBI0_VDDIOMSEL_3_3V)]
++	set val [expr ($val | $::AT91_MATRIX_EBI0_CS1A_SDRAMC)]
++	set config(matrix_ebicsa_val) $val
++
++	;# SDRAMC_CR - Configuration register
++	set val [expr $::AT91_SDRAMC_NC_9]
++	set val [expr ($val | $::AT91_SDRAMC_NR_13)]
++	set val [expr ($val | $::AT91_SDRAMC_NB_4)]
++	set val [expr ($val | $::AT91_SDRAMC_CAS_3)]
++	set val [expr ($val | $::AT91_SDRAMC_DBW_32)]
++	set val [expr ($val | (1 &lt;&lt;  8))]		;# Write Recovery Delay
++	set val [expr ($val | (7 &lt;&lt; 12))]		;# Row Cycle Delay
++	set val [expr ($val | (2 &lt;&lt; 16))]		;# Row Precharge Delay
++	set val [expr ($val | (2 &lt;&lt; 20))]		;# Row to Column Delay
++	set val [expr ($val | (5 &lt;&lt; 24))]		;# Active to Precharge Delay
++	set val [expr ($val | (1 &lt;&lt; 28))]		;# Exit Self Refresh to Active Delay
++
++	set config(sdram_cr_val) $val
++
++	set config(sdram_tr_val) 0x13c
++
++	set config(sdram_base) $::AT91_CHIPSELECT_1
++	at91sam9_reset_init $config
++}
+-- 
+1.7.4.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018731.html">[Openocd-development] [PATCH] at91: add chip register definition and generic init support
+</A></li>
+	<LI>Next message: <A HREF="018727.html">[Openocd-development] [PATCH 1/4] at91: add at91sam9261 chip register definition
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18723">[ date ]</a>
+              <a href="thread.html#18723">[ thread ]</a>
+              <a href="subject.html#18723">[ subject ]</a>
+              <a href="author.html#18723">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

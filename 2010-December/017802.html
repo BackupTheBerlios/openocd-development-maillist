@@ -1,0 +1,279 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/9] NAND/AT91SAM9: remove private	&quot;target&quot; copy
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/9%5D%20NAND/AT91SAM9%3A%20remove%20private%0A%09%22target%22%20copy&In-Reply-To=%3C1293795969-6485-3-git-send-email-borneo.antonio%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017801.html">
+   <LINK REL="Next"  HREF="017803.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/9] NAND/AT91SAM9: remove private	&quot;target&quot; copy</H1>
+    <B>Antonio Borneo</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/9%5D%20NAND/AT91SAM9%3A%20remove%20private%0A%09%22target%22%20copy&In-Reply-To=%3C1293795969-6485-3-git-send-email-borneo.antonio%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/9] NAND/AT91SAM9: remove private	&quot;target&quot; copy">borneo.antonio at gmail.com
+       </A><BR>
+    <I>Fri Dec 31 12:46:02 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017801.html">[Openocd-development] [PATCH 1/9] NAND/TCL: prepare for common	&quot;target&quot; reference
+</A></li>
+        <LI>Next message: <A HREF="017803.html">[Openocd-development] [PATCH 3/9] NAND/DAVINCI: remove private	&quot;target&quot; copy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17802">[ date ]</a>
+              <a href="thread.html#17802">[ thread ]</a>
+              <a href="subject.html#17802">[ subject ]</a>
+              <a href="author.html#17802">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Remove &quot;target&quot; form private data, and use
+common one in struct nand_block.
+
+Signed-off-by: Antonio Borneo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">borneo.antonio at gmail.com</A>&gt;
+---
+ src/flash/nand/at91sam9.c |   59 ++++++++++++++++----------------------------
+ 1 files changed, 22 insertions(+), 37 deletions(-)
+
+diff --git a/src/flash/nand/at91sam9.c b/src/flash/nand/at91sam9.c
+index 92ab047..d118f6c 100644
+--- a/src/flash/nand/at91sam9.c
++++ b/src/flash/nand/at91sam9.c
+@@ -38,9 +38,6 @@
+  * Representation of a pin on an AT91SAM9 chip.
+  */
+ struct at91sam9_pin {
+-	/** Target this pin is on. */
+-	struct target *target;
+-
+ 	/** Address of the PIO controller. */
+ 	uint32_t pioc;
+ 
+@@ -52,9 +49,6 @@ struct at91sam9_pin {
+  * Private data for the controller that is stored in the NAND device structure.
+  */
+ struct at91sam9_nand {
+-	/** Target the NAND is attached to. */
+-	struct target *target;
+-
+ 	/** Address of the ECC controller for NAND. */
+ 	uint32_t ecc;
+ 
+@@ -101,8 +95,7 @@ static int at91sam9_halted(struct target *target, const char *label)
+  */
+ static int at91sam9_init(struct nand_device *nand)
+ {
+-	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (!at91sam9_halted(target, &quot;init&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+@@ -117,9 +110,10 @@ static int at91sam9_init(struct nand_device *nand)
+  * @param info NAND controller information for controlling NAND device.
+  * @return Success or failure of the enabling.
+  */
+-static int at91sam9_enable(struct at91sam9_nand *info)
++static int at91sam9_enable(struct nand_device *nand)
+ {
+-	struct target *target = info-&gt;target;
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = nand-&gt;target;
+ 
+ 	return target_write_u32(target, info-&gt;ce.pioc + AT91C_PIOx_CODR, 1 &lt;&lt; info-&gt;ce.num);
+ }
+@@ -130,9 +124,10 @@ static int at91sam9_enable(struct at91sam9_nand *info)
+  * @param info NAND controller information for controlling NAND device.
+  * @return Success or failure of the disabling.
+  */
+-static int at91sam9_disable(struct at91sam9_nand *info)
++static int at91sam9_disable(struct nand_device *nand)
+ {
+-	struct target *target = info-&gt;target;
++	struct at91sam9_nand *info = nand-&gt;controller_priv;
++	struct target *target = nand-&gt;target;
+ 
+ 	return target_write_u32(target, info-&gt;ce.pioc + AT91C_PIOx_SODR, 1 &lt;&lt; info-&gt;ce.num);
+ }
+@@ -147,13 +142,13 @@ static int at91sam9_disable(struct at91sam9_nand *info)
+ static int at91sam9_command(struct nand_device *nand, uint8_t command)
+ {
+ 	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (!at91sam9_halted(target, &quot;command&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+-	at91sam9_enable(info);
++	at91sam9_enable(nand);
+ 
+ 	return target_write_u8(target, info-&gt;cmd, command);
+ }
+@@ -166,13 +161,11 @@ static int at91sam9_command(struct nand_device *nand, uint8_t command)
+  */
+ static int at91sam9_reset(struct nand_device *nand)
+ {
+-	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-
+-	if (!at91sam9_halted(info-&gt;target, &quot;reset&quot;)) {
++	if (!at91sam9_halted(nand-&gt;target, &quot;reset&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+-	return at91sam9_disable(info);
++	return at91sam9_disable(nand);
+ }
+ 
+ /**
+@@ -185,9 +178,9 @@ static int at91sam9_reset(struct nand_device *nand)
+ static int at91sam9_address(struct nand_device *nand, uint8_t address)
+ {
+ 	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+-	if (!at91sam9_halted(info-&gt;target, &quot;address&quot;)) {
++	if (!at91sam9_halted(nand-&gt;target, &quot;address&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+@@ -205,9 +198,9 @@ static int at91sam9_address(struct nand_device *nand, uint8_t address)
+ static int at91sam9_read_data(struct nand_device *nand, void *data)
+ {
+ 	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+-	if (!at91sam9_halted(info-&gt;target, &quot;read data&quot;)) {
++	if (!at91sam9_halted(nand-&gt;target, &quot;read data&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+@@ -225,7 +218,7 @@ static int at91sam9_read_data(struct nand_device *nand, void *data)
+ static int at91sam9_write_data(struct nand_device *nand, uint16_t data)
+ {
+ 	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 
+ 	if (!at91sam9_halted(target, &quot;write data&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+@@ -244,7 +237,7 @@ static int at91sam9_write_data(struct nand_device *nand, uint16_t data)
+ static int at91sam9_nand_ready(struct nand_device *nand, int timeout)
+ {
+ 	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 	uint32_t status;
+ 
+ 	if (!at91sam9_halted(target, &quot;nand ready&quot;)) {
+@@ -279,7 +272,7 @@ static int at91sam9_read_block_data(struct nand_device *nand, uint8_t *data, int
+ 	struct arm_nand_data *io = &amp;info-&gt;io;
+ 	int status;
+ 
+-	if (!at91sam9_halted(info-&gt;target, &quot;read block&quot;)) {
++	if (!at91sam9_halted(nand-&gt;target, &quot;read block&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+@@ -304,7 +297,7 @@ static int at91sam9_write_block_data(struct nand_device *nand, uint8_t *data, in
+ 	struct arm_nand_data *io = &amp;info-&gt;io;
+ 	int status;
+ 
+-	if (!at91sam9_halted(info-&gt;target, &quot;write block&quot;)) {
++	if (!at91sam9_halted(nand-&gt;target, &quot;write block&quot;)) {
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+@@ -381,7 +374,7 @@ static int at91sam9_read_page(struct nand_device *nand, uint32_t page,
+ {
+ 	int retval;
+ 	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 	uint8_t *oob_data;
+ 	uint32_t status;
+ 
+@@ -458,7 +451,7 @@ static int at91sam9_write_page(struct nand_device *nand, uint32_t page,
+ 		uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
+ {
+ 	struct at91sam9_nand *info = nand-&gt;controller_priv;
+-	struct target *target = info-&gt;target;
++	struct target *target = nand-&gt;target;
+ 	int retval;
+ 	uint8_t *oob_data = oob;
+ 	uint32_t parity, nparity;
+@@ -517,7 +510,6 @@ static int at91sam9_write_page(struct nand_device *nand, uint32_t page,
+  */
+ NAND_DEVICE_COMMAND_HANDLER(at91sam9_nand_device_command)
+ {
+-	struct target *target = NULL;
+ 	unsigned long chip = 0, ecc = 0;
+ 	struct at91sam9_nand *info = NULL;
+ 
+@@ -528,12 +520,6 @@ NAND_DEVICE_COMMAND_HANDLER(at91sam9_nand_device_command)
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+-	target = get_target(CMD_ARGV[1]);
+-	if (!target) {
+-		LOG_ERROR(&quot;invalid target: %s&quot;, CMD_ARGV[1]);
+-		return ERROR_NAND_OPERATION_FAILED;
+-	}
+-
+ 	COMMAND_PARSE_NUMBER(ulong, CMD_ARGV[2], chip);
+ 	if (chip == 0) {
+ 		LOG_ERROR(&quot;invalid NAND chip address: %s&quot;, CMD_ARGV[2]);
+@@ -554,14 +540,13 @@ NAND_DEVICE_COMMAND_HANDLER(at91sam9_nand_device_command)
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 	}
+ 
+-	info-&gt;target = target;
+ 	info-&gt;data = chip;
+ 	info-&gt;cmd = chip | (1 &lt;&lt; 22);
+ 	info-&gt;addr = chip | (1 &lt;&lt; 21);
+ 	info-&gt;ecc = ecc;
+ 
+ 	nand-&gt;controller_priv = info;
+-	info-&gt;io.target = target;
++	info-&gt;io.target = nand-&gt;target;
+ 	info-&gt;io.data = info-&gt;data;
+ 	info-&gt;io.op = ARM_NAND_NONE;
+ 
+-- 
+1.7.2.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017801.html">[Openocd-development] [PATCH 1/9] NAND/TCL: prepare for common	&quot;target&quot; reference
+</A></li>
+	<LI>Next message: <A HREF="017803.html">[Openocd-development] [PATCH 3/9] NAND/DAVINCI: remove private	&quot;target&quot; copy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17802">[ date ]</a>
+              <a href="thread.html#17802">[ thread ]</a>
+              <a href="subject.html#17802">[ subject ]</a>
+              <a href="author.html#17802">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

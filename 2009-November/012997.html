@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] fix regression causing duplicated	output
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20fix%20regression%20causing%20duplicated%0A%09output&In-Reply-To=%3C1259359734-12032-1-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012993.html">
+   <LINK REL="Next"  HREF="012999.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] fix regression causing duplicated	output</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20fix%20regression%20causing%20duplicated%0A%09output&In-Reply-To=%3C1259359734-12032-1-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH] fix regression causing duplicated	output">zw at superlucidity.net
+       </A><BR>
+    <I>Fri Nov 27 23:08:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012993.html">[Openocd-development] Fix interface regression
+</A></li>
+        <LI>Next message: <A HREF="012999.html">[Openocd-development] [PATCH] fix regression causing duplicated	output
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12997">[ date ]</a>
+              <a href="thread.html#12997">[ thread ]</a>
+              <a href="subject.html#12997">[ subject ]</a>
+              <a href="author.html#12997">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The command refactoring caused subcommand handlers to produce duplicate
+output when run.  The problem was introduced by failing to ensure all
+such invocations went through a top-level &quot;catcher&quot; script, prefixing
+the command name with the 'ocd_' prefix and consuming its results.
+
+The fix is to ensure such a top-level &quot;catcher&quot; script gets created
+for each top-level command, regardless of whether it has a handler.
+Indeed, this patch removes all command registrations for sub-commands,
+which would not have worked in the new registration scheme anyway.
+
+For now, dispatch of subcommands continues to be handled by the new
+'unknown' command handler, which gets fixed here to strip the 'ocd_'
+prefix if searching for the top-level command name fails initially.
+Some Jim commands may be registered with this prefix, and that situation
+seems to require the current fallback approach.  Otherwise, that prefix
+could be stripped unconditionally and the logic made a little simpler.
+
+Overall, the command dispatching remains more complicated than desired,
+but this patch fixes the immediate regressions.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/command.c |   45 +++++++++++++++++++++++++++++++--------------
+ 1 files changed, 31 insertions(+), 14 deletions(-)
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 62fb487..135cd3f 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -44,6 +44,9 @@
+ #include &quot;jim-eventloop.h&quot;
+ 
+ 
++/* nice short description of source file */
++#define __THIS__FILE__ &quot;command.c&quot;
++
+ Jim_Interp *interp = NULL;
+ 
+ static int run_command(struct command_context *context,
+@@ -185,8 +188,12 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return script_command_run(interp, argc, argv, c, true);
+ }
+ 
+-/* nice short description of source file */
+-#define __THIS__FILE__ &quot;command.c&quot;
++static struct command *command_root(struct command *c)
++{
++	while (NULL != c-&gt;parent)
++		c = c-&gt;parent;
++	return c;
++}
+ 
+ /**
+  * Find a command by name from a list of commands.
+@@ -296,19 +303,22 @@ static int register_command_handler(struct command *c)
+ 	if (NULL == full_name)
+ 		return retval;
+ 
+-	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
+-	if (NULL == full_name)
+-		goto free_full_name;
++	if (NULL != c-&gt;handler)
++	{
++		const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
++		if (NULL == full_name)
++			goto free_full_name;
+ 
+-	Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
+-	free((void *)ocd_name);
++		Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
++		free((void *)ocd_name);
++	}
+ 
+ 	/* we now need to add an overrideable proc */
+ 	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
+ 			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
+ 			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
+ 			full_name, full_name);
+-	if (NULL == full_name)
++	if (NULL == override_name)
+ 		goto free_full_name;
+ 
+ 	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
+@@ -343,7 +353,7 @@ struct command* register_command(struct command_context *context,
+ 
+ 	if (NULL != c-&gt;handler)
+ 	{
+-		int retval = register_command_handler(c);
++		int retval = register_command_handler(command_root(c));
+ 		if (ERROR_OK != retval)
+ 		{
+ 			unregister_command(context, parent, name);
+@@ -875,15 +885,22 @@ COMMAND_HANDLER(handle_help_command)
+ }
+ 
+ static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+-		struct command *head, struct command **out)
++		struct command *head, struct command **out, bool top_level)
+ {
+ 	if (0 == argc)
+ 		return argc;
+-	struct command *c = command_find(head, Jim_GetString(argv[0], NULL));
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
++	struct command *c = command_find(head, cmd_name);
+ 	if (NULL == c)
+-		return argc;
++	{
++		if (top_level &amp;&amp; strncmp(cmd_name, &quot;ocd_&quot;, 4) == 0)
++			c = command_find(head, cmd_name + 4);
++
++		if (NULL == c)
++			return argc;
++	}
+ 	*out = c;
+-	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out);
++	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out, false);
+ }
+ 
+ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+@@ -893,7 +910,7 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	struct command_context *cmd_ctx = current_command_context();
+ 	struct command *c = cmd_ctx-&gt;commands;
+-	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c);
++	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c, true);
+ 	// if nothing could be consumed, then it's really an unknown command
+ 	if (remaining == argc - 1)
+ 	{
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012993.html">[Openocd-development] Fix interface regression
+</A></li>
+	<LI>Next message: <A HREF="012999.html">[Openocd-development] [PATCH] fix regression causing duplicated	output
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12997">[ date ]</a>
+              <a href="thread.html#12997">[ thread ]</a>
+              <a href="subject.html#12997">[ subject ]</a>
+              <a href="author.html#12997">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

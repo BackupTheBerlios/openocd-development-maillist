@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] Fix for segmentation fault	from	freed memory access in jtag_unregister_event_callback()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20for%20segmentation%20fault%0A%09from%09freed%20memory%20access%20in%20jtag_unregister_event_callback%28%29&In-Reply-To=%3C20101210072753.27256.qmail%40stuge.se%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017583.html">
+   <LINK REL="Next"  HREF="017585.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] Fix for segmentation fault	from	freed memory access in jtag_unregister_event_callback()</H1>
+    <B>Peter Stuge</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20Fix%20for%20segmentation%20fault%0A%09from%09freed%20memory%20access%20in%20jtag_unregister_event_callback%28%29&In-Reply-To=%3C20101210072753.27256.qmail%40stuge.se%3E"
+       TITLE="[Openocd-development] [PATCH] Fix for segmentation fault	from	freed memory access in jtag_unregister_event_callback()">peter at stuge.se
+       </A><BR>
+    <I>Fri Dec 10 08:27:53 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017583.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed memory access in jtag_unregister_event_callback()
+</A></li>
+        <LI>Next message: <A HREF="017585.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed memory access in jtag_unregister_event_callback()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17584">[ date ]</a>
+              <a href="thread.html#17584">[ thread ]</a>
+              <a href="subject.html#17584">[ subject ]</a>
+              <a href="author.html#17584">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&#216;yvind Harboe wrote:
+&gt;<i> &gt; double pointers are horrible.
+</I>&gt;<i> 
+</I>&gt;<i> Ah, missed that. Well another patch is gladly accepted, meanwhile
+</I>&gt;<i> it no longer crashes.
+</I>
+Fair. Two versions attached. One which makes the code two lines
+longer and avoids double pointers, and a remix which uses only a
+single double pointer and is net one line shorter.
+
+
+//Peter
+-------------- next part --------------
+&gt;<i>From 2794909b0654630d71fe0fd618d7188a450234c4 Mon Sep 17 00:00:00 2001
+</I>From: Peter Stuge &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>&gt;
+Date: Fri, 10 Dec 2010 08:19:23 +0100
+Subject: [PATCH] jtag: Avoid double pointers when removing event callbacks
+
+---
+ src/jtag/core.c |   22 ++++++++++++----------
+ 1 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index dfedc17..dd6c8d0 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -296,24 +296,26 @@ int jtag_register_event_callback(jtag_event_handler_t callback, void *priv)
+ 
+ int jtag_unregister_event_callback(jtag_event_handler_t callback, void *priv)
+ {
+-	struct jtag_event_callback **p = &amp;jtag_event_callbacks, *temp;
++	struct jtag_event_callback *p, *prev, *next;
+ 
+-	if (callback == NULL)
+-	{
++	if (!callback)
+ 		return ERROR_INVALID_ARGUMENTS;
+-	}
+ 
+-	while (*p)
++	for (p = jtag_event_callbacks, prev = NULL, p, p = next)
+ 	{
+-		if (((*p)-&gt;priv != priv) || ((*p)-&gt;callback != callback))
++		next = p-&gt;next;
++
++		if (p-&gt;callback != callback || p-&gt;priv != priv)
+ 		{
+-			p = &amp;(*p)-&gt;next;
++			prev = p;
+ 			continue;
+ 		}
+ 
+-		temp = *p;
+-		*p = (*p)-&gt;next;
+-		free(temp);
++		if (prev)
++			prev-&gt;next = next;
++		else
++			jtag_event_callbacks = next;
++		free(p);
+ 	}
+ 
+ 	return ERROR_OK;
+-- 
+1.7.2
+
+-------------- next part --------------
+&gt;<i>From 1063bf4e9dcb722f39f015af47864b3583e6bdb1 Mon Sep 17 00:00:00 2001
+</I>From: Peter Stuge &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">peter at stuge.se</A>&gt;
+Date: Fri, 10 Dec 2010 08:19:23 +0100
+Subject: [PATCH] jtag: Use only one double pointer when removing event callbacks
+
+---
+ src/jtag/core.c |   19 +++++++++----------
+ 1 files changed, 9 insertions(+), 10 deletions(-)
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index dfedc17..6a97079 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -296,24 +296,23 @@ int jtag_register_event_callback(jtag_event_handler_t callback, void *priv)
+ 
+ int jtag_unregister_event_callback(jtag_event_handler_t callback, void *priv)
+ {
+-	struct jtag_event_callback **p = &amp;jtag_event_callbacks, *temp;
++	struct jtag_event_callback *p, *prev, *next;
+ 
+-	if (callback == NULL)
+-	{
++	if (!callback)
+ 		return ERROR_INVALID_ARGUMENTS;
+-	}
+ 
+-	while (*p)
++	for (p = jtag_event_callbacks, prev = NULL, p, p = next)
+ 	{
+-		if (((*p)-&gt;priv != priv) || ((*p)-&gt;callback != callback))
++		next = p-&gt;next;
++
++		if (p-&gt;callback != callback || p-&gt;priv != priv)
+ 		{
+-			p = &amp;(*p)-&gt;next;
++			prev = p;
+ 			continue;
+ 		}
+ 
+-		temp = *p;
+-		*p = (*p)-&gt;next;
+-		free(temp);
++		*(prev ? &amp;prev-&gt;next : &amp;jtag_event_callbacks) = next;
++		free(p);
+ 	}
+ 
+ 	return ERROR_OK;
+-- 
+1.7.2
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017583.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed memory access in jtag_unregister_event_callback()
+</A></li>
+	<LI>Next message: <A HREF="017585.html">[Openocd-development] [PATCH] Fix for segmentation fault from freed memory access in jtag_unregister_event_callback()
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17584">[ date ]</a>
+              <a href="thread.html#17584">[ thread ]</a>
+              <a href="subject.html#17584">[ subject ]</a>
+              <a href="author.html#17584">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

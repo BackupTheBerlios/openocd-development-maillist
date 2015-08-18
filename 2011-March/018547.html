@@ -1,0 +1,113 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/2] mips: delete kludgy code that	modifies data sent to write_memory()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20mips%3A%20delete%20kludgy%20code%20that%0A%09modifies%20data%20sent%20to%20write_memory%28%29&In-Reply-To=%3C1301590221-5001-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018557.html">
+   <LINK REL="Next"  HREF="018548.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/2] mips: delete kludgy code that	modifies data sent to write_memory()</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/2%5D%20mips%3A%20delete%20kludgy%20code%20that%0A%09modifies%20data%20sent%20to%20write_memory%28%29&In-Reply-To=%3C1301590221-5001-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/2] mips: delete kludgy code that	modifies data sent to write_memory()">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Mar 31 18:50:20 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018557.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+        <LI>Next message: <A HREF="018548.html">[Openocd-development] [PATCH 2/2] types: write memory now uses const
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18547">[ date ]</a>
+              <a href="thread.html#18547">[ thread ]</a>
+              <a href="subject.html#18547">[ subject ]</a>
+              <a href="author.html#18547">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Could this cause confusion as data sent to write would be flipped
+and then if the caller subsequently used the data, e.g. a
+compare mismatch might happen?
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/mips_m4k.c |   17 ++++++++++++++++-
+ 1 files changed, 16 insertions(+), 1 deletions(-)
+
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index 3a79273..77f3e53 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -1002,19 +1002,34 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ 		ejtag_info-&gt;fast_access_save = -1;
+ 	}
+ 
++	uint8_t * t = NULL;
++
+ 	/* TAP data register is loaded LSB first (little endian) */
+ 	if (target-&gt;endianness == TARGET_BIG_ENDIAN)
+ 	{
++		t = malloc(count * sizeof(uint32_t));
++		if (t == NULL)
++		{
++			LOG_ERROR(&quot;Out of memory&quot;);
++			return ERROR_FAIL;
++		}
++
+ 		uint32_t i, t32;
+ 		for(i = 0; i &lt; (count * 4); i += 4)
+ 		{
+ 			t32 = be_to_h_u32((uint8_t *) &amp;buffer[i]);
+-			h_u32_to_le(&amp;buffer[i], t32);
++			h_u32_to_le(&amp;t[i], t32);
+ 		}
++
++		buffer = t;
+ 	}
+ 
+ 	retval = mips32_pracc_fastdata_xfer(ejtag_info, mips32-&gt;fast_data_area, write_t, address,
+ 			count, (uint32_t*) (void *)buffer);
++
++	if (t != NULL)
++		free(t);
++
+ 	if (retval != ERROR_OK)
+ 	{
+ 		/* FASTDATA access failed, try normal memory write */
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018557.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+	<LI>Next message: <A HREF="018548.html">[Openocd-development] [PATCH 2/2] types: write memory now uses const
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18547">[ date ]</a>
+              <a href="thread.html#18547">[ thread ]</a>
+              <a href="subject.html#18547">[ subject ]</a>
+              <a href="author.html#18547">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

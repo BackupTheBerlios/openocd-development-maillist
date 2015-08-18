@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] ULINK driver: firmware license questions
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ULINK%20driver%3A%20firmware%20license%20questions&In-Reply-To=%3C4DA053D9.7090400%40duaneellis.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018713.html">
+   <LINK REL="Next"  HREF="018729.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] ULINK driver: firmware license questions</H1>
+    <B>Duane Ellis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ULINK%20driver%3A%20firmware%20license%20questions&In-Reply-To=%3C4DA053D9.7090400%40duaneellis.com%3E"
+       TITLE="[Openocd-development] ULINK driver: firmware license questions">openocd at duaneellis.com
+       </A><BR>
+    <I>Sat Apr  9 14:40:57 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018713.html">[Openocd-development] ULINK driver: firmware license questions
+</A></li>
+        <LI>Next message: <A HREF="018729.html">[Openocd-development] ULINK driver: firmware license questions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18728">[ date ]</a>
+              <a href="thread.html#18728">[ thread ]</a>
+              <a href="subject.html#18728">[ subject ]</a>
+              <a href="author.html#18728">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>All -
+
+I've seen a number of things about using the EzUSB chip, i have some 
+experience/knowledge with this chip, and the EzUSB library that 
+generates the license concern, is very easy to work around.
+
+-Duane.
+
+If you do this you can re-purpose many other devices into JTAG dongles
+
+  For example:
+
+     <A HREF="http://www.devasys.com/usbi2cio.htm">http://www.devasys.com/usbi2cio.htm</A>
+     <A HREF="http://www.usbee.com/sx.html">http://www.usbee.com/sx.html</A>
+     <A HREF="http://www.usbee.com/usbeeex2.html">http://www.usbee.com/usbeeex2.html</A>
+
+     <A HREF="http://www.cutedigi.com/product_info.php?products_id=4515">http://www.cutedigi.com/product_info.php?products_id=4515</A>
+     <A HREF="http://www.minford.ca/html/mf3001.html">http://www.minford.ca/html/mf3001.html</A>
+
+     <A HREF="http://www.knjn.com/shop.html?pg=img&amp;src=5131">http://www.knjn.com/shop.html?pg=img&amp;src=5131</A>
+
+     <A HREF="http://www.knjn.com/FPGA-FX2.html">http://www.knjn.com/FPGA-FX2.html</A>
+         Some of these have an ARM + FPGA + EzUSB chip
+
+The EzUSB magic works like this:
+
+1)    At POWER ON RESET, the EzUSB chip reads the first 8 bytes of the 
+on board I2C chip.
+
+     IF I2C chip is not present (or data is corrupt) THEN
+             use ANCHOR (now cypress) Vendor ID, and ANCHOR assigned 
+Product ID.
+             Attach via USB.
+
+     IF I2C is present, and 8 byte data header is valid, header may be 
+in two forms.
+     CASE 1:
+             Firmware is present - chip loads the firmware from I2C and 
+runs your code.
+             Your code decides when and how to attach.
+
+     CASE 2:
+             the &quot;BOOT HEADER&quot; is present only.
+             The boot header has YOUR vendor ID, and YOUR product ID.
+             The boot header has no usb strings, no nothing, ie; 
+'minimal stuff'
+             But - it has enough to attach via USB..
+
+2) The magic download trick is this: one USB &quot;vendor&quot; command.
+     Specifically: the value is '0xA0' (the A is probably for Anchor)
+
+     Problem: No windows native stuff lets you send VENDOR commands.
+     Example: WinUSB driver library cannot do this,
+     The Cypress EzUSB library + EzUSB driver can ...
+
+     In contrast,  LIBUSB - you *can* send vendor commands :-)
+
+     Hence you can write a driver using LIBUSB :-)
+
+3) In the USB vendor setup packet, the important two fields are:
+        (a) wValue = 16 bit address to write data to
+        (b) wLength = the number of bytes to write.
+
+     In effect, the USB vendor command (0xa0) says:
+             Write (N) bytes to memory address(X).
+             You can access the full 8051 internal address space (64K)
+
+NOTE:
+     Even if you have assigned your own VID/PID the hardware intercepts the
+    vendor command 0xa0 - and allows any PC application to take control.
+    This is a good thing, especially when you have bugs in your 8051 code.
+
+4) Download STEP 1 - send a vendor command to write 1 byte to the SFR 
+'reset register'
+     The value 0x01 - puts the CPU in reset, the value 0x00 lets the CPU 
+run.
+     At this step, the CPU is held in reset.
+
+5) Download STEP 2 - repeat vendor commands to download app to internal RAM.
+     You can only write via the 0xa0 command,you cannot read.
+
+6) Download STEP 3 - Write to that same SFR register, and release CPU RESET.
+     your EzUSB chip begins execution at the reset vector.
+
+     NOTE: When it does this, the USB device is not &quot;reset' but remains 
+attached.
+     Your downloaded code - can if needed disconnect and reconnect.
+
+The above is generally what the linux tool:  &quot;fxload&quot; does.
+     <A HREF="http://linux.die.net/man/8/fxload">http://linux.die.net/man/8/fxload</A>
+
+=====
+
+To PROGRAM the on board I2C chip, do the following:
+
+     Start: Your I2C chip is blank or corrupt.
+     Connect via USB - send the vendor command 0xa0, put cpu in reset.
+     Download new code, remove reset.
+     Your downloaded code re-writes the I2C chip.
+
+     OR - Above - download prebuilt cypress HEX file
+     That HEX file supports various vendor commands to rd/wr the I2C chip.
+
+
+*END*
+
+
+
+
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018713.html">[Openocd-development] ULINK driver: firmware license questions
+</A></li>
+	<LI>Next message: <A HREF="018729.html">[Openocd-development] ULINK driver: firmware license questions
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18728">[ date ]</a>
+              <a href="thread.html#18728">[ thread ]</a>
+              <a href="subject.html#18728">[ subject ]</a>
+              <a href="author.html#18728">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

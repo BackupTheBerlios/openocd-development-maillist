@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 1/3] target: add check_reset hook
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20target%3A%20add%20check_reset%20hook&In-Reply-To=%3C1263371501-27086-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014141.html">
+   <LINK REL="Next"  HREF="014128.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 1/3] target: add check_reset hook</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%201/3%5D%20target%3A%20add%20check_reset%20hook&In-Reply-To=%3C1263371501-27086-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 1/3] target: add check_reset hook">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Jan 13 09:31:39 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014141.html">[Openocd-development] Freescale iMX35 &amp; OpenOCD
+</A></li>
+        <LI>Next message: <A HREF="014128.html">[Openocd-development] [PATCH 2/3] arm7/9: add fn to check if dcc	downloads have been enabled
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14127">[ date ]</a>
+              <a href="thread.html#14127">[ thread ]</a>
+              <a href="subject.html#14127">[ subject ]</a>
+              <a href="author.html#14127">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Allow targets to run checks post reset. Used to check
+that e.g. DCC downloads have been enabled.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/target/target.c      |   36 ++++++++++++++++++++++++++++++++++++
+ src/target/target.h      |    4 +++-
+ src/target/target_type.h |    7 +++++++
+ 3 files changed, 46 insertions(+), 1 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 7994aff..c56265c 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -477,6 +477,11 @@ int target_process_reset(struct command_context *cmd_ctx, enum target_reset_mode
+ 	/* We want any events to be processed before the prompt */
+ 	retval = target_call_timer_callbacks_now();
+ 
++	struct target *target;
++	for (target = all_targets; target; target = target-&gt;next) {
++		target-&gt;type-&gt;check_reset(target);
++	}
++
+ 	return retval;
+ }
+ 
+@@ -499,6 +504,12 @@ static int default_examine(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++/* no check by default */
++static int default_check_reset(struct target *target)
++{
++	return ERROR_OK;
++}
++
+ int target_examine_one(struct target *target)
+ {
+ 	return target-&gt;type-&gt;examine(target);
+@@ -708,6 +719,9 @@ static int target_init_one(struct command_context *cmd_ctx,
+ 	if (type-&gt;examine == NULL)
+ 		type-&gt;examine = default_examine;
+ 
++	if (type-&gt;check_reset== NULL)
++		type-&gt;check_reset = default_check_reset;
++
+ 	int retval = type-&gt;init_target(cmd_ctx, target);
+ 	if (ERROR_OK != retval)
+ 	{
+@@ -4887,6 +4901,20 @@ int target_register_commands(struct command_context *cmd_ctx)
+ 	return register_commands(cmd_ctx, NULL, target_command_handlers);
+ }
+ 
++static bool target_reset_nag = true;
++
++bool get_target_reset_nag(void)
++{
++	return target_reset_nag;
++}
++
++COMMAND_HANDLER(handle_target_reset_nag)
++{
++	return CALL_COMMAND_HANDLER(handle_command_parse_bool,
++			&amp;target_reset_nag, &quot;Nag after each reset about options to improve &quot;
++			&quot;performance&quot;);
++}
++
+ static const struct command_registration target_exec_command_handlers[] = {
+ 	{
+ 		.name = &quot;fast_load_image&quot;,
+@@ -5088,6 +5116,14 @@ static const struct command_registration target_exec_command_handlers[] = {
+ 			&quot;and write the 8/16/32 bit values&quot;,
+ 		.usage = &quot;arrayname bitwidth address count&quot;,
+ 	},
++	{
++		.name = &quot;reset_nag&quot;,
++		.handler = handle_target_reset_nag,
++		.mode = COMMAND_ANY,
++		.help = &quot;Nag after each reset about options that could have been &quot;
++				&quot;enabled to improve performance. &quot;,
++		.usage = &quot;['enable'|'disable']&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ int target_register_user_commands(struct command_context *cmd_ctx)
+diff --git a/src/target/target.h b/src/target/target.h
+index 4151c22..da91d46 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007,2008,2009 &#216;yvind Harboe                            *
++ *   Copyright (C) 2007-9 &#216;yvind Harboe                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+@@ -483,4 +483,6 @@ void target_all_handle_event(enum target_event e);
+ 
+ const char *target_strerror_safe(int err);
+ 
++extern bool get_target_reset_nag(void);
++
+ #endif /* TARGET_H */
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index 67041b3..70eb962 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -213,6 +213,13 @@ struct target_type
+ 
+ 	int (*mmu)(struct target *target, int *enabled);
+ 
++	/* after reset is complete, the target can check if things are properly set up.
++	 *
++	 * This can be used to check if e.g. DCC memory writes have been enabled for
++	 * arm7/9 targets, which they really should except in the most contrived
++	 * circumstances.
++	 */
++	int (*check_reset)(struct target *target);
+ };
+ 
+ #endif // TARGET_TYPE_H
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014141.html">[Openocd-development] Freescale iMX35 &amp; OpenOCD
+</A></li>
+	<LI>Next message: <A HREF="014128.html">[Openocd-development] [PATCH 2/3] arm7/9: add fn to check if dcc	downloads have been enabled
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14127">[ date ]</a>
+              <a href="thread.html#14127">[ thread ]</a>
+              <a href="subject.html#14127">[ subject ]</a>
+              <a href="author.html#14127">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

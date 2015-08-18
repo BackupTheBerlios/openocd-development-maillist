@@ -1,0 +1,281 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] ft2232 jtag mips performance
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ft2232%20jtag%20mips%20performance&In-Reply-To=%3CAANLkTik4DXsiov3Mx3C8aasPpVKXEcuXuadKNdO9RQAw%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018536.html">
+   <LINK REL="Next"  HREF="018438.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] ft2232 jtag mips performance</H1>
+    <B>Andrew Lyon</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20ft2232%20jtag%20mips%20performance&In-Reply-To=%3CAANLkTik4DXsiov3Mx3C8aasPpVKXEcuXuadKNdO9RQAw%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] ft2232 jtag mips performance">andrew.lyon at gmail.com
+       </A><BR>
+    <I>Fri Mar 25 11:52:53 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018536.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+        <LI>Next message: <A HREF="018438.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18437">[ date ]</a>
+              <a href="thread.html#18437">[ thread ]</a>
+              <a href="subject.html#18437">[ subject ]</a>
+              <a href="author.html#18437">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, Mar 24, 2011 at 11:01 AM, Drasko DRASKOVIC
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+&gt;<i> Hi Andy,
+</I>&gt;<i> I am very surprised that OpenOCD works for big endian MIPS.
+</I>&gt;<i>
+</I>&gt;<i> I am currently working on this and I am preparing the patch that will
+</I>&gt;<i> fix some of the issues.
+</I>&gt;<i>
+</I>&gt;<i> What I currently observed is :
+</I>&gt;<i>
+</I>&gt;<i> 1) mips_m4k_write_memory() and mips_m4k_read_memory() do not handle
+</I>&gt;<i> endianess at all. Since these functions are used by mww and mdw
+</I>&gt;<i> commands to set up SDRAM controller, most probably your configuration
+</I>&gt;<i> is wrong. Can you check this by reading SDRAM controller configuration
+</I>&gt;<i> registers and comparing to that configuration you expect ? I'd be very
+</I>&gt;<i> suprised that it works.
+</I>&gt;<i>
+</I>&gt;<i> 2) Only mips_m4k_bulk_write_memory() handles endianess, but it is
+</I>&gt;<i> called on 128 byes blocks (becaus it uses FASTDATA, and size of
+</I>&gt;<i> FASTDATA area is 16 words). Bottom line is that by my observation
+</I>&gt;<i> confirmed that mips32_pracc_fastdata_xfer() called internaly does not
+</I>&gt;<i> work either, and I do not think that it works for little endian
+</I>&gt;<i> targets also, missing some FASTDATA instructions. So, it would be very
+</I>&gt;<i> important if you can answer us the question I asked in the first mail
+</I>&gt;<i> : is mips32_pracc_fastdata_xfer() function called, and does it
+</I>&gt;<i> succeeds, or it falls back to simple mips_m4k_write_memory() ? I would
+</I>&gt;<i> expect to fail and fallback to mips_m4k_write_memory(), which as I
+</I>&gt;<i> explaind, do not handle endianess at all.
+</I>&gt;<i>
+</I>&gt;<i> So please send us the report on following 3 things :
+</I>&gt;<i> 1) Is SDRAM configured OK (i.e. does mww commands work well for you)
+</I>
+Hi Drasko,
+
+You are absolutely right there are endianness issues with mips
+bigendian, on the board I am using the memory controller is already
+configured by the onboard firmware but reading back the values I can
+see they are bitswapped:
+
+mdw 0xbf8011d0 1
+0xbf8011d0: 932d0000
+Correct Value: 0xbf8011d0 0x2D93
+
+mdw 0xbf8011e0 1
+0xbf8011e0: 35820000
+Correct Value: 0xbf8011e0 0x8235
+
+&gt;<i> 2) Is mips32_pracc_fastdata_xfer() exiting with error
+</I>
+No, I checked the debug logs and it works successfully:
+
+Debug: 219 25550 target.c:1251 target_write_buffer(): writing buffer
+of 57344 byte at 0x86000000
+Debug: 220 25550 mips_m4k.c:984 mips_m4k_bulk_write_memory(): address:
+0x86000000, count: 0x00003800
+Debug: 221 25551 target.c:1072 target_alloc_working_area(): MMU
+disabled, using physical address for working memory 0xa0600000
+Debug: 222 25551 target.c:1134 target_alloc_working_area(): allocated
+new working area at address 0xa0600000
+Debug: 228 28508 mips32_pracc.c:971 mips32_pracc_fastdata_xfer():
+mips32_pracc_fastdata_xfer using 0xa0600000 for write handler
+
+Debug: 230 28711 ft2232.c:1685 ft2232_execute_scan(): ft2232 buffer
+size reached, sending queued commands (first_unsent: 0xb74f3008, cmd:
+0xb7411fe8)
+User : 232 29125 command.c:539 command_print(): 57344 bytes written at
+address 0x86000000
+User : 233 29126 command.c:539 command_print(): downloaded 57344 bytes
+in 3.576233s (15.659 kb/s)
+
+
+&gt;<i> 3) Dump the loaded image and inspect it - is it well loaded in memory ?
+</I>
+I think fastdata may be loading it correctly, but reading it back it
+is clearly bitswapped:
+
+hexdump of original file:
+
+0000000 000b 1000 0000 0000 0000 0000 0000 0000
+0000010 688c 688c 0000 0000 312e 312e 0000 3000
+0000020 0000 0000 0000 0000 0000 0000 0000 0000
+0000030 7800 401b 00ff 3c08 ff00 3508 d824 0368
+0000040 0001 3c08 9500 3508 0019 1768 0000 0000
+0000050 8000 4008 8000 3c09 ffff 3529 4024 0109
+0000060 3604 3c09 4025 0109 0000 0000 8000 4088
+0000070 0040 0000 0040 0000 0040 0000 00c0 0000
+0000080 6000 4008 fffc 3c09 ffff 3529 4024 0109
+0000090 0000 2409 4025 0109 0000 0000 6000 4088
+00000a0 0040 0000 0040 0000 0040 0000 00c0 0000
+00000b0 0001 3c08 8000 3508 0007 1368 0000 0000
+00000c0 0001 3c08 8400 3508 0003 1368 0000 0000
+00000d0 0019 1000 0000 0000 8000 4008 8000 3c09
+00000e0 ffff 3529 4024 0109 3600 3c09 4025 0109
+00000f0 0000 0000 8000 4088 0040 0000 0040 0000
+
+The file was loaded using fastdata_xfer and then read back, hexdump:
+
+0000000 0010 0b00 0000 0000 0000 0000 0000 0000
+0000010 8c68 8c68 0000 0000 2e31 2e31 0030 0000
+0000020 0000 0000 0000 0000 0000 0000 0000 0000
+0000030 1b40 0078 083c ff00 0835 00ff 6803 24d8
+0000040 083c 0100 0835 0095 6817 1900 0000 0000
+0000050 0840 0080 093c 0080 2935 ffff 0901 2440
+0000060 093c 0436 0901 2540 0000 0000 8840 0080
+0000070 0000 4000 0000 4000 0000 4000 0000 c000
+0000080 0840 0060 093c fcff 2935 ffff 0901 2440
+0000090 0924 0000 0901 2540 0000 0000 8840 0060
+00000a0 0000 4000 0000 4000 0000 4000 0000 c000
+00000b0 083c 0100 0835 0080 6813 0700 0000 0000
+00000c0 083c 0100 0835 0084 6813 0300 0000 0000
+00000d0 0010 1900 0000 0000 0840 0080 093c 0080
+00000e0 2935 ffff 0901 2440 093c 0036 0901 2540
+00000f0 0000 0000 8840 0080 0000 4000 0000 4000
+
+
+If I load a smaller image which does not use fastdata then it reads
+back exactly the same as it was written, but clearly in memory it is
+bitswapped.
+
+Andy
+
+
+&gt;<i>
+</I>&gt;<i> If this does not work, you can forget any debugging...
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Drasko
+</I>&gt;<i>
+</I>&gt;<i> On Thu, Mar 24, 2011 at 11:43 AM, Andrew Lyon &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andrew.lyon at gmail.com</A>&gt; wrote:
+</I>&gt;&gt;<i> On Wed, Mar 23, 2011 at 2:06 PM, Drasko DRASKOVIC
+</I>&gt;&gt;<i> &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;<i> Hi Andy,
+</I>&gt;&gt;&gt;<i> are you using big or little endian CPU ?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> big endian.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Is mips32_pracc_fastdata_xfer() function called, and does it succeeds,
+</I>&gt;&gt;&gt;<i> or it falls back to simple mips_m4k_write_memory() ?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> I realized I had not setup the working area properly and having done
+</I>&gt;&gt;<i> so load_image is much faster (14.378 kb/s)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> However I have noticed other problems, to give some background the
+</I>&gt;&gt;<i> board is a mips router which already has a working factory firmware, I
+</I>&gt;&gt;<i> am trying to port the uboot code released by the manufacturer into a
+</I>&gt;&gt;<i> newer version of uboot, so I load my new uboot binary into memory and
+</I>&gt;&gt;<i> resume to that address, but instead of running my code the system
+</I>&gt;&gt;<i> seems to reset and boot from rom again.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> So I tried a more simple binary which simply toggles a gpio to make a
+</I>&gt;&gt;<i> led flash, but the same thing happens.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Here is a log with some notes.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> targets
+</I>&gt;&gt;<i> &#160; &#160;TargetName &#160; &#160; &#160; &#160; Type &#160; &#160; &#160; Endian TapName &#160; &#160; &#160; &#160; &#160; &#160;State
+</I>&gt;&gt;<i> -- &#160;------------------ ---------- ------ ------------------ ------------
+</I>&gt;&gt;<i> &#160;0* xway.cpu &#160; &#160; &#160; &#160; &#160; mips_m4k &#160; big &#160; &#160;xway.cpu &#160; &#160; &#160; &#160; &#160; running
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> *At this point the board has loaded uboot from rom and is at the uboot prompt.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> halt
+</I>&gt;&gt;<i> target state: halted
+</I>&gt;&gt;<i> target halted in MIPS32 mode due to debug-request, pc: 0x83fd7ac0
+</I>&gt;&gt;&gt;<i> load_image test1 0x80000000
+</I>&gt;&gt;<i> 57344 bytes written at address 0x80000000
+</I>&gt;&gt;<i> downloaded 57344 bytes in 3.937115s (14.224 kb/s)
+</I>&gt;&gt;&gt;<i> step 0x80000000
+</I>&gt;&gt;<i> target state: halted
+</I>&gt;&gt;<i> target halted in MIPS32 mode due to single-step, pc: 0x83fd7abc
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> *As you can see PC is not where I asked it to go.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> resume
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> *At this point the uboot prompt starts responding to input again,
+</I>&gt;&gt;<i> showing that the system never exec any of my code.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> halt
+</I>&gt;&gt;&gt;<i> resume 0x80000000
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> *System resets and boots from rom.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Andy
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> BR,
+</I>&gt;&gt;&gt;<i> Drasko
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> On Tue, Mar 22, 2011 at 2:20 PM, Andrew Lyon &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andrew.lyon at gmail.com</A>&gt; wrote:
+</I>&gt;&gt;&gt;&gt;<i> Hi,
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> I am using a ft2232 based jtag device with a mips board and the
+</I>&gt;&gt;&gt;&gt;<i> performance is really terrible:
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> 57344 bytes in 3119.897949s (0.018 kb/s)
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> It seems to work ok in that I can halt, resume, read/write memory etc,
+</I>&gt;&gt;&gt;&gt;<i> but every operation is very slow, halting takes almost 3 seconds.
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> I pulled the code from git and have tried using both libftdi and
+</I>&gt;&gt;&gt;&gt;<i> libftd2xx0.4.16 but there is little difference.
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> The jtag came with a guruplug and although I no longer have the
+</I>&gt;&gt;&gt;&gt;<i> guruplug itself I do recall reflashing the 225k uboot image and it
+</I>&gt;&gt;&gt;&gt;<i> took only a few seconds.
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> Is this expected performance? If not what do I need to do to debug?
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> Andy
+</I>&gt;&gt;&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018536.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+	<LI>Next message: <A HREF="018438.html">[Openocd-development] ft2232 jtag mips performance
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18437">[ date ]</a>
+              <a href="thread.html#18437">[ thread ]</a>
+              <a href="subject.html#18437">[ subject ]</a>
+              <a href="author.html#18437">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

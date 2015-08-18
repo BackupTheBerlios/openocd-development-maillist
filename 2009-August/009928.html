@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtag_rclk fallback in	configuration	scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag_rclk%20fallback%20in%0A%09configuration%09scripts&In-Reply-To=%3COFE26FE70C.5C087FED-ONC1257610.0037279F-C1257610.004AE997%40sauer-danfoss.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009917.html">
+   <LINK REL="Next"  HREF="009932.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtag_rclk fallback in	configuration	scripts</H1>
+    <B>Jonas Horberg</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag_rclk%20fallback%20in%0A%09configuration%09scripts&In-Reply-To=%3COFE26FE70C.5C087FED-ONC1257610.0037279F-C1257610.004AE997%40sauer-danfoss.com%3E"
+       TITLE="[Openocd-development] [PATCH] jtag_rclk fallback in	configuration	scripts">jhorberg at sauer-danfoss.com
+       </A><BR>
+    <I>Wed Aug 12 15:38:14 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009917.html">[Openocd-development] [PATCH] jtag_rclk fallback in configuration	scripts
+</A></li>
+        <LI>Next message: <A HREF="009932.html">[Openocd-development] [PATCH] jtag_rclk fallback	inconfiguration	scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9928">[ date ]</a>
+              <a href="thread.html#9928">[ thread ]</a>
+              <a href="subject.html#9928">[ subject ]</a>
+              <a href="author.html#9928">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Jonas H&#246;rberg wrote on 2009-08-10 13:28:27:
+
+&gt;<i> 
+</I>&gt;<i> Hi, 
+</I>&gt;<i> 
+</I>&gt;<i> The jtag_rclk command should fallback to a fixed frequency for 
+</I>&gt;<i> interfaces without support for RCLK. 
+</I>&gt;<i> This is not the present behavior when the command is called in the 
+</I>&gt;<i> configuration stage (running board config files). 
+</I>&gt;<i> The reason is that the interface can not be checked for RCLK support
+</I>&gt;<i> before it is initialized. 
+</I>&gt;<i> The kHz to speed value calculation is also done before the interface
+</I>&gt;<i> is initialized. This will result in the wrong speed 
+</I>&gt;<i> setting when the calculation is dependent on data initialized by the
+</I>&gt;<i> init function of the interface. 
+</I>&gt;<i> Example: ft2232_max_tck for  FT2232H and FT4232H based interfaces. 
+</I>&gt;<i> 
+</I>&gt;<i> The attached patch contains an attempt to fix these issues by 
+</I>&gt;<i> placing the config state speed setting after 
+</I>&gt;<i> the initialization of the interface. 
+</I>&gt;<i> 
+</I>&gt;<i> Best regards
+</I>&gt;<i> Jonas H&#246;rberg 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+Attached is an new patch that replace the previous one that had
+some problems.
+* I was not aware of that some interfaces operate on the JTAG
+  bus in the initialization routine (the j-link issue a TLR).
+  The clock must be configured by the initialization routine
+  before the operation in this case.
+* The interface initialization functions is expected to configure
+  the clock speed by using the return value from a call to the
+  jtag_get_speed function (although this convention is not followed
+  by some of the interfaces, examples: arm-jtag-ew.c and vsllink.c).
+
+This patch changes the jtag_get_speed function. Previously it
+only returned the value set by the latest call to jtag_set_speed.
+Now it calculate the speed value based on the latest speed, khz
+or rclk setting. The correct value will now be returned when it
+is called from the interface initialization function.
+
+The name of the jtag_set_speed function is changed to
+jtag_config_speed to be aligned with jtag_config_khz and
+jtag_config_rclk.
+
+The global jtag_set_khz function is merged into jtag_khz_to_speed
+because external access do not seem to be sane.
+
+Best regards
+Jonas H&#246;rberg
+
+ 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090812/a868971a/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20090812/a868971a/attachment.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: rclk.patch
+Type: application/octet-stream
+Size: 8398 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090812/a868971a/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20090812/a868971a/attachment.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009917.html">[Openocd-development] [PATCH] jtag_rclk fallback in configuration	scripts
+</A></li>
+	<LI>Next message: <A HREF="009932.html">[Openocd-development] [PATCH] jtag_rclk fallback	inconfiguration	scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9928">[ date ]</a>
+              <a href="thread.html#9928">[ thread ]</a>
+              <a href="subject.html#9928">[ subject ]</a>
+              <a href="author.html#9928">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

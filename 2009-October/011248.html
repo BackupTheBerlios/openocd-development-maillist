@@ -1,0 +1,522 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%2064%20bit%20fixes%20for%20Windows%20x64%0A%09compilation%20using%20libftdi/libusb&In-Reply-To=%3C200910142033.21693.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011189.html">
+   <LINK REL="Next"  HREF="011254.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20PATCH%3A%2064%20bit%20fixes%20for%20Windows%20x64%0A%09compilation%20using%20libftdi/libusb&In-Reply-To=%3C200910142033.21693.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Oct 15 05:33:21 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011189.html">[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+</A></li>
+        <LI>Next message: <A HREF="011254.html">[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11248">[ date ]</a>
+              <a href="thread.html#11248">[ thread ]</a>
+              <a href="subject.html#11248">[ subject ]</a>
+              <a href="author.html#11248">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tuesday 13 October 2009, Redirect &quot;Slash&quot; NIL wrote:
+&gt;<i> Sorry about the inline patch. Please find the original diff file as a text
+</I>&gt;<i> attachment.
+</I>
+See appended comments.   As is usual with this type of port, some
+of the type warnings are real issues that need fixing.  But a lot
+of them seem to be compiler glitches:
+
+ - &quot;%lld&quot; being correct when the parameter is a &quot;long long&quot;,
+   as it *IS* here, but for some reason this patch changed
+   those to require uint64_t and PRIi64.
+
+ - &quot;%zu&quot; being correct for a &quot;size_t&quot;, but this changes them
+   to uint64_t and PRIu64
+
+ - &quot;%jd&quot; being correct for an &quot;intmax_t&quot;, but again this
+   changing them to use 64-bit types.
+
+Of the ones that are real issues, fixes for most of them are
+in the tree now.  (Can you verify they're fixed in your build
+environment too?)  But others seem to need different fixes.
+Fixes that won't break _other_ systems, that is!
+
+The jim-eventloop thing deserves a different approach...
+
+
+&gt;<i> The only warning fix is in /src/helper/replacements.c and has to do with
+</I>&gt;<i> MinGW not linking a &quot;long&quot; being cast to &quot;HANDLE&quot; (= 64 bit void*), so I'm
+</I>&gt;<i> not sure it's worth splitting it (it's still 64 bit related).
+</I>&gt;<i> If you insist, I'll do it.
+</I>&gt;<i> 
+</I>&gt;<i> The only way I found to address this was to explicitly detect the MinGW 64
+</I>&gt;<i> bit compilation flags ( #if (defined(_M_X64) || (defined(_M_AMD64))) ),
+</I>&gt;<i> which I'm not entirely satisfied with since it's far from universal. There's
+</I>&gt;<i> probably a better way to address this.
+</I>
+I think that deserves to merge standalone -- it's not a general
+portability fix like the rest, it's Win64-specific.  I'd be
+inclined to merge it as-is, and let better fixes be submitted
+later.  The whole thing is inside an #ifdef _WIN32 anyway...
+
+Can you address the comments below, against current git (which
+should have fixes already, as noted)?
+
+- Dave
+
+
+
+&gt;<i> --- a/src/flash/flash.c
+</I>&gt;<i> +++ b/src/flash/flash.c
+</I>&gt;<i> @@ -939,7 +939,7 @@ static int handle_flash_write_bank_command(struct command_context_s *cmd_ctx, ch
+</I>&gt;<i>  	if (retval == ERROR_OK)
+</I>&gt;<i>  	{
+</I>&gt;<i>  	command_print(cmd_ctx,
+</I>&gt;<i> -				  &quot;wrote  %lld byte from file %s to flash bank %li at offset 0x%8.8&quot; PRIx32 &quot; in %s (%f kb/s)&quot;,
+</I>&gt;<i> +				  &quot;wrote  %&quot; PRIi64 &quot; byte from file %s to flash bank %li at offset 0x%8.8&quot; PRIx32 &quot; in %s (%f kb/s)&quot;,
+</I>&gt;<i>  				  fileio.size,
+</I>
+This is wrong; fileio.size is a &quot;long long&quot; so &quot;%lld&quot; is correct;
+while PRIi64 isn't.
+	
+This looks like a compiler bug.  The toolchain you referenced seems
+to be in active development ... so I'm quite reluctant to accept
+such changes!
+
+Possibly related:  I notice that <A HREF="http://mingw-w64.sourceforge.net">http://mingw-w64.sourceforge.net</A>
+has a release dated *TODAY*.  Maybe your toolchain has an update
+that addresses these issues?
+
+
+&gt;<i>  				  args[1],
+</I>&gt;<i>  				  strtoul(args[0], NULL, 0),
+</I>&gt;<i> --- a/src/flash/mflash.c
+</I>&gt;<i> +++ b/src/flash/mflash.c
+</I>&gt;<i> @@ -474,8 +474,8 @@ static int mg_mflash_read_sects(void *buff, uint32_t sect_num, uint32_t sect_cnt
+</I>&gt;<i>  	residue = sect_cnt % 256;
+</I>&gt;<i>  
+</I>&gt;<i>  	for (i = 0; i &lt; quotient; i++) {
+</I>&gt;<i> -		LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIu32 &quot; buff : 0x%0lx&quot;, sect_num,
+</I>&gt;<i> -			(unsigned long)buff_ptr);
+</I>&gt;<i> +		LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIu32 &quot; buff : 0x%0&quot;PRIx64, sect_num,
+</I>&gt;<i> +			(unsigned long long)buff_ptr);
+</I>
+This is wrong; buff_ptr is a pointer.  A better fix for this
+would be to use &quot;%p&quot; instead ...
+
+(FIX merged)
+
+
+&gt;<i>  		ret = mg_mflash_do_read_sects(buff_ptr, sect_num, 256);
+</I>&gt;<i>  		if (ret != ERROR_OK)
+</I>&gt;<i>  			return ret;
+</I>&gt;<i> @@ -485,8 +485,8 @@ static int mg_mflash_read_sects(void *buff, uint32_t sect_num, uint32_t sect_cnt
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i>  	if (residue) {
+</I>&gt;<i> -		LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIx32 &quot; buff : %0lx&quot;, sect_num,
+</I>&gt;<i> -			(unsigned long)buff_ptr);
+</I>&gt;<i> +		LOG_DEBUG(&quot;mflash: sect num : %&quot; PRIx32 &quot; buff : %0&quot;PRIx64, sect_num,
+</I>&gt;<i> +			(unsigned long long)buff_ptr);
+</I>
+Same:  buff_ptr is a pointer, so &quot;%p&quot; is better.
+
+(FIX merged)
+
+&gt;<i>  		return mg_mflash_do_read_sects(buff_ptr, sect_num, residue);
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i> @@ -751,7 +751,7 @@ static int mg_write_cmd(struct command_context_s *cmd_ctx, char *cmd, char **arg
+</I>&gt;<i>  
+</I>&gt;<i>  	duration_stop_measure(&amp;duration, &amp;duration_text);
+</I>&gt;<i>  
+</I>&gt;<i> -	command_print(cmd_ctx, &quot;wrote %lli byte from file %s in %s (%f kB/s)&quot;,
+</I>&gt;<i> +	command_print(cmd_ctx, &quot;wrote %&quot; PRIi64 &quot; byte from file %s in %s (%f kB/s)&quot;,
+</I>&gt;<i>  		fileio.size, args[1], duration_text,
+</I>
+Same issue as before, with fileio.size ... it's &quot;long long&quot;, so
+what's coded there is already correct.  Alternatively, maybe make
+fileio.size become a &quot;size_t&quot; and use &quot;%zd&quot;.  (Except ... you had
+issues with that, elsewhere.)
+
+
+&gt;<i>  		(float)fileio.size / 1024.0 / ((float)duration.duration.tv_sec + ((float)duration.duration.tv_usec / 1000000.0)));
+</I>&gt;<i>  
+</I>&gt;<i> --- a/src/flash/nand.c
+</I>&gt;<i> +++ b/src/flash/nand.c
+</I>&gt;<i> @@ -1609,7 +1609,7 @@ static int handle_nand_dump_command(struct command_context_s *cmd_ctx, char *cmd
+</I>&gt;<i>  			fileio_close(&amp;fileio);
+</I>&gt;<i>  
+</I>&gt;<i>  			duration_stop_measure(&amp;duration, &amp;duration_text);
+</I>&gt;<i> -			command_print(cmd_ctx, &quot;dumped %lld byte in %s&quot;, fileio.size, duration_text);
+</I>&gt;<i> +			command_print(cmd_ctx, &quot;dumped %&quot; PRIi64 &quot; byte in %s&quot;, fileio.size, duration_text);
+</I>
+Same fileio.size issue as before ...
+
+
+&gt;<i>  			free(duration_text);
+</I>&gt;<i>  			duration_text = NULL;
+</I>&gt;<i>  		}
+</I>&gt;<i> --- a/src/helper/jim-eventloop.c
+</I>&gt;<i> +++ b/src/helper/jim-eventloop.c
+</I>&gt;<i> @@ -498,7 +498,7 @@ static int JimELAfterCommand(Jim_Interp *interp, int argc,
+</I>&gt;<i>  	int tlen ;
+</I>&gt;<i>  	jim_wide remain = 0;
+</I>&gt;<i>  	const char *tok = Jim_GetString(argv[2], &amp;tlen);
+</I>&gt;<i> -	if (sscanf(tok,&quot;after#%lld&quot;,&amp;id) == 1) {
+</I>&gt;<i> +	if (sscanf(tok,&quot;after#%&quot; PRIi64 ,&amp;id) == 1) {
+</I>
+This is ugly; &quot;id&quot; is a &quot;jim_wide&quot;.  There are two ways that
+gets defined:
+
+  - Some crufty thing if &quot;long long&quot; exists; oddly, not &quot;uint64_t&quot;.
+  - Else &quot;long&quot; (so &quot;%lld&quot; will be broken)
+
+So that particular code has inherent portability issues.  It's
+implementing &quot;after cancel after#NNN&quot; ... I suspect the simplest
+fix is likely to make that code use a generic type like &quot;unsigned&quot;,
+along with JimEventLoop.timeEventNextId (and its users, all of
+which are in that file).
+
+Otherwise, it's introducing nasty #ifdefs just for the scscanf,
+and to no particular point ... IDs can roll over, doing so after
+just 4 billion served is no more permitted to cause failure than
+after ... a lot more.  If either case ever happens.  ;)
+
+
+&gt;<i>  		remain =  Jim_DeleteTimeHandler(interp, id);
+</I>&gt;<i>  		if (remain &gt; -2)  {
+</I>&gt;<i>  			Jim_SetResult(interp, Jim_NewIntObj(interp, remain));
+</I>&gt;<i> --- a/src/helper/jim.c
+</I>&gt;<i> +++ b/src/helper/jim.c
+</I>&gt;<i> @@ -4754,7 +4754,7 @@ const char *Jim_GetSharedString(Jim_Interp *interp, const char *str)
+</I>&gt;<i>          Jim_AddHashEntry(&amp;interp-&gt;sharedStrings, strCopy, (void*)1);
+</I>&gt;<i>          return strCopy;
+</I>&gt;<i>      } else {
+</I>&gt;<i> -        long refCount = (long) he-&gt;val;
+</I>&gt;<i> +        long long refCount = (long long) he-&gt;val;
+</I>
+Better fix:  &quot;intptr_t refCount&quot; ... on 32 bit machines you
+don't really want &quot;long long&quot;.
+
+(FIX merged)
+
+&gt;<i>  
+</I>&gt;<i>          refCount++;
+</I>&gt;<i>          he-&gt;val = (void*) refCount;
+</I>&gt;<i> @@ -4764,13 +4764,13 @@ const char *Jim_GetSharedString(Jim_Interp *interp, const char *str)
+</I>&gt;<i>  
+</I>&gt;<i>  void Jim_ReleaseSharedString(Jim_Interp *interp, const char *str)
+</I>&gt;<i>  {
+</I>&gt;<i> -    long refCount;
+</I>&gt;<i> +    long long refCount;
+</I>&gt;<i>      Jim_HashEntry *he = Jim_FindHashEntry(&amp;interp-&gt;sharedStrings, str);
+</I>&gt;<i>  
+</I>&gt;<i>      if (he == NULL)
+</I>&gt;<i>          Jim_Panic(interp,&quot;Jim_ReleaseSharedString called with &quot;
+</I>&gt;<i>                &quot;unknown shared string '%s'&quot;, str);
+</I>&gt;<i> -    refCount = (long) he-&gt;val;
+</I>&gt;<i> +    refCount = (long long) he-&gt;val;
+</I>
+As above:  &quot;intptr_t&quot; not &quot;long long&quot;.
+
+(FIX merged)
+
+&gt;<i>      refCount--;
+</I>&gt;<i>      if (refCount == 0) {
+</I>&gt;<i>          Jim_DeleteHashEntry(&amp;interp-&gt;sharedStrings, str);
+</I>&gt;<i> --- a/src/helper/log.c
+</I>&gt;<i> +++ b/src/helper/log.c
+</I>&gt;<i> @@ -473,12 +473,12 @@ void keep_alive()
+</I>&gt;<i>  		if (gdb_actual_connections)
+</I>&gt;<i>  			LOG_WARNING(&quot;keep_alive() was not invoked in the &quot;
+</I>&gt;<i>  				&quot;1000ms timelimit. GDB alive packet not &quot;
+</I>&gt;<i> -				&quot;sent! (%lld). Workaround: increase &quot;
+</I>&gt;<i> +				&quot;sent! (%&quot; PRIi64 &quot;). Workaround: increase &quot;
+</I>
+I don't understand.  Doesn't subtracting one &quot;long long&quot; from
+another give you a &quot;long long&quot;, making &quot;%lld&quot; correct?  If not,
+then it should give &quot;int&quot;, making &quot;%d&quot; correct.
+
+
+&gt;<i>  				&quot;\&quot;set remotetimeout\&quot; in GDB&quot;,
+</I>&gt;<i>  				current_time-last_time);
+</I>&gt;<i>  		else
+</I>&gt;<i>  			LOG_DEBUG(&quot;keep_alive() was not invoked in the &quot;
+</I>&gt;<i> -				&quot;1000ms timelimit (%lld). This may cause &quot;
+</I>&gt;<i> +				&quot;1000ms timelimit (%&quot; PRIi64 &quot;). This may cause &quot;
+</I>
+Same as above.  Toolchain issue?
+
+
+&gt;<i>  				&quot;trouble with GDB connections.&quot;,
+</I>&gt;<i>  				current_time-last_time);
+</I>&gt;<i>  	}
+</I>&gt;<i> --- a/src/helper/replacements.c
+</I>&gt;<i> +++ b/src/helper/replacements.c
+</I>&gt;<i> @@ -169,7 +169,12 @@ int win_select(int max_fd, fd_set *rfds, fd_set *wfds, fd_set *efds, struct time
+</I>&gt;<i>  	/* build an array of handles for non-sockets */
+</I>&gt;<i>  	for (i = 0; i &lt; max_fd; i++) {
+</I>&gt;<i>  		if (SAFE_FD_ISSET(i, rfds) || SAFE_FD_ISSET(i, wfds) || SAFE_FD_ISSET(i, efds)) {
+</I>&gt;<i> +	/* Fix cast warnings treated as errors for MinGW-64 */
+</I>&gt;<i> +#if (defined(_M_X64) || (defined(_M_AMD64)))
+</I>&gt;<i> +			long long handle = _get_osfhandle(i);
+</I>&gt;<i> +#else
+</I>&gt;<i>  			long handle = _get_osfhandle(i);
+</I>&gt;<i> +#endif
+</I>
+This is all within an &quot;#ifdef _WIN32&quot; ... so I'm just a
+bit puzzled why it applies on WIN64.  ;)
+
+But then, I don't claim to understand much about Windows any more.
+I would have expected &quot;_WIN64&quot; to be the relevant #ifdef...
+
+(I didn't touch this.  Suggest you send this patch alone with
+a subject line calling it out as a Windows-specific issue, to
+get more attention from folk with the relevant background...)
+
+
+&gt;<i>  			handles[n_handles] = (HANDLE)handle;
+</I>&gt;<i>  			if (handles[n_handles] == INVALID_HANDLE_VALUE) {
+</I>&gt;<i>  				/* socket */
+</I>&gt;<i> @@ -244,7 +249,12 @@ int win_select(int max_fd, fd_set *rfds, fd_set *wfds, fd_set *efds, struct time
+</I>&gt;<i>  					if (WAIT_OBJECT_0 == WaitForSingleObject(handles[i], 0)) {
+</I>&gt;<i>  						if (SAFE_FD_ISSET(handle_slot_to_fd[i], rfds)) {
+</I>&gt;<i>  							DWORD dwBytes;
+</I>&gt;<i> +
+</I>&gt;<i> +#if (defined(_M_X64) || (defined(_M_AMD64)))
+</I>&gt;<i> +							long long handle = _get_osfhandle(handle_slot_to_fd[i]);
+</I>&gt;<i> +#else
+</I>&gt;<i>  							long handle = _get_osfhandle(handle_slot_to_fd[i]);
+</I>&gt;<i> +#endif
+</I>&gt;<i>  
+</I>&gt;<i>  							if (PeekNamedPipe((HANDLE)handle, NULL, 0, NULL, &amp;dwBytes, NULL))
+</I>&gt;<i>  							{
+</I>&gt;<i> --- a/src/jtag/core.c
+</I>&gt;<i> +++ b/src/jtag/core.c
+</I>&gt;<i> @@ -1008,7 +1008,7 @@ static bool jtag_examine_chain_match_tap(const struct jtag_tap_s *tap)
+</I>&gt;<i>  	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		char msg[32];
+</I>&gt;<i> -		snprintf(msg, sizeof(msg), &quot;expected %hhu of %hhu&quot;,
+</I>&gt;<i> +		snprintf(msg, sizeof(msg), &quot;expected %&quot; PRIu8 &quot; of %&quot; PRIu8,
+</I>
+While not incorrect, the issue here is that a &quot;uint8_t&quot; is being
+used as a loop counter.  I had problems here in some other context.
+
+Better fix:  convert to integers, and work like sanes loops already do...
+
+(FIX merged)
+
+
+&gt;<i>  				ii + 1, tap-&gt;expected_ids_cnt);
+</I>&gt;<i>  		jtag_examine_chain_display(LOG_LVL_ERROR, msg,
+</I>&gt;<i>  				tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
+</I>&gt;<i> --- a/src/pld/pld.c
+</I>&gt;<i> +++ b/src/pld/pld.c
+</I>&gt;<i> @@ -195,9 +195,9 @@ static int handle_pld_load_command(struct command_context_s *cmd_ctx,
+</I>&gt;<i>  		gettimeofday(&amp;end, NULL);
+</I>&gt;<i>  		timeval_subtract(&amp;duration, &amp;end, &amp;start);
+</I>&gt;<i>  
+</I>&gt;<i> -		command_print(cmd_ctx, &quot;loaded file %s to pld device %lu in %jis %jius&quot;,
+</I>&gt;<i> +		command_print(cmd_ctx, &quot;loaded file %s to pld device %lu in %&quot; PRIi64 &quot;s %&quot; PRIi64 &quot;us&quot;,
+</I>&gt;<i>  			args[1], strtoul(args[0], NULL, 0),
+</I>&gt;<i> -			(intmax_t)duration.tv_sec, (intmax_t)duration.tv_usec);
+</I>&gt;<i> +			(unsigned long long)duration.tv_sec, (unsigned long long)duration.tv_usec);
+</I>
+Again, &quot;unsigned long long&quot; != &quot;int64_t&quot;...
+
+If the toolchain you're using doesn't understand &quot;%ji&quot; for some
+reason (intmax_t) then I agree that &quot;unsigned long long&quot; is a
+more portable answer.  But not PRIi64; plain old &quot;%lld&quot; should
+work just fine.  (If you must use PRIi64, then use &quot;uint64_t&quot;
+instead of &quot;unsigned long long&quot;.)
+
+On the other hand, I'm not sure that &quot;long long&quot; is guaranteed
+to exist... we use it all over the place though, so depending
+on it will not add more breakage.
+
+
+&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i> --- a/src/svf/svf.c
+</I>&gt;<i> +++ b/src/svf/svf.c
+</I>&gt;<i> @@ -442,7 +442,7 @@ static int handle_svf_command(struct command_context_s *cmd_ctx, char *cmd, char
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i>  	// print time
+</I>&gt;<i> -	command_print(cmd_ctx, &quot;%lld ms used&quot;, timeval_ms() - time_ago);
+</I>&gt;<i> +	command_print(cmd_ctx, &quot;%&quot; PRIi64 &quot; ms used&quot;, timeval_ms() - time_ago);
+</I>
+This is &quot;long long&quot; minus &quot;long long&quot; thing again ... why is
+your toolchain not treating that result as a &quot;long long&quot;?  Seems
+like a toolchain bug.  The &quot;%lld&quot; format is correct.
+
+
+&gt;<i>  
+</I>&gt;<i>  free_all:
+</I>&gt;<i>  
+</I>&gt;<i> --- a/src/target/arm11.c
+</I>&gt;<i> +++ b/src/target/arm11.c
+</I>&gt;<i> @@ -1606,10 +1606,10 @@ int arm11_run_algorithm(struct target_s *target, int num_mem_params, mem_param_t
+</I>&gt;<i>  //		return ERROR_FAIL;
+</I>&gt;<i>  
+</I>&gt;<i>  	// Save regs
+</I>&gt;<i> -	for (size_t i = 0; i &lt; 16; i++)
+</I>&gt;<i> +	for (unsigned long long i = 0; i &lt; 16; i++)
+</I>
+Using a 64-bit integer to count up to 16 ... overkill!
+
+Fixed by changing to &quot;unsigned&quot;.
+
+(FIX merged)
+
+
+&gt;<i>  	{
+</I>&gt;<i>  		context[i] = buf_get_u32((uint8_t*)(&amp;arm11-&gt;reg_values[i]),0,32);
+</I>&gt;<i> -		LOG_DEBUG(&quot;Save %zi: 0x%&quot; PRIx32 &quot;&quot;,i,context[i]);
+</I>&gt;<i> +		LOG_DEBUG(&quot;Save %&quot; PRIu64 &quot;: 0x%&quot; PRIx32 &quot;&quot;,i,context[i]);
+</I>&gt;<i>  	}
+</I>&gt;<i>  
+</I>&gt;<i>  	cpsr = buf_get_u32((uint8_t*)(arm11-&gt;reg_values + ARM11_RC_CPSR),0,32);
+</I>&gt;<i> --- a/src/target/armv7a.c
+</I>&gt;<i> +++ b/src/target/armv7a.c
+</I>&gt;<i> @@ -226,7 +226,7 @@ int armv7a_arch_state(struct target_s *target)
+</I>&gt;<i>  		 state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+</I>&gt;<i>  		 state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled]);
+</I>&gt;<i>  
+</I>&gt;<i> -	if (armv4_5-&gt;core_mode == ARMV7A_MODE_ABT)
+</I>&gt;<i> +	if ((armv7a_t)armv4_5-&gt;core_mode == ARMV7A_MODE_ABT)
+</I>
+Well that's a pickle!  The difference between the two core type
+enums is that V7A adds a (secure) monitor mode.  And since both
+types have a non-existent &quot;MODE_ANY&quot; case ... neither enum is
+a very type-safe thing in the first place.
+
+Plus, clearly it's a larger scale type-mismatch to treat ARMv7 as
+an ARMv5 ... I think I see the armv4_5 core more or less evolving
+into &quot;core ARM stuff&quot;...
+
+So I just made core_mode into an &quot;int&quot;, since that's less of a
+rude type violation than casting one enum type into another.
+Those enums are used more or less like #defines, in any case.
+
+(FIX merged)
+
+
+&gt;<i>  		armv7a_show_fault_registers(target);
+</I>&gt;<i>  
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i> --- a/src/target/target.c
+</I>&gt;<i> +++ b/src/target/target.c
+</I>&gt;<i> @@ -2441,7 +2441,7 @@ static int handle_dump_image_command(struct command_context_s *cmd_ctx, char *cm
+</I>&gt;<i>  
+</I>&gt;<i>  	if (retval == ERROR_OK)
+</I>&gt;<i>  	{
+</I>&gt;<i> -		command_print(cmd_ctx, &quot;dumped %lld byte in %s&quot;,
+</I>&gt;<i> +		command_print(cmd_ctx, &quot;dumped %&quot;PRIi64&quot; byte in %s&quot;,
+</I>&gt;<i>  				fileio.size, duration_text);
+</I>
+The fileio.size bug creeps in again....
+
+
+&gt;<i>  		free(duration_text);
+</I>&gt;<i>  	}
+</I>&gt;<i> @@ -2831,9 +2831,9 @@ static int handle_virt2phys_command(command_context_t *cmd_ctx,
+</I>&gt;<i>  
+</I>&gt;<i>  static void writeData(FILE *f, const void *data, size_t len)
+</I>&gt;<i>  {
+</I>&gt;<i> -	size_t written = fwrite(data, 1, len, f);
+</I>&gt;<i> +	unsigned long long written = fwrite(data, 1, len, f);
+</I>&gt;<i>  	if (written != len)
+</I>&gt;<i> -		LOG_ERROR(&quot;failed to write %zu bytes: %s&quot;, len, strerror(errno));
+</I>&gt;<i> +		LOG_ERROR(&quot;failed to write %&quot; PRIu64 &quot; bytes: %s&quot;, len, strerror(errno));
+</I>
+This was correct as written.  What is the toolchain complaint?
+A &quot;%zu&quot; format is specifically for printing a size_t value.
+
+And again, &quot;unsigned long long&quot; != &quot;uint64_t&quot; as required for PRIu64...
+
+
+&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i>  static void writeLong(FILE *f, int l)
+</I>&gt;<i> --- a/src/target/trace.c
+</I>&gt;<i> +++ b/src/target/trace.c
+</I>&gt;<i> @@ -58,7 +58,7 @@ static int handle_trace_point_command(struct command_context_s *cmd_ctx, char *c
+</I>&gt;<i>  
+</I>&gt;<i>  		for (i = 0; i &lt; trace-&gt;num_trace_points; i++)
+</I>&gt;<i>  		{
+</I>&gt;<i> -			command_print(cmd_ctx, &quot;trace point 0x%8.8&quot; PRIx32 &quot; (%lld times hit)&quot;,
+</I>&gt;<i> +			command_print(cmd_ctx, &quot;trace point 0x%8.8&quot; PRIx32 &quot; (%&quot; PRIi64 &quot; times hit)&quot;,
+</I>&gt;<i>  					trace-&gt;trace_points[i].address,
+</I>&gt;<i>  					(long long)trace-&gt;trace_points[i].hit_counter);
+</I>
+This is again the issue that &quot;%lld&quot; is specifically for a &quot;long long&quot;
+value ... what's the issue?
+
+
+&gt;<i>  		}
+</I>&gt;<i> --- a/src/xsvf/xsvf.c
+</I>&gt;<i> +++ b/src/xsvf/xsvf.c
+</I>&gt;<i> @@ -935,9 +935,9 @@ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, cha
+</I>&gt;<i>  
+</I>&gt;<i>  	if (unsupported)
+</I>&gt;<i>  	{
+</I>&gt;<i> -		off_t offset = lseek(xsvf_fd, 0, SEEK_CUR) - 1;
+</I>&gt;<i> +		unsigned long long offset = lseek(xsvf_fd, 0, SEEK_CUR) - 1;
+</I>&gt;<i>  		command_print(cmd_ctx,
+</I>&gt;<i> -				&quot;unsupported xsvf command (0x%02X) at offset %jd, aborting&quot;,
+</I>&gt;<i> +				&quot;unsupported xsvf command (0x%02X) at offset %&quot; PRIi64 &quot;, aborting&quot;,
+</I>
+Again, &quot;%jd&quot; is correct for an intmax_t value, and PRIi64 is
+not guaranteed to work.  What's the toolchain error this is
+is trying to resolve?
+
+
+&gt;<i>  				uc, (intmax_t)offset);
+</I>&gt;<i>  		return ERROR_FAIL;
+</I>&gt;<i>  	}
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011189.html">[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+</A></li>
+	<LI>Next message: <A HREF="011254.html">[Openocd-development] PATCH: 64 bit fixes for Windows x64	compilation using libftdi/libusb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11248">[ date ]</a>
+              <a href="thread.html#11248">[ thread ]</a>
+              <a href="subject.html#11248">[ subject ]</a>
+              <a href="author.html#11248">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

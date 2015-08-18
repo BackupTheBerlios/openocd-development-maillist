@@ -1,0 +1,312 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc 1/3] interface: define TMS	sequence command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%201/3%5D%20interface%3A%20define%20TMS%0A%09sequence%20command&In-Reply-To=%3C201001141857.23192.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014195.html">
+   <LINK REL="Next"  HREF="014203.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc 1/3] interface: define TMS	sequence command</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%201/3%5D%20interface%3A%20define%20TMS%0A%09sequence%20command&In-Reply-To=%3C201001141857.23192.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc 1/3] interface: define TMS	sequence command">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Jan 15 03:57:23 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014195.html">[Openocd-development] [patch/rfc 0/3] TMS clocking interface
+</A></li>
+        <LI>Next message: <A HREF="014203.html">[Openocd-development] [patch/rfc 1/3] interface: define TMS	sequence command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14196">[ date ]</a>
+              <a href="thread.html#14196">[ thread ]</a>
+              <a href="subject.html#14196">[ subject ]</a>
+              <a href="author.html#14196">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>For support of SWD we need to be able to clock out special bit
+sequences over TMS or SWDIO.  Create this as a generic operation,
+not yet called by anything, which is split as usual into:
+
+ - upper level abstraction ... here, jtag_add_tms_seq();
+ - midlayer implementation logic hooking that to the lowlevel code;
+ - lowlevel minidriver operation ... here, interface_add_tms_seq();
+ - message type for request queue, here JTAG_TMS.
+
+This is done slightly differently than other operations: there's a flag
+saying whether the interface driver supports this request.  (In fact a
+flag word, so the midlayer can learn about other capabilities too.)
+
+That will let this method be used to eliminate pathmove() and statemove()
+support from most adapter drivers, which will increase uniformity (and
+thus reduce subtle bugginess) even for SWD-incapable hardware.
+---
+ src/jtag/commands.h            |   39 ++++++++++++++++++++++++++++++---------
+ src/jtag/core.c                |   37 +++++++++++++++++++++++++++++++++++++
+ src/jtag/drivers/driver.c      |   20 ++++++++++++++++++++
+ src/jtag/interface.h           |   18 ++++++++++++++++++
+ src/jtag/jtag.h                |    2 ++
+ src/jtag/minidriver.h          |    2 ++
+ src/jtag/minidummy/minidummy.c |    7 +++++++
+ src/jtag/zy1000/zy1000.c       |   11 ++++++++++-
+ 8 files changed, 126 insertions(+), 10 deletions(-)
+
+--- a/src/jtag/commands.h
++++ b/src/jtag/commands.h
+@@ -99,18 +99,38 @@ struct sleep_command {
+ };
+ 
+ /**
++ * Encapsulates a series of bits to be clocked out, affecting state
++ * and mode of the interface.
++ *
++ * In JTAG mode these are clocked out on TMS, using TCK.  They may be
++ * used for link resets, transitioning between JTAG and SWD modes, or
++ * to implement JTAG state machine transitions (instead of using
++ * pathmove or statemove commands).
++ *
++ * In SWD mode these are clocked out on SWDIO, using SWCLK, and are
++ * used for link resets and transitioning between SWD and JTAG modes.
++ */
++struct tms_command {
++	/** How many bits should be clocked out. */
++	unsigned	num_bits;
++	/** The bits to clock out; the LSB is bit 0 of bits[0].  */
++	uint8_t		*bits;
++};
++
++/**
+  * Defines a container type that hold a pointer to a JTAG command
+  * structure of any defined type.
+  */
+ union jtag_command_container {
+-	struct scan_command*         scan;
+-	struct statemove_command*    statemove;
+-	struct pathmove_command*     pathmove;
+-	struct runtest_command*      runtest;
+-	struct stableclocks_command* stableclocks;
+-	struct reset_command*        reset;
+-	struct end_state_command*    end_state;
+-	struct sleep_command* sleep;
++	struct scan_command		*scan;
++	struct statemove_command	*statemove;
++	struct pathmove_command		*pathmove;
++	struct runtest_command		*runtest;
++	struct stableclocks_command	*stableclocks;
++	struct reset_command		*reset;
++	struct end_state_command	*end_state;
++	struct sleep_command		*sleep;
++	struct tms_command		*tms;
+ };
+ 
+ /**
+@@ -124,7 +144,8 @@ enum jtag_command_type {
+ 	JTAG_RESET        = 4,
+ 	JTAG_PATHMOVE     = 6,
+ 	JTAG_SLEEP        = 7,
+-	JTAG_STABLECLOCKS = 8
++	JTAG_STABLECLOCKS = 8,
++	JTAG_TMS          = 9,
+ };
+ 
+ struct jtag_command {
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -488,6 +488,43 @@ void jtag_add_tlr(void)
+ 	jtag_notify_event(JTAG_TRST_ASSERTED);
+ }
+ 
++/**
++ * If supported by the underlying adapter, this clocks a raw bit sequence
++ * onto TMS for switching betwen JTAG and SWD modes.
++ *
++ * DO NOT use this to bypass the integrity checks and logging provided
++ * by the jtag_add_pathmove() and jtag_add_statemove() calls.
++ *
++ * @param nbits How many bits to clock out.
++ * @param seq The bit sequence.  The LSB is bit 0 of seq[0].
++ * @param state The JTAG tap state to record on completion, either
++ *	TAP_INVALID (for switching to SWD mode) or TAP_RESET (for
++ *	switching to JTAG mode).
++ *
++ * @todo Update naming conventions to stop assuming everything is JTAG.
++ */
++int jtag_add_tms_seq(unsigned nbits, uint8_t *seq, enum tap_state state)
++{
++	int retval;
++
++	if (!(jtag-&gt;supported &amp; DEBUG_CAP_TMS_SEQ))
++		return ERROR_JTAG_NOT_IMPLEMENTED;
++
++	switch (state) {
++	case TAP_INVALID:
++	case TAP_RESET:
++		jtag_checks();
++		cmd_queue_cur_state = state;
++		break;
++	default:
++		return ERROR_JTAG_STATE_INVALID;
++	}
++
++	retval = interface_add_tms_seq(nbits, seq);
++	jtag_set_error(retval);
++	return retval;
++}
++
+ void jtag_add_pathmove(int num_states, const tap_state_t *path)
+ {
+ 	tap_state_t cur_state = cmd_queue_cur_state;
+--- a/src/jtag/drivers/driver.c
++++ b/src/jtag/drivers/driver.c
+@@ -388,6 +388,26 @@ int interface_jtag_add_tlr(void)
+ 	return ERROR_OK;
+ }
+ 
++int interface_add_tms_seq(unsigned num_bits, const uint8_t *seq)
++{
++	struct jtag_command *cmd;
++	unsigned bytes = DIV_ROUND_UP(num_bits, 8);
++
++	cmd = cmd_queue_alloc(sizeof(struct jtag_command));
++	if (!cmd)
++		return ERROR_FAIL;
++
++	cmd-&gt;type = JTAG_TMS;
++	cmd-&gt;cmd.tms-&gt;num_bits = num_bits;
++	cmd-&gt;cmd.tms-&gt;bits = cmd_queue_alloc(bytes);
++	if (!cmd-&gt;cmd.tms-&gt;bits)
++		return ERROR_FAIL;
++
++	memcpy(cmd-&gt;cmd.tms-&gt;bits, seq, bytes);
++
++	return ERROR_OK;
++}
++
+ int interface_jtag_add_pathmove(int num_states, const tap_state_t *path)
+ {
+ 	/* allocate memory for a new list member */
+--- a/src/jtag/interface.h
++++ b/src/jtag/interface.h
+@@ -184,11 +184,29 @@ static inline tap_state_t jtag_debug_sta
+ }
+ #endif // _DEBUG_JTAG_IO_
+ 
++/**
++ * Represents a driver for a debugging interface.
++ *
++ * @todo Rename; perhaps &quot;debug_driver&quot;.  This isn't an interface,
++ * it's a driver!  Also, not all drivers support JTAG.
++ *
++ * @todo We need a per-instance structure too, and changes to pass
++ * that structure to the driver.  Instances can for example be in
++ * either SWD or JTAG modes.  This will help remove globals, and
++ * eventually to cope with systems which have more than one such
++ * debugging interface.
++ */
+ struct jtag_interface {
+ 	/// The name of the JTAG interface driver.
+ 	char* name;
+ 
+ 	/**
++	 * Bit vector listing capabilities exposed by this driver.
++	 */
++	unsigned supported;
++#define DEBUG_CAP_TMS_SEQ	(1 &lt;&lt; 0)
++
++	/**
+ 	 * Execute queued commands.
+ 	 * @returns ERROR_OK on success, or an error code on failure.
+ 	 */
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -575,6 +575,8 @@ tap_state_t jtag_get_end_state(void);
+ 
+ void jtag_add_sleep(uint32_t us);
+ 
++int jtag_add_tms_seq(unsigned nbits, uint8_t *seq, enum tap_state t);
++
+ /**
+  * Function jtag_add_clocks
+  * first checks that the state in which the clocks are to be issued is
+--- a/src/jtag/minidriver.h
++++ b/src/jtag/minidriver.h
+@@ -67,6 +67,8 @@ int interface_jtag_add_tlr(void);
+ int interface_jtag_add_pathmove(int num_states, const tap_state_t* path);
+ int interface_jtag_add_runtest(int num_cycles, tap_state_t endstate);
+ 
++int interface_add_tms_seq(unsigned num_bits, const uint8_t *bits);
++
+ /**
+  * This drives the actual srst and trst pins. srst will always be 0
+  * if jtag_reset_config &amp; RESET_SRST_PULLS_TRST != 0 and ditto for
+--- a/src/jtag/minidummy/minidummy.c
++++ b/src/jtag/minidummy/minidummy.c
+@@ -147,6 +147,13 @@ int interface_jtag_add_pathmove(int num_
+ 	return ERROR_OK;
+ }
+ 
++int interface_add_tms_seq(unsigned num_bits, const uint8_t *seq)
++{
++	/* synchronously do the operation here */
++
++	return ERROR_OK;
++}
++
+ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer, int little, int count)
+ {
+ 	int i;
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -794,7 +794,16 @@ int interface_jtag_add_pathmove(int num_
+ 	return ERROR_OK;
+ }
+ 
+-
++int interface_add_tms_seq(unsigned num_bits, const uint8_t *seq)
++{
++	/* FIXME just implement this, like pathmove but without
++	 * JTAG-specific state transition checking.  Then update
++	 * zy1000_interface to report that it's supported.
++	 *
++	 * Eventually interface_jtag_add_pathmove() could vanish.
++	 */
++	return ERROR_JTAG_NOT_IMPLEMENTED;
++}
+ 
+ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer, int little, int count)
+ {
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014195.html">[Openocd-development] [patch/rfc 0/3] TMS clocking interface
+</A></li>
+	<LI>Next message: <A HREF="014203.html">[Openocd-development] [patch/rfc 1/3] interface: define TMS	sequence command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14196">[ date ]</a>
+              <a href="thread.html#14196">[ thread ]</a>
+              <a href="subject.html#14196">[ subject ]</a>
+              <a href="author.html#14196">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

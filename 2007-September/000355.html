@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Flash auto erase patch
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2007-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20auto%20erase%20patch&In-Reply-To=%3CE1IYTz4-000P8I-Cd%40smtp4.global.net.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000354.html">
+   <LINK REL="Next"  HREF="000350.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Flash auto erase patch</H1>
+    <B>Spen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20auto%20erase%20patch&In-Reply-To=%3CE1IYTz4-000P8I-Cd%40smtp4.global.net.uk%3E"
+       TITLE="[Openocd-development] Flash auto erase patch">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Thu Sep 20 23:56:46 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000354.html">[Openocd-development] Flash auto erase patch
+</A></li>
+        <LI>Next message: <A HREF="000350.html">[Openocd-development] OpenOCD and PowerPC processors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#355">[ date ]</a>
+              <a href="thread.html#355">[ thread ]</a>
+              <a href="subject.html#355">[ subject ]</a>
+              <a href="author.html#355">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Pavel,
+
+&gt;<i> I believe, there is a good reason to have autoerase disabled 
+</I>&gt;<i> by default.
+</I>&gt;<i> There are MCUs which feature automatic erase on their own 
+</I>&gt;<i> wired on the chip, e.g. AT91SAM71. In such case it does not 
+</I>&gt;<i> make sense to use &quot;debugger assisted&quot; autoerase.
+</I>&gt;<i> If there are multiple flash banks, each of the banks may 
+</I>&gt;<i> behave different in this.
+</I>&gt;<i> 
+</I>&gt;<i> Also if autoerase is disabled by default, there is no need 
+</I>&gt;<i> for the hack in handle_flash_erase() function (disabling 
+</I>&gt;<i> autoerase when once this function is called).
+</I>&gt;<i> 
+</I>
+Far comment, I will change to disabled by default.
+
+&gt;<i> Concerning flash_erase() function - it is certainly very good 
+</I>&gt;<i> idea to support different sized flash sectors, however in the 
+</I>&gt;<i> posted patch, there is probably a bug. The following piece of 
+</I>&gt;<i> code seems to me not doing the right thing, especially if 
+</I>&gt;<i> some sectors are already erased and some not. It may erase no 
+</I>&gt;<i> sector even if there are some to be erased (first may not get 
+</I>&gt;<i> set at all if sectors up to addr are already erased).
+</I>&gt;<i> Or even worse, it may erase sectors which are not supposed to 
+</I>&gt;<i> be erased (this is because first and last is set if there is 
+</I>&gt;<i> any not erased sector below addr, disregarding whether it 
+</I>&gt;<i> really overlaps with the area defined by addr and length).
+</I>&gt;<i> 
+</I>&gt;<i> 	for (i = 0; i &lt; c-&gt;num_sectors; i++)
+</I>&gt;<i> 	{
+</I>&gt;<i> 		if (addr &gt;= c-&gt;sectors[i].offset &amp;&amp; 
+</I>&gt;<i> c-&gt;sectors[i].is_erased != 1 ) {
+</I>&gt;<i> 			first = i;
+</I>&gt;<i> 			last = i;
+</I>&gt;<i> 		}
+</I>&gt;<i> 		
+</I>&gt;<i> 		if (addr + length &gt;= c-&gt;sectors[i].offset &amp;&amp; 
+</I>&gt;<i> c-&gt;sectors[i].is_erased != 1 ) {
+</I>&gt;<i> 			last = i;
+</I>&gt;<i> 		}
+</I>&gt;<i> 	}
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> It shall rather be something like this:
+</I>&gt;<i> 
+</I>&gt;<i> 	for (i = 0; i &lt; c-&gt;num_sectors; i++)
+</I>&gt;<i> 	{
+</I>&gt;<i> 		/* check whether sector overlaps with the given 
+</I>&gt;<i> range and is not yet erased */
+</I>&gt;<i> 		if (addr &lt; c-&gt;sectors[i].offset + 
+</I>&gt;<i> c-&gt;sectors[i].size &amp;&amp; addr + length &gt; c-&gt;sectors[i].offset &amp;&amp; 
+</I>&gt;<i> c-&gt;sectors[i].is_erased != 1) {
+</I>&gt;<i> 			/* if first is not set yet then this is 
+</I>&gt;<i> the first sector */
+</I>&gt;<i> 			if (first == -1)
+</I>&gt;<i> 				first = i;
+</I>&gt;<i> 			last = i; /* and it is the last one so 
+</I>&gt;<i> far in any case */
+</I>&gt;<i> 		}		
+</I>&gt;<i> 	}
+</I>
+I did spot that one, I made the following change to the flash_write function
+
+retval = flash_erase( target, run_address, run_size );
+Instead of
+retval = flash_erase( target, run_address - c-&gt;base, run_size );
+
+Cheers
+Spen
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000354.html">[Openocd-development] Flash auto erase patch
+</A></li>
+	<LI>Next message: <A HREF="000350.html">[Openocd-development] OpenOCD and PowerPC processors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#355">[ date ]</a>
+              <a href="thread.html#355">[ thread ]</a>
+              <a href="subject.html#355">[ subject ]</a>
+              <a href="author.html#355">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

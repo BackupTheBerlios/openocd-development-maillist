@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] str710 gdb flash load regression in 0.4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20str710%20gdb%20flash%20load%20regression%20in%200.4&In-Reply-To=%3Cc09652431001190438g3efe5d9ar2af687b5b8676176%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014477.html">
+   <LINK REL="Next"  HREF="014284.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] str710 gdb flash load regression in 0.4</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20str710%20gdb%20flash%20load%20regression%20in%200.4&In-Reply-To=%3Cc09652431001190438g3efe5d9ar2af687b5b8676176%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] str710 gdb flash load regression in 0.4">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Jan 19 13:38:14 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014477.html">[Openocd-development] str710 reset is a bit flaky
+</A></li>
+        <LI>Next message: <A HREF="014284.html">[Openocd-development] str710 gdb flash load regression in 0.4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14278">[ date ]</a>
+              <a href="thread.html#14278">[ thread ]</a>
+              <a href="subject.html#14278">[ subject ]</a>
+              <a href="author.html#14278">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>w/dummy driver and str710 the gdb memory map is incorrect.
+
+This will cause gdb load to fail now that flash erase_address fails
+with non-aligned
+memory.
+
+The quick fix is to revert gdb to erase all sectors in a memory range.
+The better
+fix is to fix the GDB memory map.
+
+openocd -f interface/dummy.cfg -f target/str710.cfg
+
+(gdb) info mem
+Using memory regions provided by the target.
+Num Enb Low Addr   High Addr  Attrs
+0   y  	0x00000000 0x40000000 rw nocache
+1   y  	0x40000000 0x40040000 flash blocksize 0x2000 nocache
+2   y  	0x40040000 0x400c0000 rw nocache
+3   y  	0x400c0000 0x400c4000 flash blocksize 0x2000 nocache
+4   y  	0x400c4000 0x100000000 rw nocache
+
+
+(gdb) monitor flash info 0
+#0 : str7x at 0x40000000, size 0x00040000, buswidth 0, chipwidth 0
+	#  0: 0x00000000 (0x2000 8kB) protected
+	#  1: 0x00002000 (0x2000 8kB) protected
+	#  2: 0x00004000 (0x2000 8kB) protected
+	#  3: 0x00006000 (0x2000 8kB) protected
+	#  4: 0x00008000 (0x8000 32kB) protected
+	#  5: 0x00010000 (0x10000 64kB) protected
+	#  6: 0x00020000 (0x10000 64kB) protected
+	#  7: 0x00030000 (0x10000 64kB) protected
+
+gdb load fails with:
+
+Debug: 296 92420 embeddedice.c:490 embeddedice_write_reg(): 0: 0x00000005
+Debug: 297 92430 target.c:1565 target_write_u32(): address:
+0x40100000, value: 0x81000000
+Debug: 298 92440 embeddedice.c:490 embeddedice_write_reg(): 0: 0x00000004
+Debug: 299 92450 embeddedice.c:490 embeddedice_write_reg(): 0: 0x00000005
+Debug: 300 92450 arm7_9_common.c:2210 arm7_9_read_memory(): address:
+0x40100000, size: 0x00000004, count: 0x00000001
+Debug: 301 92460 target.c:1488 target_read_u32(): address: 0x40100000,
+value: 0x00000000
+Debug: 302 92470 arm7_9_common.c:2210 arm7_9_read_memory(): address:
+0x40100014, size: 0x00000004, count: 0x00000001
+Debug: 303 92480 target.c:1488 target_read_u32(): address: 0x40100014,
+value: 0x00000000
+Debug: 304 92490 str7x.c:303 str7x_protect(): retval: 0x00000000
+User : 305 92500 command.c:536 command_print(): cleared protection for
+sectors 0 through 1 on flash bank 1
+Error: 306 92510 core.c:357 flash_iterate_address_range(): address
+range 0x40000000 .. 0x00023fff is not sector-aligned
+Debug: 307 92520 target.c:968 target_call_event_callbacks(): target
+event 28 (gdb-flash-erase-end)
+Error: 308 92530 gdb_server.c:1942 gdb_v_packet(): flash_erase returned -904
+Debug: 309 92560 gdb_server.c:2089 gdb_input_inner(): received packet: 'mdf,4'
+Debug: 310 92570 gdb_server.c:1236 gdb_read_memory_packet(): addr:
+0x000000df, len: 0x00000004
+Debug: 311 92580 target.c:1333 target_read_buffer(): reading buffer of
+4 byte at 0x000000df
+
+
+
+-- 
+&#216;yvind Harboe
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014477.html">[Openocd-development] str710 reset is a bit flaky
+</A></li>
+	<LI>Next message: <A HREF="014284.html">[Openocd-development] str710 gdb flash load regression in 0.4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14278">[ date ]</a>
+              <a href="thread.html#14278">[ thread ]</a>
+              <a href="subject.html#14278">[ subject ]</a>
+              <a href="author.html#14278">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

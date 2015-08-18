@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Trying to get SST39VF1601 flash working on	new board
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Trying%20to%20get%20SST39VF1601%20flash%20working%20on%0A%09new%20board&In-Reply-To=%3C3d1967ab0904081916h7ce0150dm6b6a77e042ff7007%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005253.html">
+   <LINK REL="Next"  HREF="005252.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Trying to get SST39VF1601 flash working on	new board</H1>
+    <B>Brian Hutchinson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Trying%20to%20get%20SST39VF1601%20flash%20working%20on%0A%09new%20board&In-Reply-To=%3C3d1967ab0904081916h7ce0150dm6b6a77e042ff7007%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Trying to get SST39VF1601 flash working on	new board">b.hutchman at gmail.com
+       </A><BR>
+    <I>Thu Apr  9 04:16:23 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005253.html">[Openocd-development] readable.tcl: vestigial?
+</A></li>
+        <LI>Next message: <A HREF="005252.html">[Openocd-development] AU1100 (MIPS) problems Fixed!
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5250">[ date ]</a>
+              <a href="thread.html#5250">[ thread ]</a>
+              <a href="subject.html#5250">[ subject ]</a>
+              <a href="author.html#5250">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi everyone,
+
+I just got a new board that I'm trying to get setup.  I new at this so I'm
+sure there is plenty that I have missed.
+
+The board is based on or very similar to a at91sam9260ek board.  It uses
+u-boot 1.1.5 and my jtag interface is a Amontec jtagkey.  The version of
+openocd I'm using is SVN 1411.
+
+While searching the list archives I found a few threads that talk about the
+SST39VF1601 support being added around last nov/dec of 08 but I don't see
+much in the cfi.c that matches so I don't know if what I have fully supports
+the SST39v or not.
+
+I've tried using the board/unknown-board-atmel-at91sam9260.cfg as an
+example.
+
+I can post the configs &amp; logs if needed but didn't want to send a huge email
+the first time ... hopefully I just need to be pointed in the right
+direction and I can finish making a config that will work.
+
+The documentation from the board says that the NOR flash (a SST39VF1601
+parallel flash 16bit x 2MB) starts at 0x10000000 and is 0x1fffff long.  The
+documentation says the flash is on CS0.
+
+I put the following in my board .cfg:
+flash bank cfi 0x10000000 0x001fffff 2 2 0
+
+I don't exactly know how much initialization in the board .cfg I need to
+do.  I looked for similar arm926ejs setups and I see some .cfg files setting
+up the SDRAM, turning off watchdogs and doing other things and then defining
+things like SMC_SETUP0, SMC_PULSE0, SMC_CYCLE0 and SMC_MODE0 using the mww
+commands followed by a flash probe 0.
+
+So here is what I'm seeing/doing so far.  As soon as I telnet to OpenOCD,
+I'll halt the processor with halt and I'll usually see the yellow light on
+my jtagkey flash and when I do a poll it says the target is still running.
+I'll do halt again and the target will say that it is halted this time and I
+don't see the yellow light flash.
+
+Next I'll type flash banks which will return the cfi line I entered in the
+config.
+Next I'll do flash probe 0 which will fail.
+
+While watching the -d3 output while trying to do the flash probe 0 ... with
+one config I'll see things like:
+
+Debug: 198 100046 arm926ejs.c:112 arm926ejs_catch_broken_irscan(): caught
+ARM926EJ-S invalid Capture-IR result after CP15 access
+.
+.
+and:
+.
+Debug: 279 141268 cfi.c:2206 cfi_probe(): CFI qry returned: 0x04 0xffffff98
+0xffffffd3
+
+and with yet another attempt at a config (basically
+unknown-board-atmel-at91sam9260.cfg) I see things like this when I do flash
+probe 0:
+
+Debug: 229 29259 command.c:108 script_command(): script_command - probe,
+argv[1]=0
+Debug: 230 29260 embeddedice.c:401 embeddedice_write_reg(): 0: 0x00000004
+Debug: 231 29263 embeddedice.c:401 embeddedice_write_reg(): 0: 0x00000005
+Warn : 232 29267 arm7_9_common.c:2302 arm7_9_write_memory(): memory write
+caused data abort (address: 0x10000aaa, size: 0x2, count: 0x1)
+Debug: 233 29268 arm9tdmi.c:620 arm9tdmi_write_xpsr_im8(): xpsr_im: 13, rot:
+0, spsr: 0
+User : 234 29268 command.c:383 command_print(): unknown error when probing
+flash bank '#0' at 0x10000000
+
+Since I see different behavior ... it leads me to think I just don't have
+enough of an environment setup for the flash probe command to work.  In one
+board config all I'm doing is setting the cfi line and the SMC_SETUP0,
+SMC_PULSE0, SMC_CYCLE0 and SMC_MODE0 mww commands using the u-boot source
+code that inits the NOR flash and in the other board config I'm pretty much
+using the unknown-board-atmel-at91sam9260.cfg config as is except for the
+cfi line.  I haven't tried to unwind what all the
+unknown-board-atmel-at91sam9260.cfg is doing yet.
+
+At this point I've read the openocd.pdf, searched all over the internet and
+the development list archives and have found some good stuff, I just don't
+know how to apply it all yet or the steps I should take.
+
+I'm grateful to anyone that can shepherd me through the process of getting
+NOR flash to work with openocd.
+
+Regards,
+
+Brian
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090408/33586855/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20090408/33586855/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005253.html">[Openocd-development] readable.tcl: vestigial?
+</A></li>
+	<LI>Next message: <A HREF="005252.html">[Openocd-development] AU1100 (MIPS) problems Fixed!
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5250">[ date ]</a>
+              <a href="thread.html#5250">[ thread ]</a>
+              <a href="subject.html#5250">[ subject ]</a>
+              <a href="author.html#5250">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

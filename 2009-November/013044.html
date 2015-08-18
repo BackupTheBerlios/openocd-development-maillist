@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] everything must be &quot;used before init&quot; ??
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20everything%20must%20be%20%22used%20before%20init%22%20%3F%3F&In-Reply-To=%3C1259519132.5314.6263.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013030.html">
+   <LINK REL="Next"  HREF="013035.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] everything must be &quot;used before init&quot; ??</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20everything%20must%20be%20%22used%20before%20init%22%20%3F%3F&In-Reply-To=%3C1259519132.5314.6263.camel%40localhost%3E"
+       TITLE="[Openocd-development] everything must be &quot;used before init&quot; ??">zw at superlucidity.net
+       </A><BR>
+    <I>Sun Nov 29 19:25:32 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013030.html">[Openocd-development] everything must be &quot;used before init&quot; ??
+</A></li>
+        <LI>Next message: <A HREF="013035.html">[Openocd-development] everything must be &quot;used before init&quot; ??
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13044">[ date ]</a>
+              <a href="thread.html#13044">[ thread ]</a>
+              <a href="subject.html#13044">[ subject ]</a>
+              <a href="author.html#13044">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, 2009-11-28 at 18:16 -0800, David Brownell wrote:
+&gt;<i> On Saturday 28 November 2009, Zach Welch wrote:
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Yeah, I figure there are some scripts (or users) that have not been
+</I>&gt;<i> &gt; sufficiently strict about CONFIG vs. EXEC modes, as that logic has been
+</I>&gt;<i> &gt; broken for ages....
+</I>&gt;<i> 
+</I>&gt;<i> Broken how?  It's worked as advertised, as far as I know.
+</I>
+It was allowing all commands to run during CONFIG stage, regardless of
+whether they were marked EXEC-only.  Broken.
+
+&gt;<i> &gt; Nevertheless, the very design needs to be improved. 
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Indeed, this feature presents a layering violation.  Right now, the
+</I>&gt;<i> &gt; command layer knows too much about the state of initialization.  Even a
+</I>&gt;<i> &gt; simple 'enable/disable' state would be a sufficient generalization of
+</I>&gt;<i> &gt; the intended functionality; however, many commands should be registered
+</I>&gt;<i> &gt; only once they can be used, which we do in very small doses today.
+</I>&gt;<i> 
+</I>&gt;<i> And I'd like to see things that *can't* be used not even be displayed
+</I>&gt;<i> in the &quot;help&quot; list ... 
+</I>
+I had a patch to do exactly this, but I think I dropped it.   It's a
+two-liner though.
+
+&gt;<i> &gt; Why not allow the user to bring up an interface once its defined?
+</I>&gt;<i> &gt; Specifically, the 'init' command might be a subcommand associated of a
+</I>&gt;<i> &gt; specific (named) interface device instance.  It would give other
+</I>&gt;<i> &gt; commands for configuring the TAPs, devices, and targets associated with
+</I>&gt;<i> &gt; that interface.  Naturally, this implies multiple interface support, so
+</I>&gt;<i> &gt; OpenOCD can support gang-programming and multi-head test applications.
+</I>&gt;<i> 
+</I>&gt;<i> I'm not keen on that.  It already supports multiple scanchains ... just
+</I>&gt;<i> put each one in its own process.  That's not something that's broken.
+</I>&gt;<i> Not that I'd object hugely to having it; but it just seems like it would
+</I>&gt;<i> only increase complexity, to no real benefit.
+</I>
+Multiple processes will not allow easy synchronization when testing
+targets that are connected via multiple interfaces and to each other.
+Moreover, it's far more difficult to start two processes: you have to
+set their server ports manually, or they conflict.  One process is the
+way to go for testing scenarios that require multiple interfaces.
+
+And it should eliminate 99% of the global variables in the jtag module.
+Proper encapsulation of that layer would be a real benefit in my eyes.
+ 
+&gt;<i> &gt; Naturally, it should be possible to run 'init' interactively, such that
+</I>&gt;<i> &gt; one can startup OpenOCD without any interface defined.  That change
+</I>&gt;<i> &gt; should be possible independently of other work in this area.  I seem to
+</I>&gt;<i> &gt; recall the topic being discussed in the past, but I can't find anything
+</I>&gt;<i> &gt; relevant in my local archive after a quick search.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; As I see it, the notion of command modes can be eliminated entirely,
+</I>&gt;<i> 
+</I>&gt;<i> Yes it could be.  But right now we're faced with just a regression,
+</I>&gt;<i> where adding
+</I>&gt;<i> 
+</I>&gt;<i> 	-c init -c &quot;poll off&quot;
+</I>&gt;<i> 
+</I>&gt;<i> to a working comand line causes things to fail.
+</I>
+When I started to look into this, I decided to start a new series that
+factors the init process into several fine-grain commands.  The current
+command does _far_ too many things under the covers, making policies
+when it should be offering mechanisms.
+
+For example, the gdb_init routine can be factored into routines that
+allows starting an GDB server associated with a target at any time.
+While this work can retain the current syntax, the underlying mechanisms
+will be prepared to switch to a more policy-neutral command language.
+
+--Z
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013030.html">[Openocd-development] everything must be &quot;used before init&quot; ??
+</A></li>
+	<LI>Next message: <A HREF="013035.html">[Openocd-development] everything must be &quot;used before init&quot; ??
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13044">[ date ]</a>
+              <a href="thread.html#13044">[ thread ]</a>
+              <a href="subject.html#13044">[ subject ]</a>
+              <a href="author.html#13044">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

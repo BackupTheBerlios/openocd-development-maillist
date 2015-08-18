@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] target.cfg: label ETBs correctly
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20target.cfg%3A%20label%20ETBs%20correctly&In-Reply-To=%3C200911131335.48707.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012309.html">
+   <LINK REL="Next"  HREF="012311.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] target.cfg: label ETBs correctly</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20target.cfg%3A%20label%20ETBs%20correctly&In-Reply-To=%3C200911131335.48707.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] target.cfg: label ETBs correctly">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Nov 13 22:35:48 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012309.html">[Openocd-development] [patch] target: remove unused &quot;bitfield&quot;	infrastructure
+</A></li>
+        <LI>Next message: <A HREF="012311.html">[Openocd-development] [patch] iMX2* + ETB targets: hook up ETM and	ETB
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12308">[ date ]</a>
+              <a href="thread.html#12308">[ thread ]</a>
+              <a href="subject.html#12308">[ subject ]</a>
+              <a href="author.html#12308">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Various cores with an ETB have its TAP misnamed ... either as a
+boundary scan TAP or as the iMX &quot;Secure JTAG Controller&quot; (which
+is, among other things, a JRC that could be used to shorten
+scan chains).
+
+Use the correct name for these TAPs, which we can recognize since
+their IDs were assigned by ARM and these chips all document the
+presence of an ETB.  The 0x2b900f0f is ETB11; the 0x1b900f0f
+is an older module, just called &quot;ETB&quot;.
+
+Also shrink the ETB's IR configuration; the default IR-Capture
+value is fine, and the mask can specify that all four bits are
+safe to check (per ARM documentation).
+---
+ tcl/target/imx25.cfg           |    8 ++++----
+ tcl/target/imx27.cfg           |   10 +++++-----
+ tcl/target/imx31.cfg           |   14 +++++++-------
+ tcl/target/imx35.cfg           |   12 +++++-------
+ tcl/target/samsung_s3c6410.cfg |   10 +++++-----
+ 5 files changed, 26 insertions(+), 28 deletions(-)
+
+--- a/tcl/target/imx25.cfg
++++ b/tcl/target/imx25.cfg
+@@ -14,12 +14,12 @@ if { [info exists ENDIAN] } {
+    set  _ENDIAN little
+ }
+ 
+-if { [info exists SJCTAPID ] } {
+-   set _SJCTAPID $SJCTAPID
++if { [info exists ETBTAPID ] } {
++   set _ETBTAPID $ETBTAPID
+ } else {
+-   set _SJCTAPID 0x1b900f0f
++   set _ETBTAPID 0x1b900f0f
+ }
+-jtag newtap $_CHIPNAME sjc -irlen 4 -expected-id $_SJCTAPID
++jtag newtap $_CHIPNAME etb -irlen 4 -irmask 0x0f -expected-id $_ETBTAPID
+ 
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+--- a/tcl/target/imx27.cfg
++++ b/tcl/target/imx27.cfg
+@@ -21,13 +21,13 @@ if { [info exists ENDIAN] } {
+ 
+ # Note above there are 2 taps
+ 
+-# The bs tap
+-if { [info exists BSTAPID ] } {
+-   set _BSTAPID $BSTAPID
++# trace buffer
++if { [info exists ETBTAPID ] } {
++   set _ETBTAPID $ETBTAPID
+ } else {
+-   set _BSTAPID 0x1b900f0f
++   set _ETBTAPID 0x1b900f0f
+ }
+-jtag newtap $_CHIPNAME bs  -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_BSTAPID
++jtag newtap $_CHIPNAME etb  -irlen 4 -irmask 0xf -expected-id $_ETBTAPID
+ 
+ # The CPU tap
+ if { [info exists CPUTAPID ] } {
+--- a/tcl/target/imx31.cfg
++++ b/tcl/target/imx31.cfg
+@@ -27,15 +27,15 @@ if { [info exists SDMATAPID ] } {
+    set _SDMATAPID 0x2190101d
+ }
+ 
+-#========================================
+-# The &quot;system jtag controller&quot;
+-# IMX31 reference manual, page 6-28 - figure 6-14
+-if { [info exists SJCTAPID ] } {
+-   set _SJCTAPID $SJCTAPID
++if { [info exists ETBTAPID ] } {
++   set _ETBTAPID $ETBTAPID
+ } else {
+-   set _SJCTAPID 0x2b900f0f
++   set _ETBTAPID 0x2b900f0f
+ }
+-jtag newtap $_CHIPNAME sjc -irlen 4 -ircapture 0x0 -irmask 0x0 -expected-id $_SJCTAPID
++
++#========================================
++
++jtag newtap $_CHIPNAME etb -irlen 4 -irmask 0xf -expected-id $_ETBTAPID
+ 
+ # The &quot;SDMA&quot; - &lt;S&gt;mart &lt;DMA&gt; controller debug tap
+ # Based on some IO pins - this can be disabled &amp; removed
+--- a/tcl/target/imx35.cfg
++++ b/tcl/target/imx35.cfg
+@@ -27,17 +27,15 @@ if { [info exists SDMATAPID ] } {
+    set _SDMATAPID 0x0882601d
+ }
+ 
+-#========================================
+-# The &quot;system jtag controller&quot;
+-# IMX31 reference manual, page 6-28 - figure 6-14
+-if { [info exists SJCTAPID ] } {
+-   set _SJCTAPID $SJCTAPID
++if { [info exists ETBTAPID ] } {
++   set _ETBTAPID $ETBTAPID
+ } else {
+-   set _SJCTAPID 0x2b900f0f
++   set _ETBTAPID 0x2b900f0f
+ }
+ 
+-jtag newtap $_CHIPNAME sjc -irlen 4 -ircapture 0x0 -irmask 0x0 -expected-id $_SJCTAPID
++#========================================
+ 
++jtag newtap $_CHIPNAME etb -irlen 4 -irmask 0xf -expected-id $_ETBTAPID
+ jtag newtap $_CHIPNAME cpu -irlen 5 -ircapture 0x1 -irmask 0x1f -expected-id $_CPUTAPID
+ 
+ # No IDCODE for this TAP
+--- a/tcl/target/samsung_s3c6410.cfg
++++ b/tcl/target/samsung_s3c6410.cfg
+@@ -19,11 +19,12 @@ if { [info exists ENDIAN] } {
+    set  _ENDIAN little
+ }
+ 
+-if { [info exists BSTAPID ] } {
+-   set _BSTAPID $BSTAPID
++# trace buffer
++if { [info exists ETBTAPID ] } {
++   set _ETBTAPID $ETBTAPID
+ } else {
+   # force an error till we get a good number
+-   set _BSTAPID 0x2b900f0f
++   set _ETBTAPID 0x2b900f0f
+ }
+ 
+ if { [info exists CPUTAPID ] } {
+@@ -35,8 +36,7 @@ if { [info exists CPUTAPID ] } {
+ 
+ #jtag scan chain
+ 
+-# I think the &quot;unknown&quot; is the boundry scan tap
+-jtag newtap $_CHIPNAME unknown -irlen 4 -ircapture 0x1 -irmask 0xe  -expected-id $_BSTAPID
++jtag newtap $_CHIPNAME etb -irlen 4 -expected-id $_ETBTAPID
+ jtag newtap $_CHIPNAME cpu     -irlen 5 -ircapture 0x1 -irmask 0x1f -expected-id $_CPUTAPID
+ 
+ set _TARGETNAME $_CHIPNAME.cpu
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012309.html">[Openocd-development] [patch] target: remove unused &quot;bitfield&quot;	infrastructure
+</A></li>
+	<LI>Next message: <A HREF="012311.html">[Openocd-development] [patch] iMX2* + ETB targets: hook up ETM and	ETB
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12308">[ date ]</a>
+              <a href="thread.html#12308">[ thread ]</a>
+              <a href="subject.html#12308">[ subject ]</a>
+              <a href="author.html#12308">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

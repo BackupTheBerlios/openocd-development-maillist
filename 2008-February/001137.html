@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Improving flash error handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Improving%20flash%20error%20handling&In-Reply-To=%3C20080226114745.321890%40gmx.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001136.html">
+   <LINK REL="Next"  HREF="001144.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Improving flash error handling</H1>
+    <B>Dominic Rath</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Improving%20flash%20error%20handling&In-Reply-To=%3C20080226114745.321890%40gmx.net%3E"
+       TITLE="[Openocd-development] Improving flash error handling">Dominic.Rath at gmx.de
+       </A><BR>
+    <I>Tue Feb 26 12:47:45 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001136.html">[Openocd-development] Improving flash error handling
+</A></li>
+        <LI>Next message: <A HREF="001144.html">[Openocd-development] Improving flash error handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1137">[ date ]</a>
+              <a href="thread.html#1137">[ thread ]</a>
+              <a href="subject.html#1137">[ subject ]</a>
+              <a href="author.html#1137">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Please note that a flash driver doesn't necessarily have a target_t associated.
+
+Currently the only example is the str9xpec (though I don't know how this one is exactly implemented). The str912 offers two modes to program the on-chip flash - either using the CPU, or directly via a separate TAP interface. Maybe Spen can comment on the sideeffects this has, and how useable the target_t is when the str912 is accessed via str9xpec.
+
+It's also possible to have flash drivers that have absolutely no target associated, for example flash that's connected to a FPGA, and which is programmed by bit-banging the FPGA's boundary scan interface, or flash that has its own JTAG port (Xilinx comes to my mind). This isn't currently implemented, by I see no reason why the interface shouldn't support such flashes.
+
+Best regards,
+
+Dominic
+
+-------- Original-Nachricht --------
+&gt;<i> Datum: Tue, 26 Feb 2008 12:33:55 +0100
+</I>&gt;<i> Von: Pavel Chromy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">chromy at asix.cz</A>&gt;
+</I>&gt;<i> An: Openocd-Dev &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">openocd-development at lists.berlios.de</A>&gt;
+</I>&gt;<i> Betreff: Re: [Openocd-development] Improving flash error handling
+</I>
+&gt;<i> 
+</I>&gt;<i> Hello &#216;yvind and the list,
+</I>&gt;<i> 
+</I>&gt;<i> &#216;yvind Harboe napsal(a):
+</I>&gt;<i> &gt; I'm OK with keeping the polymorphism the way it was, i.e. pushing
+</I>&gt;<i> &gt; the checks into the driver but then using shared code.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; The drivers were broken before because the implementation of the
+</I>&gt;<i> &gt; checks was &quot;spotty&quot;, so placing this code in a common place for
+</I>&gt;<i> &gt;&gt; 90% of the cases is what I believe is cruicial point for quality here.
+</I>&gt;<i> 
+</I>&gt;<i> concerning the previous discussion:
+</I>&gt;<i> 
+</I>&gt;<i> I have checked the drivers and most of them in most of the functions
+</I>&gt;<i> already do proper checks
+</I>&gt;<i> for target halted and return an error code.
+</I>&gt;<i> The idea is (and originally probably was) that the driver shall check the
+</I>&gt;<i> preconditions
+</I>&gt;<i> as it knows the best its needs. This applies also for other preconditions,
+</I>&gt;<i> not only halted state of the target.
+</I>&gt;<i> 
+</I>&gt;<i> Particularly, the check for the halted state of the target is basically
+</I>&gt;<i> two lines of code
+</I>&gt;<i> if (bank-&gt;target-&gt;state != TARGET_HALTED)
+</I>&gt;<i> 	return ERROR_TARGET_NOT_HALTED;
+</I>&gt;<i> so I do not think it would be any helpful to create a separate function
+</I>&gt;<i> for this particular check,
+</I>&gt;<i> at least for now - there would be no gain by this, the code would not get
+</I>&gt;<i> any shorter neither more readable.
+</I>&gt;<i> (As I stated, most of the functions already contain this check, so there
+</I>&gt;<i> won't be many changes)
+</I>&gt;<i> 
+</I>&gt;<i> However the driver shall never issue an error message in case of such
+</I>&gt;<i> generic error,
+</I>&gt;<i> this is a task for the wrapper.
+</I>&gt;<i> Generally speaking, driver shall print out messages only in special device
+</I>&gt;<i> dependent error
+</I>&gt;<i> situations and just return an error code in all generic cases and stay
+</I>&gt;<i> rather silent.
+</I>&gt;<i> 
+</I>&gt;<i> The wrapper shall check for possible error states common to all drivers,
+</I>&gt;<i> before calling the driver function (e.g. whether sector numbers are out of
+</I>&gt;<i> range)
+</I>&gt;<i> and ensure that the driver function is called with sane parameters.
+</I>&gt;<i> Drivers may/shall rely on the wrapper in this.
+</I>&gt;<i> 
+</I>&gt;<i> I am going to look through ALL of the flash drivers in the repository
+</I>&gt;<i> thoroughly
+</I>&gt;<i> and make sure that proper check are done everywhere it is necessary and
+</I>&gt;<i> proper
+</I>&gt;<i> error code is returned, unless there are some more comments or ideas (?).
+</I>&gt;<i> 
+</I>&gt;<i> I will post the patch at once when it is all complete, so please hold back
+</I>&gt;<i> larger changes to flash drivers if possible - to prevent conflicts.
+</I>&gt;<i> 
+</I>&gt;<i> Thanks and best regards,
+</I>&gt;<i>    Pavel
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+-- 
+--
+Dominic Rath &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Dominic.Rath at gmx.de</A>&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001136.html">[Openocd-development] Improving flash error handling
+</A></li>
+	<LI>Next message: <A HREF="001144.html">[Openocd-development] Improving flash error handling
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1137">[ date ]</a>
+              <a href="thread.html#1137">[ thread ]</a>
+              <a href="subject.html#1137">[ subject ]</a>
+              <a href="author.html#1137">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

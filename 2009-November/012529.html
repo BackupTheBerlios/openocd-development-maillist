@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/6] use COMMAND_PARSE_ON_OFF where	appropriate
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/6%5D%20use%20COMMAND_PARSE_ON_OFF%20where%0A%09appropriate&In-Reply-To=%3C1258561643-14413-3-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012549.html">
+   <LINK REL="Next"  HREF="012530.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/6] use COMMAND_PARSE_ON_OFF where	appropriate</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/6%5D%20use%20COMMAND_PARSE_ON_OFF%20where%0A%09appropriate&In-Reply-To=%3C1258561643-14413-3-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 2/6] use COMMAND_PARSE_ON_OFF where	appropriate">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 18 17:27:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012549.html">[Openocd-development] [PATCH 1/6] add COMMAND_PARSE_BOOL macro and friends
+</A></li>
+        <LI>Next message: <A HREF="012530.html">[Openocd-development] [PATCH 3/6] use COMMAND_PARSE_ENABLE macro	where appropriate
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12529">[ date ]</a>
+              <a href="thread.html#12529">[ thread ]</a>
+              <a href="subject.html#12529">[ subject ]</a>
+              <a href="author.html#12529">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Updates all command parsing of &quot;on&quot; and &quot;off&quot; arguments.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/flash.c        |    9 ++-------
+ src/jtag/parport.c       |    7 ++-----
+ src/jtag/zy1000/zy1000.c |   15 +++------------
+ src/target/cortex_m3.c   |   17 +++++------------
+ src/target/target.c      |   19 +++++--------------
+ 5 files changed, 17 insertions(+), 50 deletions(-)
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index 2c63b82..98e5ee0 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -577,7 +577,6 @@ COMMAND_HANDLER(handle_flash_protect_command)
+ 	uint32_t bank_nr;
+ 	uint32_t first;
+ 	uint32_t last;
+-	int set;
+ 
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], bank_nr);
+ 	struct flash_bank *p = get_flash_bank_by_num(bank_nr);
+@@ -590,12 +589,8 @@ COMMAND_HANDLER(handle_flash_protect_command)
+ 	else
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], last);
+ 
+-	if (strcmp(CMD_ARGV[3], &quot;on&quot;) == 0)
+-		set = 1;
+-	else if (strcmp(CMD_ARGV[3], &quot;off&quot;) == 0)
+-		set = 0;
+-	else
+-		return ERROR_COMMAND_SYNTAX_ERROR;
++	bool set;
++	COMMAND_PARSE_ON_OFF(CMD_ARGV[3], set);
+ 
+ 	int retval;
+ 	if ((retval = flash_check_sector_parameters(CMD_CTX,
+diff --git a/src/jtag/parport.c b/src/jtag/parport.c
+index 97f6458..b80626f 100644
+--- a/src/jtag/parport.c
++++ b/src/jtag/parport.c
+@@ -103,7 +103,7 @@ static struct cable cables[] =
+ /* configuration */
+ static char* parport_cable = NULL;
+ static uint16_t parport_port;
+-static int parport_exit = 0;
++static bool parport_exit = 0;
+ static uint32_t parport_toggling_time_ns = 1000;
+ static int wait_states;
+ 
+@@ -453,10 +453,7 @@ COMMAND_HANDLER(parport_handle_write_on_exit_command)
+ 		return ERROR_OK;
+ 	}
+ 
+-	if (strcmp(CMD_ARGV[0], &quot;on&quot;) == 0)
+-		parport_exit = 1;
+-	else if (strcmp(CMD_ARGV[0], &quot;off&quot;) == 0)
+-		parport_exit = 0;
++	COMMAND_PARSE_ON_OFF(CMD_ARGV[0], parport_exit);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index a509aee..206b362 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -236,18 +236,9 @@ int handle_power_command(struct command_context *cmd_ctx, char *cmd, char **args
+ 
+ 	if (argc == 1)
+ 	{
+-		if (strcmp(args[0], &quot;on&quot;) == 0)
+-		{
+-			setPower(1);
+-		}
+-		else if (strcmp(args[0], &quot;off&quot;) == 0)
+-		{
+-			setPower(0);
+-		} else
+-		{
+-			command_print(cmd_ctx, &quot;arg is \&quot;on\&quot; or \&quot;off\&quot;&quot;);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
++		bool enable;
++		COMMAND_PARSE_ON_OFF(args[0], enable);
++		setPower(enable);
+ 	}
+ 
+ 	command_print(cmd_ctx, &quot;Target power %s&quot;, savePower ? &quot;on&quot; : &quot;off&quot;);
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 42f8ee0..e7b5110 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1898,18 +1898,11 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 
+ 	if (CMD_ARGC &gt; 0)
+ 	{
+-		if (!strcmp(CMD_ARGV[0], &quot;on&quot;))
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
+-		}
+-		else if (!strcmp(CMD_ARGV[0], &quot;off&quot;))
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
+-		}
+-		else
+-		{
+-			command_print(CMD_CTX, &quot;usage: cortex_m3 maskisr ['on'|'off']&quot;);
+-		}
++		bool enable;
++		COMMAND_PARSE_ON_OFF(CMD_ARGV[0], enable);
++		uint32_t mask_on = C_HALT | (enable ? C_MASKINTS : 0);
++		uint32_t mask_off = enable ? 0 : C_MASKINTS;
++		cortex_m3_write_debug_halt_mask(target, mask_on, mask_off);
+ 	}
+ 
+ 	command_print(CMD_CTX, &quot;cortex_m3 interrupt mask %s&quot;,
+diff --git a/src/target/target.c b/src/target/target.c
+index 98e7a40..f203913 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2003,23 +2003,14 @@ COMMAND_HANDLER(handle_poll_command)
+ 			return retval;
+ 		if ((retval = target_arch_state(target)) != ERROR_OK)
+ 			return retval;
+-
+ 	}
+ 	else if (CMD_ARGC == 1)
+ 	{
+-		if (strcmp(CMD_ARGV[0], &quot;on&quot;) == 0)
+-		{
+-			jtag_poll_set_enabled(true);
+-		}
+-		else if (strcmp(CMD_ARGV[0], &quot;off&quot;) == 0)
+-		{
+-			jtag_poll_set_enabled(false);
+-		}
+-		else
+-		{
+-			command_print(CMD_CTX, &quot;arg is \&quot;on\&quot; or \&quot;off\&quot;&quot;);
+-		}
+-	} else
++		bool enable;
++		COMMAND_PARSE_ON_OFF(CMD_ARGV[0], enable);
++		jtag_poll_set_enabled(enable);
++	}
++	else
+ 	{
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012549.html">[Openocd-development] [PATCH 1/6] add COMMAND_PARSE_BOOL macro and friends
+</A></li>
+	<LI>Next message: <A HREF="012530.html">[Openocd-development] [PATCH 3/6] use COMMAND_PARSE_ENABLE macro	where appropriate
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12529">[ date ]</a>
+              <a href="thread.html#12529">[ thread ]</a>
+              <a href="subject.html#12529">[ subject ]</a>
+              <a href="author.html#12529">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

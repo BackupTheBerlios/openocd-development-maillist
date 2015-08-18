@@ -1,0 +1,121 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS Big Endian patches
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20Big%20Endian%20patches&In-Reply-To=%3CAANLkTin7z1yW-L%3DFTwUfSHD%2BQDyW9DnixW2A9FzJ0vLT%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018540.html">
+   <LINK REL="Next"  HREF="018543.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS Big Endian patches</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20Big%20Endian%20patches&In-Reply-To=%3CAANLkTin7z1yW-L%3DFTwUfSHD%2BQDyW9DnixW2A9FzJ0vLT%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] MIPS Big Endian patches">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Thu Mar 31 17:51:23 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018540.html">[Openocd-development] [PATCH] startup: fix bugs in cleanup upon	errors during startup
+</A></li>
+        <LI>Next message: <A HREF="018543.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18542">[ date ]</a>
+              <a href="thread.html#18542">[ thread ]</a>
+              <a href="subject.html#18542">[ subject ]</a>
+              <a href="author.html#18542">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>HI all,
+here are patches that correct endianess treatment for MIPS-M14Kc Big
+Endian targets, as it has been discussed lately here :
+<A HREF="http://www.mail-archive.com/openocd-development@lists.berlios.de/msg15770.html,">http://www.mail-archive.com/openocd-development@lists.berlios.de/msg15770.html,</A>
+here : <A HREF="http://www.mail-archive.com/openocd-development@lists.berlios.de/msg15769.html">http://www.mail-archive.com/openocd-development@lists.berlios.de/msg15769.html</A>
+or here : <A HREF="http://www.mail-archive.com/openocd-development@lists.berlios.de/msg15815.html">http://www.mail-archive.com/openocd-development@lists.berlios.de/msg15815.html</A>
+or on some other similar topics.
+
+First patch corrects endianess, but this *might break* behaviour for
+targets which do not have little endian TAP. I do am not sure that
+targets like this exists, because all miniprograms (ROM monitors) are
+written in LE and anyway at the current implementation when you go to
+bulk access you will get bytes switched. I added this logic to simple
+read and write.
+
+Second patch corrects meaningless while (1) loop in
+wait_for_pracc_rw() and also adds some checking that PrAcc is &quot;1&quot;
+before FASTDATA access. Since all of this has not been done before, I
+am very suprised that it works at all in the current state. EJTAG
+specification is explicit on this (chapter 6.5.6 Fastdata Register
+(TAP Instruction FASTDATA)) :
+
+As noted above, two conditions must be true for the Fastdata access to
+succeed. These are:
+&#8226; PrAcc must be 1, i.e., there must be a pending processor access.
+&#8226; The Fastdata operation must use a valid Fastdata area address in the
+dmseg segment (0xF..F20.0000 to
+0xF..F20.000F).
+
+I guess we have been falling to the case that PrAcc was &quot;1&quot; by chance,
+maybe because of obscure jtag_add_clocks(5) which I removed.
+
+One thing I am not quite sure about, but is purely empiric, is
+re-sending FASTDATA instruction to TAP before each FASTDATA acces.
+Since this is done in a loop, this can potentially slow down the
+communication. But not putting this instruction makes bulk write fail
+systematically with error : &quot;miniprogram did not return to start&quot;.
+Again, this is M14Kc, and it seems to be working on M4k. Anyway, if
+both versions work on 4K that I think that we can use the changes I
+commited.
+
+It would be a great thing if somebody who has M4K board (Andy, Spencer
+?) could test these changed before they are commited, so that we can
+assure that there is no regression.
+
+Best regards,
+Drasko
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-Added-correct-endianess-treatment-for-big-endian-tar.patch
+Type: text/x-patch
+Size: 3163 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110331/81f0a6bd/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20110331/81f0a6bd/attachment.bin</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0002-Corrected-waiting-on-PrAcc-in-wait_for_pracc_rw.patch
+Type: text/x-patch
+Size: 3783 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110331/81f0a6bd/attachment-0001.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20110331/81f0a6bd/attachment-0001.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018540.html">[Openocd-development] [PATCH] startup: fix bugs in cleanup upon	errors during startup
+</A></li>
+	<LI>Next message: <A HREF="018543.html">[Openocd-development] MIPS Big Endian patches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18542">[ date ]</a>
+              <a href="thread.html#18542">[ thread ]</a>
+              <a href="subject.html#18542">[ subject ]</a>
+              <a href="author.html#18542">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

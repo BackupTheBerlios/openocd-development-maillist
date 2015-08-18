@@ -1,0 +1,336 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/4] ETM: start cleaning up ETM_CTRL	bit handling
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/4%5D%20ETM%3A%20start%20cleaning%20up%20ETM_CTRL%0A%09bit%20handling&In-Reply-To=%3C200912191246.30269.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013724.html">
+   <LINK REL="Next"  HREF="013725.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/4] ETM: start cleaning up ETM_CTRL	bit handling</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/4%5D%20ETM%3A%20start%20cleaning%20up%20ETM_CTRL%0A%09bit%20handling&In-Reply-To=%3C200912191246.30269.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/4] ETM: start cleaning up ETM_CTRL	bit handling">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Dec 19 21:46:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013724.html">[Openocd-development] [patch 1/4] ETM trigger_percent becomes an	ETB command
+</A></li>
+        <LI>Next message: <A HREF="013725.html">[Openocd-development] [patch 3/4] ETM: more ETM_CTRL bit cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13726">[ date ]</a>
+              <a href="thread.html#13726">[ thread ]</a>
+              <a href="subject.html#13726">[ subject ]</a>
+              <a href="author.html#13726">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Provide better comments for the ETM_CTRL bits; use the correct bit
+for half/full clock mode; and define a few more of the bits available
+from the earliest ETM versions.
+
+The new bit defintions use ETM_CTRL_* names to match their register
+(instead of ETM_PORT_* or ETMV1_*).  For clarity, and better matching
+to docs, they are defined with bitshifting not pre-computed masks.
+
+Stop abusing typdefs for ETM_CTRL values; such values are not limited
+to the enumerated set of individual bit values.
+
+Rename etm-&gt;portmode to etm-&gt;control ... and start morphing it into a
+single generic shadow of ETM_CTRL.  Eventually etm-&gt;tracemode should
+vanish, so we can just write etm-&gt;control to ETM_CTRL.
+
+Restore an &quot;if&quot; that somehow got dropped.
+---
+ src/target/etb.c |   14 ++++++-------
+ src/target/etm.c |   28 +++++++++++++-------------
+ src/target/etm.h |   57 ++++++++++++++++++++++++++++++++++++++---------------
+ 3 files changed, 63 insertions(+), 36 deletions(-)
+
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -579,9 +579,9 @@ static int etb_read_trace(struct etm_con
+ 		free(etm_ctx-&gt;trace_data);
+ 	}
+ 
+-	if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_4BIT)
++	if ((etm_ctx-&gt;control &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_4BIT)
+ 		etm_ctx-&gt;trace_depth = num_frames * 3;
+-	else if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
++	else if ((etm_ctx-&gt;control &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
+ 		etm_ctx-&gt;trace_depth = num_frames * 2;
+ 	else
+ 		etm_ctx-&gt;trace_depth = num_frames;
+@@ -590,7 +590,7 @@ static int etb_read_trace(struct etm_con
+ 
+ 	for (i = 0, j = 0; i &lt; num_frames; i++)
+ 	{
+-		if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_4BIT)
++		if ((etm_ctx-&gt;control &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_4BIT)
+ 		{
+ 			/* trace word j */
+ 			etm_ctx-&gt;trace_data[j].pipestat = trace_data[i] &amp; 0x7;
+@@ -636,7 +636,7 @@ static int etb_read_trace(struct etm_con
+ 
+ 			j += 3;
+ 		}
+-		else if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
++		else if ((etm_ctx-&gt;control &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
+ 		{
+ 			/* trace word j */
+ 			etm_ctx-&gt;trace_data[j].pipestat = trace_data[i] &amp; 0x7;
+@@ -699,9 +699,9 @@ static int etb_start_capture(struct etm_
+ 	uint32_t etb_ctrl_value = 0x1;
+ 	uint32_t trigger_count;
+ 
+-	if ((etm_ctx-&gt;portmode &amp; ETM_PORT_MODE_MASK) == ETM_PORT_DEMUXED)
++	if ((etm_ctx-&gt;control &amp; ETM_PORT_MODE_MASK) == ETM_PORT_DEMUXED)
+ 	{
+-		if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) != ETM_PORT_8BIT)
++		if ((etm_ctx-&gt;control &amp; ETM_PORT_WIDTH_MASK) != ETM_PORT_8BIT)
+ 		{
+ 			LOG_ERROR(&quot;ETB can't run in demultiplexed mode with a 4 or 16 bit port&quot;);
+ 			return ERROR_ETM_PORTMODE_NOT_SUPPORTED;
+@@ -709,7 +709,7 @@ static int etb_start_capture(struct etm_
+ 		etb_ctrl_value |= 0x2;
+ 	}
+ 
+-	if ((etm_ctx-&gt;portmode &amp; ETM_PORT_MODE_MASK) == ETM_PORT_MUXED) {
++	if ((etm_ctx-&gt;control &amp; ETM_PORT_MODE_MASK) == ETM_PORT_MUXED) {
+ 		LOG_ERROR(&quot;ETB: can't run in multiplexed mode&quot;);
+ 		return ERROR_ETM_PORTMODE_NOT_SUPPORTED;
+ 	}
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -435,10 +435,10 @@ int etm_setup(struct target *target)
+ 
+ 	/* initialize some ETM control register settings */
+ 	etm_get_reg(etm_ctrl_reg);
+-	etm_ctrl_value = buf_get_u32(etm_ctrl_reg-&gt;value, 0, etm_ctrl_reg-&gt;size);
++	etm_ctrl_value = buf_get_u32(etm_ctrl_reg-&gt;value, 0, 32);
+ 
+ 	/* clear the ETM powerdown bit (0) */
+-	etm_ctrl_value &amp;= ~0x1;
++	etm_ctrl_value &amp;= ~ETM_CTRL_POWERDOWN;
+ 
+ 	/* configure port width (21,6:4), mode (13,17:16) and
+ 	 * for older modules clocking (13)
+@@ -447,9 +447,9 @@ int etm_setup(struct target *target)
+ 			&amp; ~ETM_PORT_WIDTH_MASK
+ 			&amp; ~ETM_PORT_MODE_MASK
+ 			&amp; ~ETM_PORT_CLOCK_MASK)
+-		| etm_ctx-&gt;portmode;
++		| etm_ctx-&gt;control;
+ 
+-	buf_set_u32(etm_ctrl_reg-&gt;value, 0, etm_ctrl_reg-&gt;size, etm_ctrl_value);
++	buf_set_u32(etm_ctrl_reg-&gt;value, 0, 32, etm_ctrl_value);
+ 	etm_store_reg(etm_ctrl_reg);
+ 
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+@@ -727,7 +727,8 @@ static int etmv1_next_packet(struct etm_
+ 			continue;
+ 		}
+ 
+-		if ((ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_16BIT)
++		/* FIXME there are more port widths than these... */
++		if ((ctx-&gt;control &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_16BIT)
+ 		{
+ 			if (ctx-&gt;data_half == 0)
+ 			{
+@@ -741,7 +742,7 @@ static int etmv1_next_packet(struct etm_
+ 				ctx-&gt;data_index++;
+ 			}
+ 		}
+-		else if ((ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
++		else if ((ctx-&gt;control &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
+ 		{
+ 			*packet = ctx-&gt;trace_data[ctx-&gt;data_index].packet &amp; 0xff;
+ 			ctx-&gt;data_index++;
+@@ -1171,9 +1172,9 @@ static int etmv1_analyze_trace(struct et
+ }
+ 
+ static COMMAND_HELPER(handle_etm_tracemode_command_update,
+-		etmv1_tracemode_t *mode)
++		uint32_t *mode)
+ {
+-	etmv1_tracemode_t tracemode;
++	uint32_t tracemode;
+ 
+ 	/* what parts of data access are traced? */
+ 	if (strcmp(CMD_ARGV[0], &quot;none&quot;) == 0)
+@@ -1218,6 +1219,7 @@ static COMMAND_HELPER(handle_etm_tracemo
+ 
+ 	bool etmv1_branch_output;
+ 	COMMAND_PARSE_ENABLE(CMD_ARGV[3], etmv1_branch_output);
++	if (etmv1_branch_output)
+ 		tracemode |= ETMV1_BRANCH_OUTPUT;
+ 
+ 	/* IGNORED:
+@@ -1247,7 +1249,7 @@ COMMAND_HANDLER(handle_etm_tracemode_com
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	etmv1_tracemode_t tracemode = etm-&gt;tracemode;
++	uint32_t tracemode = etm-&gt;tracemode;
+ 
+ 	switch (CMD_ARGC)
+ 	{
+@@ -1356,7 +1358,7 @@ COMMAND_HANDLER(handle_etm_config_comman
+ {
+ 	struct target *target;
+ 	struct arm *arm;
+-	etm_portmode_t portmode = 0x0;
++	uint32_t portmode = 0x0;
+ 	struct etm_context *etm_ctx;
+ 	int i;
+ 
+@@ -1495,7 +1497,7 @@ COMMAND_HANDLER(handle_etm_config_comman
+ 
+ 	etm_ctx-&gt;target = target;
+ 	etm_ctx-&gt;trace_data = NULL;
+-	etm_ctx-&gt;portmode = portmode;
++	etm_ctx-&gt;control = portmode;
+ 	etm_ctx-&gt;core_state = ARM_STATE_ARM;
+ 
+ 	arm-&gt;etm = etm_ctx;
+@@ -1822,7 +1824,7 @@ COMMAND_HANDLER(handle_etm_dump_command)
+ 	}
+ 
+ 	fileio_write_u32(&amp;file, etm_ctx-&gt;capture_status);
+-	fileio_write_u32(&amp;file, etm_ctx-&gt;portmode);
++	fileio_write_u32(&amp;file, etm_ctx-&gt;control);
+ 	fileio_write_u32(&amp;file, etm_ctx-&gt;tracemode);
+ 	fileio_write_u32(&amp;file, etm_ctx-&gt;trace_depth);
+ 
+@@ -1894,7 +1896,7 @@ COMMAND_HANDLER(handle_etm_load_command)
+ 	{
+ 	  uint32_t tmp;
+ 	  fileio_read_u32(&amp;file, &amp;tmp); etm_ctx-&gt;capture_status = tmp;
+-	  fileio_read_u32(&amp;file, &amp;tmp); etm_ctx-&gt;portmode = tmp;
++	  fileio_read_u32(&amp;file, &amp;tmp); etm_ctx-&gt;control = tmp;
+ 	  fileio_read_u32(&amp;file, &amp;tmp); etm_ctx-&gt;tracemode = tmp;
+ 	  fileio_read_u32(&amp;file, &amp;etm_ctx-&gt;trace_depth);
+ 	}
+--- a/src/target/etm.h
++++ b/src/target/etm.h
+@@ -78,9 +78,20 @@ struct etm_reg
+ 	struct arm_jtag *jtag_info;
+ };
+ 
+-typedef enum
++/* Subset of ETM_CTRL bit assignments.  Many of these
++ * control the configuration of trace output, which
++ * hooks up either to ETB or to an external device.
++ *
++ * NOTE that these have evolved since the ~v1.3 defns ...
++ */
++enum
+ {
+-	/* Port width */
++	ETM_CTRL_POWERDOWN	= (1 &lt;&lt; 0),
++	ETM_CTRL_MONITOR_CPRT	= (1 &lt;&lt; 1),
++
++	// bits 3:2 == trace type (ETMV1_TRACE_* &lt;&lt; 2)
++
++	/* Port width (bits 21 and 6:4) */
+ 	ETM_PORT_4BIT		= 0x00,
+ 	ETM_PORT_8BIT		= 0x10,
+ 	ETM_PORT_16BIT		= 0x20,
+@@ -91,18 +102,32 @@ typedef enum
+ 	ETM_PORT_1BIT		= 0x00 | (1 &lt;&lt; 21),
+ 	ETM_PORT_2BIT		= 0x10 | (1 &lt;&lt; 21),
+ 	ETM_PORT_WIDTH_MASK	= 0x70 | (1 &lt;&lt; 21),
+-	/* Port modes */
+-	ETM_PORT_NORMAL    = 0x00000,
+-	ETM_PORT_MUXED     = 0x10000,
+-	ETM_PORT_DEMUXED   = 0x20000,
+-	ETM_PORT_MODE_MASK = 0x30000,
+-	/* Clocking modes */
+-	ETM_PORT_FULL_CLOCK = 0x0000,
+-	ETM_PORT_HALF_CLOCK = 0x1000,
+-	ETM_PORT_CLOCK_MASK = 0x1000,
+-} etm_portmode_t;
+ 
+-typedef enum
++	ETM_CTRL_FIFOFULL_STALL	= (1 &lt;&lt; 7),
++	ETM_CTRL_BRANCH_OUTPUT	= (1 &lt;&lt; 8),
++	ETM_CTRL_DBGRQ		= (1 &lt;&lt; 9),
++	ETM_CTRL_ETM_PROG	= (1 &lt;&lt; 10),
++	ETM_CTRL_ETMEN		= (1 &lt;&lt; 11),
++	ETM_CTRL_CYCLE_ACCURATE	= (1 &lt;&lt; 12),
++
++	/* Clocking modes -- up to v2.1, bit 13 */
++	ETM_PORT_FULL_CLOCK	= (0 &lt;&lt; 13),
++	ETM_PORT_HALF_CLOCK	= (1 &lt;&lt; 13),
++	ETM_PORT_CLOCK_MASK	= (1 &lt;&lt; 13),
++
++	// bits 15:14 == context ID size used in tracing
++	// ETMV1_CONTEXTID_* &lt;&lt; 8
++
++	/* Port modes -- bits 17:16, tied to clocking mode */
++	ETM_PORT_NORMAL		= (0 &lt;&lt; 16),
++	ETM_PORT_MUXED		= (1 &lt;&lt; 16),
++	ETM_PORT_DEMUXED	= (2 &lt;&lt; 16),
++	ETM_PORT_MODE_MASK	= (3 &lt;&lt; 16),
++
++	// bits 31:18 defined in v3.0 and later (e.g. ARM11+)
++};
++
++enum
+ {
+ 	/* Data trace */
+ 	ETMV1_TRACE_NONE	 = 0x00,
+@@ -118,7 +143,7 @@ typedef enum
+ 	/* Misc */
+ 	ETMV1_CYCLE_ACCURATE = 0x100,
+ 	ETMV1_BRANCH_OUTPUT = 0x200
+-} etmv1_tracemode_t;
++};
+ 
+ /* forward-declare ETM context */
+ struct etm_context;
+@@ -161,8 +186,8 @@ struct etm_context
+ 	trace_status_t capture_status;	/* current state of capture run */
+ 	struct etmv1_trace_data *trace_data;	/* trace data */
+ 	uint32_t trace_depth;		/* number of cycles to be analyzed, 0 if no data available */
+-	etm_portmode_t portmode;	/* normal, multiplexed or demultiplexed */
+-	etmv1_tracemode_t tracemode;	/* type of info trace contains */
++	uint32_t control;	/* shadow of ETM_CTRL */
++	uint32_t tracemode;	/* type of info trace contains */
+ 	int /*arm_state*/ core_state;	/* current core state */
+ 	struct image *image;		/* source for target opcodes */
+ 	uint32_t pipe_index;		/* current trace cycle */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013724.html">[Openocd-development] [patch 1/4] ETM trigger_percent becomes an	ETB command
+</A></li>
+	<LI>Next message: <A HREF="013725.html">[Openocd-development] [patch 3/4] ETM: more ETM_CTRL bit cleanup
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13726">[ date ]</a>
+              <a href="thread.html#13726">[ thread ]</a>
+              <a href="subject.html#13726">[ subject ]</a>
+              <a href="author.html#13726">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

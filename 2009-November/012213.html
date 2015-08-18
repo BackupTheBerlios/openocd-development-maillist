@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 12/20] use CALL_COMMAND_HANDLER	instead of direct calls
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2012/20%5D%20use%20CALL_COMMAND_HANDLER%0A%09instead%20of%20direct%20calls&In-Reply-To=%3C1257948772-26222-13-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012205.html">
+   <LINK REL="Next"  HREF="012214.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 12/20] use CALL_COMMAND_HANDLER	instead of direct calls</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2012/20%5D%20use%20CALL_COMMAND_HANDLER%0A%09instead%20of%20direct%20calls&In-Reply-To=%3C1257948772-26222-13-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 12/20] use CALL_COMMAND_HANDLER	instead of direct calls">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 11 15:12:44 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012205.html">[Openocd-development] [PATCH 11/20] add PLD_DEVICE_COMMAND_HANDLER	macro
+</A></li>
+        <LI>Next message: <A HREF="012214.html">[Openocd-development] [PATCH 13/20] add COMMAND_NAME macro for	command handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12213">[ date ]</a>
+              <a href="thread.html#12213">[ thread ]</a>
+              <a href="subject.html#12213">[ subject ]</a>
+              <a href="author.html#12213">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>By using CALL_COMMAND_HANDLER, parameters can be reordered, added, or
+even removed in inherited signatures, without requiring revisiting
+all of the various call sites.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/flash.c          |    3 ++-
+ src/flash/nand.c           |    3 ++-
+ src/jtag/tcl.c             |    2 +-
+ src/pld/pld.c              |    3 ++-
+ src/server/gdb_server.c    |    2 +-
+ src/server/tcl_server.c    |    2 +-
+ src/server/telnet_server.c |    2 +-
+ src/target/arm11.c         |    7 ++++---
+ src/target/etm.c           |    2 +-
+ src/target/target.c        |   10 +++++-----
+ 10 files changed, 20 insertions(+), 16 deletions(-)
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index d3889b9..da43e1a 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -259,7 +259,8 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 		c-&gt;sectors = NULL;
+ 		c-&gt;next = NULL;
+ 
+-		if ((retval = flash_drivers[i]-&gt;flash_bank_command(cmd_ctx, cmd, args, argc, c)) != ERROR_OK)
++		retval = CALL_COMMAND_HANDLER(flash_drivers[i]-&gt;flash_bank_command, c);
++		if (ERROR_OK != retval)
+ 		{
+ 			LOG_ERROR(&quot;'%s' driver rejected flash bank at 0x%8.8&quot; PRIx32 , args[0], c-&gt;base);
+ 			free(c);
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 12c1a3d..534fa38 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -241,7 +241,8 @@ COMMAND_HANDLER(handle_nand_device_command)
+ 			c-&gt;use_raw = 0;
+ 			c-&gt;next = NULL;
+ 
+-			if ((retval = nand_flash_controllers[i]-&gt;nand_device_command(cmd_ctx, cmd, args, argc, c)) != ERROR_OK)
++			retval = CALL_COMMAND_HANDLER(nand_flash_controllers[i]-&gt;nand_device_command, c);
++			if (ERROR_OK != retval)
+ 			{
+ 				LOG_ERROR(&quot;'%s' driver rejected nand flash&quot;, c-&gt;controller-&gt;name);
+ 				free(c);
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 7be6e1d..89b34c3 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -657,7 +657,7 @@ COMMAND_HANDLER(handle_interface_command)
+ 	 * didn't match one of the compiled-in interfaces
+ 	 */
+ 	LOG_ERROR(&quot;The specified JTAG interface was not found (%s)&quot;, args[0]);
+-	handle_interface_list_command(cmd_ctx, cmd, args, argc);
++	CALL_COMMAND_HANDLER(handle_interface_list_command);
+ 	return ERROR_JTAG_INVALID_INTERFACE;
+ }
+ 
+diff --git a/src/pld/pld.c b/src/pld/pld.c
+index c20b936..e8cd075 100644
+--- a/src/pld/pld.c
++++ b/src/pld/pld.c
+@@ -85,7 +85,8 @@ COMMAND_HANDLER(handle_pld_device_command)
+ 			c-&gt;driver = pld_drivers[i];
+ 			c-&gt;next = NULL;
+ 
+-			if (pld_drivers[i]-&gt;pld_device_command(cmd_ctx, cmd, args, argc, c) != ERROR_OK)
++			int retval = CALL_COMMAND_HANDLER(pld_drivers[i]-&gt;pld_device_command, c);
++			if (ERROR_OK != retval)
+ 			{
+ 				LOG_ERROR(&quot;'%s' driver rejected pld device&quot;, args[0]);
+ 				free(c);
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index c0c5d77..761ae40 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2271,7 +2271,7 @@ COMMAND_HANDLER(handle_gdb_sync_command)
+ /* daemon configuration command gdb_port */
+ COMMAND_HANDLER(handle_gdb_port_command)
+ {
+-	return server_port_command(cmd_ctx, cmd, args, argc, &amp;gdb_port);
++	return CALL_COMMAND_HANDLER(server_port_command, &amp;gdb_port);
+ }
+ 
+ COMMAND_HANDLER(handle_gdb_memory_map_command)
+diff --git a/src/server/tcl_server.c b/src/server/tcl_server.c
+index 3410ca9..c8da5bc 100644
+--- a/src/server/tcl_server.c
++++ b/src/server/tcl_server.c
+@@ -172,7 +172,7 @@ int tcl_init(void)
+ 
+ COMMAND_HANDLER(handle_tcl_port_command)
+ {
+-	return server_port_command(cmd_ctx, cmd, args, argc, &amp;tcl_port);
++	return CALL_COMMAND_HANDLER(server_port_command, &amp;tcl_port);
+ }
+ 
+ int tcl_register_commands(command_context_t *cmd_ctx)
+diff --git a/src/server/telnet_server.c b/src/server/telnet_server.c
+index c409ec0..6cb4746 100644
+--- a/src/server/telnet_server.c
++++ b/src/server/telnet_server.c
+@@ -608,7 +608,7 @@ int telnet_init(char *banner)
+ /* daemon configuration command telnet_port */
+ COMMAND_HANDLER(handle_telnet_port_command)
+ {
+-	return server_port_command(cmd_ctx, cmd, args, argc, &amp;telnet_port);
++	return CALL_COMMAND_HANDLER(server_port_command, &amp;telnet_port);
+ }
+ 
+ COMMAND_HANDLER(handle_exit_command)
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 949c947..5b11f8e 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -2029,7 +2029,8 @@ static COMMAND_HELPER(arm11_handle_bool, bool *var, char *name)
+ #define BOOL_WRAPPER(name, print_name)	\
+ COMMAND_HANDLER(arm11_handle_bool_##name) \
+ { \
+-	return arm11_handle_bool(cmd_ctx, cmd, args, argc, &amp;arm11_config_##name, print_name); \
++	return CALL_COMMAND_HANDLER(arm11_handle_bool, \
++			&amp;arm11_config_##name, print_name); \
+ }
+ 
+ BOOL_WRAPPER(memwrite_burst,			&quot;memory write burst mode&quot;)
+@@ -2186,12 +2187,12 @@ static COMMAND_HELPER(arm11_handle_etm_read_write, bool read)
+ 
+ COMMAND_HANDLER(arm11_handle_etmr)
+ {
+-	return arm11_handle_etm_read_write(cmd_ctx, cmd, args, argc, true);
++	return CALL_COMMAND_HANDLER(arm11_handle_etm_read_write, true);
+ }
+ 
+ COMMAND_HANDLER(arm11_handle_etmw)
+ {
+-	return arm11_handle_etm_read_write(cmd_ctx, cmd, args, argc, false);
++	return CALL_COMMAND_HANDLER(arm11_handle_etm_read_write, false);
+ }
+ 
+ #define ARM11_HANDLER(x)	.x = arm11_##x
+diff --git a/src/target/etm.c b/src/target/etm.c
+index c0b683f..bfe9908 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1250,7 +1250,7 @@ COMMAND_HANDLER(handle_etm_tracemode_command)
+ 	case 0:
+ 		break;
+ 	case 4:
+-		handle_etm_tracemode_command_update(cmd_ctx, cmd, args, argc, &amp;tracemode);
++		CALL_COMMAND_HANDLER(handle_etm_tracemode_command_update, &amp;tracemode);
+ 		break;
+ 	default:
+ 		command_print(cmd_ctx, &quot;usage: configure trace mode &quot;
+diff --git a/src/target/target.c b/src/target/target.c
+index 26c20cf..21c0526 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2121,7 +2121,7 @@ COMMAND_HANDLER(handle_halt_command)
+ 			return ERROR_OK;
+ 	}
+ 
+-	return handle_wait_halt_command(cmd_ctx, cmd, args, argc);
++	return CALL_COMMAND_HANDLER(handle_wait_halt_command);
+ }
+ 
+ COMMAND_HANDLER(handle_soft_reset_halt_command)
+@@ -2410,7 +2410,7 @@ COMMAND_HANDLER(handle_load_image_command)
+ 	int i;
+ 	image_t image;
+ 
+-	int retval = parse_load_image_command_args(cmd_ctx, cmd, args, argc,
++	int retval = CALL_COMMAND_HANDLER(parse_load_image_command_args,
+ 			&amp;image, &amp;min_address, &amp;max_address);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+@@ -2701,12 +2701,12 @@ done:
+ 
+ COMMAND_HANDLER(handle_verify_image_command)
+ {
+-	return handle_verify_image_command_internal(cmd_ctx, cmd, args, argc, 1);
++	return CALL_COMMAND_HANDLER(handle_verify_image_command_internal, 1);
+ }
+ 
+ COMMAND_HANDLER(handle_test_image_command)
+ {
+-	return handle_verify_image_command_internal(cmd_ctx, cmd, args, argc, 0);
++	return CALL_COMMAND_HANDLER(handle_verify_image_command_internal, 0);
+ }
+ 
+ static int handle_bp_command_list(struct command_context_s *cmd_ctx)
+@@ -4547,7 +4547,7 @@ COMMAND_HANDLER(handle_fast_load_image_command)
+ 
+ 	image_t image;
+ 
+-	int retval = parse_load_image_command_args(cmd_ctx, cmd, args, argc,
++	int retval = CALL_COMMAND_HANDLER(parse_load_image_command_args,
+ 			&amp;image, &amp;min_address, &amp;max_address);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012205.html">[Openocd-development] [PATCH 11/20] add PLD_DEVICE_COMMAND_HANDLER	macro
+</A></li>
+	<LI>Next message: <A HREF="012214.html">[Openocd-development] [PATCH 13/20] add COMMAND_NAME macro for	command handlers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12213">[ date ]</a>
+              <a href="thread.html#12213">[ thread ]</a>
+              <a href="subject.html#12213">[ subject ]</a>
+              <a href="author.html#12213">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

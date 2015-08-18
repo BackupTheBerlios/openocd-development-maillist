@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Switching jtag_add_xxx_scan() to use 32	bit instead of 8 bit arrays
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Switching%20jtag_add_xxx_scan%28%29%20to%20use%2032%0A%09bit%20instead%20of%208%20bit%20arrays&In-Reply-To=%3C200906150137.55434.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008013.html">
+   <LINK REL="Next"  HREF="008016.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Switching jtag_add_xxx_scan() to use 32	bit instead of 8 bit arrays</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Switching%20jtag_add_xxx_scan%28%29%20to%20use%2032%0A%09bit%20instead%20of%208%20bit%20arrays&In-Reply-To=%3C200906150137.55434.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Switching jtag_add_xxx_scan() to use 32	bit instead of 8 bit arrays">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Jun 15 10:37:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008013.html">[Openocd-development] Switching jtag_add_xxx_scan() to use 32	bit instead of 8 bit arrays
+</A></li>
+        <LI>Next message: <A HREF="008016.html">[Openocd-development] Switching jtag_add_xxx_scan() to use 32	bit instead of 8 bit arrays
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8015">[ date ]</a>
+              <a href="thread.html#8015">[ thread ]</a>
+              <a href="subject.html#8015">[ subject ]</a>
+              <a href="author.html#8015">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i> &gt; So you would say the &quot;JTAG API&quot; is dealing with -- I'm guessing
+</I>&gt;<i> &gt; here -- just (a) state transitions/TMS (b) clocking during RUN,
+</I>&gt;<i> &gt; and (c) data shifting during IRSCAN/DRSCAN? &#160;Plus maybe basic
+</I>&gt;<i> &gt; policy for scan entry/exit, to ensure that free-running clocks
+</I>&gt;<i> &gt; don't cause un-requested state transitions?
+</I>&gt;<i>
+</I>&gt;<i> Essentially yes. More specifically I'm thinking about the functions which
+</I>&gt;<i> sit directly on top of the minindrivers.
+</I>
+OK by me.  At some point I may be doing some code at that level,
+to do scan chain verification without entering TLR ... so that I
+can get a handle on these JRC thingies.  So far I've been doing a
+top-down dive, not poking (much) at Real Code here.
+
+Such a transport layer may also need to handle things like switching
+to two-wire modes (someday)...
+
+(One might then posit a &quot;TAP&quot; layer on top of that &quot;JTAG&quot; layer.
+Whether a &quot;JRC&quot; would belong to that layer, or go on top of it,
+is maybe worth thinking about.  It *appears* so far that not only
+will there be ICEpick-C -- unclear if older ICEpick-B and -A will
+matter for current work -- but there will also be IEEE 1149.7,
+and some folk talk about Cortex DAP as a flavor of JRC.)
+
+
+&gt;<i> &gt; That'd be OK. &#160;So long as there's a simple representation of
+</I>&gt;<i> &gt; the bit arrays to be shifted in/out. &#160;Again, that's one thing
+</I>&gt;<i> &gt; I like about the Linux framework: &#160;it basically takes a pointer
+</I>&gt;<i> &gt; to an &quot;unsigned long&quot;, and a bit count.
+</I>&gt;<i> 
+</I>&gt;<i> I guess we *could* use unsigned long + bit count, but if unsigned long
+</I>&gt;<i> is 32 &amp; 64 bit respectively, then I'm not familiar with how to write
+</I>&gt;<i> code using unsigned long for &gt;32 bit arrays.
+</I>
+Notice how Linux does it; the BIT_{MASK,WORD}() macros are simple bit
+ops (e.g. for 32 bits, MASK ands with 0x1f and WORD rightshifts 5).
+
+static inline void set_bit(int nr, volatile unsigned long *addr)
+{
+        unsigned long mask = BIT_MASK(nr);
+        unsigned long *p = ((unsigned long *)addr) + BIT_WORD(nr);
+        unsigned long flags;
+
+        _atomic_spin_lock_irqsave(p, flags);
+        *p  |= mask;
+        _atomic_spin_unlock_irqrestore(p, flags);
+}
+
+Obviously the spinlocking isn't needed for OpenOCD.  A bigger issue
+is that OpenOCD needs bitfield endian-swapping ... &quot;here's an N-bit
+value in CPU byte-order, make it {big,little}-endian&quot;.  And vice
+versa ... those should be NOPs half the time.
+
+
+&gt;<i> If you look at the invocation sites of the JTAG scan fn's, then &gt;95%
+</I>&gt;<i> are &lt;= 32 bits...
+</I>
+Which is nice in terms of optimizability.  But that should be hidden
+behind whatever calls are involved.
+
+I'm missing something here.  Are you discussing this to better
+understand the issues, or do you actually have some attachment to
+the notion of 32 bit values?
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008013.html">[Openocd-development] Switching jtag_add_xxx_scan() to use 32	bit instead of 8 bit arrays
+</A></li>
+	<LI>Next message: <A HREF="008016.html">[Openocd-development] Switching jtag_add_xxx_scan() to use 32	bit instead of 8 bit arrays
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8015">[ date ]</a>
+              <a href="thread.html#8015">[ thread ]</a>
+              <a href="subject.html#8015">[ subject ]</a>
+              <a href="author.html#8015">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

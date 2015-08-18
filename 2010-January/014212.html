@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] OpenOCD on MX51
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20on%20MX51&In-Reply-To=%3C37367b3a1001151239j12fb4894v148e5cedd00e1d11%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014210.html">
+   <LINK REL="Next"  HREF="014214.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] OpenOCD on MX51</H1>
+    <B>Alan Carvalho de Assis</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20OpenOCD%20on%20MX51&In-Reply-To=%3C37367b3a1001151239j12fb4894v148e5cedd00e1d11%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] OpenOCD on MX51">acassis at gmail.com
+       </A><BR>
+    <I>Fri Jan 15 21:39:37 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014210.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+        <LI>Next message: <A HREF="014214.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14212">[ date ]</a>
+              <a href="thread.html#14212">[ thread ]</a>
+              <a href="subject.html#14212">[ subject ]</a>
+              <a href="author.html#14212">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi Fabio,
+
+On 1/15/10, Fabio Estevam &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">fabioestevam at yahoo.com</A>&gt; wrote:
+&gt;<i> Hi,
+</I>&gt;<i>
+</I>&gt;<i> Has anyone used OpenOCD on a Freescale MX51 processor so far?
+</I>&gt;<i>
+</I>
+I'm trying to get it working.
+
+OpenOCD detects all TAPs, but I receive a Timeout:
+
+Warn : imx51.SDMA: nonstandard IR value
+RCLK - adaptive
+Info : device: 4 &quot;2232C&quot;
+Info : deviceID: 67353760
+Info : SerialNumber: 0100480 A
+Info : Description: Signalyzer A
+Info : RCLK (adaptive clock speed) not supported - fallback to 1000 kHz
+Info : JTAG tap: imx51.DAP tap/device found: 0x1ba00477 (mfg: 0x23b,
+part: 0xba00, ver: 0x1)
+Info : TAP imx51.SDMA does not have IDCODE
+Info : JTAG tap: imx51.SJC tap/device found: 0x0190c01d (mfg: 0x00e,
+part: 0x190c, ver: 0x0)
+Warn : failed to disable tap
+Warn : Timeout (1000ms) waiting for ACK=OK/FAULT (got ACK=0x1) in
+JTAG-DP transaction
+Warn : Timeout (1000ms) waiting for ACK=OK/FAULT (got ACK=0x1) in
+JTAG-DP transaction
+Warn : Timeout (1000ms) waiting for ACK=OK/FAULT (got ACK=0x1) in
+JTAG-DP transaction
+Warn : Timeout (1000ms) waiting for ACK=OK/FAULT (got ACK=0x1) in
+JTAG-DP transaction
+
+
+This is imx51.cfg for your reference:
+
+#--------------------------------------------------------------------------------------------------
+# Freescale i.MX51
+
+if { [info exists CHIPNAME] } {
+   set  _CHIPNAME $CHIPNAME
+} else {
+   set  _CHIPNAME imx51
+}
+
+# CoreSight Debug Access Port
+if { [info exists DAP_TAPID ] } {
+   set _DAP_TAPID $DAP_TAPID
+} else {
+   set _DAP_TAPID 0x1ba00477
+}
+
+jtag newtap $_CHIPNAME DAP -irlen 4 -ircapture 0x1 -irmask 0xf \
+	-expected-id $_DAP_TAPID
+
+# SDMA / no IDCODE
+jtag newtap $_CHIPNAME SDMA -irlen 4 -ircapture 0x0 -irmask 0xf
+
+# SJC
+if { [info exists SJC_TAPID ] } {
+   set _SJC_TAPID SJC_TAPID
+} else {
+   set _SJC_TAPID 0x0190c01d
+}
+
+jtag newtap $_CHIPNAME SJC -irlen 5 -ircapture 0x1 -irmask 0x1f \
+	-expected-id $_SJC_TAPID
+
+# GDB target:  Cortex-A8, using DAP
+set _TARGETNAME $_CHIPNAME.cpu
+target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.DAP
+
+# some TCK tycles are required to activate the DEBUG power domain
+jtag configure $_CHIPNAME.SJC -event post-reset &quot;runtest 100&quot;
+
+# have the DAP &quot;always&quot; be active
+jtag configure $_CHIPNAME.SJC -event setup &quot;jtag tapenable $_CHIPNAME.DAP&quot;
+
+proc imx51_dbginit {target} {
+     # General Cortex A8 debug initialisation
+     cortex_a8 dbginit
+}
+
+# Slow speed to be sure it will work
+jtag_rclk 1000
+$_TARGETNAME configure -event &quot;reset-start&quot; { jtag_rclk 1000 }
+
+$_TARGETNAME configure -event reset-assert-post &quot;imx51_dbginit $_TARGETNAME&quot;
+#--------------------------------------------------------------------------------------------------
+
+
+If you want I can send a more complete debug log.
+
+Thanks Rogerio for help me with IDCODEs.
+
+Best Regards,
+
+Alan
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014210.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+	<LI>Next message: <A HREF="014214.html">[Openocd-development] OpenOCD on MX51
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14212">[ date ]</a>
+              <a href="thread.html#14212">[ thread ]</a>
+              <a href="subject.html#14212">[ subject ]</a>
+              <a href="author.html#14212">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

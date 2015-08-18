@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FASTDATA%20bulk%20write%20optimization%20for%0A%09mips_m4k%20file%20transfers&In-Reply-To=%3C200909031813.41575.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010336.html">
+   <LINK REL="Next"  HREF="010310.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20FASTDATA%20bulk%20write%20optimization%20for%0A%09mips_m4k%20file%20transfers&In-Reply-To=%3C200909031813.41575.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] FASTDATA bulk write optimization for	mips_m4k file transfers">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Sep  4 03:13:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010336.html">[Openocd-development] FASTDATA bulk write optimization for mips_m4k file transfers
+</A></li>
+        <LI>Next message: <A HREF="010310.html">[Openocd-development] FASTDATA bulk write optimization for	mips_m4kfile transfers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10339">[ date ]</a>
+              <a href="thread.html#10339">[ thread ]</a>
+              <a href="subject.html#10339">[ subject ]</a>
+              <a href="author.html#10339">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thursday 03 September 2009, David Claffey wrote:
+&gt;<i> &gt; Reset to latch PLL settings?  Odd.  One would expect a reset to
+</I>&gt;<i> &gt; re-initialize the PLL configuration too!  That's how it's done
+</I>&gt;<i> &gt; on every other core I've had occasion to look at.  Such odd
+</I>&gt;<i> &gt; requirements rate a comment. :)
+</I>&gt;<i> 
+</I>&gt;<i> yes, it's odd.  The plls are only reset by power-on reset, not SRST.  They come
+</I>&gt;<i> up with all the multipliers and dividers set to 1. Changes to the PLL registers
+</I>&gt;<i> are only latched when the &quot;reset-switch&quot; is set in software, which causes
+</I>&gt;<i> 
+</I>&gt;<i> &gt; Is that software-triggered reset different from SRST?  If so, how?
+</I>&gt;<i> 
+</I>&gt;<i> a &quot;full CPU reset&quot; says the data sheet.
+</I>
+And not peripherals ... or does it say?  Vendors seem not to
+make it easy to trigger a full SoC reset from software, short
+of maybe forcing a watchdog to fire.
+
+
+&gt;<i> &gt; What do boot loaders normally do with PLL setup then?  Sounds
+</I>&gt;<i> &gt; like they look at the settings, and if they're not appropriate
+</I>&gt;<i> &gt; they'll &quot;fix&quot; them and reset.  Wouldn't OpenOCD do the same?
+</I>&gt;<i> 
+</I>&gt;<i> The boot loader checks to see if the PLL is in the appropriate state.  If so, it
+</I>&gt;<i> skips the initialization. The appropriate value is either a user-specific value
+</I>&gt;<i> or defaults to a value selected by a speed-step register in the core.
+</I>
+So a better solution for OpenOCD might have your reset-halt-post
+script do the same thing:  read that register, and update it only
+if the PLL settings are still at the default.  That way you won't
+be pessimizing the timings each time you boot; the normal boot code
+can provide the right ones for the board.
+
+
+&gt;<i> &gt; The reset sequence is a bit quirky IMO, and not yet up to some
+</I>&gt;<i> &gt; things that it needs to handle.  There are a lot of flavors of
+</I>&gt;<i> &gt; reset, many ways to trigger them, and special cases everywhere.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; There are event hooks for &quot;reset-assert-pre&quot; and &quot;reset-deassert-post&quot;
+</I>&gt;<i> &gt; logic ... the &quot;reset-init&quot; is *way* late.  Are you sure &quot;reset-init&quot;
+</I>&gt;<i> &gt; is the right hook to use for PLL setup on this core?
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; (src/helper/startup.tcl has an ocd_process_reset script which
+</I>&gt;<i> &gt; you might not have come across ... showing the current set of
+</I>&gt;<i> &gt; reset events and their invocation sequence.)
+</I>&gt;<i> 
+</I>&gt;<i> I see your point.  The config script was calling into reset recursively through
+</I>&gt;<i> the event handler. I tried a few variations on the idea that the sequence is in
+</I>&gt;<i> two steps: first program the pll registers is some event before reset-init, then
+</I>&gt;<i> complete the rest in reset-init.
+</I>&gt;<i> 
+</I>&gt;<i> I kept getting &quot;target not halted&quot; errors until I put the pll setup in a
+</I>&gt;<i> reset-halt-post handler.  I'm guessing the target needs to be halted to send the
+</I>&gt;<i> commands.
+</I>
+Or at least, it's coded that way.  :)
+
+There are cores that work either way.  Of course, if you write
+to memory or peripheral registers while the CPU is running,
+and the code running there isn't prepared for that ... there
+can be SMP-ish bugs.  
+
+
+&gt;<i> &gt;&gt; The PLL settings are intentionally set to a lowest common value for all boards.
+</I>&gt;<i> &gt;&gt;  If PLL and DDR settings are board-specific
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; I think you just said there that they wouldn't normally be the
+</I>&gt;<i> &gt; same ... but that there could be a least-common-denominator
+</I>&gt;<i> &gt; applied in some cases.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Does this core do the usual, and (a) require PLL to get clocks
+</I>&gt;<i> &gt; fast enough to run DDR, (b) include some SRAM for boot code to
+</I>&gt;<i> &gt; use before DDR is available?  If so, it seems reset-assert-pre
+</I>&gt;<i> &gt; might benefit from knowing it's prepping for reset-init (and
+</I>&gt;<i> &gt; thus should setup the PLL if it's not already done, before
+</I>&gt;<i> &gt; one of the resets) vs not (leaving that for the boot loader).
+</I>&gt;<i> 
+</I>&gt;<i> There is no SRAM. Boot code sets up the PLL and DDR in assembly before any RAM
+</I>&gt;<i> is used (no stack access).
+</I>
+So I'd guess it supports boot-from-ROM and boot-from-NOR, but not
+boot-from-NAND or from other peripherals.  At least in terms of
+the very first stage of booting.  Maybe OneNand works too.
+
+
+&gt;<i> &gt;&gt;  then it is my understanding that 
+</I>&gt;<i> &gt;&gt; entire reset-init script should be removed from the target script.
+</I>&gt;<i> &gt; That's my general assumption, yes.  There could be reusable
+</I>&gt;<i> &gt; code that provides hooks for board-specific behavior ... but
+</I>&gt;<i> &gt; the reset-init script is doing a lot of what first stage of
+</I>&gt;<i> &gt; a boot loader does, and that's *extremely* board-specific.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; These chips have pin/ball configuration, yes?  And have
+</I>&gt;<i> &gt; clock trees to set up?  And other stuff that varies based
+</I>&gt;<i> &gt; on how the chip is wired into a particular board?
+</I>&gt;<i> 
+</I>&gt;<i> For this SoC most of the &quot;board&quot; is in the silicon except for one x16 DDR chip,
+</I>&gt;<i> one SPI flash and the PCI bus. It's highly integrated. The DDR may have a
+</I>&gt;<i> different density/speed. Maybe that can be a hook, along with the PLL setting
+</I>&gt;<i> possibly.
+</I>
+Hmm, interesting.
+
+Your attached patch does look like a good improvement.  Gets
+rid of that nasty recursion.  :)
+
+A next step would probably be splitting out the PB44 ref board
+assumptions from the core AR71xx support.
+
+Also: the variable you should set is $_TARGETNAME, leading
+underscore.  And don't use [format &quot;%s.cpu&quot; $CHIPNAME] to
+set it; just &quot;set _TARGETNAME $CHIPNAME.cpu&quot; suffices.  The
+users's guide covers the interop guidelines.
+
+- Dave
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010336.html">[Openocd-development] FASTDATA bulk write optimization for mips_m4k file transfers
+</A></li>
+	<LI>Next message: <A HREF="010310.html">[Openocd-development] FASTDATA bulk write optimization for	mips_m4kfile transfers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10339">[ date ]</a>
+              <a href="thread.html#10339">[ thread ]</a>
+              <a href="subject.html#10339">[ subject ]</a>
+              <a href="author.html#10339">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

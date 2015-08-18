@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH] ARMv7: use software breakpoints for algorithms
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20ARMv7%3A%20use%20software%20breakpoints%20for%20algorithms&In-Reply-To=%3Cmailman.100.1331735951.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014981.html">
+   <LINK REL="Next"  HREF="014133.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH] ARMv7: use software breakpoints for algorithms</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20ARMv7%3A%20use%20software%20breakpoints%20for%20algorithms&In-Reply-To=%3Cmailman.100.1331735951.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH] ARMv7: use software breakpoints for algorithms">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 13 12:32:12 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014981.html">[PATCH 2/7] MIPS: add mips algorithm support
+</A></li>
+        <LI>Next message: <A HREF="014133.html">[Openocd-development] [PATCH] ARMv7: use software breakpoints for	algorithms
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14134">[ date ]</a>
+              <a href="thread.html#14134">[ thread ]</a>
+              <a href="subject.html#14134">[ subject ]</a>
+              <a href="author.html#14134">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE> - armv7m_run_algorithm now requires all algorithms to use
+   a software breakpoint at their exit address
+ - updated all algorithms to support this
+
+Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+ src/flash/nor/at91sam3.c  |    4 +---
+ src/flash/nor/lpc2000.c   |    2 +-
+ src/flash/nor/stellaris.c |    3 +--
+ src/flash/nor/stm32x.c    |    3 +--
+ src/target/armv7m.c       |   23 +++++------------------
+ 5 files changed, 9 insertions(+), 26 deletions(-)
+
+diff --git a/src/flash/nor/at91sam3.c b/src/flash/nor/at91sam3.c
+index 5dacf6f..699f493 100644
+--- a/src/flash/nor/at91sam3.c
++++ b/src/flash/nor/at91sam3.c
+@@ -2046,9 +2046,7 @@ sam3_page_write_opcodes[] = {
+ 	0x10,0xf0,0x01,0x0f,
+ 	//  41 0024 FBD0     		beq	.L4
+ 	0xfb,0xd0,
+-	//  42              	.done:
+-	//  43 0026 FEE7     		b	.done
+-	0xfe,0xe7
++	0x00,0xBE     				/* bkpt #0 */
+ };
+ 
+ 
+diff --git a/src/flash/nor/lpc2000.c b/src/flash/nor/lpc2000.c
+index ae0a384..ac76493 100644
+--- a/src/flash/nor/lpc2000.c
++++ b/src/flash/nor/lpc2000.c
+@@ -267,7 +267,7 @@ static int lpc2000_iap_call(struct flash_bank *bank, int code, uint32_t param_ta
+ 				target_buffer_set_u32(target, jump_gate,
+ 						ARMV4_5_T_BX(12));
+ 				target_buffer_set_u32(target, jump_gate + 4,
+-						ARMV4_5_T_B(0xfffffe));
++						ARMV5_T_BKPT(0));
+ 				break;
+ 			case lpc2000_v1:
+ 			case lpc2000_v2:
+diff --git a/src/flash/nor/stellaris.c b/src/flash/nor/stellaris.c
+index 8d35f9b..8083f60 100644
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -805,8 +805,7 @@ static const uint8_t stellaris_write_code[] =
+ 	0x04,0x36,			/* adds	r6, r6, #4 */
+ 	0x96,0x42,			/* cmp	r6, r2 */
+ 	0xF4,0xD1,			/* bne	mainloop */
+-						/* exit: */
+-	0xFE,0xE7,			/* b exit */
++	0x00,0xBE,     		/* bkpt #0 */
+ /* pFLASH_CTRL_BASE: */
+ 	0x00,0xD0,0x0F,0x40,	/* .word	0x400FD000 */
+ /* FLASHWRITECMD: */
+diff --git a/src/flash/nor/stm32x.c b/src/flash/nor/stm32x.c
+index 75dcf3b..d45df9c 100644
+--- a/src/flash/nor/stm32x.c
++++ b/src/flash/nor/stm32x.c
+@@ -459,8 +459,7 @@ static int stm32x_write_block(struct flash_bank *bank, uint8_t *buffer, uint32_t
+ 		0x01, 0xD1,					/* bne	exit */
+ 		0x01, 0x3A,					/* subs	r2, r2, #1 */
+ 		0xED, 0xD1,					/* bne	write */
+-									/* exit: */
+-		0xFE, 0xE7,					/* b exit */
++		0x00, 0xBE,     			/* bkpt #0 */
+ 		0x10, 0x20, 0x02, 0x40,		/* STM32_FLASH_CR:	.word 0x40022010 */
+ 		0x0C, 0x20, 0x02, 0x40		/* STM32_FLASH_SR:	.word 0x4002200C */
+ 	};
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index 233fb95..3972df5 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -338,6 +338,9 @@ int armv7m_run_algorithm(struct target *target,
+ 	int retval = ERROR_OK;
+ 	uint32_t context[ARMV7M_NUM_REGS];
+ 
++	/* NOTE: armv7m_run_algorithm requires that each algorithm uses a software breakpoint
++	 * at the exit point */
++
+ 	if (armv7m_algorithm_info-&gt;common_magic != ARMV7M_COMMON_MAGIC)
+ 	{
+ 		LOG_ERROR(&quot;current target isn't an ARMV7M target&quot;);
+@@ -395,22 +398,8 @@ int armv7m_run_algorithm(struct target *target,
+ 		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].valid = 1;
+ 	}
+ 
+-	/* REVISIT speed things up (3% or so in one case) by requiring
+-	 * algorithms to include a BKPT instruction at each exit point.
+-	 * This eliminates overheads of adding/removing a breakpoint.
+-	 */
+-
+-	/* ARMV7M always runs in Thumb state */
+-	if ((retval = breakpoint_add(target, exit_point, 2, BKPT_SOFT)) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;can't add breakpoint to finish algorithm execution&quot;);
+-		return ERROR_TARGET_FAILURE;
+-	}
+-
+ 	retval = armv7m_run_and_wait(target, entry_point, timeout_ms, exit_point, armv7m);
+ 
+-	breakpoint_remove(target, exit_point);
+-
+ 	if (retval != ERROR_OK)
+ 	{
+ 		return retval;
+@@ -582,8 +571,7 @@ int armv7m_checksum_memory(struct target *target,
+ 								/* ncomp: */
+ 		0x429C,					/* cmp	r4, r3 */
+ 		0xD1E9,					/* bne	nbyte */
+-								/* end: */
+-		0xE7FE,					/* b	end */
++		0xBE00,     			/* bkpt #0 */
+ 		0x1DB7, 0x04C1			/* CRC32XOR:	.word 0x04C11DB7 */
+ 	};
+ 
+@@ -647,8 +635,7 @@ int armv7m_blank_check_memory(struct target *target,
+ 		0xEA02, 0x0203,		/* and  r2, r2, r3 */
+ 		0x3901,				/* subs	r1, r1, #1 */
+ 		0xD1F9,				/* bne	loop */
+-		/* end: */
+-		0xE7FE,				/* b	end */
++		0xBE00,     		/* bkpt #0 */
+ 	};
+ 
+ 	/* make sure we have a working area */
+-- 
+1.6.5.1.1367.gcd48
+
+
+--------------080900020404070406080808--
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014981.html">[PATCH 2/7] MIPS: add mips algorithm support
+</A></li>
+	<LI>Next message: <A HREF="014133.html">[Openocd-development] [PATCH] ARMv7: use software breakpoints for	algorithms
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14134">[ date ]</a>
+              <a href="thread.html#14134">[ thread ]</a>
+              <a href="subject.html#14134">[ subject ]</a>
+              <a href="author.html#14134">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

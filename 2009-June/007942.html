@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Retired endstate command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Retired%20endstate%20command&In-Reply-To=%3C200906121340.56953.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007820.html">
+   <LINK REL="Next"  HREF="007954.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Retired endstate command</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Retired%20endstate%20command&In-Reply-To=%3C200906121340.56953.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Retired endstate command">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Jun 12 22:40:56 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007820.html">[Openocd-development] Retired endstate command
+</A></li>
+        <LI>Next message: <A HREF="007954.html">[Openocd-development] Retired endstate command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7942">[ date ]</a>
+              <a href="thread.html#7942">[ thread ]</a>
+              <a href="subject.html#7942">[ subject ]</a>
+              <a href="author.html#7942">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 08 June 2009, Dirk Behme wrote:
+&gt;<i> - Tell exactly what is broken (from a technical point of view, maybe 
+</I>&gt;<i> on a level a not so experienced OpenOCD engineer could understand...
+</I>
+Here's a start.  Maybe other folk can add more.  From the docs
+I have, I don't think Beagle actually needed standalone &quot;endstate&quot;
+since it was sufficient to require that the scan ops finish in a
+PAUSE state.
+
+I was doing this on a DaVinci, which AFAIK was the first product
+to use ICEpick-C.  That should be simpler than on OMAP3, where
+issues like &quot;we don't yet have full Cortex-A8 support&quot; also crop
+up.  Plus, there's boot mode where ICEpick configuration is not
+needed ... which also helps isolate issues.
+
+I'm going by this PDF document (rev 0.2 just now):
+
+  <A HREF="http://tiexpressdsp.com/images/3/3c/Router_Scan_Sequence.pdf">http://tiexpressdsp.com/images/3/3c/Router_Scan_Sequence.pdf</A>
+
+See the appended &quot;icepick.tcl&quot; script, which should eventually
+become sharable/library code.
+
+In no particular order, and with no expectation of completeness:
+
+ - Can't handle IDCODE instruction for these DSPs, since the
+   instruction length is 38 bits.  Affects testing; I don't
+   expect OpenOCD to ever support C55, C64x+, or C67+ DSPs!
+   (I want to be able to look at *every* JRC port, to know
+   that the code behaves in more than one single case.)
+
+ - The current *model* of TAP enable/disable is a bit off.
+
+     *	There are two disable modes, but the code only has
+	one right now.  We should interpret the &quot;-disable&quot;
+	option on TAP creation to reflect the state after
+	exit from the JTAG Test_Logic_Reset state (doc fix
+	for 0.2 IMO).  The *desired runtime state* is a
+	different beast, AFAICT.
+
+     *	Related, enabling TAPs is currently only done by
+	a &quot;jtag tapenable $TAP&quot; command.  It should be
+	abstracted so it's done automatically in cases like
+	initializing an ETM bound to a disabled ETB, and
+	to re-enable after some code triggered TLR.
+
+ - The current TAP enable code is incomplete.  It needs to
+   kick the target(s) asociated with that TAP; examine()
+   it and maybe more.
+
+ - That TAP enable code is also excessively trusting.  It
+   should verify that the TAP actually appears!  And that
+   it's the expected device.   The latter implies different
+   kind of chain validation than we have now, since it may
+   not enter TLR.  (Presumably we can immediately verify
+   the IR length with IRSCAN.  Though it'd be good to sanity
+   check that we didn't somehow enable *two* adjacent taps.
+   If we know the IDCODE opcode we should then be able to
+   verify the expected TAP id.)
+
+ - Similarly with TAP disable.  It should verify that the
+   TAP disappeared.  (We don't currently know how to make
+   the ICEpick-C taps go away, but I'm fairly sure we could
+   find out ... even without a logic analyser watching what
+   happens on the JTAG bus!)
+
+ - I didn't see an obvious way to guarantee the expected
+   100+ TCK cycles after TLR.  The cleanest way would be
+   to define a new TAP event for TLR exit, and let the
+   JRC provide a method that just does &quot;runtest 100&quot;.
+
+ - One of the header files says that interfaces may use
+   arbitrary state transitions.  I think that's got to
+   be changed somewhat ... the new &quot;pathmove&quot; thing is
+   not sufficient, given free running clocks.  The hard
+   and fast rule *here* must be:  never enter RUN/IDLE
+   implicitly.
+
+ - Server can come up with the &quot;current&quot; target disabled.
+   That shouldn't be possible.
+
+That's all for now.  Comments from anyone who's looked
+at this before?
+
+- Dave
+
+
+# jrc          == a JRC tap name
+# port         == a port number, 0..15
+proc icepick_tapenable {jrc port} {
+       irscan $jrc 7 -endstate IRPAUSE
+       drscan $jrc 8 0x89 -endstate DRPAUSE
+       irscan $jrc 2 -endstate IRPAUSE
+       drscan $jrc 32 [expr 0xa0002108 + ($port &lt;&lt; 24)] -endstate DRPAUSE
+       irscan $jrc 0x3F -endstate RUN/IDLE
+       runtest 10
+}
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007820.html">[Openocd-development] Retired endstate command
+</A></li>
+	<LI>Next message: <A HREF="007954.html">[Openocd-development] Retired endstate command
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7942">[ date ]</a>
+              <a href="thread.html#7942">[ thread ]</a>
+              <a href="subject.html#7942">[ subject ]</a>
+              <a href="author.html#7942">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

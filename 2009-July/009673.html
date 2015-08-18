@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] playsxvf regression
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20playsxvf%20regression&In-Reply-To=%3C20090720154654.GY8539%40knossos.aleph1.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009672.html">
+   <LINK REL="Next"  HREF="009675.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] playsxvf regression</H1>
+    <B>Wookey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20playsxvf%20regression&In-Reply-To=%3C20090720154654.GY8539%40knossos.aleph1.co.uk%3E"
+       TITLE="[Openocd-development] playsxvf regression">wookey at wookware.org
+       </A><BR>
+    <I>Mon Jul 20 17:46:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009672.html">[Openocd-development] building open ocd 0.2.0 on windows
+</A></li>
+        <LI>Next message: <A HREF="009675.html">[Openocd-development] playsxvf regression
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9673">[ date ]</a>
+              <a href="thread.html#9673">[ thread ]</a>
+              <a href="subject.html#9673">[ subject ]</a>
+              <a href="author.html#9673">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This info also filed at <A HREF="http://bugs.debian.org/537740">http://bugs.debian.org/537740</A>
+
+We have been using the version of openocd in Debian testing (r1606) for a
+while to program pxa270 and xilinx coolrunner CPLDs. It all worked
+fine once we got the config correct. 
+
+However we have just updated to current testing version (0.0+r2403-1) 
+and whilst with a small command change (need to add -s
+/usr/lib/openocd so that the xscale/debug_handler.bin file is found)
+the pxa programming still works, the CPLD programming is now broken.
+We get the following complaint and so far as we can tell the device
+has not been programmed at all:
+
+$URL: <A HREF="http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c">http://svn.berlios.de/svnroot/repos/openocd/trunk/src/openocd.c</A>
+$ openocd -s /utils/openocd -f balloon3-cpld-olimex.cfg -f loadcpld.cfg
+5000 kHz
+Info : JTAG tap: xcr.tap tap/device found: 0x0494c093 (mfg: 0x049, part: 0x494c, ver: 0x0)
+Warn : no gdb ports allocated as no target has been specified
+     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     
+---|--------------------|---------|------------|------------|------|------|------|---------
+ 0 | xcr.tap            |    Y    | 0x0494c093 | 0x00000000 | 0x06 | 0x01 | 0x03 | 0x3f
+xsvf processing file: &quot;vhdl/cpld/l3cpld.xsvf&quot;
+Error: BUG: TAP path doesn't finish in a stable state
+Error: XSTATE IRUPDATE is not reachable from current state IRPAUSE in one clock cycle
+Error: XSTATE DRSELECT is not reachable from current state IRPAUSE in one clock cycle
+Error: XSTATE DRCAPTURE is not reachable from current state IRPAUSE in one clock cycle
+Error: XSTATE DREXIT1 is not reachable from current state IRPAUSE in one clock cycle
+Error: BUG: TAP path doesn't finish in a stable state
+Error: XSTATE DRUPDATE is not reachable from current state DRPAUSE in one clock cycle
+Error: BUG: TAP path doesn't finish in a stable state
+Error: XSTATE DRCAPTURE is not reachable from current state RUN/IDLE in one clock cycle
+Error: XSTATE DREXIT1 is not reachable from current state RUN/IDLE in one clock cycle
+TDO mismatch, somewhere near offset 103 in xsvf file, aborting
+Runtime error, file &quot;utils/openocd//cpld.cfg&quot;, line 5:
+
+
+The xsvf file was generated with Xilinx webpack 9.2 on a windows
+machine. The original jed and the svf and xsvf files generated from it are here:
+<A HREF="http://balloonboard.org/files/balloon3/openocd/bugrep/">http://balloonboard.org/files/balloon3/openocd/bugrep/</A>
+
+We get exactly the same results using an Olimex-usb-tiny and an
+Amontec JTAGkey
+
+Interestingly, we did find that with r1606 the target board was left
+in a 'bad state' after programming that file and a power cycle of both
+the board and the JTAG dongle was required before it would program
+again, suggesting that the xsvf file does indeed contain something
+which openocd doesn't like. The above error may just be the effect of
+more rigorous checking in openocd. However from our point of view
+this is entirely fatal - it did at least work before.
+
+So, the question is - has the openocd playsxvf stuff changed in any
+way that we should account for in our config (which is below): I saw
+nothing in the changelog to suggest so, and it's incledibly simple -
+we just play the xsvf file (it make no difference whether we set up a
+JTAG tap or not - that's really just to check chip-detection). 
+
+And what can we do to help track down the problem? We were about to go
+into production with this so the regression in testing is quite
+serious. I'm assuming that we can rebuild r1606 from svn and get going
+again, but have not yet tested.
+
+I guess we should test latest svn too.
+
+Suggestions welcome.
+
+=======cpld.cfg========
+# CPLD programming
+# use xlinx-generated xsvf file and program it in
+# may need to specify device if it in chain with cpu
+
+xsvf plain vhdl/cpld/l3cpld.xsvf
+shutdown
+
+
+==============output======
+    <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">paul at triumph</A>:~/balloon3/distro/binaries$ openocd -s utils/openocd/ -s /usr/lib/openocd -f balloon3-cpld-ex.cfg -f cpld.cfg
+Open On-Chip Debugger 0.2.0-in-development (2009-06-25-18:22) svn:r2403
+
+
+BUGS? Read /usr/share/doc/openocd/BUGS
+
+
+
+===============================balloon3-cpld-olimex.cfg=======
+# config for Intel PXA270 Balloon 3, with olimex dongle
+# connected to CPLD JTAG port
+
+#set up ports and standard config
+source [find base.cfg]
+
+jtag_khz 5000
+
+source [find olimex-jtag-tiny.cfg]
+
+source [find xilinx-xcr3256.cfg]
+
+reset_config trst_and_srst separate
+
+init 
+scan_chain
+
+==========base.cfg======
+telnet_port 4444
+gdb_port 3333
+tcl_port 6666
+
+
+=========xilinx-xcr3256.cfg==========
+#xilinx coolrunner xcr3256
+#simple device - just configure a tap
+jtag newtap xcr tap -irlen 6 -ircapture 0x01 -irmask 0x03 -expected-id  0x0494c093
+
+
+
+Wookey
+-- 
+Principal hats:  iEndian - Balloonboard - Toby Churchill - Emdebian
+<A HREF="http://wookware.org/">http://wookware.org/</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009672.html">[Openocd-development] building open ocd 0.2.0 on windows
+</A></li>
+	<LI>Next message: <A HREF="009675.html">[Openocd-development] playsxvf regression
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9673">[ date ]</a>
+              <a href="thread.html#9673">[ thread ]</a>
+              <a href="subject.html#9673">[ subject ]</a>
+              <a href="author.html#9673">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

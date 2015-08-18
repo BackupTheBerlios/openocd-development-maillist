@@ -1,0 +1,260 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] target: uplevel add_{break,	watch}point() error checks
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20target%3A%20uplevel%20add_%7Bbreak%2C%0A%09watch%7Dpoint%28%29%20error%20checks&In-Reply-To=%3C200911251634.49044.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012936.html">
+   <LINK REL="Next"  HREF="012943.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] target: uplevel add_{break,	watch}point() error checks</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20target%3A%20uplevel%20add_%7Bbreak%2C%0A%09watch%7Dpoint%28%29%20error%20checks&In-Reply-To=%3C200911251634.49044.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] target: uplevel add_{break,	watch}point() error checks">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Nov 26 01:34:48 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012936.html">[Openocd-development] [patch 2/2] target: create and use	target_name()
+</A></li>
+        <LI>Next message: <A HREF="012943.html">[Openocd-development] write_phys_memory and read_phys_memory
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12938">[ date ]</a>
+              <a href="thread.html#12938">[ thread ]</a>
+              <a href="subject.html#12938">[ subject ]</a>
+              <a href="author.html#12938">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>In target_type.h it's documented that the target must be
+halted for add_breakpoint() ... and with slight ambiguity,
+also for its add_watchpoint() sibling.  So rather than
+verifying that constraint in the CPU drivers, do it in the
+target_add_{break,watch}point() routines. 
+
+Add minor paranoia on the remove_*point() paths too:  save
+the return value, and print it out in in the LOG_DEBUG message
+in case it's nonzero.
+
+Note that with some current cores, like all ARMv7 ones I've
+looked at, there's no technical issue preventing watchpoint or
+breakpoint add/remove operations on active cores.  This model
+seems deeply wired into OpenOCD though.
+
+ALSO:  the ARM targets were fairly &quot;good&quot; about enforcing that
+constraint themselves.  The MIPS ones were relied on other code
+to catch such stuff, but it's not clear such code existed ...
+keep an eye out for new issues on MIPS.
+---
+This is obviously safe on ARMs, but I'm less certain about
+the MIPS stuff ... I'll wait a bit before committing this,
+in case some MIPSy person sees a downside.
+
+ src/target/arm7_9_common.c |   12 ------------
+ src/target/breakpoints.c   |   10 ++++++----
+ src/target/cortex_m3.c     |    7 -------
+ src/target/target.c        |    8 ++++++++
+ src/target/target_type.h   |   12 +++++++++---
+ src/target/xscale.c        |   12 ------------
+ 6 files changed, 23 insertions(+), 38 deletions(-)
+
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -426,12 +426,6 @@ int arm7_9_add_breakpoint(struct target 
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+ 	if (arm7_9-&gt;breakpoint_count == 0)
+ 	{
+ 		/* make sure we don't have any dangling breakpoints. This is vital upon
+@@ -631,12 +625,6 @@ int arm7_9_add_watchpoint(struct target 
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+ 	if (arm7_9-&gt;wp_available &lt; 1)
+ 	{
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+--- a/src/target/breakpoints.c
++++ b/src/target/breakpoints.c
+@@ -109,6 +109,7 @@ static void breakpoint_free(struct targe
+ {
+ 	struct breakpoint *breakpoint = target-&gt;breakpoints;
+ 	struct breakpoint **breakpoint_p = &amp;target-&gt;breakpoints;
++	int retval;
+ 
+ 	while (breakpoint)
+ 	{
+@@ -121,9 +122,9 @@ static void breakpoint_free(struct targe
+ 	if (breakpoint == NULL)
+ 		return;
+ 
+-	target_remove_breakpoint(target, breakpoint);
++	retval = target_remove_breakpoint(target, breakpoint);
+ 
+-	LOG_DEBUG(&quot;BPID: %d&quot;, breakpoint-&gt;unique_id );
++	LOG_DEBUG(&quot;free BPID: %d --&gt; %d&quot;, breakpoint-&gt;unique_id, retval);
+ 	(*breakpoint_p) = breakpoint-&gt;next;
+ 	free(breakpoint-&gt;orig_instr);
+ 	free(breakpoint);
+@@ -249,6 +250,7 @@ static void watchpoint_free(struct targe
+ {
+ 	struct watchpoint *watchpoint = target-&gt;watchpoints;
+ 	struct watchpoint **watchpoint_p = &amp;target-&gt;watchpoints;
++	int retval;
+ 
+ 	while (watchpoint)
+ 	{
+@@ -260,8 +262,8 @@ static void watchpoint_free(struct targe
+ 
+ 	if (watchpoint == NULL)
+ 		return;
+-	target_remove_watchpoint(target, watchpoint);
+-	LOG_DEBUG(&quot;WPID: %d&quot;, watchpoint-&gt;unique_id );
++	retval = target_remove_watchpoint(target, watchpoint);
++	LOG_DEBUG(&quot;free WPID: %d --&gt; %d&quot;, watchpoint-&gt;unique_id, retval);
+ 	(*watchpoint_p) = watchpoint-&gt;next;
+ 	free(watchpoint);
+ }
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1141,13 +1141,6 @@ cortex_m3_add_watchpoint(struct target *
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 
+-	/* REVISIT why check? DWT can be updated with core running ... */
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+ 	if (cortex_m3-&gt;dwt_comp_available &lt; 1)
+ 	{
+ 		LOG_DEBUG(&quot;no comparators?&quot;);
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -605,6 +605,10 @@ int target_bulk_write_memory(struct targ
+ int target_add_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint)
+ {
++	if (target-&gt;state != TARGET_HALTED) {
++		LOG_WARNING(&quot;target %s is not halted&quot;, target-&gt;cmd_name);
++		return ERROR_TARGET_NOT_HALTED;
++	}
+ 	return target-&gt;type-&gt;add_breakpoint(target, breakpoint);
+ }
+ int target_remove_breakpoint(struct target *target,
+@@ -616,6 +620,10 @@ int target_remove_breakpoint(struct targ
+ int target_add_watchpoint(struct target *target,
+ 		struct watchpoint *watchpoint)
+ {
++	if (target-&gt;state != TARGET_HALTED) {
++		LOG_WARNING(&quot;target %s is not halted&quot;, target-&gt;cmd_name);
++		return ERROR_TARGET_NOT_HALTED;
++	}
+ 	return target-&gt;type-&gt;add_watchpoint(target, watchpoint);
+ }
+ int target_remove_watchpoint(struct target *target,
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -124,18 +124,24 @@ struct target_type
+ 	 * Target must be halted while this is invoked as this
+ 	 * will actually set up breakpoints on target.
+ 	 *
+-	 * The breakpoint hardware will be set up upon adding the first breakpoint.
++	 * The breakpoint hardware will be set up upon adding the
++	 * first breakpoint.
+ 	 *
+ 	 * Upon GDB connection all breakpoints/watchpoints are cleared.
+ 	 */
+ 	int (*add_breakpoint)(struct target *target, struct breakpoint *breakpoint);
+ 
+-	/* remove breakpoint. hw will only be updated if the target is currently halted.
++	/* remove breakpoint. hw will only be updated if the target
++	 * is currently halted.
+ 	 * However, this method can be invoked on unresponsive targets.
+ 	 */
+ 	int (*remove_breakpoint)(struct target *target, struct breakpoint *breakpoint);
++
++	/* add watchpoint ... see add_breakpoint() comment above. */
+ 	int (*add_watchpoint)(struct target *target, struct watchpoint *watchpoint);
+-	/* remove watchpoint. hw will only be updated if the target is currently halted.
++
++	/* remove watchpoint. hw will only be updated if the target
++	 * is currently halted.
+ 	 * However, this method can be invoked on unresponsive targets.
+ 	 */
+ 	int (*remove_watchpoint)(struct target *target, struct watchpoint *watchpoint);
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2119,12 +2119,6 @@ static int xscale_add_breakpoint(struct 
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+ 	if ((breakpoint-&gt;type == BKPT_HARD) &amp;&amp; (xscale-&gt;ibcr_available &lt; 1))
+ 	{
+ 		LOG_INFO(&quot;no breakpoint unit available for hardware breakpoint&quot;);
+@@ -2282,12 +2276,6 @@ static int xscale_add_watchpoint(struct 
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+ 	if (xscale-&gt;dbr_available &lt; 1)
+ 	{
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012936.html">[Openocd-development] [patch 2/2] target: create and use	target_name()
+</A></li>
+	<LI>Next message: <A HREF="012943.html">[Openocd-development] write_phys_memory and read_phys_memory
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12938">[ date ]</a>
+              <a href="thread.html#12938">[ thread ]</a>
+              <a href="subject.html#12938">[ subject ]</a>
+              <a href="author.html#12938">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

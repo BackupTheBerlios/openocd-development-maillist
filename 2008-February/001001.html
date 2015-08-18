@@ -1,0 +1,120 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] hw fifo implementations of jtag_xxx()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20hw%20fifo%20implementations%20of%20jtag_xxx%28%29&In-Reply-To=%3Cc09652430802210325y1ad3900l5dd0c050240a1981%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001013.html">
+   <LINK REL="Next"  HREF="001003.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] hw fifo implementations of jtag_xxx()</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20hw%20fifo%20implementations%20of%20jtag_xxx%28%29&In-Reply-To=%3Cc09652430802210325y1ad3900l5dd0c050240a1981%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] hw fifo implementations of jtag_xxx()">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Feb 21 12:25:00 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001013.html">[Openocd-development] [PATCH] make single-stepping moreresilient
+</A></li>
+        <LI>Next message: <A HREF="001003.html">[Openocd-development] OpenOCD trunk is falling behind
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1001">[ date ]</a>
+              <a href="thread.html#1001">[ thread ]</a>
+              <a href="subject.html#1001">[ subject ]</a>
+              <a href="author.html#1001">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I'll be adding some comments to jtag.h in one of my upcoming patches that
+tighten the definition of jtag_xxxx() a bit to clarify a bit what rules that
+jtag_xxxx() follow so as to allow hw fifo implementations.
+
+It is *NOT* easy to add a hw fifo, but it is a big step forward to tighten the
+API so as to allow it.
+
+NB! jtag_cancel_queue() must be retired to allow hw fifo implementations.
+
+/* JTAG interface, can be implemented with a software or hardware fifo */
+extern int jtag_add_ir_scan(int num_fields, scan_field_t *fields, enum
+tap_state endstate, void *dummy_anachronism);
+extern int jtag_add_dr_scan(int num_fields, scan_field_t *fields, enum
+tap_state endstate, void *dummy_anachronism);
+extern int jtag_add_plain_ir_scan(int num_fields, scan_field_t
+*fields, enum tap_state endstate, void *dummy_anachronism);
+extern int jtag_add_plain_dr_scan(int num_fields, scan_field_t
+*fields, enum tap_state endstate, void *dummy_anachronism);
+/* execute a state transition within the JTAG standard, but nothing is defined
+ * w.r.t. the path that is taken. Many implementations use precisely
+ * 7 clocks to perform a transition, but it could be more or less
+ * than that.
+ */
+extern int jtag_add_statemove(enum tap_state endstate);
+/* A list of unambigious single clock state transitions, not
+ * all drivers can support this, but it is required for e.g.
+ * XScale and Xilinx support
+ */
+extern int jtag_add_pathmove(int num_states, enum tap_state *path);
+/* cycle precisely num_cycles in the TAP_RTI state */
+extern int jtag_add_runtest(int num_cycles, enum tap_state endstate);
+extern int jtag_add_reset(int trst, int srst);
+extern int jtag_add_end_state(enum tap_state endstate);
+extern int jtag_add_sleep(u32 us);
+/*
+ * For software FIFO implementations, the queued commands can be executed
+ * during this call or earlier. A sw queue might decide to push out
+ * some of the jtag_add_xxx() operations once the queue is &quot;big enough&quot;.
+ *
+ * This fn will return an error code if any of the prior jtag_add_xxx()
+ * calls caused a failure, e.g. check failure. Note that it does not
+ * matter if the operation was executed *before* jtag_execute_queue(),
+ * jtag_execute_queue() will still return an error code.
+ *
+ * All jtag_add_xxx() calls that have in_handler!=NULL will have been
+ * executed when this fn returns, but if what has been queued only
+ * clocks data out, without reading anything back, then JTAG could
+ * be running *after* jtag_execute_queue() returns. The API does
+ * not define a way to flush a hw FIFO that runs *after*
+ * jtag_execute_queue() returns.
+ *
+ * jtag_add_xxx() commands can either be executed immediately or
+ * at some time between the jtag_add_xxx() fn call and jtag_execute_queue().
+ */
+extern int jtag_execute_queue(void);
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001013.html">[Openocd-development] [PATCH] make single-stepping moreresilient
+</A></li>
+	<LI>Next message: <A HREF="001003.html">[Openocd-development] OpenOCD trunk is falling behind
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1001">[ date ]</a>
+              <a href="thread.html#1001">[ thread ]</a>
+              <a href="subject.html#1001">[ subject ]</a>
+              <a href="author.html#1001">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

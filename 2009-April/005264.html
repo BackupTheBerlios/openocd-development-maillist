@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] jlink vrs ft2232 tap transitions - some differences.
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jlink%20vrs%20ft2232%20tap%20transitions%20-%20some%0A%20differences.&In-Reply-To=%3C49DF54BF.2090208%40softplc.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005243.html">
+   <LINK REL="Next"  HREF="005265.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] jlink vrs ft2232 tap transitions - some differences.</H1>
+    <B>Dick Hollenbeck</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20jlink%20vrs%20ft2232%20tap%20transitions%20-%20some%0A%20differences.&In-Reply-To=%3C49DF54BF.2090208%40softplc.com%3E"
+       TITLE="[Openocd-development] jlink vrs ft2232 tap transitions - some differences.">dick at softplc.com
+       </A><BR>
+    <I>Fri Apr 10 16:16:31 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005243.html">[Openocd-development] jlink vrs ft2232 tap transitions - some	differences.
+</A></li>
+        <LI>Next message: <A HREF="005265.html">[Openocd-development] jlink vrs ft2232 tap transitions - some differences.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5264">[ date ]</a>
+              <a href="thread.html#5264">[ thread ]</a>
+              <a href="subject.html#5264">[ subject ]</a>
+              <a href="author.html#5264">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Duane Ellis wrote:
+&gt;<i> All,
+</I>&gt;<i>
+</I>&gt;<i> I'm working on the patch that Jeff Williams did that updates the way the 
+</I>&gt;<i> TMS path sequences work and have discovered an issue with the FT2232 driver.
+</I>&gt;<i>
+</I>&gt;<i> Right now, I believe I can show that given the same sets of scan 
+</I>&gt;<i> commands - the ft2232 driver does not follow the same tap sequence that 
+</I>&gt;<i> other dongles follow.
+</I>&gt;<i> I also see this with my cheap-usb-logic-analyzer.
+</I>&gt;<i>
+</I>&gt;<i> I believe: Two dongles in theory, if given the same sets of commands, 
+</I>&gt;<i> should generate the same basic tap state sequences.
+</I>&gt;<i>
+</I>&gt;<i> To do otherwise is a bug.
+</I>&gt;<i>   
+</I>I agree.
+&gt;<i> I'd like some comments, second opinion, etc, ie: Am I correct? Or am I 
+</I>&gt;<i> missing something?
+</I>&gt;<i>   
+</I>
+The remainder of your email references a patch that was never accepted 
+into the tree.   And I do not think it should be accepted, at least as is.
+
+If this difference in behavior exists in the current HEAD, please 
+correct me soon, because I am working on the ft232 stuff starting 
+today.  But I think we have to assume that I am only interested in what 
+is in the HEAD at this moment.
+
+
+Dick
+
+
+&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> The example place is: jtag_init_inner() - which is called when OpenOCD 
+</I>&gt;<i> first starts up.
+</I>&gt;<i>
+</I>&gt;<i> Which:
+</I>&gt;<i> (a) calls jtag_add_tlr()  [putting all taps in reset]
+</I>&gt;<i> (b) calls jtag_examine_chain()
+</I>&gt;<i> (c) then calls jtag_validate_chain()
+</I>&gt;<i>
+</I>&gt;<i> When jtag_examine_chain() runs, it basically does a DRSCAN of (N*32) 
+</I>&gt;<i> bits to look for TAP IDs.
+</I>&gt;<i>
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> If you compare the generated wave forms and thus the TAP sequence the 
+</I>&gt;<i> JLINK driver uses - vrs the FT2232 sequence, they are different.
+</I>&gt;<i>
+</I>&gt;<i> I believe what follows is the reason.
+</I>&gt;<i>
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> For JLINK see: jlink.c - line 417, function jlink_scan(), which does this:
+</I>&gt;<i>     (a) if needed move to the IR-SHIFT or DR-SHIFT state (line: 427)
+</I>&gt;<i>     (b) Calls jlink_tap_append_scan() - which always leaves the tap in 
+</I>&gt;<i> &quot;exit1-ir/dr&quot;
+</I>&gt;<i>     (c) The last step @ line 639 transitions to exit1-IR/DR
+</I>&gt;<i>     (d) Then always transitions to the ir/dr-pause state (line: 434)
+</I>&gt;<i>
+</I>&gt;<i> Hence, all jlink IR/DR scans *always* exit via:  SHIFT -&gt; EXIT1 -&gt; PAUSE.
+</I>&gt;<i> The &quot;bitbang&quot; (parallel ports) seem to do the same as jlink.
+</I>&gt;<i> I believe others do the same thing.
+</I>&gt;<i>
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> In contrast, the FT2232 driver does something different.
+</I>&gt;<i>     (a) switch() statement @ line 1452 - does an &quot;absurd&quot; check.
+</I>&gt;<i>          ie: If the current scan is &gt; 128K bytes long...
+</I>&gt;<i>     (b) line 1484 - calls ft2232_add_scan() - which
+</I>&gt;<i>     (c) line 600 - moves to IR/DR shift if needed.
+</I>&gt;<i>     (d) line 623 - loops - over large shift sequences
+</I>&gt;<i>     (e) line 673 - deals with the trailing bits.
+</I>&gt;<i> And at this point - it is different, it only occurs if the transition is 
+</I>&gt;<i> to another state
+</I>&gt;<i>     (f)  At line ft2232.c line 737 - is the issue.
+</I>&gt;<i>        The last else{} in the file - calls tap_get_tms_path()
+</I>&gt;<i>        That function returns the TMS sequence to the next state.
+</I>&gt;<i>         In this case, it is to RESET, which is 0x7F
+</I>&gt;<i>
+</I>&gt;<i> Hence, it is different.
+</I>&gt;<i> For example - if it was an IR shift, path is IR-SHIFT -&gt; EXIT1 -&gt; 
+</I>&gt;<i> UPDATE-IR without traversing PAUSE-IR, or EXIT2-IR
+</I>&gt;<i>
+</I>&gt;<i> But it is also different if it was to goto another state, ie: SHIFT-IR 
+</I>&gt;<i> to SHIFT-DR ...
+</I>&gt;<i>
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> Interestingly, the TMS paths - happens to be the same.
+</I>&gt;<i>
+</I>&gt;<i> ie: If the traversal was:  shift-ir -&gt; move to shift-dir ...
+</I>&gt;<i>
+</I>&gt;<i> The ft2232 would then generate the TMS sequence
+</I>&gt;<i>     1 -&gt; exit1-ir
+</I>&gt;<i>     1 -&gt; update-ir
+</I>&gt;<i>     1 -&gt; select-dr
+</I>&gt;<i>     0 -&gt; capture-dr
+</I>&gt;<i>     0 -&gt; shift-dr
+</I>&gt;<i>
+</I>&gt;<i> While the jlink (and other bit-bangers) would follow a different path:
+</I>&gt;<i>     Remember: JLINK always ends in PAUSE-IR/DR
+</I>&gt;<i>     thus in this example we are at PAUSE-IR
+</I>&gt;<i>     1 -&gt; exit2-ir
+</I>&gt;<i>     1 -&gt; update-ir
+</I>&gt;<i>     1 -&gt; select-dr
+</I>&gt;<i>     0 -&gt; capture-dr
+</I>&gt;<i>     0 -&gt;shift-dr
+</I>&gt;<i>
+</I>&gt;<i> An identical 'tms' sequence - however - by completely different state path.
+</I>&gt;<i>
+</I>&gt;<i> ====
+</I>&gt;<i>
+</I>&gt;<i> I believe this also relates to [ GRR - openocd mailing list archive is 
+</I>&gt;<i> down right now ... can't make a link right now]
+</I>&gt;<i>
+</I>&gt;<i> See mail from: Dirk Behme - 3/1/2009 - Subject: RE [Openocd-development] 
+</I>&gt;<i> OMAP3-Jtag
+</I>&gt;<i>
+</I>&gt;<i> dirk&gt; Most probably the issue is with this TMS manipulation
+</I>&gt;<i>
+</I>&gt;<i> dirk&gt; BUFFER_ADD = tap_get_tms_path( tap_get_state(), tap_get_end_state() ) | (last_bit &lt;&lt; 7);
+</I>&gt;<i>
+</I>&gt;<i> dirk&gt; in ft2232.c which most probably only works if always 7 clocks 
+</I>&gt;<i> dirk&gt; are done for each state change (?). And this isn't the case 
+</I>&gt;<i> dirk&gt; any more with improved ap_get_tms_path() from Holger.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> **END**
+</I>&gt;<i>
+</I>&gt;<i> --Duane.
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005243.html">[Openocd-development] jlink vrs ft2232 tap transitions - some	differences.
+</A></li>
+	<LI>Next message: <A HREF="005265.html">[Openocd-development] jlink vrs ft2232 tap transitions - some differences.
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5264">[ date ]</a>
+              <a href="thread.html#5264">[ thread ]</a>
+              <a href="subject.html#5264">[ subject ]</a>
+              <a href="author.html#5264">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

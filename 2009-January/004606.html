@@ -1,0 +1,296 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Core dump in target.c - solved
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Core%20dump%20in%20target.c%20-%20solved&In-Reply-To=%3C497FC238.8090405%40radier.ca%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004605.html">
+   <LINK REL="Next"  HREF="004607.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Core dump in target.c - solved</H1>
+    <B>Subscriber</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Core%20dump%20in%20target.c%20-%20solved&In-Reply-To=%3C497FC238.8090405%40radier.ca%3E"
+       TITLE="[Openocd-development] Core dump in target.c - solved">subscriber at radier.ca
+       </A><BR>
+    <I>Wed Jan 28 03:26:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004605.html">[Openocd-development] Core dump in target.c
+</A></li>
+        <LI>Next message: <A HREF="004607.html">[Openocd-development] Core dump in target.c - solved
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4606">[ date ]</a>
+              <a href="thread.html#4606">[ thread ]</a>
+              <a href="subject.html#4606">[ subject ]</a>
+              <a href="author.html#4606">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I found problem:
+it crashes at this point:
+targets.c:1383
+
+        command_print(cmd_ctx, &quot;%2d: %-10s %-10s %-10s %10d %14s %s&quot;,
+                      target-&gt;target_number,
+                      target-&gt;cmd_name,
+                      target-&gt;type-&gt;name,
+                      Jim_Nvp_value2name_simple( nvp_target_endian, 
+target-&gt;endianness )-&gt;name,
+                      target-&gt;tap-&gt;abs_chain_position,
+                      target-&gt;tap-&gt;dotted_name,
+                      Jim_Nvp_value2name_simple( nvp_target_state, 
+target-&gt;state )-&gt;name );
+        target = target-&gt;next;
+
+target-&gt;tap is NULL!
+
+I did not setup -chain-position in target,
+so question is - is it mandatory (-chain-position).
+If yes, should not it be validated?
+If no, maybe set checks for target-&gt;tap  != NULL ?
+At least we will not have crush.
+
+I'm sorry if I missed the point - I'm new to this world of Jtag.
+
+thanks.
+Dmitriy
+
+
+Subscriber wrote:
+&gt;<i> Hello,
+</I>&gt;<i> I compiled openocd (svn revision 1361) on Ubuntu 8.04 with gcc:
+</I>&gt;<i>
+</I>&gt;<i> Using built-in specs.
+</I>&gt;<i> Target: i486-linux-gnu
+</I>&gt;<i> Configured with: ../src/configure -v 
+</I>&gt;<i> --enable-languages=c,c++,fortran,objc,obj-c++,treelang --prefix=/usr 
+</I>&gt;<i> --enable-shared --with-system-zlib --libexecdir=/usr/lib 
+</I>&gt;<i> --without-included-gettext --enable-threads=posix --enable-nls 
+</I>&gt;<i> --with-gxx-include-dir=/usr/include/c++/4.2 --program-suffix=-4.2 
+</I>&gt;<i> --enable-clocale=gnu --enable-libstdcxx-debug --enable-objc-gc 
+</I>&gt;<i> --enable-mpfr --enable-targets=all --enable-checking=release 
+</I>&gt;<i> --build=i486-linux-gnu --host=i486-linux-gnu --target=i486-linux-gnu
+</I>&gt;<i> Thread model: posix
+</I>&gt;<i> gcc version 4.2.4 (Ubuntu 4.2.4-1ubuntu3)
+</I>&gt;<i>
+</I>&gt;<i> Now, when I start openocd with config for lpc2148 and config for parport 
+</I>&gt;<i> from distribution,
+</I>&gt;<i> connect from telnet and issue
+</I>&gt;<i>  &gt;help
+</I>&gt;<i> then
+</I>&gt;<i>  &gt;targets
+</I>&gt;<i> after targets I got segmentation fault:
+</I>&gt;<i>
+</I>&gt;<i> 12540   Jim_Nvp *
+</I>&gt;<i> 12541   Jim_Nvp_value2name_simple( const Jim_Nvp *p, int value )
+</I>&gt;<i> 12542   {
+</I>&gt;<i> 12543           while( p-&gt;name ){
+</I>&gt;<i> 12544                   if( value == p-&gt;value ){
+</I>&gt;<i> 12545                           break;
+</I>&gt;<i> 12546                   }
+</I>&gt;<i> (gdb) bt
+</I>&gt;<i> #0  Jim_Nvp_value2name_simple (p=0x8101100, value=1) at jim.c:12542
+</I>&gt;<i> #1  0x08052eba in handle_targets_command (cmd_ctx=0x8160090, 
+</I>&gt;<i> cmd=0x8147d48 &quot;targets&quot;, args=0x8169cdc, argc=0) at target.c:1383
+</I>&gt;<i> #2  0x080a746c in run_command (context=0x8160090, c=0x8147e70, 
+</I>&gt;<i> words=0x8169cd8, num_words=1) at command.c:402
+</I>&gt;<i> #3  0x080a771e in script_command (interp=0x813b070, argc=1, 
+</I>&gt;<i> argv=0xbfc0f040) at command.c:129
+</I>&gt;<i> #4  0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x8169ea8) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #5  0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x81659c8) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #6  0x080bbdef in Jim_CatchCoreCommand (interp=0x813b070, argc=2, 
+</I>&gt;<i> argv=0xbfc0f170) at jim.c:11403
+</I>&gt;<i> #7  0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x8169d98) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #8  0x080bff2d in Jim_EvalExpression (interp=0x813b070, 
+</I>&gt;<i> exprObjPtr=0x8169d08, exprResultPtrPtr=0xbfc0f2bc) at jim.c:6926
+</I>&gt;<i> #9  0x080c0c31 in Jim_GetBoolFromExpr (interp=0x813b070, 
+</I>&gt;<i> exprObjPtr=0x8169d08, boolPtr=0xbfc0f2f8) at jim.c:7209
+</I>&gt;<i> #10 0x080c0d4f in Jim_IfCoreCommand (interp=0x813b070, argc=5, 
+</I>&gt;<i> argv=0xbfc0f350) at jim.c:10287
+</I>&gt;<i> #11 0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x8148080) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #12 0x080bd60f in JimCallProcedure (interp=0x813b070, cmd=0x8148228, 
+</I>&gt;<i> argc=0, argv=0xbfc0f430) at jim.c:8847
+</I>&gt;<i> #13 0x080bb938 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x814a2b0) 
+</I>&gt;<i> at jim.c:8704
+</I>&gt;<i> #14 0x080bd2d2 in Jim_Eval_Named (interp=0x813b070, script=0x8160248 
+</I>&gt;<i> &quot;targets&quot;, filename=0x811291a &quot;command.c&quot;, lineno=456) at jim.c:8891
+</I>&gt;<i> #15 0x080a73b2 in command_run_line (context=0x8160090, line=0x8160248 
+</I>&gt;<i> &quot;targets&quot;) at command.c:456
+</I>&gt;<i> #16 0x080c4cff in telnet_input (connection=0x8149038) at telnet_server.c:343
+</I>&gt;<i> #17 0x080c3f13 in server_loop (command_context=0x813b058) at server.c:443
+</I>&gt;<i> #18 0x0804c60c in openocd_main (argc=6, argv=0xbfc0fbe4) at openocd.c:274
+</I>&gt;<i> #19 0x0804c342 in main (argc=135700272, argv=0x111) at main.c:52
+</I>&gt;<i> (gdb) p *p
+</I>&gt;<i> $10 = {name = 0x810af08 &quot;unknown&quot;, value = 0}
+</I>&gt;<i> (gdb) n
+</I>&gt;<i> 12543           while( p-&gt;name ){
+</I>&gt;<i> (gdb)
+</I>&gt;<i> 12544                   if( value == p-&gt;value ){
+</I>&gt;<i> (gdb) n
+</I>&gt;<i> 12547                   p++;
+</I>&gt;<i> (gdb) print p
+</I>&gt;<i> $11 = (const Jim_Nvp *) 0x8101100
+</I>&gt;<i> (gdb) print *p
+</I>&gt;<i> $12 = {name = 0x810af08 &quot;unknown&quot;, value = 0}
+</I>&gt;<i> (gdb) n
+</I>&gt;<i> 12543           while( p-&gt;name ){
+</I>&gt;<i> (gdb) print p
+</I>&gt;<i> $13 = (const Jim_Nvp *) 0x8101108
+</I>&gt;<i> (gdb) p *p
+</I>&gt;<i> $14 = {name = 0x80ffbf2 &quot;running&quot;, value = 1}
+</I>&gt;<i> (gdb) n
+</I>&gt;<i> 12544                   if( value == p-&gt;value ){
+</I>&gt;<i> (gdb) n
+</I>&gt;<i> 12550   }
+</I>&gt;<i> (gdb) p p
+</I>&gt;<i> $15 = (const Jim_Nvp *) 0x8101108
+</I>&gt;<i> (gdb) p *p
+</I>&gt;<i> $16 = {name = 0x80ffbf2 &quot;running&quot;, value = 1}
+</I>&gt;<i> (gdb) s
+</I>&gt;<i>
+</I>&gt;<i> Program received signal SIGSEGV, Segmentation fault.
+</I>&gt;<i> 0x08052ec2 in handle_targets_command (cmd_ctx=0x8160090, cmd=0x8147d48 
+</I>&gt;<i> &quot;targets&quot;, args=0x8169cdc, argc=0) at target.c:1383
+</I>&gt;<i> 1383                    command_print(cmd_ctx, &quot;%2d: %-10s %-10s %-10s 
+</I>&gt;<i> %10d %14s %s&quot;,
+</I>&gt;<i> (gdb) bt
+</I>&gt;<i> #0  0x08052ec2 in handle_targets_command (cmd_ctx=0x8160090, 
+</I>&gt;<i> cmd=0x8147d48 &quot;targets&quot;, args=0x8169cdc, argc=0) at target.c:1383
+</I>&gt;<i> #1  0x080a746c in run_command (context=0x8160090, c=0x8147e70, 
+</I>&gt;<i> words=0x8169cd8, num_words=1) at command.c:402
+</I>&gt;<i> #2  0x080a771e in script_command (interp=0x813b070, argc=1, 
+</I>&gt;<i> argv=0xbfc0f040) at command.c:129
+</I>&gt;<i> #3  0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x8169ea8) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #4  0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x81659c8) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #5  0x080bbdef in Jim_CatchCoreCommand (interp=0x813b070, argc=2, 
+</I>&gt;<i> argv=0xbfc0f170) at jim.c:11403
+</I>&gt;<i> #6  0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x8169d98) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #7  0x080bff2d in Jim_EvalExpression (interp=0x813b070, 
+</I>&gt;<i> exprObjPtr=0x8169d08, exprResultPtrPtr=0xbfc0f2bc) at jim.c:6926
+</I>&gt;<i> #8  0x080c0c31 in Jim_GetBoolFromExpr (interp=0x813b070, 
+</I>&gt;<i> exprObjPtr=0x8169d08, boolPtr=0xbfc0f2f8) at jim.c:7209
+</I>&gt;<i> #9  0x080c0d4f in Jim_IfCoreCommand (interp=0x813b070, argc=5, 
+</I>&gt;<i> argv=0xbfc0f350) at jim.c:10287
+</I>&gt;<i> #10 0x080bb767 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x8148080) 
+</I>&gt;<i> at jim.c:8698
+</I>&gt;<i> #11 0x080bd60f in JimCallProcedure (interp=0x813b070, cmd=0x8148228, 
+</I>&gt;<i> argc=0, argv=0xbfc0f430) at jim.c:8847
+</I>&gt;<i> #12 0x080bb938 in Jim_EvalObj (interp=0x813b070, scriptObjPtr=0x814a2b0) 
+</I>&gt;<i> at jim.c:8704
+</I>&gt;<i> #13 0x080bd2d2 in Jim_Eval_Named (interp=0x813b070, script=0x8160248 
+</I>&gt;<i> &quot;targets&quot;, filename=0x811291a &quot;command.c&quot;, lineno=456) at jim.c:8891
+</I>&gt;<i> #14 0x080a73b2 in command_run_line (context=0x8160090, line=0x8160248 
+</I>&gt;<i> &quot;targets&quot;) at command.c:456
+</I>&gt;<i> #15 0x080c4cff in telnet_input (connection=0x8149038) at telnet_server.c:343
+</I>&gt;<i> #16 0x080c3f13 in server_loop (command_context=0x813b058) at server.c:443
+</I>&gt;<i> #17 0x0804c60c in openocd_main (argc=6, argv=0xbfc0fbe4) at openocd.c:274
+</I>&gt;<i> #18 0x0804c342 in main (argc=1852732786, argv=0x676e69) at main.c:52
+</I>&gt;<i> (gdb) n
+</I>&gt;<i>
+</I>&gt;<i> Program terminated with signal SIGSEGV, Segmentation fault.
+</I>&gt;<i> The program no longer exists.
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> ------------------------------------------
+</I>&gt;<i> Here is what I have in lpc2148.cfg:
+</I>&gt;<i>
+</I>&gt;<i> #delays on reset lines
+</I>&gt;<i> jtag_nsrst_delay 200
+</I>&gt;<i> jtag_ntrst_delay 200
+</I>&gt;<i>
+</I>&gt;<i> #use combined on interfaces or targets that can't set TRST/SRST separately
+</I>&gt;<i> reset_config trst_and_srst srst_pulls_trst
+</I>&gt;<i>
+</I>&gt;<i> #LPCs need reset pulled while RTCK is low. 0 to activate JTAG, power-on 
+</I>&gt;<i> reset is not enough
+</I>&gt;<i> jtag_reset 1 1
+</I>&gt;<i> jtag_reset 0 0
+</I>&gt;<i>
+</I>&gt;<i> #jtag scan chain
+</I>&gt;<i> #format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+</I>&gt;<i> jtag newtap lpc2148 one -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id 
+</I>&gt;<i> 0x4f1f0f0f
+</I>&gt;<i>
+</I>&gt;<i> #target configuration
+</I>&gt;<i> #daemon_startup reset
+</I>&gt;<i>
+</I>&gt;<i> #target &lt;type&gt; &lt;startup mode&gt;
+</I>&gt;<i> #target arm7tdmi &lt;reset mode&gt; &lt;chainpos&gt; &lt;endianness&gt; &lt;variant&gt;
+</I>&gt;<i> #target target0 arm7tdmi little run_and_init 0 arm7tdmi-s_r4
+</I>&gt;<i> set _TARGETNAME [format &quot;%s.cpu&quot; lpc2148]
+</I>&gt;<i> target create lpc2148.cpu arm7tdmi -endian little -work-area-size 0x4000 
+</I>&gt;<i> -work-area-phys 0x40000000 -work-area-virt 0 -work-area-backup 0
+</I>&gt;<i>
+</I>&gt;<i> $_TARGETNAME configure -event reset-init { soft_reset_halt mvb 
+</I>&gt;<i> 0xE01FC040 0x01 }
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> #run_and_halt_time 0 30
+</I>&gt;<i> #reset run_and_halt can easily be synthesized from e.g. GDB:
+</I>&gt;<i> #
+</I>&gt;<i> #monitor reset run
+</I>&gt;<i> #monitor sleep 100
+</I>&gt;<i> #monitor halt
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> #target_script 0 reset event/lpc2148_reset.script
+</I>&gt;<i>
+</I>&gt;<i> #working_area 0 0x40000000 0x4000 nobackup
+</I>&gt;<i>
+</I>&gt;<i> #flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt; &lt;variant&gt;
+</I>&gt;<i> flash bank lpc2000 0x0 0x7d000 0 0 0 lpc2000_v2 14765
+</I>&gt;<i>
+</I>&gt;<i> # For more information about the configuration files, take a
+</I>&gt;<i> # look at the &quot;Open On-Chip Debugger (openocd)&quot; documentation.
+</I>&gt;<i>
+</I>&gt;<i> #init
+</I>&gt;<i> #reset halt
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i>   
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004605.html">[Openocd-development] Core dump in target.c
+</A></li>
+	<LI>Next message: <A HREF="004607.html">[Openocd-development] Core dump in target.c - solved
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4606">[ date ]</a>
+              <a href="thread.html#4606">[ thread ]</a>
+              <a href="subject.html#4606">[ subject ]</a>
+              <a href="author.html#4606">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,260 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] cleanup stellaris target.cfg files
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20cleanup%20stellaris%20target.cfg%20files&In-Reply-To=%3C200908172313.19374.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="009968.html">
+   <LINK REL="Next"  HREF="009971.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] cleanup stellaris target.cfg files</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20cleanup%20stellaris%20target.cfg%20files&In-Reply-To=%3C200908172313.19374.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] cleanup stellaris target.cfg files">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Aug 18 08:13:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="009968.html">[Openocd-development] [patch] some ARMv7M registers aren't 32	bits
+</A></li>
+        <LI>Next message: <A HREF="009971.html">[Openocd-development] [patch] cleanup stellaris target.cfg files
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9965">[ date ]</a>
+              <a href="thread.html#9965">[ thread ]</a>
+              <a href="subject.html#9965">[ subject ]</a>
+              <a href="author.html#9965">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Cleanup the Stellaris target configs:
+
+ - remove endianness options; these chips hard-wire &quot;little&quot;
+ - $_TARGETNAME updates:
+    * don't pass $_TARGETNAME where a TAP label is required
+    * flash config uses $_TARGETNAME (it might not be target #0)
+    * simplify one $_TARGETNAME construction
+ - update work area setup:
+    * remove VM spec; these chips have no VM!
+    * fix some wrong sizes (0x4000 == 16K, not 4K)
+    * simplify: take defaults
+ - comment fixups
+
+---
+ tcl/target/lm3s1968.cfg |   15 ++++-----------
+ tcl/target/lm3s3748.cfg |   12 ++----------
+ tcl/target/lm3s6965.cfg |   21 ++++++---------------
+ tcl/target/lm3s811.cfg  |   15 ++++-----------
+ tcl/target/lm3s9b9x.cfg |   17 +++++------------
+ 5 files changed, 21 insertions(+), 59 deletions(-)
+
+--- a/tcl/target/lm3s1968.cfg
++++ b/tcl/target/lm3s1968.cfg
+@@ -6,13 +6,6 @@ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME lm3s1968
+ }
+ 
+-if { [info exists ENDIAN] } {	
+-   set  _ENDIAN $ENDIAN    
+-} else {	 
+-  # this defaults to a little endian
+-   set  _ENDIAN little
+-}
+-
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+@@ -26,10 +19,10 @@ jtag newtap $_CHIPNAME cpu -irlen 4 -irc
+ # this stops the debug registers from being cleared
+ # this will be fixed in later revisions of silicon
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME -variant lm3s
++target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu -variant lm3s
+ 
+-# 4k working area at base of ram
+-$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 -work-area-size 0x4000 -work-area-backup 0
++# 8k working area at base of ram, not backed up
++$_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size 0x2000
+ 
+ #flash configuration
+-flash bank stellaris 0 0 0 0 0
++flash bank stellaris 0 0 0 0 $_TARGETNAME
+--- a/tcl/target/lm3s3748.cfg
++++ b/tcl/target/lm3s3748.cfg
+@@ -6,13 +6,6 @@ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME lm3s3748
+ }
+ 
+-if { [info exists ENDIAN] } {	
+-   set  _ENDIAN $ENDIAN    
+-} else {	 
+-  # this defaults to a little endian
+-   set  _ENDIAN little
+-}
+-
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+@@ -26,11 +19,10 @@ jtag newtap $_CHIPNAME cpu -irlen 4 -irc
+ # parts (third generation, includes LM3S3748).  It keeps the debug registers
+ # from being cleared, by using software reset not SRST; NOP on newer revs.
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_m3 -endian $_ENDIAN \
+-	-chain-position $_TARGETNAME -variant lm3s
++target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu -variant lm3s
+ 
+ # 8k working area at base of ram, not backed up
+ $_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size 0x2000
+ 
+ # flash configuration -- one bank of 128K
+-flash bank stellaris 0 0 0 0 0
++flash bank stellaris 0 0 0 0 $_TARGETNAME
+--- a/tcl/target/lm3s6965.cfg
++++ b/tcl/target/lm3s6965.cfg
+@@ -1,5 +1,4 @@
+-# script for luminary lm3s6965
+-
++# TI/Luminary Stellaris lm3s6965
+ 
+ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME $CHIPNAME    
+@@ -7,17 +6,9 @@ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME lm3s6965
+ }
+ 
+-if { [info exists ENDIAN] } {	
+-   set  _ENDIAN $ENDIAN    
+-} else {	 
+-  # this defaults to a little endian
+-   set  _ENDIAN little
+-}
+-
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+-  # force an error till we get a good number
+    set _CPUTAPID 0x3ba00477
+ }
+ 
+@@ -36,11 +27,11 @@ jtag newtap $_CHIPNAME cpu -irlen 4 -irc
+ # the luminary variant causes a software reset rather than asserting SRST
+ # this stops the debug registers from being cleared
+ # this will be fixed in later revisions of silicon
+-set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+-target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME -variant lm3s
++set _TARGETNAME $_CHIPNAME.cpu
++target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu -variant lm3s
+ 
+-# 4k working area at base of ram
+-$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 -work-area-size 0x4000 -work-area-backup 0
++# 8k working area at base of ram, not backed up
++$_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size 0x2000
+ 
+ #flash configuration
+-flash bank stellaris 0 0 0 0 0
++flash bank stellaris 0 0 0 0 $_TARGETNAME
+--- a/tcl/target/lm3s811.cfg
++++ b/tcl/target/lm3s811.cfg
+@@ -6,13 +6,6 @@ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME lm3s811
+ }
+ 
+-if { [info exists ENDIAN] } {	
+-   set  _ENDIAN $ENDIAN    
+-} else {	 
+-  # this defaults to a little endian
+-   set  _ENDIAN little
+-}
+-
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+@@ -26,10 +19,10 @@ jtag newtap $_CHIPNAME cpu -irlen 4 -irc
+ # this stops the debug registers from being cleared
+ # this will be fixed in later revisions of silicon
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME -variant lm3s
++target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu -variant lm3s
+ 
+-# 8k working area at base of ram
+-$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 -work-area-size 0x2000 -work-area-backup 0
++# 8k working area at base of ram, not backed up
++$_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size 0x2000
+ 
+ #flash configuration
+-flash bank stellaris 0 0 0 0 0
++flash bank stellaris 0 0 0 0 $_TARGETNAME
+--- a/tcl/target/lm3s9b9x.cfg
++++ b/tcl/target/lm3s9b9x.cfg
+@@ -11,17 +11,10 @@ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME lm3s9b9x
+ }
+ 
+-if { [info exists ENDIAN] } {	
+-   set  _ENDIAN $ENDIAN    
+-} else {	 
+-  # this defaults to a little endian
+-   set  _ENDIAN little
+-}
+-
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+-   # forth generation Tempest device
++   # Fourth generation &quot;Tempest&quot; device
+    set _CPUTAPID 0x4ba00477
+ }
+ 
+@@ -30,10 +23,10 @@ jtag newtap $_CHIPNAME cpu -irlen 4 -irc
+ 
+ #Cortex-M3 with Luminary lm3s variant
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME -variant lm3s
++target create $_TARGETNAME cortex_m3 -chain-position $_CHIPNAME.cpu -variant lm3s
+ 
+-# 16k working area at base of ram
+-$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 -work-area-size 0x4000 -work-area-backup 0
++# 16k working area at base of ram, not backed up
++$_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size 0x4000
+ 
+ #flash configuration
+-flash bank stellaris 0 0 0 0 0
++flash bank stellaris 0 0 0 0 $_TARGETNAME
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: stellaris.patch
+Type: text/x-diff
+Size: 6623 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090817/327bf66a/attachment.patch">https://lists.berlios.de/pipermail/openocd-development/attachments/20090817/327bf66a/attachment.patch</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="009968.html">[Openocd-development] [patch] some ARMv7M registers aren't 32	bits
+</A></li>
+	<LI>Next message: <A HREF="009971.html">[Openocd-development] [patch] cleanup stellaris target.cfg files
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9965">[ date ]</a>
+              <a href="thread.html#9965">[ thread ]</a>
+              <a href="subject.html#9965">[ subject ]</a>
+              <a href="author.html#9965">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

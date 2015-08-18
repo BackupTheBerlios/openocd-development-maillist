@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 7/8] improve jtag_tap_configure
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/8%5D%20improve%20jtag_tap_configure&In-Reply-To=%3C1259273350-9173-8-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012970.html">
+   <LINK REL="Next"  HREF="012971.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 7/8] improve jtag_tap_configure</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%207/8%5D%20improve%20jtag_tap_configure&In-Reply-To=%3C1259273350-9173-8-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 7/8] improve jtag_tap_configure">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 26 23:09:09 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012970.html">[Openocd-development] [PATCH 6/8] improve jtag_tap_handle_event	indentation
+</A></li>
+        <LI>Next message: <A HREF="012971.html">[Openocd-development] [PATCH 8/8] split jim_newtap_cmd into pieces
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12972">[ date ]</a>
+              <a href="thread.html#12972">[ thread ]</a>
+              <a href="subject.html#12972">[ subject ]</a>
+              <a href="author.html#12972">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Splits bulk of the jtag_tap_configure into jtag_tap_configure_event,
+removing three or four levels of indentation in the process.
+The resulting code was stylistically improved in other ways, but it
+should be functionally identical.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/jtag/tcl.c |  165 ++++++++++++++++++++++++++++++--------------------------
+ 1 files changed, 88 insertions(+), 77 deletions(-)
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 8371967..bb86a32 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -293,94 +293,105 @@ static Jim_Nvp nvp_config_opts[] = {
+ 	{ .name = NULL,          .value = -1 }
+ };
+ 
+-static int jtag_tap_configure_cmd(Jim_GetOptInfo *goi, struct jtag_tap * tap)
++static int jtag_tap_configure_event(Jim_GetOptInfo *goi, struct jtag_tap * tap)
+ {
++	if (goi-&gt;argc == 0)
++	{
++		Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event &lt;event-name&gt; ...&quot;);
++		return JIM_ERR;
++	}
++
+ 	Jim_Nvp *n;
+-	Jim_Obj *o;
+-	int e;
++	int e = Jim_GetOpt_Nvp(goi, nvp_jtag_tap_event, &amp;n);
++	if (e != JIM_OK)
++	{
++		Jim_GetOpt_NvpUnknown(goi, nvp_jtag_tap_event, 1);
++		return e;
++	}
++
++	if (goi-&gt;isconfigure) {
++		if (goi-&gt;argc != 1) {
++			Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event &lt;event-name&gt; &lt;event-body&gt;&quot;);
++			return JIM_ERR;
++		}
++	} else {
++		if (goi-&gt;argc != 0) {
++			Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event &lt;event-name&gt;&quot;);
++			return JIM_ERR;
++		}
++	}
++
++	struct jtag_tap_event_action *jteap  = tap-&gt;event_action;
++	/* replace existing event body */
++	bool found = false;
++	while (jteap)
++	{
++		if (jteap-&gt;event == (enum jtag_event)n-&gt;value)
++		{
++			found = true;
++			break;
++		}
++		jteap = jteap-&gt;next;
++	}
++
++	Jim_SetEmptyResult(goi-&gt;interp);
++
++	if (goi-&gt;isconfigure)
++	{
++		if (!found)
++			jteap = calloc(1, sizeof(*jteap));
++		else if (NULL != jteap-&gt;body)
++			Jim_DecrRefCount(interp, jteap-&gt;body);
++
++		jteap-&gt;event = n-&gt;value;
++
++		Jim_Obj *o;
++		Jim_GetOpt_Obj(goi, &amp;o);
++		jteap-&gt;body = Jim_DuplicateObj(goi-&gt;interp, o);
++		Jim_IncrRefCount(jteap-&gt;body);
++
++		if (!found)
++		{
++			/* add to head of event list */
++			jteap-&gt;next = tap-&gt;event_action;
++			tap-&gt;event_action = jteap;
++		}
++	}
++	else if (found)
++	{
++		Jim_SetResult(goi-&gt;interp,
++			Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
++	}
++	return JIM_OK;
++}
+ 
++static int jtag_tap_configure_cmd(Jim_GetOptInfo *goi, struct jtag_tap * tap)
++{
+ 	/* parse config or cget options */
+-	while (goi-&gt;argc &gt; 0) {
++	while (goi-&gt;argc &gt; 0)
++	{
+ 		Jim_SetEmptyResult (goi-&gt;interp);
+ 
+-		e = Jim_GetOpt_Nvp(goi, nvp_config_opts, &amp;n);
+-		if (e != JIM_OK) {
++		Jim_Nvp *n;
++		int e = Jim_GetOpt_Nvp(goi, nvp_config_opts, &amp;n);
++		if (e != JIM_OK)
++		{
+ 			Jim_GetOpt_NvpUnknown(goi, nvp_config_opts, 0);
+ 			return e;
+ 		}
+ 
+-		switch (n-&gt;value) {
+-			case JCFG_EVENT:
+-				if (goi-&gt;argc == 0) {
+-					Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ...&quot;);
+-					return JIM_ERR;
+-				}
+-
+-				e = Jim_GetOpt_Nvp(goi, nvp_jtag_tap_event, &amp;n);
+-				if (e != JIM_OK) {
+-					Jim_GetOpt_NvpUnknown(goi, nvp_jtag_tap_event, 1);
+-					return e;
+-				}
+-
+-				if (goi-&gt;isconfigure) {
+-					if (goi-&gt;argc != 1) {
+-						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ?EVENT-BODY?&quot;);
+-						return JIM_ERR;
+-					}
+-				} else {
+-					if (goi-&gt;argc != 0) {
+-						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name?&quot;);
+-						return JIM_ERR;
+-					}
+-				}
+-
+-				{
+-					struct jtag_tap_event_action *jteap;
+-
+-					jteap = tap-&gt;event_action;
+-					/* replace existing? */
+-					while (jteap) {
+-						if (jteap-&gt;event == (enum jtag_event)n-&gt;value) {
+-							break;
+-						}
+-						jteap = jteap-&gt;next;
+-					}
+-
+-					if (goi-&gt;isconfigure) {
+-						bool replace = true;
+-						if (jteap == NULL) {
+-							/* create new */
+-							jteap = calloc(1, sizeof (*jteap));
+-							replace = false;
+-						}
+-						jteap-&gt;event = n-&gt;value;
+-						Jim_GetOpt_Obj(goi, &amp;o);
+-						if (jteap-&gt;body) {
+-							Jim_DecrRefCount(interp, jteap-&gt;body);
+-						}
+-						jteap-&gt;body = Jim_DuplicateObj(goi-&gt;interp, o);
+-						Jim_IncrRefCount(jteap-&gt;body);
+-
+-						if (!replace)
+-						{
+-							/* add to head of event list */
+-							jteap-&gt;next = tap-&gt;event_action;
+-							tap-&gt;event_action = jteap;
+-						}
+-						Jim_SetEmptyResult(goi-&gt;interp);
+-					} else {
+-						/* get */
+-						if (jteap == NULL) {
+-							Jim_SetEmptyResult(goi-&gt;interp);
+-						} else {
+-							Jim_SetResult(goi-&gt;interp, Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
+-						}
+-					}
+-				}
+-				/* loop for more */
+-				break;
++		switch (n-&gt;value)
++		{
++		case JCFG_EVENT:
++			e = jtag_tap_configure_event(goi, tap);
++			if (e != JIM_OK)
++				return e;
++			break;
++		default:
++			Jim_SetResult_sprintf(goi-&gt;interp, &quot;unknown event: %s&quot;, n-&gt;name);
++			return JIM_ERR;
+ 		}
+-	} /* while (goi-&gt;argc) */
++	}
+ 
+ 	return JIM_OK;
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012970.html">[Openocd-development] [PATCH 6/8] improve jtag_tap_handle_event	indentation
+</A></li>
+	<LI>Next message: <A HREF="012971.html">[Openocd-development] [PATCH 8/8] split jim_newtap_cmd into pieces
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12972">[ date ]</a>
+              <a href="thread.html#12972">[ thread ]</a>
+              <a href="subject.html#12972">[ subject ]</a>
+              <a href="author.html#12972">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] arm11: improve performance using	minidriver hook
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20arm11%3A%20improve%20performance%20using%0A%09minidriver%20hook&In-Reply-To=%3C1265750084-24240-2-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014773.html">
+   <LINK REL="Next"  HREF="014654.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] arm11: improve performance using	minidriver hook</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20arm11%3A%20improve%20performance%20using%0A%09minidriver%20hook&In-Reply-To=%3C1265750084-24240-2-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] arm11: improve performance using	minidriver hook">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Tue Feb  9 22:14:44 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014773.html">[Openocd-development] [PATCH 1/2] arm11: allow minidrivers to	implement inner loop of memory writes
+</A></li>
+        <LI>Next message: <A HREF="014654.html">[Openocd-development] LPC29xx and scan chain topolgy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14652">[ date ]</a>
+              <a href="thread.html#14652">[ thread ]</a>
+              <a href="subject.html#14652">[ subject ]</a>
+              <a href="author.html#14652">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>zy1000 performance for GDB load went from 100kBytes/s
+to 300kBytes/s @ 8 MHz by implementing the inner loop
+of unack arm11 memory writes directly on top of the hw
+fifo.
+
+Profiling info:
+
+ 78.57      0.77     0.77                             arm11_run_instr_data_to_core_noack_inner
+  5.10      0.82     0.05                             memcpy
+  4.08      0.86     0.04                             jtag_tap_next_enabled
+  3.06      0.89     0.03                             gdb_input
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/jtag/zy1000/zy1000.c |   68 +++++++++++++++++++++++++++++++++++++++++++--
+ 1 files changed, 65 insertions(+), 3 deletions(-)
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index e07e2da..40b9522 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -838,11 +838,73 @@ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer,
+ }
+ 
+ 
+-int arm11_run_instr_data_to_core_noack_inner_default(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count);
+ 
+-int arm11_run_instr_data_to_core_noack_inner(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count)
++int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count)
+ {
+-	return arm11_run_instr_data_to_core_noack_inner_default(arm11, opcode, data, count);
++#if 0
++	int arm11_run_instr_data_to_core_noack_inner_default(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count);
++	return arm11_run_instr_data_to_core_noack_inner_default(tap, opcode, data, count);
++#else
++	static const int bits[] = {32, 2};
++	uint32_t values[] = {0, 0};
++
++	/* FIX!!!!!! the target_write_memory() API started this nasty problem
++	 * with unaligned uint32_t * pointers... */
++	const uint8_t *t = (const uint8_t *)data;
++
++	while (count--)
++	{
++		values[0] = *t++;
++		values[0] |= (*t++&lt;&lt;8);
++		values[0] |= (*t++&lt;&lt;16);
++		values[0] |= (*t++&lt;&lt;24);
++
++		if (count &gt; 0)
++		{
++			jtag_add_dr_out(tap,
++				2,
++				bits,
++				values,
++				TAP_DRPAUSE);
++
++#if 1
++			/* copy &amp; paste from arm11_dbgtap.c */
++			//TAP_DREXIT2, TAP_DRUPDATE, TAP_IDLE, TAP_IDLE, TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE, TAP_DRSHIFT
++
++			waitIdle();
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 1);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 1);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 1);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			waitIdle();
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x20, TAP_DRSHIFT);
++#else
++			static const tap_state_t arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay[] =
++			{
++				TAP_DREXIT2, TAP_DRUPDATE, TAP_IDLE, TAP_IDLE, TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE, TAP_DRSHIFT
++			};
++
++			jtag_add_pathmove(ARRAY_SIZE(arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay),
++				arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay);
++#endif
++		} else
++		{
++			/* This will happen on the last iteration updating the current tap state
++			 * so we don't have to track it during the common code path */
++			jtag_add_dr_out(tap,
++				2,
++				bits,
++				values,
++				TAP_IDLE);
++		}
++	}
++
++	return jtag_execute_queue();
++#endif
+ }
+ 
+ 
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014773.html">[Openocd-development] [PATCH 1/2] arm11: allow minidrivers to	implement inner loop of memory writes
+</A></li>
+	<LI>Next message: <A HREF="014654.html">[Openocd-development] LPC29xx and scan chain topolgy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14652">[ date ]</a>
+              <a href="thread.html#14652">[ thread ]</a>
+              <a href="subject.html#14652">[ subject ]</a>
+              <a href="author.html#14652">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

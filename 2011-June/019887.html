@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft	breakpoint unsetting endianess
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5D%5BPATCH%5D%20Fix%20soft%0A%09breakpoint%20unsetting%20endianess&In-Reply-To=%3CBANLkTinVxVhN7WSS1admmFwwf8%3DtJxkBNw%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019863.html">
+   <LINK REL="Next"  HREF="019890.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft	breakpoint unsetting endianess</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5D%5BPATCH%5D%20Fix%20soft%0A%09breakpoint%20unsetting%20endianess&In-Reply-To=%3CBANLkTinVxVhN7WSS1admmFwwf8%3DtJxkBNw%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft	breakpoint unsetting endianess">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Thu Jun 30 16:38:22 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019863.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft	breakpoint unsetting endianess
+</A></li>
+        <LI>Next message: <A HREF="019890.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19887">[ date ]</a>
+              <a href="thread.html#19887">[ thread ]</a>
+              <a href="subject.html#19887">[ subject ]</a>
+              <a href="author.html#19887">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+any responses on this ?
+
+MIPS32 target is currently broken for soft breakpoint handling :
+reading of the original instruction swaps the bytes, so
+breakpoint-&gt;orig_instr is badly recorded. Reading of the current
+instruction does this also, so we never read MIPS32_SDBBP needed for
+OpenOCD to break.
+
+I am crafting the complete patch that will fix these issues, but I
+would like to here some responses...
+
+BR,
+Drasko
+
+
+On Wed, Jun 29, 2011 at 2:47 PM, Drasko DRASKOVIC
+&lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+&gt;<i> Hi all,
+</I>&gt;<i> I have additional questions about target_read_memory() and
+</I>&gt;<i> target_read_u32() used to set/unset breakpoints.
+</I>&gt;<i>
+</I>&gt;<i> I can see that target_read_memory() simply calls
+</I>&gt;<i> mips_m4k_write_memory() and since I have big endian MIPS target, bytes
+</I>&gt;<i> are not swapped.
+</I>&gt;<i>
+</I>&gt;<i> However, target_read_u32(), besides calling target_read_memory(), it
+</I>&gt;<i> also swappes the bytes returned (I pasetd the function definition
+</I>&gt;<i> below).
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Would that mean that all the time when we want to read 4 or 2 bytes
+</I>&gt;<i> values, like breakpoints instructions, we must *always* use
+</I>&gt;<i> target_read_u32 and target_read_u16, and never target_read_memory() ?
+</I>&gt;<i>
+</I>&gt;<i> If answer is yes, I'll change rest of the file where this should be
+</I>&gt;<i> done, and post more complete patch.
+</I>&gt;<i>
+</I>&gt;<i> Best regards,
+</I>&gt;<i> Drasko
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> int target_read_u32(struct target *target, uint32_t address, uint32_t *value)
+</I>&gt;<i> {
+</I>&gt;<i> &#160; &#160; &#160; &#160;uint8_t value_buf[4];
+</I>&gt;<i> &#160; &#160; &#160; &#160;if (!target_was_examined(target))
+</I>&gt;<i> &#160; &#160; &#160; &#160;{
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;LOG_ERROR(&quot;Target not examined yet&quot;);
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;return ERROR_FAIL;
+</I>&gt;<i> &#160; &#160; &#160; &#160;}
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160;int retval = target_read_memory(target, address, 4, 1, value_buf);
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160;if (retval == ERROR_OK)
+</I>&gt;<i> &#160; &#160; &#160; &#160;{
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;*value = target_buffer_get_u32(target, value_buf);
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, value: 0x%8.8&quot; PRIx32 &quot;&quot;,
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;address,
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;*value);
+</I>&gt;<i> &#160; &#160; &#160; &#160;}
+</I>&gt;<i> &#160; &#160; &#160; &#160;else
+</I>&gt;<i> &#160; &#160; &#160; &#160;{
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;*value = 0x0;
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot; failed&quot;,
+</I>&gt;<i> &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160; &#160;address);
+</I>&gt;<i> &#160; &#160; &#160; &#160;}
+</I>&gt;<i>
+</I>&gt;<i> &#160; &#160; &#160; &#160;return retval;
+</I>&gt;<i> }
+</I>&gt;<i>
+</I>&gt;<i> On Mon, Jun 27, 2011 at 8:31 PM, Drasko DRASKOVIC
+</I>&gt;<i> &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">drasko.draskovic at gmail.com</A>&gt; wrote:
+</I>&gt;&gt;<i> Hi all,
+</I>&gt;&gt;<i> I've noticed that unsetting soft breaks is currently broken on BE MIPS
+</I>&gt;&gt;<i> 4Kc targets.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> This patch fix it by using target_read_u32() and target_read_u16()
+</I>&gt;&gt;<i> instead of target_read_memory().
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> BR,
+</I>&gt;&gt;<i> Drasko
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019863.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft	breakpoint unsetting endianess
+</A></li>
+	<LI>Next message: <A HREF="019890.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19887">[ date ]</a>
+              <a href="thread.html#19887">[ thread ]</a>
+              <a href="subject.html#19887">[ subject ]</a>
+              <a href="author.html#19887">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

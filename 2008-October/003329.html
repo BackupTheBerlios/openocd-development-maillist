@@ -1,0 +1,479 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH] Make ejtag_info-&gt;ejtag_ctrl mostly readonly.   - we never want to write back the value we've read from this register   - should only set or clear bits explicitly   - rename all ejtag_ctrl temps to ejtag_ctrl for consistancy
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20Make%20ejtag_info-%3Eejtag_ctrl%20mostly%20readonly.%0A%20%20%20-%20we%20never%20want%20to%20write%20back%20the%20value%20we%27ve%20read%20from%20this%20register%0A%20%20%20-%20should%20only%20set%20or%20clear%20bits%20explicitly%0A%20%20%20-%20rename%20all%20ejtag_ctrl%20temps%20to%20ejtag_ctrl%20for%20consistancy&In-Reply-To=%3Cmailman.9.1331735841.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003323.html">
+   <LINK REL="Next"  HREF="003330.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH] Make ejtag_info-&gt;ejtag_ctrl mostly readonly.   - we never want to write back the value we've read from this register   - should only set or clear bits explicitly   - rename all ejtag_ctrl temps to ejtag_ctrl for consistancy</H1>
+    <B>John McCarthy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%5D%20Make%20ejtag_info-%3Eejtag_ctrl%20mostly%20readonly.%0A%20%20%20-%20we%20never%20want%20to%20write%20back%20the%20value%20we%27ve%20read%20from%20this%20register%0A%20%20%20-%20should%20only%20set%20or%20clear%20bits%20explicitly%0A%20%20%20-%20rename%20all%20ejtag_ctrl%20temps%20to%20ejtag_ctrl%20for%20consistancy&In-Reply-To=%3Cmailman.9.1331735841.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH] Make ejtag_info-&gt;ejtag_ctrl mostly readonly.   - we never want to write back the value we've read from this register   - should only set or clear bits explicitly   - rename all ejtag_ctrl temps to ejtag_ctrl for consistancy">jgmcc at magma.ca
+       </A><BR>
+    <I>Fri Oct 10 04:05:58 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003323.html">[Openocd-development] Fwd: [Zylin-discuss] arm-elf-gdb bug	w/Cortex
+</A></li>
+        <LI>Next message: <A HREF="003330.html">[PATCH] Don't retry failed DMA attempts   - if this fails either we're making an invalid memory reference     or we don't know what has happened   - in either case it's better to fail right awway
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3329">[ date ]</a>
+              <a href="thread.html#3329">[ thread ]</a>
+              <a href="subject.html#3329">[ subject ]</a>
+              <a href="author.html#3329">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Signed-off-by: John McCarthy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jgmcc at magma.ca</A>&gt;
+---
+ src/target/mips32_dmaacc.c |  108 ++++++++++++++++++++++----------------------
+ src/target/mips32_pracc.c  |   22 +++++----
+ src/target/mips_ejtag.c    |   13 +++---
+ src/target/mips_m4k.c      |   13 +++---
+ 4 files changed, 80 insertions(+), 76 deletions(-)
+
+diff --git src/target/mips32_dmaacc.c src/target/mips32_dmaacc.c
+index 7ca6c29..ddcfb97 100644
+--- src/target/mips32_dmaacc.c
++++ src/target/mips32_dmaacc.c
+@@ -44,7 +44,7 @@
+ static int ejtag_dma_read(mips_ejtag_t *ejtag_info, u32 addr, u32 *data)
+ {
+ 	u32 v;
+-	u32 ctrl_reg;
++	u32 ejtag_ctrl;
+ 	int   retries = RETRY_ATTEMPTS;
+ 
+ begin_ejtag_dma_read:
+@@ -56,14 +56,14 @@ begin_ejtag_dma_read:
+ 
+ 	// Initiate DMA Read &amp; set DSTRT
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_WORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++	ejtag_ctrl = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_WORD | EJTAG_CTRL_DSTRT | ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 
+ 	// Wait for DSTRT to Clear
+ 	do {
+-		ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-		mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	} while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++		ejtag_ctrl = EJTAG_CTRL_DMAACC | ejtag_info-&gt;ejtag_ctrl;
++		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	} while(ejtag_ctrl &amp; EJTAG_CTRL_DSTRT);
+ 
+ 	// Read Data
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
+@@ -71,9 +71,9 @@ begin_ejtag_dma_read:
+ 
+ 	// Clear DMA &amp; Check DERR
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	if (ejtag_ctrl  &amp; EJTAG_CTRL_DERR)
+ 	{
+ 		if (retries--) {
+ 			printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ (retrying)\n&quot;, addr);
+@@ -88,7 +88,7 @@ begin_ejtag_dma_read:
+ static int ejtag_dma_read_h(mips_ejtag_t *ejtag_info, u32 addr, u16 *data)
+ {
+ 	u32 v;
+-	u32 ctrl_reg;
++	u32 ejtag_ctrl;
+ 	int   retries = RETRY_ATTEMPTS;
+ 
+ begin_ejtag_dma_read_h:
+@@ -100,14 +100,14 @@ begin_ejtag_dma_read_h:
+ 
+ 	// Initiate DMA Read &amp; set DSTRT
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_HALFWORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++	ejtag_ctrl = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_HALFWORD | EJTAG_CTRL_DSTRT | ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 
+ 	// Wait for DSTRT to Clear
+ 	do {
+-		ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-		mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	} while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++		ejtag_ctrl = EJTAG_CTRL_DMAACC | ejtag_info-&gt;ejtag_ctrl;
++		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	} while(ejtag_ctrl &amp; EJTAG_CTRL_DSTRT);
+ 
+ 	// Read Data
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
+@@ -115,9 +115,9 @@ begin_ejtag_dma_read_h:
+ 
+ 	// Clear DMA &amp; Check DERR
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	if (ejtag_ctrl  &amp; EJTAG_CTRL_DERR)
+ 	{
+ 		if (retries--) {
+ 			printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ (retrying)\n&quot;, addr);
+@@ -136,7 +136,7 @@ begin_ejtag_dma_read_h:
+ static int ejtag_dma_read_b(mips_ejtag_t *ejtag_info, u32 addr, u8 *data)
+ {
+ 	u32 v;
+-	u32 ctrl_reg;
++	u32 ejtag_ctrl;
+ 	int   retries = RETRY_ATTEMPTS;
+ 
+ begin_ejtag_dma_read_b:
+@@ -148,14 +148,14 @@ begin_ejtag_dma_read_b:
+ 
+ 	// Initiate DMA Read &amp; set DSTRT
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_BYTE | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++	ejtag_ctrl = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DRWN | EJTAG_CTRL_DMA_BYTE | EJTAG_CTRL_DSTRT | ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 
+ 	// Wait for DSTRT to Clear
+ 	do {
+-		ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-		mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	} while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++		ejtag_ctrl = EJTAG_CTRL_DMAACC | ejtag_info-&gt;ejtag_ctrl;
++		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	} while(ejtag_ctrl &amp; EJTAG_CTRL_DSTRT);
+ 
+ 	// Read Data
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA, NULL);
+@@ -163,9 +163,9 @@ begin_ejtag_dma_read_b:
+ 
+ 	// Clear DMA &amp; Check DERR
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	if (ejtag_ctrl  &amp; EJTAG_CTRL_DERR)
+ 	{
+ 		if (retries--) {
+ 			printf(&quot;DMA Read Addr = %08x  Data = ERROR ON READ (retrying)\n&quot;, addr);
+@@ -188,7 +188,7 @@ begin_ejtag_dma_read_b:
+ static int ejtag_dma_write(mips_ejtag_t *ejtag_info, u32 addr, u32 data)
+ {
+ 	u32 v;
+-	u32 ctrl_reg;
++	u32 ejtag_ctrl;
+ 	int   retries = RETRY_ATTEMPTS;
+ 
+ begin_ejtag_dma_write:
+@@ -205,20 +205,20 @@ begin_ejtag_dma_write:
+ 
+ 	// Initiate DMA Write &amp; set DSTRT
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_WORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++	ejtag_ctrl = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_WORD | EJTAG_CTRL_DSTRT | ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 
+ 	// Wait for DSTRT to Clear
+ 	do {
+-		ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-		mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	} while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++		ejtag_ctrl = EJTAG_CTRL_DMAACC | ejtag_info-&gt;ejtag_ctrl;
++		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	} while(ejtag_ctrl &amp; EJTAG_CTRL_DSTRT);
+ 
+ 	// Clear DMA &amp; Check DERR
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	if (ejtag_ctrl  &amp; EJTAG_CTRL_DERR)
+ 	{
+ 		if (retries--) {
+ 			printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE (retrying)\n&quot;, addr);
+@@ -233,7 +233,7 @@ begin_ejtag_dma_write:
+ static int ejtag_dma_write_h(mips_ejtag_t *ejtag_info, u32 addr, u32 data)
+ {
+ 	u32 v;
+-	u32 ctrl_reg;
++	u32 ejtag_ctrl;
+ 	int   retries = RETRY_ATTEMPTS;
+ 
+ 
+@@ -255,20 +255,20 @@ begin_ejtag_dma_write_h:
+ 
+ 	// Initiate DMA Write &amp; set DSTRT
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_HALFWORD | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++	ejtag_ctrl = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_HALFWORD | EJTAG_CTRL_DSTRT | ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 
+ 	// Wait for DSTRT to Clear
+ 	do {
+-		ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-		mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	} while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++		ejtag_ctrl = EJTAG_CTRL_DMAACC | ejtag_info-&gt;ejtag_ctrl;
++		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	} while(ejtag_ctrl &amp; EJTAG_CTRL_DSTRT);
+ 
+ 	// Clear DMA &amp; Check DERR
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	if (ejtag_ctrl  &amp; EJTAG_CTRL_DERR)
+ 	{
+ 		if (retries--) {
+ 			printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE (retrying)\n&quot;, addr);
+@@ -283,7 +283,7 @@ begin_ejtag_dma_write_h:
+ static int ejtag_dma_write_b(mips_ejtag_t *ejtag_info, u32 addr, u32 data)
+ {
+ 	u32 v;
+-	u32 ctrl_reg;
++	u32 ejtag_ctrl;
+ 	int   retries = RETRY_ATTEMPTS;
+ 
+ 
+@@ -306,20 +306,20 @@ begin_ejtag_dma_write_b:
+ 
+ 	// Initiate DMA Write &amp; set DSTRT
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_BYTE | EJTAG_CTRL_DSTRT | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
++	ejtag_ctrl = EJTAG_CTRL_DMAACC | EJTAG_CTRL_DMA_BYTE | EJTAG_CTRL_DSTRT | ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 
+ 	// Wait for DSTRT to Clear
+ 	do {
+-		ctrl_reg = EJTAG_CTRL_DMAACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-		mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	} while(ctrl_reg &amp; EJTAG_CTRL_DSTRT);
++		ejtag_ctrl = EJTAG_CTRL_DMAACC | ejtag_info-&gt;ejtag_ctrl;
++		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	} while(ejtag_ctrl &amp; EJTAG_CTRL_DSTRT);
+ 
+ 	// Clear DMA &amp; Check DERR
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	ctrl_reg = EJTAG_CTRL_PROBEN | EJTAG_CTRL_PRACC;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ctrl_reg);
+-	if (ctrl_reg  &amp; EJTAG_CTRL_DERR)
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	if (ejtag_ctrl  &amp; EJTAG_CTRL_DERR)
+ 	{
+ 		if (retries--) {
+ 			printf(&quot;DMA Write Addr = %08x  Data = ERROR ON WRITE (retrying)\n&quot;, addr);
+diff --git src/target/mips32_pracc.c src/target/mips32_pracc.c
+index 5f8b0ce..8e17e05 100644
+--- src/target/mips32_pracc.c
++++ src/target/mips32_pracc.c
+@@ -47,7 +47,7 @@ static int wait_for_pracc_rw(mips_ejtag_t *ejtag_info, u32 *ctrl)
+ 	while (1) 
+ 	{
+ 		mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-		ejtag_ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PRACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
++		ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
+ 		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 		if (ejtag_ctrl &amp; EJTAG_CTRL_PRACC)
+ 			break;
+@@ -61,8 +61,9 @@ static int wait_for_pracc_rw(mips_ejtag_t *ejtag_info, u32 *ctrl)
+ 
+ static int mips32_pracc_exec_read(mips32_pracc_context *ctx, u32 address)
+ {
++	mips_ejtag_t *ejtag_info = ctx-&gt;ejtag_info;
+ 	int offset;
+-	u32 ctrl, data;
++	u32 ejtag_ctrl, data;
+ 
+ 	if ((address &gt;= MIPS32_PRACC_PARAM_IN)
+ 		&amp;&amp; (address &lt;= MIPS32_PRACC_PARAM_IN + ctx-&gt;num_iparam * 4))
+@@ -102,25 +103,26 @@ static int mips32_pracc_exec_read(mips32_pracc_context *ctx, u32 address)
+ 	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;data);
+ 
+ 	/* Clear the access pending bit (let the processor eat!) */
+-	ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl &amp; ~EJTAG_CTRL_PRACC;
+ 	mips_ejtag_set_instr(ctx-&gt;ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;ctrl);
++	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;ejtag_ctrl);
+ 	
+ 	return ERROR_OK;
+ }
+ 
+ static int mips32_pracc_exec_write(mips32_pracc_context *ctx, u32 address)
+ {
+-	u32 ctrl,data;
++	u32 ejtag_ctrl,data;
+ 	int offset;
++	mips_ejtag_t *ejtag_info = ctx-&gt;ejtag_info;
+ 	
+ 	mips_ejtag_set_instr(ctx-&gt;ejtag_info, EJTAG_INST_DATA, NULL);
+ 	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;data);
+ 	
+ 	/* Clear access pending bit */
+-	ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl &amp; ~EJTAG_CTRL_PRACC;
+ 	mips_ejtag_set_instr(ctx-&gt;ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;ctrl);
++	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;ejtag_ctrl);
+ 	
+ 	if ((address &gt;= MIPS32_PRACC_PARAM_IN)
+ 		&amp;&amp; (address &lt;= MIPS32_PRACC_PARAM_IN + ctx-&gt;num_iparam * 4))
+@@ -150,7 +152,7 @@ static int mips32_pracc_exec_write(mips32_pracc_context *ctx, u32 address)
+ 
+ int mips32_pracc_exec( mips_ejtag_t *ejtag_info, int code_len, u32 *code, int num_param_in, u32 *param_in, int num_param_out, u32 *param_out, int cycle)
+ {
+-	u32 ctrl;
++	u32 ejtag_ctrl;
+ 	u32 address, data;
+ 	mips32_pracc_context ctx;
+ 	int retval;
+@@ -167,7 +169,7 @@ int mips32_pracc_exec( mips_ejtag_t *ejtag_info, int code_len, u32 *code, int nu
+ 	
+ 	while (1)
+ 	{
+-		if ((retval = wait_for_pracc_rw(ejtag_info, &amp;ctrl)) != ERROR_OK)
++		if ((retval = wait_for_pracc_rw(ejtag_info, &amp;ejtag_ctrl)) != ERROR_OK)
+ 			return retval;
+ 		
+ 		address = data = 0;
+@@ -175,7 +177,7 @@ int mips32_pracc_exec( mips_ejtag_t *ejtag_info, int code_len, u32 *code, int nu
+ 		mips_ejtag_drscan_32(ejtag_info, &amp;address);
+ 		
+ 		/* Check for read or write */
+-		if (ctrl &amp; EJTAG_CTRL_PRNW)
++		if (ejtag_ctrl &amp; EJTAG_CTRL_PRNW)
+ 		{
+ 			if ((retval = mips32_pracc_exec_write(&amp;ctx, address)) != ERROR_OK)
+ 				return retval;
+diff --git src/target/mips_ejtag.c src/target/mips_ejtag.c
+index 6e6bd93..09470b0 100644
+--- src/target/mips_ejtag.c
++++ src/target/mips_ejtag.c
+@@ -194,18 +194,19 @@ int mips_ejtag_config_step(mips_ejtag_t *ejtag_info, int enable_step)
+ 
+ int mips_ejtag_enter_debug(mips_ejtag_t *ejtag_info)
+ {
++	u32 ejtag_ctrl;
+ 	jtag_add_end_state(TAP_RTI);
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+ 	
+ 	/* set debug break bit */
+-	ejtag_info-&gt;ejtag_ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PRACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV | EJTAG_CTRL_JTAGBRK;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_info-&gt;ejtag_ctrl);
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl | EJTAG_CTRL_JTAGBRK;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 	
+ 	/* break bit will be cleared by hardware */
+-	ejtag_info-&gt;ejtag_ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PRACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_info-&gt;ejtag_ctrl);
+-	LOG_DEBUG(&quot;ejtag_ctrl: 0x%8.8x&quot;, ejtag_info-&gt;ejtag_ctrl);
+-	if((ejtag_info-&gt;ejtag_ctrl &amp; EJTAG_CTRL_BRKST) == 0)
++	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
++	LOG_DEBUG(&quot;ejtag_ctrl: 0x%8.8x&quot;, ejtag_ctrl);
++	if((ejtag_ctrl &amp; EJTAG_CTRL_BRKST) == 0)
+ 		LOG_DEBUG(&quot;Failed to enter Debug Mode!&quot;);
+ 	
+ 	return ERROR_OK;
+diff --git src/target/mips_m4k.c src/target/mips_m4k.c
+index 3508ebd..be7f59e 100644
+--- src/target/mips_m4k.c
++++ src/target/mips_m4k.c
+@@ -132,13 +132,14 @@ int mips_m4k_poll(target_t *target)
+ 	int retval;
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	mips_ejtag_t *ejtag_info = &amp;mips32-&gt;ejtag_info;
++	u32 ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl;
+ 	
+ 	/* read ejtag control reg */
+ 	jtag_add_end_state(TAP_RTI);
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_info-&gt;ejtag_ctrl);
++	mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 	
+-	if (ejtag_info-&gt;ejtag_ctrl &amp; EJTAG_CTRL_BRKST)
++	if (ejtag_ctrl &amp; EJTAG_CTRL_BRKST)
+ 	{
+ 		if ((target-&gt;state == TARGET_RUNNING) || (target-&gt;state == TARGET_RESET))
+ 		{
+@@ -167,19 +168,19 @@ int mips_m4k_poll(target_t *target)
+ 		target-&gt;state = TARGET_RUNNING;
+ 	}
+ 	
+-	if (ejtag_info-&gt;ejtag_ctrl &amp; EJTAG_CTRL_ROCC)
++	if (ejtag_ctrl &amp; EJTAG_CTRL_ROCC)
+ 	{
+ 		/* we have detected a reset, clear flag
+ 		 * otherwise ejtag will not work */
+ 		jtag_add_end_state(TAP_RTI);
+-		ejtag_info-&gt;ejtag_ctrl &amp;= ~EJTAG_CTRL_ROCC;
++		ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl &amp; ~EJTAG_CTRL_ROCC;
+ 		
+ 		mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL, NULL);
+-		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_info-&gt;ejtag_ctrl);
++		mips_ejtag_drscan_32(ejtag_info, &amp;ejtag_ctrl);
+ 		LOG_DEBUG(&quot;Reset Detected&quot;);
+ 	}
+ 	
+-//	LOG_DEBUG(&quot;ctrl=0x%08X&quot;, ejtag_info-&gt;ejtag_ctrl);
++//	LOG_DEBUG(&quot;ctrl=0x%08X&quot;, ejtag_ctrl);
+ 	
+ 	return ERROR_OK;
+ }
+-- 
+1.5.4.3
+
+
+--=-fEFIwyACH0JLjaJO7JHF
+Content-Disposition: attachment; filename=0005-Don-t-retry-failed-DMA-attempts.patch
+Content-Type: application/mbox; name=0005-Don-t-retry-failed-DMA-attempts.patch
+Content-Transfer-Encoding: 7bit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003323.html">[Openocd-development] Fwd: [Zylin-discuss] arm-elf-gdb bug	w/Cortex
+</A></li>
+	<LI>Next message: <A HREF="003330.html">[PATCH] Don't retry failed DMA attempts   - if this fails either we're making an invalid memory reference     or we don't know what has happened   - in either case it's better to fail right awway
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3329">[ date ]</a>
+              <a href="thread.html#3329">[ thread ]</a>
+              <a href="subject.html#3329">[ subject ]</a>
+              <a href="author.html#3329">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

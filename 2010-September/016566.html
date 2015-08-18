@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] tcl_server: switch to ctrl-z
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20tcl_server%3A%20switch%20to%20ctrl-z&In-Reply-To=%3C1284981398-1228-1-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="016565.html">
+   <LINK REL="Next"  HREF="016571.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] tcl_server: switch to ctrl-z</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20tcl_server%3A%20switch%20to%20ctrl-z&In-Reply-To=%3C1284981398-1228-1-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH] tcl_server: switch to ctrl-z">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Mon Sep 20 13:16:38 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="016565.html">[Openocd-development] [PATCH] logging: turn of stdout/stderr	buffering
+</A></li>
+        <LI>Next message: <A HREF="016571.html">[Openocd-development] [PATCH] tcl_server: switch to ctrl-z
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16566">[ date ]</a>
+              <a href="thread.html#16566">[ thread ]</a>
+              <a href="subject.html#16566">[ subject ]</a>
+              <a href="author.html#16566">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>by using ctrl-z instead of line end, multi-line tcl scripts
+can be handled.
+
+Testing: send ctrl-z a couple of times to make telnet enter the
+mode where it sends ctrl-z unencoded.
+
+Programs that talk to the tcl_server can send ctrl-z to
+indicate end of tcl-let to be executed without having
+to worry about telnet protocols.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/server/tcl_server.c |   22 +++++++++++-----------
+ 1 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/src/server/tcl_server.c b/src/server/tcl_server.c
+index 7c8e130..06f67ab 100644
+--- a/src/server/tcl_server.c
++++ b/src/server/tcl_server.c
+@@ -1,5 +1,6 @@
+ /***************************************************************************
+- *   Copyright (C) 2008                                                    *
++ *   Copyright (C) 2010 &#216;yvind Harboe                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -104,13 +105,6 @@ static int tcl_input(struct connection *connection)
+ 	/* push as much data into the line as possible */
+ 	for (i = 0; i &lt; rlen; i++)
+ 	{
+-		if (!isprint(in[i]) &amp;&amp; !isspace(in[i]))
+-		{
+-			/* drop this line */
+-			tclc-&gt;tc_linedrop = 1;
+-			continue;
+-		}
+-
+ 		/* buffer the data */
+ 		tclc-&gt;tc_line[tclc-&gt;tc_lineoffset] = in[i];
+ 		if (tclc-&gt;tc_lineoffset &lt; TCL_MAX_LINE)
+@@ -118,7 +112,11 @@ static int tcl_input(struct connection *connection)
+ 		else
+ 			tclc-&gt;tc_linedrop = 1;
+ 
+-		if (in[i] != '\n')
++		/* ctrl-z is end of command. When testing from telnet, just
++		 * press ctrl-z a couple of times first to put telnet into the
++		 * mode where it will send 0x1a in response to pressing ctrl-z
++		 */
++		if (in[i] != '\x1a')
+ 			continue;
+ 
+ 		/* process the line */
+@@ -131,13 +129,15 @@ static int tcl_input(struct connection *connection)
+ 		}
+ 		else {
+ 			tclc-&gt;tc_line[tclc-&gt;tc_lineoffset-1] = '\0';
++			LOG_DEBUG(&quot;Executing script:\n %s&quot;, tclc-&gt;tc_line);
+ 			retval = Jim_Eval_Named(interp, tclc-&gt;tc_line, &quot;remote:connection&quot;,1);
++			LOG_DEBUG(&quot;Result: %d\n %s&quot;, retval, Jim_GetString(Jim_GetResult(interp), &amp;reslen));
+ 			result = Jim_GetString(Jim_GetResult(interp), &amp;reslen);
+ 			retval = tcl_output(connection, result, reslen);
+ 			if (retval != ERROR_OK)
+ 				return retval;
+-			if (memchr(result, '\n', reslen) == NULL)
+-				tcl_output(connection, &quot;\n&quot;, 1);
++			/* Always output ctrl-d as end of line to allow multiline results */
++			tcl_output(connection, &quot;\x1a&quot;, 1);
+ 		}
+ 
+ 		tclc-&gt;tc_lineoffset = 0;
+-- 
+1.7.0.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="016565.html">[Openocd-development] [PATCH] logging: turn of stdout/stderr	buffering
+</A></li>
+	<LI>Next message: <A HREF="016571.html">[Openocd-development] [PATCH] tcl_server: switch to ctrl-z
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16566">[ date ]</a>
+              <a href="thread.html#16566">[ thread ]</a>
+              <a href="subject.html#16566">[ subject ]</a>
+              <a href="author.html#16566">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/fyi] rename jtag_interface_{init,	quit}()
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%5D%20rename%20jtag_interface_%7Binit%2C%0A%09quit%7D%28%29&In-Reply-To=%3C201003141328.24995.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015254.html">
+   <LINK REL="Next"  HREF="015239.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/fyi] rename jtag_interface_{init,	quit}()</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/fyi%5D%20rename%20jtag_interface_%7Binit%2C%0A%09quit%7D%28%29&In-Reply-To=%3C201003141328.24995.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/fyi] rename jtag_interface_{init,	quit}()">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Mar 14 21:28:24 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015254.html">[Openocd-development] [PATCH] LPC3180(LPC3250) SLC driver	implemnted
+</A></li>
+        <LI>Next message: <A HREF="015239.html">[Openocd-development] [patch] Allow image commands to specify	offset &gt;= 0x80000000
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15237">[ date ]</a>
+              <a href="thread.html#15237">[ thread ]</a>
+              <a href="subject.html#15237">[ subject ]</a>
+              <a href="author.html#15237">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>These routines apply to non-JTAG debug adapters too.  To
+reduce confusion, give them better (non-misleading) names.
+---
+I'll be using the &quot;adapter_&quot; prefix in other patches too,
+addressing the same confusion: lots of stuff that's not
+at all specific to JTAG, but is named as if it were.
+
+ src/jtag/core.c |   18 ++++++++++++------
+ src/jtag/jtag.h |   11 ++++-------
+ src/jtag/tcl.c  |    2 +-
+ src/openocd.c   |    8 ++++----
+ 4 files changed, 21 insertions(+), 18 deletions(-)
+
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1346,7 +1346,11 @@ void jtag_tap_free(struct jtag_tap *tap)
+ 	free(tap);
+ }
+ 
+-int jtag_interface_init(struct command_context *cmd_ctx)
++/**
++ * Do low-level setup like initializing registers, output signals,
++ * and clocking.
++ */
++int adapter_init(struct command_context *cmd_ctx)
+ {
+ 	if (jtag)
+ 		return ERROR_OK;
+@@ -1354,7 +1358,8 @@ int jtag_interface_init(struct command_c
+ 	if (!jtag_interface)
+ 	{
+ 		/* nothing was previously specified by &quot;interface&quot; command */
+-		LOG_ERROR(&quot;JTAG interface has to be specified, see \&quot;interface\&quot; command&quot;);
++		LOG_ERROR(&quot;Debug Adapter has to be specified, &quot;
++			&quot;see \&quot;interface\&quot; command&quot;);
+ 		return ERROR_JTAG_INVALID_INTERFACE;
+ 	}
+ 
+@@ -1369,9 +1374,10 @@ int jtag_interface_init(struct command_c
+ 	int actual_khz = requested_khz;
+ 	int retval = jtag_get_speed_readable(&amp;actual_khz);
+ 	if (ERROR_OK != retval)
+-		LOG_INFO(&quot;interface specific clock speed value %d&quot;, jtag_get_speed());
++		LOG_INFO(&quot;adapter-specific clock speed value %d&quot;, jtag_get_speed());
+ 	else if (actual_khz)
+ 	{
++		/* Adaptive clocking -- JTAG-specific */
+ 		if ((CLOCK_MODE_RCLK == clock_mode)
+ 			|| ((CLOCK_MODE_KHZ == clock_mode) &amp;&amp; !requested_khz))
+ 		{
+@@ -1459,7 +1465,7 @@ int jtag_init_inner(struct command_conte
+ 	return ERROR_OK;
+ }
+ 
+-int jtag_interface_quit(void)
++int adapter_quit(void)
+ {
+ 	if (!jtag || !jtag-&gt;quit)
+ 		return ERROR_OK;
+@@ -1477,7 +1483,7 @@ int jtag_init_reset(struct command_conte
+ {
+ 	int retval;
+ 
+-	if ((retval = jtag_interface_init(cmd_ctx)) != ERROR_OK)
++	if ((retval = adapter_init(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+ 
+ 	LOG_DEBUG(&quot;Initializing with hard TRST+SRST reset&quot;);
+@@ -1531,7 +1537,7 @@ int jtag_init(struct command_context *cm
+ {
+ 	int retval;
+ 
+-	if ((retval = jtag_interface_init(cmd_ctx)) != ERROR_OK)
++	if ((retval = adapter_init(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+ 
+ 	/* guard against oddball hardware: force resets to be inactive */
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -305,14 +305,11 @@ void jtag_set_verify_capture_ir(bool ena
+ /// @returns True if IR scan verification will be performed.
+ bool jtag_will_verify_capture_ir(void);
+ 
+-/**
+- * Initialize interface upon startup.  Return a successful no-op upon
+- * subsequent invocations.
+- */
+-int  jtag_interface_init(struct command_context* cmd_ctx);
++/** Initialize debug adapter upon startup.  */
++int  adapter_init(struct command_context* cmd_ctx);
+ 
+-/// Shutdown the JTAG interface upon program exit.
+-int  jtag_interface_quit(void);
++/// Shutdown the debug adapter upon program exit.
++int  adapter_quit(void);
+ 
+ /**
+  * Initialize JTAG chain using only a RESET reset. If init fails,
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1430,7 +1430,7 @@ COMMAND_HANDLER(handle_jtag_reset_comman
+ 	else
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+-	if (jtag_interface_init(CMD_CTX) != ERROR_OK)
++	if (adapter_init(CMD_CTX) != ERROR_OK)
+ 		return ERROR_JTAG_INIT_FAILED;
+ 
+ 	jtag_add_reset(trst, srst);
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -115,12 +115,12 @@ COMMAND_HANDLER(handle_init_command)
+ 	if (ERROR_OK != retval)
+ 		return ERROR_FAIL;
+ 
+-	if ((retval = jtag_interface_init(CMD_CTX)) != ERROR_OK)
++	if ((retval = adapter_init(CMD_CTX)) != ERROR_OK)
+ 	{
+-		/* we must be able to set up the jtag interface */
++		/* we must be able to set up the debug adapter */
+ 		return retval;
+ 	}
+-	LOG_DEBUG(&quot;jtag interface init complete&quot;);
++	LOG_DEBUG(&quot;Debug Adapter init complete&quot;);
+ 
+ 	/* Try to initialize &amp; examine the JTAG chain at this point,
+ 	 * but continue startup regardless.  Note that platforms
+@@ -297,7 +297,7 @@ int openocd_main(int argc, char *argv[])
+ 	/* free commandline interface */
+ 	command_done(cmd_ctx);
+ 
+-	jtag_interface_quit();
++	adapter_quit();
+ 
+ 	return ret;
+ }
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015254.html">[Openocd-development] [PATCH] LPC3180(LPC3250) SLC driver	implemnted
+</A></li>
+	<LI>Next message: <A HREF="015239.html">[Openocd-development] [patch] Allow image commands to specify	offset &gt;= 0x80000000
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15237">[ date ]</a>
+              <a href="thread.html#15237">[ thread ]</a>
+              <a href="subject.html#15237">[ subject ]</a>
+              <a href="author.html#15237">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

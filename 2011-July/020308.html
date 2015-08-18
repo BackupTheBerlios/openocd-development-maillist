@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 5/7] rlink: read only the expected	number of bytes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/7%5D%20rlink%3A%20read%20only%20the%20expected%0A%09number%20of%20bytes&In-Reply-To=%3C1310984041-13554-6-git-send-email-andreas.fritiofson%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020307.html">
+   <LINK REL="Next"  HREF="020309.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 5/7] rlink: read only the expected	number of bytes</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%205/7%5D%20rlink%3A%20read%20only%20the%20expected%0A%09number%20of%20bytes&In-Reply-To=%3C1310984041-13554-6-git-send-email-andreas.fritiofson%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 5/7] rlink: read only the expected	number of bytes">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Mon Jul 18 12:13:59 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020307.html">[Openocd-development] [PATCH 4/7] rlink: remove duplicated code
+</A></li>
+        <LI>Next message: <A HREF="020309.html">[Openocd-development] [PATCH 6/7] rlink: remove redundant text from	log messages
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20308">[ date ]</a>
+              <a href="thread.html#20308">[ thread ]</a>
+              <a href="subject.html#20308">[ subject ]</a>
+              <a href="author.html#20308">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>After correcting the reply size counter, it should be safe to rely on it
+for the number of bytes expected in the USB read, instead of reading the
+endpoint maximum. This doesn't make things go any faster but it's nicer and
+removes the local buffer.
+
+Signed-off-by: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>&gt;
+---
+ src/jtag/drivers/rlink.c |   20 ++++++++------------
+ 1 files changed, 8 insertions(+), 12 deletions(-)
+
+diff --git a/src/jtag/drivers/rlink.c b/src/jtag/drivers/rlink.c
+index 4b2e542..46882a5 100644
+--- a/src/jtag/drivers/rlink.c
++++ b/src/jtag/drivers/rlink.c
+@@ -500,7 +500,7 @@ dtc_run_download(
+ 		uint8_t	*reply_buffer,
+ 		int	reply_buffer_size
+ ) {
+-	uint8_t	ep2_buffer[USB_EP2IN_SIZE];
++	char dtc_status;
+ 	int	usb_err;
+ 	int	i;
+ 
+@@ -530,12 +530,12 @@ dtc_run_download(
+ 		usb_err = usb_bulk_read(
+ 				pHDev_param,
+ 				USB_EP1IN_ADDR,
+-				(char *)ep2_buffer, 1,
++				&amp;dtc_status, 1,
+ 				USB_TIMEOUT_MS
+ 		);
+ 		if (usb_err &lt; 0) return(usb_err);
+ 
+-		if (ep2_buffer[0] &amp; 0x01) break;
++		if (dtc_status &amp; 0x01) break;
+ 
+ 		if (!--i) {
+ 			LOG_ERROR(&quot;%s, %d: too many retries waiting for DTC status&quot;,
+@@ -546,24 +546,20 @@ dtc_run_download(
+ 	}
+ 
+ 
+-	if (!reply_buffer) reply_buffer_size = 0;
+-	if (reply_buffer_size) {
++	if (reply_buffer &amp;&amp; reply_buffer_size) {
+ 		usb_err = usb_bulk_read(
+ 				pHDev_param,
+ 				USB_EP2IN_ADDR,
+-				(char *)ep2_buffer, sizeof(ep2_buffer),
++				(char *)reply_buffer, reply_buffer_size,
+ 				USB_TIMEOUT_MS
+ 		);
+ 
+-		if (usb_err &lt; (int)sizeof(ep2_buffer)) {
+-			LOG_ERROR(&quot;%s, %d: Read of endpoint 2 returned %d&quot;,
+-					__FILE__, __LINE__, usb_err
++		if (usb_err &lt; reply_buffer_size) {
++			LOG_ERROR(&quot;%s, %d: Read of endpoint 2 returned %d, expected %d&quot;,
++					__FILE__, __LINE__, usb_err, reply_buffer_size
+ 			);
+ 			return(usb_err);
+ 		}
+-
+-		memcpy(reply_buffer, ep2_buffer, reply_buffer_size);
+-
+ 	}
+ 
+ 	return(usb_err);
+-- 
+1.7.4.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020307.html">[Openocd-development] [PATCH 4/7] rlink: remove duplicated code
+</A></li>
+	<LI>Next message: <A HREF="020309.html">[Openocd-development] [PATCH 6/7] rlink: remove redundant text from	log messages
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20308">[ date ]</a>
+              <a href="thread.html#20308">[ thread ]</a>
+              <a href="subject.html#20308">[ subject ]</a>
+              <a href="author.html#20308">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

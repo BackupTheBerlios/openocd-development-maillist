@@ -1,0 +1,235 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 2/2] flash: add error handling to	get_flash_by_addr/name
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20flash%3A%20add%20error%20handling%20to%0A%09get_flash_by_addr/name&In-Reply-To=%3C1276237118-11569-2-git-send-email-oyvind.harboe%40zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015834.html">
+   <LINK REL="Next"  HREF="015836.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 2/2] flash: add error handling to	get_flash_by_addr/name</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%202/2%5D%20flash%3A%20add%20error%20handling%20to%0A%09get_flash_by_addr/name&In-Reply-To=%3C1276237118-11569-2-git-send-email-oyvind.harboe%40zylin.com%3E"
+       TITLE="[Openocd-development] [PATCH 2/2] flash: add error handling to	get_flash_by_addr/name">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri Jun 11 08:18:38 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015834.html">[Openocd-development] [PATCH 1/2] arm mmu: error propagation added	for address translation
+</A></li>
+        <LI>Next message: <A HREF="015836.html">[Openocd-development] [PATCH 1/2] arm mmu: error propagation	added for address translation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15835">[ date ]</a>
+              <a href="thread.html#15835">[ thread ]</a>
+              <a href="subject.html#15835">[ subject ]</a>
+              <a href="author.html#15835">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>autoprobing can fail and this error has to be
+reported up the call stack.
+
+Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+---
+ src/flash/nor/core.c |   39 +++++++++++++++++++++++++++------------
+ src/flash/nor/core.h |    5 +++--
+ src/flash/nor/tcl.c  |   19 ++++++++-----------
+ 3 files changed, 38 insertions(+), 25 deletions(-)
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 429bad6..d2f2754 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -197,7 +197,7 @@ struct flash_bank *get_flash_bank_by_name_noprobe(const char *name)
+ 	return NULL;
+ }
+ 
+-struct flash_bank *get_flash_bank_by_name(const char *name)
++int get_flash_bank_by_name(const char *name, struct flash_bank **bank_result)
+ {
+ 	struct flash_bank *bank;
+ 	int retval;
+@@ -210,11 +210,12 @@ struct flash_bank *get_flash_bank_by_name(const char *name)
+ 		if (retval != ERROR_OK)
+ 		{
+ 			LOG_ERROR(&quot;auto_probe failed %d\n&quot;, retval);
+-			return NULL;
++			return retval;
+ 		}
+ 	}
+ 
+-	return bank;
++	*bank_result = bank;
++	return ERROR_OK;
+ }
+ 
+ int get_flash_bank_by_num(int num, struct flash_bank **bank)
+@@ -238,8 +239,9 @@ int get_flash_bank_by_num(int num, struct flash_bank **bank)
+ 	return ERROR_OK;
+ }
+ 
+-/* lookup flash bank by address */
+-struct flash_bank *get_flash_bank_by_addr(struct target *target, uint32_t addr)
++/* lookup flash bank by address, bank not found is success, but
++ * result_bank is set to NULL. */
++int get_flash_bank_by_addr(struct target *target, uint32_t addr, bool check, struct flash_bank **result_bank)
+ {
+ 	struct flash_bank *c;
+ 
+@@ -252,14 +254,22 @@ struct flash_bank *get_flash_bank_by_addr(struct target *target, uint32_t addr)
+ 		if (retval != ERROR_OK)
+ 		{
+ 			LOG_ERROR(&quot;auto_probe failed %d\n&quot;, retval);
+-			return NULL;
++			return retval;
+ 		}
+ 		/* check whether address belongs to this flash bank */
+ 		if ((addr &gt;= c-&gt;base) &amp;&amp; (addr &lt;= c-&gt;base + (c-&gt;size - 1)) &amp;&amp; target == c-&gt;target)
+-			return c;
++		{
++			*result_bank = c;
++			return ERROR_OK;
++		}
+ 	}
+-	LOG_ERROR(&quot;No flash at address 0x%08&quot; PRIx32 &quot;\n&quot;, addr);
+-	return NULL;
++	*result_bank = NULL;
++	if (check)
++	{
++		LOG_ERROR(&quot;No flash at address 0x%08&quot; PRIx32 &quot;\n&quot;, addr);
++		return ERROR_FAIL;
++	}
++	return ERROR_OK;
+ }
+ 
+ int default_flash_mem_blank_check(struct flash_bank *bank)
+@@ -379,8 +389,9 @@ static int flash_iterate_address_range(struct target *target,
+ 	int last = -1;
+ 	int i;
+ 
+-	if ((c = get_flash_bank_by_addr(target, addr)) == NULL)
+-		return ERROR_FLASH_DST_OUT_OF_BANK; /* no corresponding bank found */
++	int retval = get_flash_bank_by_addr(target, addr, true, &amp;c);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (c-&gt;size == 0 || c-&gt;num_sectors == 0)
+ 	{
+@@ -588,7 +599,11 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 		}
+ 
+ 		/* find the corresponding flash bank */
+-		if ((c = get_flash_bank_by_addr(target, run_address)) == NULL)
++		int retval;
++		retval = get_flash_bank_by_addr(target, run_address, false, &amp;c);
++		if (retval != ERROR_OK)
++			return retval;
++		if (c == NULL)
+ 		{
+ 			section++; /* and skip it */
+ 			section_offset = 0;
+diff --git a/src/flash/nor/core.h b/src/flash/nor/core.h
+index 17f1c53..ff14df0 100644
+--- a/src/flash/nor/core.h
++++ b/src/flash/nor/core.h
+@@ -168,7 +168,7 @@ int default_flash_mem_blank_check(struct flash_bank *bank);
+  * bank number: when two str9x banks are defined, then 'str9x.1' refers
+  * to the second.
+  */
+-struct flash_bank *get_flash_bank_by_name(const char *name);
++int get_flash_bank_by_name(const char *name, struct flash_bank **bank_result);
+ /**
+  * Returns the flash bank specified by @a name, which matches the
+  * driver name and a suffix (option) specify the driver-specific
+@@ -206,8 +206,9 @@ struct flash_bank *get_flash_bank_by_num_noprobe(int num);
+  * Returns the flash bank located at a specified address.
+  * @param target The target, presumed to contain one or more banks.
+  * @param addr An address that is within the range of the bank.
++ * @param check return ERROR_OK and result_bank NULL if the bank does not exist
+  * @returns The struct flash_bank located at @a addr, or NULL.
+  */
+-struct flash_bank *get_flash_bank_by_addr(struct target *target, uint32_t addr);
++int get_flash_bank_by_addr(struct target *target, uint32_t addr, bool check, struct flash_bank **result_bank);
+ 
+ #endif // FLASH_NOR_CORE_H
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index cf1ca4a..3d67327 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -35,7 +35,9 @@ COMMAND_HELPER(flash_command_get_bank, unsigned name_index,
+ 		struct flash_bank **bank)
+ {
+ 	const char *name = CMD_ARGV[name_index];
+-	*bank = get_flash_bank_by_name(name);
++	int retval = get_flash_bank_by_name(name, bank);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (*bank)
+ 		return ERROR_OK;
+ 
+@@ -238,11 +240,9 @@ COMMAND_HANDLER(handle_flash_erase_address_command)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	p = get_flash_bank_by_addr(target, address);
+-	if (p == NULL)
+-	{
+-		return ERROR_FAIL;
+-	}
++	retval = get_flash_bank_by_addr(target, address, true, &amp;p);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* We can't know if we did a resume + halt, in which case we no longer know the erased state */
+ 	flash_set_dirty();
+@@ -544,12 +544,9 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 	{
+ 		struct flash_bank *bank;
+ 
+-		bank = get_flash_bank_by_addr(target, address);
+-		if (bank == NULL)
+-		{
+-			retval = ERROR_FAIL;
++		retval = get_flash_bank_by_addr(target, address, true, &amp;bank );
++		if (retval != ERROR_OK)
+ 			goto done;
+-		}
+ 
+ 		cur_size = MIN((count * wordsize - wrote), chunksize);
+ 		err = flash_driver_write(bank, chunk, address - bank-&gt;base + wrote, cur_size);
+-- 
+1.6.3.3
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015834.html">[Openocd-development] [PATCH 1/2] arm mmu: error propagation added	for address translation
+</A></li>
+	<LI>Next message: <A HREF="015836.html">[Openocd-development] [PATCH 1/2] arm mmu: error propagation	added for address translation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15835">[ date ]</a>
+              <a href="thread.html#15835">[ thread ]</a>
+              <a href="subject.html#15835">[ subject ]</a>
+              <a href="author.html#15835">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

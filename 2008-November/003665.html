@@ -1,0 +1,1295 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] More error checking
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20More%20error%20checking&In-Reply-To=%3Cc09652430811182332x125499f7u5aab11ae930e45b0%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003662.html">
+   <LINK REL="Next"  HREF="003666.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] More error checking</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20More%20error%20checking&In-Reply-To=%3Cc09652430811182332x125499f7u5aab11ae930e45b0%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] More error checking">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Nov 19 08:32:32 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003662.html">[Openocd-development] Big endian fix for GDB take #2
+</A></li>
+        <LI>Next message: <A HREF="003666.html">[Openocd-development] ARM926ej-s (MagicEyes POLLUX) Problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3665">[ date ]</a>
+              <a href="thread.html#3665">[ thread ]</a>
+              <a href="subject.html#3665">[ subject ]</a>
+              <a href="author.html#3665">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Committed.
+
+More error checking. Didn't find anything that has been reported, but
+part of ongoing error handling cleanup.
+
+### Eclipse Workspace Patch 1.0
+#P openocd
+Index: src/target/image.c
+===================================================================
+--- src/target/image.c	(revision 1167)
++++ src/target/image.c	(working copy)
+@@ -718,6 +718,13 @@
+ 	}
+ 	else if (image-&gt;type == IMAGE_MEMORY)
+ 	{
++		target_t *target = get_target_by_num(strtoul(url, NULL, 0));
++		if (target==NULL)
++		{
++			LOG_ERROR(&quot;Target '%s' does not exist&quot;, url);
++			return ERROR_FAIL;
++		}
++
+ 		image_memory_t *image_memory;
+
+ 		image-&gt;num_sections = 1;
+@@ -728,7 +735,7 @@
+
+ 		image_memory = image-&gt;type_private = malloc(sizeof(image_memory_t));
+
+-		image_memory-&gt;target = get_target_by_num(strtoul(url, NULL, 0));;
++		image_memory-&gt;target = target;
+ 		image_memory-&gt;cache = NULL;
+ 		image_memory-&gt;cache_address = 0x0;
+ 	}
+Index: src/target/xscale.c
+===================================================================
+--- src/target/xscale.c	(revision 1167)
++++ src/target/xscale.c	(working copy)
+@@ -115,7 +115,7 @@
+ 	.bulk_write_memory = xscale_bulk_write_memory,
+ 	.checksum_memory = arm7_9_checksum_memory,
+ 	.blank_check_memory = arm7_9_blank_check_memory,
+-	
++
+ 	.run_algorithm = armv4_5_run_algorithm,
+
+ 	.add_breakpoint = xscale_add_breakpoint,
+@@ -127,7 +127,7 @@
+ 	.target_create = xscale_target_create,
+ 	.init_target = xscale_init_target,
+ 	.quit = xscale_quit,
+-	
++
+ 	.virt2phys = xscale_virt2phys,
+ 	.mmu = xscale_mmu
+ };
+@@ -312,7 +312,7 @@
+ {
+ 	if (num_words==0)
+ 		return ERROR_INVALID_ARGUMENTS;
+-	
++
+ 	int retval=ERROR_OK;
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+@@ -412,7 +412,7 @@
+ 				break;
+ 			}
+ 		}
+-		
++
+ 		words_done += words_scheduled;
+ 	}
+
+@@ -455,7 +455,7 @@
+ 	noconsume_path[3] = TAP_PD;
+ 	noconsume_path[4] = TAP_E2D;
+ 	noconsume_path[5] = TAP_SD;
+-	
++
+ 	fields[0].device = xscale-&gt;jtag_info.chain_pos;
+ 	fields[0].num_bits = 3;
+ 	fields[0].out_value = NULL;
+@@ -524,7 +524,7 @@
+ 		{
+ 			keep_alive();
+ 		}
+-	}
++	}
+ 	done:
+
+ 	if (!(field0_in &amp; 1))
+@@ -613,7 +613,7 @@
+ 		}
+ 	}
+ 	done:
+-	
++
+ 	/* set rx_valid */
+ 	field2 = 0x1;
+ 	jtag_add_dr_scan(3, fields, TAP_RTI);
+@@ -638,7 +638,7 @@
+ 	int retval;
+
+ 	int done_count = 0;
+-	
++
+ 	jtag_add_end_state(TAP_RTI);
+
+ 	xscale_jtag_set_instr(xscale-&gt;jtag_info.chain_pos, xscale-&gt;jtag_info.dbgrx);
+@@ -678,7 +678,7 @@
+ 			LOG_ERROR(&quot;BUG: size neither 4, 2 nor 1&quot;);
+ 			exit(-1);
+ 		}
+-		jtag_add_dr_out(xscale-&gt;jtag_info.chain_pos,
++		jtag_add_dr_out(xscale-&gt;jtag_info.chain_pos,
+ 				3,
+ 				bits,
+ 				t,
+@@ -1021,7 +1021,7 @@
+ 			/* here we &quot;lie&quot; so GDB won't get stuck and a reset can be perfomed */
+ 			target-&gt;state = TARGET_HALTED;
+ 		}
+-		
++
+ 		/* debug_entry could have overwritten target state (i.e. immediate resume)
+ 		 * don't signal event handlers in that case
+ 		 */
+@@ -1054,7 +1054,7 @@
+ 	xscale-&gt;external_debug_break = 0;
+ 	if ((retval=xscale_read_dcsr(target))!=ERROR_OK)
+ 		return retval;
+-	
++
+ 	/* get r0, pc, r1 to r7 and cpsr */
+ 	if ((retval=xscale_receive(target, buffer, 10))!=ERROR_OK)
+ 		return retval;
+@@ -1099,10 +1099,10 @@
+ 	else
+ 		armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+
+-	
++
+ 	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
+ 		return ERROR_FAIL;
+-	
++
+ 	/* get banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+ 	if ((armv4_5-&gt;core_mode != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5-&gt;core_mode
+!= ARMV4_5_MODE_SYS))
+ 	{
+@@ -1225,7 +1225,7 @@
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+
+-	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
++	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		  Jim_Nvp_value2name_simple( nvp_target_state, target-&gt;state )-&gt;name);
+
+ 	if (target-&gt;state == TARGET_HALTED)
+@@ -1590,7 +1590,7 @@
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+
+-	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
++	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		  Jim_Nvp_value2name_simple( nvp_target_state, target-&gt;state )-&gt;name);
+
+ 	/* select DCSR instruction (set endstate to R-T-I to ensure we don't
+@@ -1706,7 +1706,7 @@
+
+ 			if ((retval = fileio_read(&amp;debug_handler, 32, buffer, &amp;buf_cnt))
+!= ERROR_OK)
+ 			{
+-				
++
+ 			}
+
+ 			for (i = 0; i &lt; buf_cnt; i += 4)
+@@ -3147,7 +3147,7 @@
+ 	xscale-&gt;armv4_5_mmu.enable_mmu_caches = xscale_enable_mmu_caches;
+ 	xscale-&gt;armv4_5_mmu.has_tiny_pages = 1;
+ 	xscale-&gt;armv4_5_mmu.mmu_enabled = 0;
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -3179,12 +3179,12 @@
+ 	if ((target = get_target_by_num(strtoul(args[0], NULL, 0))) == NULL)
+ 	{
+ 		LOG_ERROR(&quot;no target '%s' configured&quot;, args[0]);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+
+ 	if (xscale_get_arch_pointers(target, &amp;armv4_5, &amp;xscale) != ERROR_OK)
+ 	{
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+
+ 	handler_address = strtoul(args[1], NULL, 0);
+@@ -3197,6 +3197,7 @@
+ 	else
+ 	{
+ 		LOG_ERROR(&quot;xscale debug_handler &lt;address&gt; must be between 0x800 and
+0x1fef800 or between 0xfe000800 and 0xfffff800&quot;);
++		return ERROR_FAIL;
+ 	}
+
+ 	return ERROR_OK;
+@@ -3212,19 +3213,18 @@
+
+ 	if (argc &lt; 2)
+ 	{
+-		LOG_ERROR(&quot;'xscale cache_clean_address &lt;target#&gt; &lt;address&gt;' command
+takes two required operands&quot;);
+-		return ERROR_OK;
++		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+
+ 	if ((target = get_target_by_num(strtoul(args[0], NULL, 0))) == NULL)
+ 	{
+ 		LOG_ERROR(&quot;no target '%s' configured&quot;, args[0]);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+
+ 	if (xscale_get_arch_pointers(target, &amp;armv4_5, &amp;xscale) != ERROR_OK)
+ 	{
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+
+ 	cache_clean_address = strtoul(args[1], NULL, 0);
+@@ -3264,8 +3264,8 @@
+ 	u32 cb;
+ 	int domain;
+ 	u32 ap;
+-	
+-	
++
++
+ 	if ((retval = xscale_get_arch_pointers(target, &amp;armv4_5, &amp;xscale))
+!= ERROR_OK)
+ 	{
+ 		return retval;
+@@ -3283,7 +3283,7 @@
+ {
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+-	
++
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_ERROR(&quot;Target not halted&quot;);
+@@ -3648,7 +3648,7 @@
+ 			break;
+ 		case 2:
+ 			reg_no = XSCALE_TTB;
+-			break;
++			break;
+ 		case 3:
+ 			reg_no = XSCALE_DAC;
+ 			break;
+@@ -3669,39 +3669,39 @@
+ 			return ERROR_INVALID_ARGUMENTS;
+ 		}
+ 		reg = &amp;xscale-&gt;reg_cache-&gt;reg_list[reg_no];
+-		
++
+ 	}
+ 	if(argc == 1)
+ 	{
+ 		u32 value;
+-		
++
+ 		/* read cp15 control register */
+ 		xscale_get_reg(reg);
+ 		value = buf_get_u32(reg-&gt;value, 0, 32);
+ 		command_print(cmd_ctx, &quot;%s (/%i): 0x%x&quot;, reg-&gt;name, reg-&gt;size, value);
+ 	}
+ 	else if(argc == 2)
+-	{
++	{
+
+ 		u32 value = strtoul(args[1], NULL, 0);
+-		
++
+ 		/* send CP write request (command 0x41) */
+ 		xscale_send_u32(target, 0x41);
+-		
++
+ 		/* send CP register number */
+ 		xscale_send_u32(target, reg_no);
+-		
++
+ 		/* send CP register value */
+ 		xscale_send_u32(target, value);
+-		
++
+ 		/* execute cpwait to ensure outstanding operations complete */
+ 		xscale_send_u32(target, 0x53);
+ 	}
+ 	else
+ 	{
+-		command_print(cmd_ctx, &quot;usage: cp15 [register]&lt;, [value]&gt;&quot;);	
++		command_print(cmd_ctx, &quot;usage: cp15 [register]&lt;, [value]&gt;&quot;);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -3729,7 +3729,7 @@
+ 		COMMAND_EXEC, &quot;load image from &lt;file&gt; [base address]&quot;);
+
+ 	register_command(cmd_ctx, xscale_cmd, &quot;cp15&quot;, xscale_handle_cp15,
+COMMAND_EXEC, &quot;access coproc 15 &lt;register&gt; [value]&quot;);
+-	
++
+ 	armv4_5_register_commands(cmd_ctx);
+
+ 	return ERROR_OK;
+Index: src/target/etb.c
+===================================================================
+--- src/target/etb.c	(revision 1167)
++++ src/target/etb.c	(working copy)
+@@ -63,11 +63,11 @@
+ int etb_set_instr(etb_t *etb, u32 new_instr)
+ {
+ 	jtag_device_t *device = jtag_get_device(etb-&gt;chain_pos);
+-	
++
+ 	if (buf_get_u32(device-&gt;cur_instr, 0, device-&gt;ir_length) != new_instr)
+ 	{
+ 		scan_field_t field;
+-	
++
+ 		field.device = etb-&gt;chain_pos;
+ 		field.num_bits = device-&gt;ir_length;
+ 		field.out_value = calloc(CEIL(field.num_bits, 8), 1);
+@@ -78,12 +78,12 @@
+ 		field.in_check_mask = NULL;
+ 		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+-				
++
+ 		jtag_add_ir_scan(1, &amp;field, -1);
+-		
++
+ 		free(field.out_value);
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -92,7 +92,7 @@
+ 	if(etb-&gt;cur_scan_chain != new_scan_chain)
+ 	{
+ 		scan_field_t field;
+-		
++
+ 		field.device = etb-&gt;chain_pos;
+ 		field.num_bits = 5;
+ 		field.out_value = calloc(CEIL(field.num_bits, 8), 1);
+@@ -103,13 +103,13 @@
+ 		field.in_check_mask = NULL;
+ 		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+-		
++
+ 		/* select INTEST instruction */
+ 		etb_set_instr(etb, 0x2);
+ 		jtag_add_dr_scan(1, &amp;field, -1);
+-		
++
+ 		etb-&gt;cur_scan_chain = new_scan_chain;
+-		
++
+ 		free(field.out_value);
+ 	}
+
+@@ -123,21 +123,21 @@
+ 	etb_reg_t *arch_info = NULL;
+ 	int num_regs = 9;
+ 	int i;
+-	
++
+ 	/* register a register arch-type for etm registers only once */
+ 	if (etb_reg_arch_type == -1)
+ 		etb_reg_arch_type = register_reg_arch_type(etb_get_reg, etb_set_reg_w_exec);
+-	
++
+ 	/* the actual registers are kept in two arrays */
+ 	reg_list = calloc(num_regs, sizeof(reg_t));
+ 	arch_info = calloc(num_regs, sizeof(etb_reg_t));
+-	
++
+ 	/* fill in values for the reg cache */
+ 	reg_cache-&gt;name = &quot;etb registers&quot;;
+ 	reg_cache-&gt;next = NULL;
+ 	reg_cache-&gt;reg_list = reg_list;
+ 	reg_cache-&gt;num_regs = num_regs;
+-	
++
+ 	/* set up registers */
+ 	for (i = 0; i &lt; num_regs; i++)
+ 	{
+@@ -154,7 +154,7 @@
+ 		arch_info[i].addr = i;
+ 		arch_info[i].etb = etb;
+ 	}
+-	
++
+ 	return reg_cache;
+ }
+
+@@ -166,13 +166,13 @@
+ 		LOG_ERROR(&quot;BUG: error scheduling etm register read&quot;);
+ 		return retval;
+ 	}
+-	
++
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;register read failed&quot;);
+ 		return retval;
+ 	}
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -180,11 +180,11 @@
+ {
+ 	scan_field_t fields[3];
+ 	int i;
+-	
++
+ 	jtag_add_end_state(TAP_RTI);
+ 	etb_scann(etb, 0x0);
+ 	etb_set_instr(etb, 0xc);
+-	
++
+ 	fields[0].device = etb-&gt;chain_pos;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+@@ -194,7 +194,7 @@
+ 	fields[0].in_check_mask = NULL;
+ 	fields[0].in_handler = NULL;
+ 	fields[0].in_handler_priv = NULL;
+-	
++
+ 	fields[1].device = etb-&gt;chain_pos;
+ 	fields[1].num_bits = 7;
+ 	fields[1].out_value = malloc(1);
+@@ -216,31 +216,31 @@
+ 	fields[2].in_check_mask = NULL;
+ 	fields[2].in_handler = NULL;
+ 	fields[2].in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(3, fields, -1);
+
+ 	fields[0].in_handler = buf_to_u32_handler;
+-	
++
+ 	for (i = 0; i &lt; num_frames; i++)
+ 	{
+ 		/* ensure nR/W reamins set to read */
+ 		buf_set_u32(fields[2].out_value, 0, 1, 0);
+-		
++
+ 		/* address remains set to 0x4 (RAM data) until we read the last frame */
+ 		if (i &lt; num_frames - 1)
+ 			buf_set_u32(fields[1].out_value, 0, 7, 4);
+ 		else
+ 			buf_set_u32(fields[1].out_value, 0, 7, 0);
+-		
++
+ 		fields[0].in_handler_priv = &amp;data[i];
+ 		jtag_add_dr_scan(3, fields, -1);
+ 	}
+-	
++
+ 	jtag_execute_queue();
+-	
++
+ 	free(fields[1].out_value);
+ 	free(fields[2].out_value);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -249,13 +249,13 @@
+ 	etb_reg_t *etb_reg = reg-&gt;arch_info;
+ 	u8 reg_addr = etb_reg-&gt;addr &amp; 0x7f;
+ 	scan_field_t fields[3];
+-	
++
+ 	LOG_DEBUG(&quot;%i&quot;, etb_reg-&gt;addr);
+
+ 	jtag_add_end_state(TAP_RTI);
+ 	etb_scann(etb_reg-&gt;etb, 0x0);
+ 	etb_set_instr(etb_reg-&gt;etb, 0xc);
+-	
++
+ 	fields[0].device = etb_reg-&gt;etb-&gt;chain_pos;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = reg-&gt;value;
+@@ -265,7 +265,7 @@
+ 	fields[0].in_check_mask = NULL;
+ 	fields[0].in_handler = NULL;
+ 	fields[0].in_handler_priv = NULL;
+-	
++
+ 	fields[1].device = etb_reg-&gt;etb-&gt;chain_pos;
+ 	fields[1].num_bits = 7;
+ 	fields[1].out_value = malloc(1);
+@@ -287,28 +287,28 @@
+ 	fields[2].in_check_mask = NULL;
+ 	fields[2].in_handler = NULL;
+ 	fields[2].in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(3, fields, -1);
+-	
++
+ 	/* read the identification register in the second run, to make sure we
+ 	 * don't read the ETB data register twice, skipping every second entry
+ 	 */
+ 	buf_set_u32(fields[1].out_value, 0, 7, 0x0);
+ 	fields[0].in_value = reg-&gt;value;
+-	
++
+ 	jtag_set_check_value(fields+0, check_value, check_mask, NULL);
+-	
++
+ 	jtag_add_dr_scan(3, fields, -1);
+
+ 	free(fields[1].out_value);
+ 	free(fields[2].out_value);
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int etb_read_reg(reg_t *reg)
+ {
+-	return etb_read_reg_w_check(reg, NULL, NULL);	
++	return etb_read_reg_w_check(reg, NULL, NULL);
+ }
+
+ int etb_set_reg(reg_t *reg, u32 value)
+@@ -319,11 +319,11 @@
+ 		LOG_ERROR(&quot;BUG: error scheduling etm register write&quot;);
+ 		return retval;
+ 	}
+-	
++
+ 	buf_set_u32(reg-&gt;value, 0, reg-&gt;size, value);
+ 	reg-&gt;valid = 1;
+ 	reg-&gt;dirty = 0;
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -331,7 +331,7 @@
+ {
+ 	int retval;
+ 	etb_set_reg(reg, buf_get_u32(buf, 0, reg-&gt;size));
+-	
++
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;register write failed&quot;);
+@@ -345,13 +345,13 @@
+ 	etb_reg_t *etb_reg = reg-&gt;arch_info;
+ 	u8 reg_addr = etb_reg-&gt;addr &amp; 0x7f;
+ 	scan_field_t fields[3];
+-	
++
+ 	LOG_DEBUG(&quot;%i: 0x%8.8x&quot;, etb_reg-&gt;addr, value);
+-	
++
+ 	jtag_add_end_state(TAP_RTI);
+ 	etb_scann(etb_reg-&gt;etb, 0x0);
+ 	etb_set_instr(etb_reg-&gt;etb, 0xc);
+-	
++
+ 	fields[0].device = etb_reg-&gt;etb-&gt;chain_pos;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = malloc(4);
+@@ -362,7 +362,7 @@
+ 	fields[0].in_check_mask = NULL;
+ 	fields[0].in_handler = NULL;
+ 	fields[0].in_handler_priv = NULL;
+-	
++
+ 	fields[1].device = etb_reg-&gt;etb-&gt;chain_pos;
+ 	fields[1].num_bits = 7;
+ 	fields[1].out_value = malloc(1);
+@@ -384,13 +384,13 @@
+ 	fields[2].in_check_mask = NULL;
+ 	fields[2].in_handler = NULL;
+ 	fields[2].in_handler_priv = NULL;
+-	
++
+ 	jtag_add_dr_scan(3, fields, -1);
+-	
++
+ 	free(fields[0].out_value);
+ 	free(fields[1].out_value);
+ 	free(fields[2].out_value);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -402,9 +402,9 @@
+ int etb_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	command_t *etb_cmd;
+-	
++
+ 	etb_cmd = register_command(cmd_ctx, NULL, &quot;etb&quot;, NULL, COMMAND_ANY,
+&quot;Embedded Trace Buffer&quot;);
+-	
++
+ 	register_command(cmd_ctx, etb_cmd, &quot;config&quot;,
+handle_etb_config_command, COMMAND_CONFIG, NULL);
+
+ 	return ERROR_OK;
+@@ -416,41 +416,40 @@
+ 	jtag_device_t *jtag_device;
+ 	armv4_5_common_t *armv4_5;
+ 	arm7_9_common_t *arm7_9;
+-	
++
+ 	if (argc != 2)
+ 	{
+-		LOG_ERROR(&quot;incomplete 'etb config &lt;target&gt; &lt;chain_pos&gt;' command&quot;);
+-		exit(-1);
++		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+-	
++
+ 	target = get_target_by_num(strtoul(args[0], NULL, 0));
+-	
++
+ 	if (!target)
+ 	{
+ 		LOG_ERROR(&quot;target number '%s' not defined&quot;, args[0]);
+-		exit(-1);
++		return ERROR_FAIL;
+ 	}
+-	
++
+ 	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+-	
++
+ 	jtag_device = jtag_get_device(strtoul(args[1], NULL, 0));
+-	
++
+ 	if (!jtag_device)
+ 	{
+ 		LOG_ERROR(&quot;jtag device number '%s' not defined&quot;, args[1]);
+-		exit(-1);
++		return ERROR_FAIL;
+ 	}
+-	
++
+ 	if (arm7_9-&gt;etm_ctx)
+ 	{
+ 		etb_t *etb = malloc(sizeof(etb_t));
+-		
++
+ 		arm7_9-&gt;etm_ctx-&gt;capture_driver_priv = etb;
+-		
++
+ 		etb-&gt;chain_pos = strtoul(args[1], NULL, 0);
+ 		etb-&gt;cur_scan_chain = -1;
+ 		etb-&gt;reg_cache = NULL;
+@@ -460,6 +459,7 @@
+ 	else
+ 	{
+ 		LOG_ERROR(&quot;target has no ETM defined, ETB left unconfigured&quot;);
++		return ERROR_FAIL;
+ 	}
+
+ 	return ERROR_OK;
+@@ -468,9 +468,9 @@
+ int etb_init(etm_context_t *etm_ctx)
+ {
+ 	etb_t *etb = etm_ctx-&gt;capture_driver_priv;
+-	
++
+ 	etb-&gt;etm_ctx = etm_ctx;
+-	
++
+ 	/* identify ETB RAM depth and width */
+ 	etb_read_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_DEPTH]);
+ 	etb_read_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_WIDTH]);
+@@ -478,16 +478,16 @@
+
+ 	etb-&gt;ram_depth =
+buf_get_u32(etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_DEPTH].value, 0, 32);
+ 	etb-&gt;ram_width =
+buf_get_u32(etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_WIDTH].value, 0, 32);
+-	
++
+ 	return ERROR_OK;
+ }
+
+ trace_status_t etb_status(etm_context_t *etm_ctx)
+ {
+ 	etb_t *etb = etm_ctx-&gt;capture_driver_priv;
+-	
++
+ 	etb-&gt;etm_ctx = etm_ctx;
+-	
++
+ 	/* if tracing is currently idle, return this information */
+ 	if (etm_ctx-&gt;capture_status == TRACE_IDLE)
+ 	{
+@@ -497,10 +497,10 @@
+ 	{
+ 		reg_t *etb_status_reg = &amp;etb-&gt;reg_cache-&gt;reg_list[ETB_STATUS];
+ 		int etb_timeout = 100;
+-		
++
+ 		/* trace is running, check the ETB status flags */
+ 		etb_get_reg(etb_status_reg);
+-	
++
+ 		/* check Full bit to identify an overflow */
+ 		if (buf_get_u32(etb_status_reg-&gt;value, 0, 1) == 1)
+ 			etm_ctx-&gt;capture_status |= TRACE_OVERFLOWED;
+@@ -517,23 +517,23 @@
+ 				/* wait for data formatter idle */
+ 				etb_get_reg(etb_status_reg);
+ 			}
+-			
++
+ 			if (etb_timeout == 0)
+ 			{
+ 				LOG_ERROR(&quot;AcqComp set but DFEmpty won't go high, ETB status: 0x%x&quot;,
+ 					buf_get_u32(etb_status_reg-&gt;value, 0, etb_status_reg-&gt;size));
+ 			}
+-			
++
+ 			if (!(etm_ctx-&gt;capture_status &amp;&amp; TRACE_TRIGGERED))
+ 			{
+ 				LOG_ERROR(&quot;trace completed, but no trigger condition detected&quot;);
+ 			}
+-			
++
+ 			etm_ctx-&gt;capture_status &amp;= ~TRACE_RUNNING;
+ 			etm_ctx-&gt;capture_status |= TRACE_COMPLETED;
+ 		}
+ 	}
+-	
++
+ 	return etm_ctx-&gt;capture_status;
+ }
+
+@@ -544,11 +544,11 @@
+ 	int num_frames = etb-&gt;ram_depth;
+ 	u32 *trace_data = NULL;
+ 	int i, j;
+-	
++
+ 	etb_read_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_STATUS]);
+ 	etb_read_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_WRITE_POINTER]);
+ 	jtag_execute_queue();
+-	
++
+ 	/* check if we overflowed, and adjust first frame of the trace accordingly
+ 	 * if we didn't overflow, read only up to the frame that would be
+written next,
+ 	 * i.e. don't read invalid entries
+@@ -561,10 +561,10 @@
+ 	{
+ 		num_frames =
+buf_get_u32(etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_WRITE_POINTER].value, 0,
+32);
+ 	}
+-	
++
+ 	etb_write_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_READ_POINTER], first_frame);
+
+-	/* read data into temporary array for unpacking */	
++	/* read data into temporary array for unpacking */
+ 	trace_data = malloc(sizeof(u32) * num_frames);
+ 	etb_read_ram(etb, trace_data, num_frames);
+
+@@ -572,7 +572,7 @@
+ 	{
+ 		free(etm_ctx-&gt;trace_data);
+ 	}
+-	
++
+ 	if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_4BIT)
+ 		etm_ctx-&gt;trace_depth = num_frames * 3;
+ 	else if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
+@@ -581,7 +581,7 @@
+ 		etm_ctx-&gt;trace_depth = num_frames;
+
+ 	etm_ctx-&gt;trace_data = malloc(sizeof(etmv1_trace_data_t) *
+etm_ctx-&gt;trace_depth);
+-	
++
+ 	for (i = 0, j = 0; i &lt; num_frames; i++)
+ 	{
+ 		if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_4BIT)
+@@ -599,7 +599,7 @@
+ 				etm_ctx-&gt;trace_data[j].pipestat = etm_ctx-&gt;trace_data[j].packet &amp; 0x7;
+ 				etm_ctx-&gt;trace_data[j].flags |= ETMV1_TRIGGER_CYCLE;
+ 			}
+-			
++
+ 			/* trace word j+1 */
+ 			etm_ctx-&gt;trace_data[j+1].pipestat = (trace_data[i] &amp; 0x100) &gt;&gt; 8;
+ 			etm_ctx-&gt;trace_data[j+1].packet = (trace_data[i] &amp; 0x7800) &gt;&gt; 11;
+@@ -613,7 +613,7 @@
+ 				etm_ctx-&gt;trace_data[j+1].pipestat = etm_ctx-&gt;trace_data[j+1].packet &amp; 0x7;
+ 				etm_ctx-&gt;trace_data[j+1].flags |= ETMV1_TRIGGER_CYCLE;
+ 			}
+-			
++
+ 			/* trace word j+2 */
+ 			etm_ctx-&gt;trace_data[j+2].pipestat = (trace_data[i] &amp; 0x10000) &gt;&gt; 16;
+ 			etm_ctx-&gt;trace_data[j+2].packet = (trace_data[i] &amp; 0x780000) &gt;&gt; 19;
+@@ -627,7 +627,7 @@
+ 				etm_ctx-&gt;trace_data[j+2].pipestat = etm_ctx-&gt;trace_data[j+2].packet &amp; 0x7;
+ 				etm_ctx-&gt;trace_data[j+2].flags |= ETMV1_TRIGGER_CYCLE;
+ 			}
+-			
++
+ 			j += 3;
+ 		}
+ 		else if ((etm_ctx-&gt;portmode &amp; ETM_PORT_WIDTH_MASK) == ETM_PORT_8BIT)
+@@ -659,7 +659,7 @@
+ 				etm_ctx-&gt;trace_data[j+1].pipestat = etm_ctx-&gt;trace_data[j+1].packet &amp; 0x7;
+ 				etm_ctx-&gt;trace_data[j+1].flags |= ETMV1_TRIGGER_CYCLE;
+ 			}
+-			
++
+ 			j += 2;
+ 		}
+ 		else
+@@ -677,13 +677,13 @@
+ 				etm_ctx-&gt;trace_data[j].pipestat = etm_ctx-&gt;trace_data[j].packet &amp; 0x7;
+ 				etm_ctx-&gt;trace_data[j].flags |= ETMV1_TRIGGER_CYCLE;
+ 			}
+-			
++
+ 			j += 1;
+ 		}
+ 	}
+-	
++
+ 	free(trace_data);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -702,21 +702,21 @@
+ 		}
+ 		etb_ctrl_value |= 0x2;
+ 	}
+-	
++
+ 	if ((etm_ctx-&gt;portmode &amp; ETM_PORT_MODE_MASK) == ETM_PORT_MUXED)
+ 		return ERROR_ETM_PORTMODE_NOT_SUPPORTED;
+-	
++
+ 	trigger_count = (etb-&gt;ram_depth * etm_ctx-&gt;trigger_percent) / 100;
+-	
++
+ 	etb_write_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_TRIGGER_COUNTER], trigger_count);
+ 	etb_write_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_RAM_WRITE_POINTER], 0x0);
+ 	etb_write_reg(&amp;etb-&gt;reg_cache-&gt;reg_list[ETB_CTRL], etb_ctrl_value);
+ 	jtag_execute_queue();
+-	
++
+ 	/* we're starting a new trace, initialize capture status */
+ 	etm_ctx-&gt;capture_status = TRACE_RUNNING;
+-	
+-	return ERROR_OK;
++
++	return ERROR_OK;
+ }
+
+ int etb_stop_capture(etm_context_t *etm_ctx)
+@@ -726,10 +726,10 @@
+
+ 	etb_write_reg(etb_ctrl_reg, 0x0);
+ 	jtag_execute_queue();
+-	
+-	/* trace stopped, just clear running flag, but preserve others */
++
++	/* trace stopped, just clear running flag, but preserve others */
+ 	etm_ctx-&gt;capture_status &amp;= ~TRACE_RUNNING;
+-	
++
+ 	return ERROR_OK;
+ }
+
+Index: src/target/etm_dummy.c
+===================================================================
+--- src/target/etm_dummy.c	(revision 1167)
++++ src/target/etm_dummy.c	(working copy)
+@@ -41,21 +41,21 @@
+ 	target_t *target;
+ 	armv4_5_common_t *armv4_5;
+ 	arm7_9_common_t *arm7_9;
+-	
++
+ 	target = get_target_by_num(strtoul(args[0], NULL, 0));
+-	
++
+ 	if (!target)
+ 	{
+ 		LOG_ERROR(&quot;target number '%s' not defined&quot;, args[0]);
+-		exit(-1);
++		return ERROR_FAIL;
+ 	}
+-	
++
+ 	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_OK;
++		return ERROR_FAIL;
+ 	}
+-	
++
+ 	if (arm7_9-&gt;etm_ctx)
+ 	{
+ 		arm7_9-&gt;etm_ctx-&gt;capture_driver_priv = NULL;
+@@ -63,6 +63,7 @@
+ 	else
+ 	{
+ 		LOG_ERROR(&quot;target has no ETM defined, ETM dummy left unconfigured&quot;);
++		return ERROR_FAIL;
+ 	}
+
+ 	return ERROR_OK;
+@@ -71,9 +72,9 @@
+ int etm_dummy_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	command_t *etm_dummy_cmd;
+-	
++
+ 	etm_dummy_cmd = register_command(cmd_ctx, NULL, &quot;etm_dummy&quot;, NULL,
+COMMAND_ANY, &quot;Dummy ETM capture driver&quot;);
+-	
++
+ 	register_command(cmd_ctx, etm_dummy_cmd, &quot;config&quot;,
+handle_etm_dummy_config_command, COMMAND_CONFIG, NULL);
+
+ 	return ERROR_OK;
+Index: src/flash/ecos.c
+===================================================================
+--- src/flash/ecos.c	(revision 1145)
++++ src/flash/ecos.c	(working copy)
+@@ -143,13 +143,13 @@
+ int ecosflash_flash_bank_command(struct command_context_s *cmd_ctx,
+char *cmd, char **args, int argc, struct flash_bank_s *bank)
+ {
+ 	ecosflash_flash_bank_t *info;
+-	
++
+ 	if (argc &lt; 7)
+ 	{
+ 		LOG_WARNING(&quot;incomplete flash_bank ecosflash configuration&quot;);
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+-	
++
+ 	info = malloc(sizeof(ecosflash_flash_bank_t));
+ 	if(info == NULL)
+ 	{
+@@ -159,7 +159,7 @@
+ 	bank-&gt;driver_priv = info;
+ 	info-&gt;driverPath=strdup(args[6]);
+
+-	/* eCos flash sector sizes are not exposed to OpenOCD, use 0x10000 as
++	/* eCos flash sector sizes are not exposed to OpenOCD, use 0x10000 as
+ 	 * a way to improve impeadance matach between OpenOCD and eCos flash
+ 	 * driver.
+ 	 */
+@@ -175,12 +175,12 @@
+ 		bank-&gt;sectors[i].is_erased = -1;
+ 		bank-&gt;sectors[i].is_protected = 0;
+ 	}
+-	
++
+ 	info-&gt;target = get_target_by_num(strtoul(args[5], NULL, 0));
+ 	if (info-&gt;target == NULL)
+ 	{
+ 		LOG_ERROR(&quot;no target '%i' configured&quot;, (int)strtoul(args[5], NULL, 0));
+-		exit(-1);
++		return ERROR_FAIL;
+ 	}
+ 	return ERROR_OK;
+ }
+@@ -190,20 +190,20 @@
+ {
+ 	u32 buf_cnt;
+ 	u32 image_size;
+-	image_t image;	
+-	
++	image_t image;
++
+ 	image.base_address_set = 0;
+ 	image.start_address_set = 0;
+ 	target_t *target=info-&gt;target;
+ 	int retval;
+-	
++
+ 	if ((retval=image_open(&amp;image, info-&gt;driverPath, NULL)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+-	
++
+ 	info-&gt;start_address=image.start_address;
+-	
++
+ 	image_size = 0x0;
+ 	int i;
+ 	for (i = 0; i &lt; image.num_sections; i++)
+@@ -219,7 +219,7 @@
+ 		target_write_buffer(target, image.sections[i].base_address, buf_cnt, buffer);
+ 		image_size += buf_cnt;
+ 		LOG_DEBUG(&quot;%u byte written at address 0x%8.8x&quot;, buf_cnt,
+image.sections[i].base_address);
+-		
++
+ 		free(buffer);
+ 	}
+
+@@ -237,8 +237,8 @@
+ static int const OFFSET_GET_WORKAREA_SIZE=0x4;
+
+
+-int runCode(ecosflash_flash_bank_t *info,
+-		u32 codeStart, u32 codeStop, u32 r0, u32 r1, u32 r2,
++int runCode(ecosflash_flash_bank_t *info,
++		u32 codeStart, u32 codeStop, u32 r0, u32 r1, u32 r2,
+ 		u32 *result,
+ 		/* timeout in ms */
+ 		int timeout)
+@@ -250,45 +250,45 @@
+ 	armv4_5_info.common_magic = ARMV4_5_COMMON_MAGIC;
+ 	armv4_5_info.core_mode = ARMV4_5_MODE_SVC;
+ 	armv4_5_info.core_state = ARMV4_5_STATE_ARM;
+-	
++
+ 	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_IN_OUT);
+ 	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
+ 	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_OUT);
+-	
++
+ 	buf_set_u32(reg_params[0].value, 0, 32, r0);
+ 	buf_set_u32(reg_params[1].value, 0, 32, r1);
+ 	buf_set_u32(reg_params[2].value, 0, 32, r2);
+-	
++
+ 	int retval;
+ 	if ((retval = target-&gt;type-&gt;run_algorithm(target, 0, NULL, 3, reg_params,
+ 			codeStart,
+-			codeStop, timeout,
++			codeStop, timeout,
+ 			&amp;armv4_5_info)) != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;error executing eCos flash algorithm&quot;);
+ 		return retval;
+ 	}
+-	
++
+ 	*result=buf_get_u32(reg_params[0].value, 0, 32);
+-	
++
+ 	destroy_reg_param(&amp;reg_params[0]);
+ 	destroy_reg_param(&amp;reg_params[1]);
+ 	destroy_reg_param(&amp;reg_params[2]);
+-	
++
+ 	return ERROR_OK;
+ }
+
+ int eCosBoard_erase(ecosflash_flash_bank_t *info, u32 address, u32 len)
+ {
+ 	int retval;
+-	int timeout = (len / 20480 + 1) * 1000; /*asume 20 KB/s*/
++	int timeout = (len / 20480 + 1) * 1000; /*asume 20 KB/s*/
+
+ 	retval=loadDriver(info);
+ 	if (retval!=ERROR_OK)
+ 		return retval;
+-	
++
+ 	u32 flashErr;
+-	retval=runCode(info,
++	retval=runCode(info,
+ 			info-&gt;start_address+OFFSET_ERASE,
+ 			info-&gt;start_address+OFFSET_ERASE+OFFSET_ERASE_SIZE,
+ 			address,
+@@ -299,7 +299,7 @@
+ 			);
+ 	if (retval!=ERROR_OK)
+ 		return retval;
+-	
++
+ 	if (flashErr != 0x0)
+ 	{
+ 		LOG_ERROR(&quot;Flash erase failed with %d (%s)\n&quot;, flashErr,
+flash_errmsg(flashErr));
+@@ -315,13 +315,13 @@
+ 	const int chunk=8192;
+ 	int retval=ERROR_OK;
+ 	int timeout = (chunk / 20480 + 1) * 1000; /*asume 20 KB/s + 1 second*/
+-	
++
+ 	retval=loadDriver(info);
+ 	if (retval!=ERROR_OK)
+ 		return retval;
+-	
++
+ 	u32 buffer;
+-	retval=runCode(info,
++	retval=runCode(info,
+ 			info-&gt;start_address+OFFSET_GET_WORKAREA,
+ 			info-&gt;start_address+OFFSET_GET_WORKAREA+OFFSET_GET_WORKAREA_SIZE,
+ 			0,
+@@ -331,8 +331,8 @@
+ 			1000);
+ 	if (retval!=ERROR_OK)
+ 		return retval;
+-	
+-	
++
++
+ 	int i;
+     for (i=0; i&lt;len; i+=chunk)
+     {
+@@ -341,14 +341,14 @@
+ 		{
+ 			t=chunk;
+ 		}
+-		
++
+ 		int retval;
+     	retval=target_write_buffer(target, buffer, t, ((u8 *)data)+i);
+     	if (retval != ERROR_OK)
+     		return retval;
+-    	
++
+     	u32 flashErr;
+-    	retval=runCode(info,
++    	retval=runCode(info,
+     			info-&gt;start_address+OFFSET_FLASH,
+     			info-&gt;start_address+OFFSET_FLASH+OFFSET_FLASH_SIZE,
+     			buffer,
+@@ -378,7 +378,7 @@
+ int ecosflash_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	register_command(cmd_ctx, NULL, &quot;ecosflash&quot;, NULL, COMMAND_ANY, NULL);
+-	
++
+ 	return ERROR_OK;
+ }
+
+@@ -387,7 +387,7 @@
+ {
+ 	ecosflash_flash_bank_t *info = bank-&gt;driver_priv;
+ 	int i;
+-	
++
+ 	if (info-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+ 	{
+ 		for (i = bank-&gt;bus_width; i &gt; 0; i--)
+@@ -417,16 +417,16 @@
+ 		case 1:
+ 			retval = address;
+ 	}
+-	
++
+ 	return retval + bank-&gt;base;
+-}
++}
+
+
+ int ecosflash_erase(struct flash_bank_s *bank, int first, int last)
+ {
+ 	struct flash_bank_s *c=bank;
+ 	ecosflash_flash_bank_t *info = bank-&gt;driver_priv;
+-	return eCosBoard_erase(info, c-&gt;base+first*sectorSize,
+sectorSize*(last-first+1));
++	return eCosBoard_erase(info, c-&gt;base+first*sectorSize,
+sectorSize*(last-first+1));
+ }
+
+ int ecosflash_protect(struct flash_bank_s *bank, int set, int first, int last)
+@@ -463,7 +463,7 @@
+
+ void ecosflash_set_flash_mode(flash_bank_t *bank,int mode)
+ {
+-	
++
+ }
+
+ u32 ecosflash_wait_status_busy(flash_bank_t *bank, u32 waitbits, int timeout)
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 XScale Cortex
+JTAG debugger and flash programmer
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003662.html">[Openocd-development] Big endian fix for GDB take #2
+</A></li>
+	<LI>Next message: <A HREF="003666.html">[Openocd-development] ARM926ej-s (MagicEyes POLLUX) Problem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3665">[ date ]</a>
+              <a href="thread.html#3665">[ thread ]</a>
+              <a href="subject.html#3665">[ subject ]</a>
+              <a href="author.html#3665">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

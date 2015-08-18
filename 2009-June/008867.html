@@ -1,0 +1,273 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] dynamic loading of ftd2xx.dll for windows in ft2232.c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20dynamic%20loading%20of%20ftd2xx.dll%20for%0A%20windows%20in%20ft2232.c&In-Reply-To=%3C1246147903.2386.592.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008864.html">
+   <LINK REL="Next"  HREF="008868.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] dynamic loading of ftd2xx.dll for windows in ft2232.c</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20dynamic%20loading%20of%20ftd2xx.dll%20for%0A%20windows%20in%20ft2232.c&In-Reply-To=%3C1246147903.2386.592.camel%40localhost%3E"
+       TITLE="[Openocd-development] [patch] dynamic loading of ftd2xx.dll for windows in ft2232.c">zw at superlucidity.net
+       </A><BR>
+    <I>Sun Jun 28 02:11:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008864.html">[Openocd-development] [patch] dynamic loading of ftd2xx.dll for windows in ft2232.c
+</A></li>
+        <LI>Next message: <A HREF="008868.html">[Openocd-development] [patch] dynamic loading of ftd2xx.dll for	windows in ft2232.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8867">[ date ]</a>
+              <a href="thread.html#8867">[ thread ]</a>
+              <a href="subject.html#8867">[ subject ]</a>
+              <a href="author.html#8867">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, 2009-06-27 at 20:50 +0200, Freddie Chopin wrote:
+&gt;<i> Second version of previous patch improved with suggestions from Ronald.
+</I>&gt;<i> 
+</I>&gt;<i> Pls try (; Works for me &lt;:
+</I>
+This patch now looks 1000 times better with the changes from Ronald.
+Thanks to both of you for producing and refining it.
+
+My only remaining suggestion would be to add a macro that eliminates the
+duplicate calls the GetProcAddress.  From what I can see, each of those
+5 line blocks can be reduced into a single macro call with the proper
+symbol name as the only argument.  The magic that I used to implement
+the parse_type helpers in command.c will be helpful to see how to do it,
+but you might also need to look up how to &quot;stringify&quot; too.
+
+Thanks for making these improvements.
+
+--Z
+
+&gt;<i> plain text document attachment (win32_ft2232_ftd2xx_dynamic_v2.patch)
+</I>&gt;<i> Index: ft2232.c
+</I>&gt;<i> ===================================================================
+</I>&gt;<i> --- ft2232.c	(revision 2405)
+</I>&gt;<i> +++ ft2232.c	(working copy)
+</I>&gt;<i> @@ -63,6 +63,51 @@
+</I>&gt;<i>  #include &lt;ftdi.h&gt;
+</I>&gt;<i>  #endif
+</I>&gt;<i>  
+</I>&gt;<i> +/* Dynamic loading of libraries at runtime - only for Win32 and ftd2xx.dll currently */
+</I>&gt;<i> +
+</I>&gt;<i> +#if defined(_WIN32) &amp;&amp; BUILD_FT2232_FTD2XX == 1
+</I>&gt;<i> +#define FTD2XX_DYNAMIC	1
+</I>&gt;<i> +#else
+</I>&gt;<i> +#define FTD2XX_DYNAMIC	0
+</I>&gt;<i> +#endif
+</I>&gt;<i> +
+</I>&gt;<i> +#if FTD2XX_DYNAMIC == 1
+</I>&gt;<i> +
+</I>&gt;<i> +// typedefs for all used functions from ftd2xx.dll library
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_Write_t)(FT_HANDLE ftHandle, LPVOID lpBuffer, DWORD dwBytesToWrite, LPDWORD lpBytesWritten);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_Read_t)(FT_HANDLE ftHandle, LPVOID lpBuffer, DWORD dwBytesToRead, LPDWORD lpBytesReturned);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_OpenEx_t)(PVOID pArg1, DWORD Flags, FT_HANDLE *pHandle);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_ListDevices_t)(PVOID pArg1, PVOID pArg2, DWORD Flags);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_SetLatencyTimer_t)(FT_HANDLE ftHandle, UCHAR ucLatency);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_GetLatencyTimer_t)(FT_HANDLE ftHandle, PUCHAR pucLatency);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_SetTimeouts_t)(FT_HANDLE ftHandle, ULONG ReadTimeout, ULONG WriteTimeout);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_SetBitMode_t)(FT_HANDLE ftHandle, UCHAR ucMask, UCHAR ucEnable);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_GetDeviceInfo_t)(FT_HANDLE ftHandle, FT_DEVICE *lpftDevice, LPDWORD lpdwID, PCHAR SerialNumber, PCHAR Description, LPVOID Dummy);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_Purge_t)(FT_HANDLE ftHandle, ULONG Mask);
+</I>&gt;<i> +typedef FT_STATUS (WINAPI *FT_Close_t)(FT_HANDLE ftHandle);
+</I>&gt;<i> +
+</I>&gt;<i> +// library handle
+</I>&gt;<i> +static HINSTANCE dynamic_library;
+</I>&gt;<i> +
+</I>&gt;<i> +// global pointers for read and write functions
+</I>&gt;<i> +static FT_Write_t FT_Write_ptr;
+</I>&gt;<i> +static FT_Read_t FT_Read_ptr;
+</I>&gt;<i> +
+</I>&gt;<i> +// replacements for original functions
+</I>&gt;<i> +#define FT_Write			(*FT_Write_ptr)
+</I>&gt;<i> +#define FT_Read				(*FT_Read_ptr)
+</I>&gt;<i> +#define FT_OpenEx			(*FT_OpenEx_ptr)
+</I>&gt;<i> +#define FT_ListDevices		(*FT_ListDevices_ptr)
+</I>&gt;<i> +#define FT_SetLatencyTimer	(*FT_SetLatencyTimer_ptr)
+</I>&gt;<i> +#define FT_GetLatencyTimer	(*FT_GetLatencyTimer_ptr)
+</I>&gt;<i> +#define FT_SetTimeouts		(*FT_SetTimeouts_ptr)
+</I>&gt;<i> +#define FT_SetBitMode		(*FT_SetBitMode_ptr)
+</I>&gt;<i> +#define FT_GetDeviceInfo	(*FT_GetDeviceInfo_ptr)
+</I>&gt;<i> +#define FT_Purge			(*FT_Purge_ptr)
+</I>&gt;<i> +#define FT_Close			(*FT_Close_ptr)
+</I>&gt;<i> +
+</I>&gt;<i> +#endif
+</I>&gt;<i> +
+</I>&gt;<i>  /* max TCK for the high speed devices 30000 kHz */
+</I>&gt;<i>  #define	FTDI_2232H_4232H_MAX_TCK	30000
+</I>&gt;<i>  
+</I>&gt;<i> @@ -1803,6 +1848,78 @@
+</I>&gt;<i>  
+</I>&gt;<i>  	LOG_DEBUG(&quot;'ft2232' interface using FTD2XX with '%s' layout (%4.4x:%4.4x)&quot;, ft2232_layout, vid, pid);
+</I>&gt;<i>  
+</I>&gt;<i> +#if FTD2XX_DYNAMIC == 1
+</I>&gt;<i> +
+</I>&gt;<i> +	FT_OpenEx_t FT_OpenEx_ptr;
+</I>&gt;<i> +	FT_ListDevices_t FT_ListDevices_ptr;
+</I>&gt;<i> +	FT_SetLatencyTimer_t FT_SetLatencyTimer_ptr;
+</I>&gt;<i> +	FT_GetLatencyTimer_t FT_GetLatencyTimer_ptr;
+</I>&gt;<i> +	FT_SetTimeouts_t FT_SetTimeouts_ptr;
+</I>&gt;<i> +	FT_SetBitMode_t FT_SetBitMode_ptr;
+</I>&gt;<i> +	FT_GetDeviceInfo_t FT_GetDeviceInfo_ptr;
+</I>&gt;<i> +
+</I>&gt;<i> +	dynamic_library = LoadLibrary(&quot;ftd2xx.dll&quot;);
+</I>&gt;<i> +
+</I>&gt;<i> +	if(dynamic_library == NULL)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		LOG_ERROR(&quot;Can't open ftd2xx.dll&quot;);
+</I>&gt;<i> +		return ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i> +	}
+</I>&gt;<i> +	else
+</I>&gt;<i> +	{
+</I>&gt;<i> +		BOOL fail = FALSE;
+</I>&gt;<i> +
+</I>&gt;<i> +		if((FT_Write_ptr = (FT_Write_t)GetProcAddress(dynamic_library, &quot;FT_Write&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_Write() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_Read_ptr = (FT_Read_t)GetProcAddress(dynamic_library, &quot;FT_Read&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_Read() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_OpenEx_ptr = (FT_OpenEx_t)GetProcAddress(dynamic_library, &quot;FT_OpenEx&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_OpenEx() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_ListDevices_ptr = (FT_ListDevices_t)GetProcAddress(dynamic_library, &quot;FT_ListDevices&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_ListDevices() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_SetLatencyTimer_ptr = (FT_SetLatencyTimer_t)GetProcAddress(dynamic_library, &quot;FT_SetLatencyTimer&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_SetLatencyTimer() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_GetLatencyTimer_ptr = (FT_GetLatencyTimer_t)GetProcAddress(dynamic_library, &quot;FT_GetLatencyTimer&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_GetLatencyTimer() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_SetTimeouts_ptr = (FT_SetTimeouts_t)GetProcAddress(dynamic_library, &quot;FT_SetTimeouts&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_SetTimeouts() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_SetBitMode_ptr = (FT_SetBitMode_t)GetProcAddress(dynamic_library, &quot;FT_SetBitMode&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_SetBitMode() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +		if((FT_GetDeviceInfo_ptr = (FT_GetDeviceInfo_t)GetProcAddress(dynamic_library, &quot;FT_GetDeviceInfo&quot;)) == NULL)
+</I>&gt;<i> +		{
+</I>&gt;<i> +			LOG_ERROR(&quot;Can't get FT_GetDeviceInfo() function&quot;);
+</I>&gt;<i> +			fail = TRUE;
+</I>&gt;<i> +		}
+</I>&gt;<i> +
+</I>&gt;<i> +		if(fail != FALSE)
+</I>&gt;<i> +			return ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i> +	}
+</I>&gt;<i> +#endif
+</I>&gt;<i> +
+</I>&gt;<i>  #if IS_WIN32 == 0
+</I>&gt;<i>  	/* Add non-standard Vid/Pid to the linux driver */
+</I>&gt;<i>  	if ((status = FT_SetVIDPID(vid, pid)) != FT_OK)
+</I>&gt;<i> @@ -1956,6 +2073,15 @@
+</I>&gt;<i>  {
+</I>&gt;<i>  	FT_STATUS status;
+</I>&gt;<i>  
+</I>&gt;<i> +#if FTD2XX_DYNAMIC == 1
+</I>&gt;<i> +	FT_Purge_t FT_Purge_ptr;
+</I>&gt;<i> +
+</I>&gt;<i> +	if((FT_Purge_ptr = (FT_Purge_t)GetProcAddress(dynamic_library, &quot;FT_Purge&quot;)) == NULL)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		LOG_ERROR(&quot;Can't get FT_Purge() function&quot;);
+</I>&gt;<i> +		return ERROR_JTAG_INIT_FAILED;
+</I>&gt;<i> +	}
+</I>&gt;<i> +#endif
+</I>&gt;<i>  	if ((status = FT_Purge(ftdih, FT_PURGE_RX | FT_PURGE_TX)) != FT_OK)
+</I>&gt;<i>  	{
+</I>&gt;<i>  		LOG_ERROR(&quot;error purging ftd2xx device: %lu&quot;, status);
+</I>&gt;<i> @@ -2760,6 +2886,17 @@
+</I>&gt;<i>  #if BUILD_FT2232_FTD2XX == 1
+</I>&gt;<i>  	FT_STATUS status;
+</I>&gt;<i>  
+</I>&gt;<i> +#if FTD2XX_DYNAMIC == 1
+</I>&gt;<i> +	FT_Close_t FT_Close_ptr;
+</I>&gt;<i> +	int retval=ERROR_OK;
+</I>&gt;<i> +
+</I>&gt;<i> +	if((FT_Close_ptr = (FT_Close_t)GetProcAddress(dynamic_library, &quot;FT_Close&quot;)) == NULL)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		LOG_ERROR(&quot;Can't get FT_Close() function&quot;);
+</I>&gt;<i> +		retval = ERROR_FAIL;
+</I>&gt;<i> +	}
+</I>&gt;<i> +	else
+</I>&gt;<i> +#endif
+</I>&gt;<i>  	status = FT_Close(ftdih);
+</I>&gt;<i>  #elif BUILD_FT2232_LIBFTDI == 1
+</I>&gt;<i>  	ftdi_usb_close(&amp;ftdic);
+</I>&gt;<i> @@ -2770,7 +2907,17 @@
+</I>&gt;<i>  	free(ft2232_buffer);
+</I>&gt;<i>  	ft2232_buffer = NULL;
+</I>&gt;<i>  
+</I>&gt;<i> +#if FTD2XX_DYNAMIC == 1
+</I>&gt;<i> +	if(FreeLibrary(dynamic_library) == FALSE)
+</I>&gt;<i> +	{
+</I>&gt;<i> +		LOG_ERROR(&quot;Can't close library&quot;);
+</I>&gt;<i> +		retval = ERROR_FAIL;
+</I>&gt;<i> +	}
+</I>&gt;<i> +
+</I>&gt;<i> +	return retval;
+</I>&gt;<i> +#else
+</I>&gt;<i>  	return ERROR_OK;
+</I>&gt;<i> +#endif
+</I>&gt;<i>  }
+</I>&gt;<i>  
+</I>&gt;<i> 
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008864.html">[Openocd-development] [patch] dynamic loading of ftd2xx.dll for windows in ft2232.c
+</A></li>
+	<LI>Next message: <A HREF="008868.html">[Openocd-development] [patch] dynamic loading of ftd2xx.dll for	windows in ft2232.c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8867">[ date ]</a>
+              <a href="thread.html#8867">[ thread ]</a>
+              <a href="subject.html#8867">[ subject ]</a>
+              <a href="author.html#8867">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

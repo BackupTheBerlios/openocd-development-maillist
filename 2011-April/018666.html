@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3CBANLkTi%3DHfeHQKoyFWY%2B9N2qj-tsm4cmpKQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018660.html">
+   <LINK REL="Next"  HREF="018667.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Set%20of%20MIPS%20patches%20%28big%20endian%2C%20FASTDATA%2C%0A%20error%20propagation%2C%20optimizations...%29&In-Reply-To=%3CBANLkTi%3DHfeHQKoyFWY%2B9N2qj-tsm4cmpKQ%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Tue Apr  5 18:12:35 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018660.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+        <LI>Next message: <A HREF="018667.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18666">[ date ]</a>
+              <a href="thread.html#18666">[ thread ]</a>
+              <a href="subject.html#18666">[ subject ]</a>
+              <a href="author.html#18666">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+I did some more research on this subject. I had to dig deeper into
+EJTAG specification. I came basck to the story about busy-waiting
+PrAcc to be &quot;1&quot; before initiating FASTDATA access, like I did it
+before, in the first implementation - which was a performance killer.
+
+Here are some of the most important points :
+6.5.6 Fastdata Register (TAP Instruction FASTDATA)
+Compliance Level: Required with EJTAG TAP feature for EJTAG version
+02.60 and higher.
+The width of the Fastdata register is 1 bit.
+
+--&gt; During a Fastdata access, the Fastdata register is *written and
+read*, i.e., a bit is
+shifted in and a bit is shifted out. (See Section 6.4.3 on page 91 for
+how the Data + Fastdata registers are selected by the
+FASTDATA instruction.) During a Fastdata access, the Fastdata register
+value shifted in specifies whether the Fastdata
+access should be completed or not. The value shifted out is a flag
+that indicates whether the Fastdata access was
+successful or not (if completion was requested).
+
+Shifting in a zero value requests completion of the
+Fastdata access. The PrAcc bit in the EJTAG Control
+register is overwritten with zero when the access
+succeeds.
+--&gt; (The access succeeds if *PrAcc is one* and &lt;-- important : PrAcc
+must be &quot;1&quot; =&gt; we must wait !
+the operation address is in the legal dmseg segment
+Fastdata area.) When successful, a one is shifted out. &lt;-- important :
+we must check the shift out bit !
+Shifting out a zero indicates a Fastdata access failure.
+
+During Fastdata uploads and downloads, the processor will stall on
+accesses to the Fastdata area. The PrAcc (processor
+access pending bit) will be 1 indicating the probe is required to
+complete the access. Both upload and download accesses
+are attempted by shifting in a zero SPrAcc value (to request access
+completion) and shifting out SPrAcc to see if the
+attempt will be successful (i.e., there was an access pending and a
+legal Fastdata area address was used). Downloads will
+also shift in the data to be used to satisfy the load from the dmseg
+segment Fastdata area, while uploads will shift out the
+data being stored to the dmseg segment Fastdata area.
+As noted above, two conditions must be true for the Fastdata access to
+succeed. These are:
+&#8226; PrAcc must be 1, i.e., there must be a pending processor access.
+&#8226; The Fastdata operation must use a valid Fastdata area address in the
+dmseg segment (0xF..F20.0000 to
+0xF..F20.000F).
+
+
+So, based on this I have several explanations. FASTDATA will fail if
+we go into the transfer when PrAcc is &quot;0&quot;. So far we are never
+checking neither if PrAcc was &quot;1&quot; nor if FASTDATA failed.
+
+CASE 1 - Why it works for Andy and Spen :
+-------------------------------------------------------------
+By accident (maybe you are using slower probes ?), between FASTDATA
+accesses in the loop :
+for (i = 0; i &lt; count; i++)
+{
+        if ((retval = mips_ejtag_fastdata_scan(ejtag_info, write_t,
+buf++)) != ERROR_OK)
+                return retval;
+}
+there is enough time between commands shifted out towards TAP for
+PrAcc to become &quot;1&quot;. FASTDATA acces thus does not fail. You are not
+checking it, but anyway it suceeds.
+
+For bigger images, maybe at some point FASTDATA is tryed without PrAcc
+== &quot;1&quot;, so it fails - but it is never checked.
+
+I am using probably faster Amontec probe, that shifts out FATSDATA
+initiation in this loop before PrAcc became &quot;1&quot;. So it fails even for
+the small images.
+
+I proved that by inserting :
+        for (i = 0; i &lt; count; i++)
+	{
+		/* wait PrAcc pending bit for FASTDATA write */
+		if ((retval = wait_for_pracc_rw(ejtag_info, &amp;ejtag_ctrl)) != ERROR_OK)
+			return retval;
+
+		/* Send the data out using fastdata (clears the access pending bit) */
+		mips_ejtag_set_instr(ejtag_info, EJTAG_INST_FASTDATA);
+		if ((retval = mips_ejtag_fastdata_scan(ejtag_info, write_t, buf++))
+!= ERROR_OK)
+			return retval;
+	}
+then it starts working for me also, although I did not change
+mips_ejtag_fastdata_scan() by adding jtag_execute_queue();
+
+
+CASE 2 - Why is it working for me with jtag_execute_queue() and not
+added wait_for_pracc_rw() :
+------------------------------------------------------------------------------------------------------------------------------------------
+Probably because, as Laurent noted before, this inserts enough delay
+between two succeeding  mips_ejtag_fastdata_scan() called in the loop,
+so that PrAcc actually becomes &quot;1&quot;
+
+
+
+Based on this I think correct handling would be :
+1) To assure that PrAcc is &quot;1&quot; before each call to mips_ejtag_fastdata_scan()
+2) To check SPrAcc shifted out bit. But for this jtag_execute_queue()
+has to be executed within mips_ejtag_fastdata_scan().
+
+I am adding a patch that correct these issues.
+
+Off course, it has catastrofic performance issues :
+
+&gt;<i> load_image /home/ddraskovic/test/fred.elf
+</I>476 bytes written at address 0x80000000
+361064 bytes written at address 0x80080000
+downloaded 361540 bytes in 363.814789s (0.970 KiB/s)
+
+
+It would be great if Andy can set-up some tests on big images again
+tonight with code patched with this patch. If the image is loaded
+correctly that would say that we are getting closer !
+
+BR,
+Drasko
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-mips-FASTDATA-needs-PrAcc-to-be-1.patch
+Type: text/x-patch
+Size: 3011 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20110405/c8f52898/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20110405/c8f52898/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018660.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+	<LI>Next message: <A HREF="018667.html">[Openocd-development] Set of MIPS patches (big endian, FASTDATA, error propagation, optimizations...)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18666">[ date ]</a>
+              <a href="thread.html#18666">[ thread ]</a>
+              <a href="subject.html#18666">[ subject ]</a>
+              <a href="author.html#18666">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

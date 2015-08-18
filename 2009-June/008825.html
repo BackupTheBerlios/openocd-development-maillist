@@ -1,0 +1,313 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Breakpoints do not work for LM3S6918 /	Eclipse
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Breakpoints%20do%20not%20work%20for%20LM3S6918%20/%0A%09Eclipse&In-Reply-To=%3Ce01f25c60906261915p264acc7ci54409bee7e31d221%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="008823.html">
+   <LINK REL="Next"  HREF="008857.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Breakpoints do not work for LM3S6918 /	Eclipse</H1>
+    <B>Joseph Kuss</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Breakpoints%20do%20not%20work%20for%20LM3S6918%20/%0A%09Eclipse&In-Reply-To=%3Ce01f25c60906261915p264acc7ci54409bee7e31d221%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Breakpoints do not work for LM3S6918 /	Eclipse">jmk.engineer at gmail.com
+       </A><BR>
+    <I>Sat Jun 27 04:15:54 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="008823.html">[Openocd-development] Breakpoints do not work for LM3S6918 /	Eclipse
+</A></li>
+        <LI>Next message: <A HREF="008857.html">[Openocd-development] Breakpoints do not work for LM3S6918 / Eclipse
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8825">[ date ]</a>
+              <a href="thread.html#8825">[ thread ]</a>
+              <a href="subject.html#8825">[ subject ]</a>
+              <a href="author.html#8825">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Continued call for help !
+
+It still seems that these are hard to read on the posting, I will just
+inline them here
+
+1)
+####Eagle100_jtag_tiny-setup.cfg===========================================
+# From Source file: &quot;olimex-jtag-tiny-a.cfg&quot;------------------------
+# REFERENCE:  <A HREF="http://www.olimex.com/dev/arm-usb-tiny.html">http://www.olimex.com/dev/arm-usb-tiny.html</A>
+interface ft2232
+ft2232_device_desc &quot;Olimex OpenOCD JTAG TINY A&quot;
+ft2232_layout olimex-jtag
+#------------------------------------------------------------------
+# From Source file: &quot;joes_Eagle100BoardTrial1.cfg&quot;------------------
+# My test board has a &quot;Rev1&quot; tap id.
+set BSTAPID 0x16410041
+# source [find target/jmk_lm3s6918.cfg] (will just include into this..)
+#------------------------------------------------------------------
+# From Source file: jmk_lm3s6918.cfg (in target directory)
+# script for luminary lm3s6918
+if { [info exists CHIPNAME] } {
+   set  _CHIPNAME $CHIPNAME
+} else {
+   set  _CHIPNAME lm3s6918
+}
+if { [info exists ENDIAN] } {
+   set  _ENDIAN $ENDIAN
+} else {
+  # this defaults to a little endian
+   set  _ENDIAN little
+}
+if { [info exists CPUTAPID ] } {
+   set _CPUTAPID $CPUTAPID
+} else {
+  # force an error till we get a good number
+   set _CPUTAPID 0x3ba00477
+}
+# jtag speed
+jtag_khz 500
+jtag_nsrst_delay 100
+jtag_ntrst_delay 100
+#LM3S6918 Evaluation Board has only srst
+reset_config srst_only
+#jtag scan chain
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 1 -irmask 0xf -expected-id
+$_CPUTAPID
+# THIS WAS IN THE &quot;makeController-debug.cfg&quot; but is deprecated in
+openOCD0.10
+#daemon startup reset
+#this config option has been removed, simply adding `init' and `reset halt'
+to the end
+#of your config script will give the same behaviour as using `daemon_startup
+reset'
+#and `target cortex_m3 little reset_halt 0'.
+#
+# the luminary variant causes a software reset rather than asserting SRST
+# this stops the debug registers from being cleared
+# this will be fixed in later revisions of silicon
+set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position
+$_TARGETNAME -variant lm3s
+# 4k working area at base of ram
+$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000
+-work-area-size 0x4000 -work-area-backup 0
+#flash configuration
+flash bank stellaris 0 0 0 0 0
+#recommded by Duane Ellis of openOCD
+#This tells openocd to inform GDB where 'flash lives' - thus GDB will
+attempt to#use hardware breakpoints.
+#----
+gdb_memory_map     enable
+#----
+ ####Eagle100_jtag_tiny-setup.cfg===========================================
+
+Then the following of these is sent next to openOCD:
+2) DebugPgm.cfg:
+
+telnet_port 4444
+gdb_port 3333
+init
+reset
+
+Or
+
+3) ErasePgm.cfg
+
+#define our ports
+telnet_port 4444
+gdb_port 3333
+tcl_port 6666
+echo &quot;before init&quot;
+init
+halt
+sleep 200
+wait_halt
+flash probe 0
+flash erase_check 0
+# This cmd below seems not to work (but it did not really matter):
+# &quot;Error: failed setting protection for areas 8 to 255 (-901)&quot;
+#flash protect 0 8 255 off
+# But this did work:
+flash erase_sector 0 0 255
+sleep 200
+#
+flash erase_check 0
+reset run
+shutdown
+
+
+If the chip was already programmed:
+
+openocd -d 3 -f Eagle100_jtag_tiny-setup.cfg -f DebugPgm.cfg -l
+openocdLogj26.txt
+
+To see if gdb could directly program a blank chip - this did work.
+
+openocd -d 3 -f Eagle100_jtag_tiny-setup.cfg -f ErasePgm.cfg -l
+openocdLogErase.txt
+
+Then I open gdb in a separate dos window.. and got stuck with no
+working breakpoints as described.
+
+Joe
+
+
+On Fri, Jun 26, 2009 at 7:00 PM, Joseph Kuss &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jmk.engineer at gmail.com</A>&gt; wrote:
+
+&gt;<i> Looks like my .cfg files were in a 7zip format I will send them
+</I>&gt;<i> individually so they are more
+</I>&gt;<i> visible to more people
+</I>&gt;<i>
+</I>&gt;<i> In some cases I did not use UploadPgmAtZero.cfg when I used (gdb) load
+</I>&gt;<i> instead...
+</I>&gt;<i>
+</I>&gt;<i>
+</I>&gt;<i> Sincerley,
+</I>&gt;<i> Joe
+</I>&gt;<i>
+</I>&gt;<i>   On Fri, Jun 26, 2009 at 6:39 PM, Joseph Kuss &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jmk.engineer at gmail.com</A>&gt;wrote:
+</I>&gt;<i>
+</I>&gt;&gt;<i> Gmail sent without my promised attachments.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>  Please check them out.
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Sincerely,
+</I>&gt;&gt;<i> Joe
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> 1)  June26AttemptsB1.pdf    ==&gt;&gt;&gt; Screen shots of exactly what I sent to
+</I>&gt;&gt;<i> gdb.
+</I>&gt;&gt;<i> 2)  openocdLog26B1.txt        ==&gt;&gt;&gt; Level 3 debug trace,
+</I>&gt;&gt;<i> for communications between gdb and openOCD.
+</I>&gt;&gt;<i> 3) ConfigFiles_June26Attempt.7z   ==&gt;&gt; All my openOCD config files for
+</I>&gt;&gt;<i> 0.1.0
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>   On Fri, Jun 26, 2009 at 6:32 PM, Joseph Kuss &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jmk.engineer at gmail.com</A>&gt;wrote:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Now I have completely taken Eclipse out of the picture, and am just using
+</I>&gt;&gt;&gt;<i> openOCD and GDB 6.8.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> I still am stuck and no breaky points !
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> I am following a template that was provided, this was helpfull but is not
+</I>&gt;&gt;&gt;<i> my solution it seems.
+</I>&gt;&gt;&gt;<i> //================================================
+</I>&gt;&gt;&gt;<i> Joe,
+</I>&gt;&gt;&gt;<i> Try adding this to your configuration file
+</I>&gt;&gt;&gt;<i> #----
+</I>&gt;&gt;&gt;<i> gdb_memory_map     enable
+</I>&gt;&gt;&gt;<i> #----
+</I>&gt;&gt;&gt;<i> This tells openocd to inform GDB where 'flash lives' - thus GDB will
+</I>&gt;&gt;&gt;<i> attempt to use hardware breakpoints.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Specify the ELF file...
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) file
+</I>&gt;&gt;&gt;<i> ./bin/basic-internalflash-project-at91sam3u-ek-at91sam3u4-flash.elf
+</I>&gt;&gt;&gt;<i> Reading symbols from
+</I>&gt;&gt;&gt;<i> /home/duane/cortex/b/basic-internalflash-project-at91sam3u-ek/basic-internalflash-project/bin/bas
+</I>&gt;&gt;&gt;<i> ic-internalflash-project-at91sam3u-ek-at91sam3u4-flash.elf...done.
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Specify the target
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) target remote 192.168.0.100:3333
+</I>&gt;&gt;&gt;<i> Remote debugging using 192.168.0.100:3333
+</I>&gt;&gt;&gt;<i> 0x00000000 in ?? ()
+</I>&gt;&gt;&gt;<i> !!!!!!!!!! in my case !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+</I>&gt;&gt;&gt;<i> (gdb) target remote localhost:3333
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Tell openocd to HALT the target
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) mon halt
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Tell openocd to RESET the target.
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) mon reset
+</I>&gt;&gt;&gt;<i> JTAG tap: sam3.cpu tap/device found: 0x4ba00477 (mfg: 0x23b, part:
+</I>&gt;&gt;&gt;<i> 0xba00, ver: 0x4)
+</I>&gt;&gt;&gt;<i> JTAG Tap/device matched
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> And i tell it to  halt again...
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) mon halt
+</I>&gt;&gt;&gt;<i> target state: halted
+</I>&gt;&gt;&gt;<i> target halted due to debug-request, current mode: Handler BusFault
+</I>&gt;&gt;&gt;<i> xPSR: 0x21000005 pc: 0x000817dc
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Load my program - this actually programs the flash
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) load
+</I>&gt;&gt;&gt;<i> Loading section .fixed, size 0x133c lma 0x80000
+</I>&gt;&gt;&gt;<i> Loading section .relocate, size 0xf4 lma 0x8133c
+</I>&gt;&gt;&gt;<i> Start address 0x811dc, load size 5168
+</I>&gt;&gt;&gt;<i> Transfer rate: 4 KB/sec, 2584 bytes/write.
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Set a breakpoint at &quot;main()&quot;
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) break main
+</I>&gt;&gt;&gt;<i> Breakpoint 1 at 0x800c0: file main.c, line 168.
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Tell GDB to continue - see the NOTE from GDB...
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> (gdb) cont
+</I>&gt;&gt;&gt;<i> Continuing.
+</I>&gt;&gt;&gt;<i> Note: automatically using hardware breakpoints for read-only addresses.
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> I hit my breakpoint..
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Breakpoint 1, main () at main.c:168
+</I>&gt;&gt;&gt;<i> 168         TRACE_CONFIGURE(DBGU_STANDARD, 115200, BOARD_MCK);
+</I>&gt;&gt;&gt;<i> (gdb)
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> Works for me :-)
+</I>&gt;&gt;&gt;<i> =====
+</I>&gt;&gt;&gt;<i> //================================================
+</I>&gt;&gt;&gt;<i> Does not work for me, yet anyways.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> Please check out my attachements, incuded is
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;<i> 1)  June26AttemptsB1.pdf    ==&gt;&gt;&gt; Screen shots of exactly what I sent to
+</I>&gt;&gt;&gt;<i> gdb.
+</I>&gt;&gt;&gt;<i> 2)  openocdLog26B1.txt        ==&gt;&gt;&gt; Level 3 debug trace, for tracking
+</I>&gt;&gt;&gt;<i> communications between gdb and openOCD.
+</I>&gt;&gt;&gt;<i> 3) ConfigFiles_June26Attempt.7z
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i>
+</I>&gt;<i>
+</I>-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20090626/28e16c5b/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20090626/28e16c5b/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="008823.html">[Openocd-development] Breakpoints do not work for LM3S6918 /	Eclipse
+</A></li>
+	<LI>Next message: <A HREF="008857.html">[Openocd-development] Breakpoints do not work for LM3S6918 / Eclipse
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8825">[ date ]</a>
+              <a href="thread.html#8825">[ thread ]</a>
+              <a href="subject.html#8825">[ subject ]</a>
+              <a href="author.html#8825">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

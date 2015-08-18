@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] MIPS target, big endian host
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3C4EDEF3C9EF255F499422CAF83CC53E1709829CDE29%40bzsvex01.sas.sys.sphairon.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020114.html">
+   <LINK REL="Next"  HREF="020144.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] MIPS target, big endian host</H1>
+    <B>Mahr, Stefan</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20MIPS%20target%2C%20big%20endian%20host&In-Reply-To=%3C4EDEF3C9EF255F499422CAF83CC53E1709829CDE29%40bzsvex01.sas.sys.sphairon.com%3E"
+       TITLE="[Openocd-development] MIPS target, big endian host">Stefan.Mahr at sphairon.com
+       </A><BR>
+    <I>Sat Jul  9 10:44:48 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020114.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+        <LI>Next message: <A HREF="020144.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20128">[ date ]</a>
+              <a href="thread.html#20128">[ thread ]</a>
+              <a href="subject.html#20128">[ subject ]</a>
+              <a href="author.html#20128">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;&gt;&gt;&gt;&gt;<i> How do they convert then, when they do not know from which endianes to
+</I>&gt;&gt;&gt;&gt;&gt;<i> convert from ?
+</I>&gt;&gt;&gt;&gt;<i>
+</I>&gt;&gt;&gt;&gt;<i> Conversion is done from byte array of jtag chain.
+</I>&gt;&gt;&gt;<i> How ?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> buf_get_u32 does conversion from uint8* array
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> example:
+</I>&gt;&gt;<i> mips_ejtag_get_impcode (mips_ejtag.c)
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> &#160;field.in_value is filled by jtag_add_dr_scan with 4 times uint8.
+</I>&gt;&gt;<i> &#160;buf_get_u32 converts byte array to host endian uint32
+</I>&gt;<i>
+</I>&gt;<i> How ? It does not convert anything. It just takes the data and puts it
+</I>&gt;<i> into array, in the order that it comes.
+</I>
+No, you do *arithmetical* operations on host, so it is ensured that result is always in host endianness.
+
+buf_get_u32:
+		return (((uint32_t)buffer[3]) &lt;&lt; 24) |
+			(((uint32_t)buffer[2]) &lt;&lt; 16) |
+			(((uint32_t)buffer[1]) &lt;&lt; 8) |
+			(((uint32_t)buffer[0]) &lt;&lt; 0);
+
+
+
+&gt;&gt;&gt;&gt;<i> The endianness of MIPS EJTAG tap seems to have always the same endianness,
+</I>&gt;&gt;&gt;&gt;<i> no matter of MIPS CPU memory endianness.
+</I>&gt;&gt;&gt;<i> What makes you think so ?
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> Because openocd works in all combinations of BE and LE host and target. (If you
+</I>&gt;&gt;<i> revert commit 2482244b0788c007dd789c21a4416379c229ea5c.) So yes, it's just a guess.
+</I>&gt;<i>
+</I>&gt;<i> Which might mean that all commands are sent to EJTAG in appropriate
+</I>&gt;<i> target format in which CPU expects them (be it BE or LE, depends in
+</I>&gt;<i> which mode it runs).
+</I>
+I can't find code that swaps target endianness in mips32_pracc.c or mips_ejtag.c
+
+
+&gt;&gt;<i> Could this be the explanation:
+</I>&gt;&gt;<i>
+</I>&gt;&gt;<i> <A HREF="http://downloads.buffalo.nas-central.org/LS2_MIPSel/DevelopmentTools/JTAG/MD00047-2B-EJTAG-SPC-03.10.pdf">http://downloads.buffalo.nas-central.org/LS2_MIPSel/DevelopmentTools/JTAG/MD00047-2B-EJTAG-SPC-03.10.pdf</A>
+</I>&gt;&gt;<i> Page 97:
+</I>&gt;&gt;<i> Byte 0 refers to bits 7:0, byte 1 refers to bits 15:8, byte 2 refers to bits 23:16, and byte 3 refers to bits
+</I>&gt;&gt;<i> 31:24, independent of endianess.
+</I>&gt;&gt;<i>
+</I>&gt;<i> This is _always_ the case in _all_ architectures. But, as you see,
+</I>&gt;<i> this Byte0 is put to lower addresses for LE and to higher for BE. This
+</I>&gt;<i> is always the case.
+</I>
+&quot;Byte 0 refers to bits 7:0, byte 1 refers to bits 15:8, byte 2 refers to bits 23:16, and byte 3 refers to bits
+31:24, independent of endianess.&quot;
+
+My guess is, if you read out a 32bit value, target endianness doesn't matter. If a 8bit value is read out, you get byte0 for address 0 in LE mode and byte3 at address 0 in BE mode.
+
+
+BR,
+Stefan
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020114.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+	<LI>Next message: <A HREF="020144.html">[Openocd-development] MIPS target, big endian host
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20128">[ date ]</a>
+              <a href="thread.html#20128">[ thread ]</a>
+              <a href="subject.html#20128">[ subject ]</a>
+              <a href="author.html#20128">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

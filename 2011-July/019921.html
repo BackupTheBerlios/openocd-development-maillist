@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5D%5BPATCH%5D%20Fix%20soft%0A%20breakpoint%20unsetting%20endianess&In-Reply-To=%3CBANLkTimPssHPJT8orCWhu96khCC91YzXgA%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="019903.html">
+   <LINK REL="Next"  HREF="019904.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess</H1>
+    <B>Drasko DRASKOVIC</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BOpenOCD%5D%5BMIPS32%5D%5BPATCH%5D%20Fix%20soft%0A%20breakpoint%20unsetting%20endianess&In-Reply-To=%3CBANLkTimPssHPJT8orCWhu96khCC91YzXgA%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess">drasko.draskovic at gmail.com
+       </A><BR>
+    <I>Fri Jul  1 22:01:29 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="019903.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess
+</A></li>
+        <LI>Next message: <A HREF="019904.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19921">[ date ]</a>
+              <a href="thread.html#19921">[ thread ]</a>
+              <a href="subject.html#19921">[ subject ]</a>
+              <a href="author.html#19921">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Fri, Jul 1, 2011 at 7:32 AM, &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt; wrote:
+&gt;<i> You need to translate words to the host endianness if the
+</I>&gt;<i> host is to interpret the words.
+</I>&gt;<i>
+</I>&gt;<i> However, if you are just copying memory, then you can read
+</I>&gt;<i> words and write them back, without worrying about endianness.
+</I>
+Yes, that's it. And target_read_memory() just gets to the host data
+bytes from the target, but thay are kept on the host in _target_
+endianess. That's OK if we just want to temporarily store this data on
+the host, like we do for example with breakpoint-&gt;orig_instr. But
+before any comparison of this data with some macros defined on the
+host, we must transform it to the _host_ endianess via
+target_buffer_get_u32() function.
+
+In mips_m4k.c code we currently have :
+/* check that user program has not modified breakpoint instruction */
+			if ((retval = target_read_memory(target, breakpoint-&gt;address, 4, 1,
+					(uint8_t*)&amp;current_instr)) != ERROR_OK)
+			{
+				return retval;
+			}
+			if (current_instr == MIPS32_SDBBP)
+			{
+				if ((retval = target_write_memory(target, breakpoint-&gt;address, 4, 1,
+						breakpoint-&gt;orig_instr)) != ERROR_OK)
+				{
+					return retval;
+				}
+			}
+
+i.e. we have comparison of current_instr which we obtained from target
+via target_read_memory() and is kept in the host in _target_ endianess
+with MIPS32_SDBBP macro which is defined on the host and thus kept in
+the _host_ endianess.
+
+Now, if target and host have same endianenss, this can pass unnoticed.
+But if the endianess between host and the target differ, this check
+will never pass, although there is really soft-break instruction in
+the target.
+
+Because this check never pass, original instruction is never wrote
+back to the target and it keeps hitting breakpoint over and over.
+
+
+If we take a look at arm7_9_common.c, we can see that it is properly
+done this way :
+/* check that user program as not modified breakpoint instruction */
+			if ((retval = target_read_memory(target, breakpoint-&gt;address, 4, 1,
+(uint8_t*)&amp;current_instr)) != ERROR_OK)
+			{
+				return retval;
+			}
+                        current_instr = target_buffer_get_u32(target,
+(uint8_t *)&amp;current_instr);
+			if (current_instr == arm7_9-&gt;arm_bkpt)
+				if ((retval = target_write_memory(target, breakpoint-&gt;address, 4,
+1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+				{
+					return retval;
+				}
+
+i.e. current_instr is transformed to _host_ endianess prior to
+comparison via target_buffer_get_u32() function.
+
+Finally, the patch for MIPS should consist of only adding this missing line.
+
+BR,
+Drasko
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="019903.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess
+</A></li>
+	<LI>Next message: <A HREF="019904.html">[Openocd-development] [OpenOCD][MIPS32][PATCH] Fix soft breakpoint unsetting endianess
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19921">[ date ]</a>
+              <a href="thread.html#19921">[ thread ]</a>
+              <a href="subject.html#19921">[ subject ]</a>
+              <a href="author.html#19921">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

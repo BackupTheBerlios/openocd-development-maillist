@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] encapsulate jtag interface
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20encapsulate%20jtag%20interface&In-Reply-To=%3C1243645198.5064.1931.camel%40localhost%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="007489.html">
+   <LINK REL="Next"  HREF="007487.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] encapsulate jtag interface</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20encapsulate%20jtag%20interface&In-Reply-To=%3C1243645198.5064.1931.camel%40localhost%3E"
+       TITLE="[Openocd-development] [PATCH] encapsulate jtag interface">zw at superlucidity.net
+       </A><BR>
+    <I>Sat May 30 02:59:58 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="007489.html">[Openocd-development] [patch] openocd.texi - ARM trace docs (ETM, ETB)
+</A></li>
+        <LI>Next message: <A HREF="007487.html">[Openocd-development] [PATCH] encapsulate jtag interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7486">[ date ]</a>
+              <a href="thread.html#7486">[ thread ]</a>
+              <a href="subject.html#7486">[ subject ]</a>
+              <a href="author.html#7486">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi all,
+
+The following patch encapsulates the global JTAG interface pointer,
+adding a wrapper routine for the only out-of-module user.
+
+I will apply unless there are objections.
+
+Cheers,
+
+Zach
+
+======
+Encapsulate the global &quot;jtag&quot; jtag_interface pointer:
+- Add jtag_interface_quit, factored from exit_handler() in openocd.c.
+- Remove its extern declaration.
+- Add static keyword to its definition.
+---
+ jtag/jtag.c |   16 +++++++++++++++-
+ jtag/jtag.h |    5 +++--
+ openocd.c   |    4 +---
+ 3 files changed, 19 insertions(+), 6 deletions(-)
+---
+Index: src/jtag/jtag.c
+===================================================================
+--- src/jtag/jtag.c	(revision 1942)
++++ src/jtag/jtag.c	(working copy)
+@@ -227,7 +227,7 @@
+ 	NULL,
+ };
+ 
+-jtag_interface_t *jtag = NULL;
++static jtag_interface_t *jtag = NULL;
+ 
+ /* configuration */
+ static jtag_interface_t *jtag_interface = NULL;
+@@ -2407,6 +2407,20 @@
+ 	return ERROR_OK;
+ }
+ 
++int jtag_interface_quit(void)
++{
++	if (!jtag || !jtag-&gt;quit)
++		return ERROR_OK;
++
++	// close the JTAG interface
++	int result = jtag-&gt;quit();
++	if (ERROR_OK != result)
++		LOG_ERROR(&quot;failed: %d&quot;, result);
++
++	return ERROR_OK;
++}
++
++
+ int jtag_init_reset(struct command_context_s *cmd_ctx)
+ {
+ 	int retval;
+Index: src/jtag/jtag.h
+===================================================================
+--- src/jtag/jtag.h	(revision 1942)
++++ src/jtag/jtag.h	(working copy)
+@@ -515,8 +515,6 @@
+ 
+ extern jtag_event_callback_t* jtag_event_callbacks;
+ 
+-extern jtag_interface_t*      jtag; /* global pointer to configured JTAG interface */
+-
+ extern int jtag_speed;
+ extern int jtag_speed_post_reset;
+ 
+@@ -538,6 +536,9 @@
+  */
+ extern int  jtag_interface_init(struct command_context_s* cmd_ctx);
+ 
++/// Shutdown the JTAG interface upon program exit.
++extern int  jtag_interface_quit(void);
++
+ /* initialize JTAG chain using only a RESET reset. If init fails,
+  * try reset + init.
+  */
+Index: src/openocd.c
+===================================================================
+--- src/openocd.c	(revision 1942)
++++ src/openocd.c	(working copy)
+@@ -79,9 +79,7 @@
+ 
+ static void exit_handler(void)
+ {
+-	/* close JTAG interface */
+-	if (jtag &amp;&amp; jtag-&gt;quit)
+-		jtag-&gt;quit();
++	jtag_interface_quit();
+ }
+ 
+ static int log_target_callback_event_handler(struct target_s *target, enum target_event event, void *priv)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="007489.html">[Openocd-development] [patch] openocd.texi - ARM trace docs (ETM, ETB)
+</A></li>
+	<LI>Next message: <A HREF="007487.html">[Openocd-development] [PATCH] encapsulate jtag interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#7486">[ date ]</a>
+              <a href="thread.html#7486">[ thread ]</a>
+              <a href="subject.html#7486">[ subject ]</a>
+              <a href="author.html#7486">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

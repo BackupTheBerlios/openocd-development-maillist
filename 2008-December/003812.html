@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Work Area Size/Policy?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Work%20Area%20Size/Policy%3F&In-Reply-To=%3C3287197B-1021-4E0E-A196-10007D6EC145%40kc8apf.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003811.html">
+   <LINK REL="Next"  HREF="003814.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Work Area Size/Policy?</H1>
+    <B>Rick Altherr</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Work%20Area%20Size/Policy%3F&In-Reply-To=%3C3287197B-1021-4E0E-A196-10007D6EC145%40kc8apf.net%3E"
+       TITLE="[Openocd-development] Work Area Size/Policy?">kc8apf at kc8apf.net
+       </A><BR>
+    <I>Mon Dec  1 05:58:21 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003811.html">[Openocd-development] Work Area Size/Policy?
+</A></li>
+        <LI>Next message: <A HREF="003814.html">[Openocd-development] Work Area Size/Policy?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3812">[ date ]</a>
+              <a href="thread.html#3812">[ thread ]</a>
+              <a href="subject.html#3812">[ subject ]</a>
+              <a href="author.html#3812">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+On Nov 30, 2008, at 9:59 PM, Duane Ellis wrote:
+
+&gt;<i> duane&gt; What is the required work area size?
+</I>&gt;<i>
+</I>&gt;<i> rick&gt;  None.  The flash methods ....
+</I>&gt;<i>
+</I>&gt;<i> Actually the flash methods do need space - otherwise they will not  
+</I>&gt;<i> work.
+</I>&gt;<i>
+</I>
+That isn't true for at least the Stellaris flash code.  It will fall  
+back to hitting the flash control registers for each word  
+individually.  I don't know the other drivers very well, but they  
+seemed to do something similar.
+
+&gt;<i> Thank you for pointing out the flash - I had forgotten about that.
+</I>&gt;<i>
+</I>&gt;<i> There are two sides to the problem.
+</I>&gt;<i>
+</I>&gt;<i> (A) flash programing - I had forgotten. Happens, but not as  
+</I>&gt;<i> frequently.
+</I>&gt;<i> (B) General GDB downloading: Happens all the time.
+</I>&gt;<i>
+</I>&gt;<i> I dug around a little... and this is what I found.
+</I>&gt;<i>
+</I>&gt;<i> -Duane.
+</I>&gt;<i>
+</I>&gt;<i> DCC download requires 24 bytes.
+</I>&gt;<i> Poking around the flash code I see this:
+</I>&gt;<i> ie: LPC2000 I see something 172 bytes needed
+</I>&gt;<i> I see stuff in the CFI Intel flash code talking about 1K bytes.
+</I>&gt;<i> All FLASH code has the same copy/paste loop that wants something  
+</I>&gt;<i> more then 256 bytes
+</I>&gt;<i>
+</I>
+It all depends.  Most of the flash algorithms (the part that runs on  
+the target) take a word count as part of the initial register state.   
+The actual algorithm depends on the flash controller being used so the  
+base size of the code will also change.  They also allocate a separate  
+area for the data block to be written.  Those are variable size and  
+the size is part of the initial register state for the algorithm.
+
+&gt;<i> ================================
+</I>&gt;<i>
+</I>&gt;<i> Based on my read of the code:
+</I>&gt;<i>
+</I>&gt;<i> I think this would be &quot;good manual/documentation policy&quot;
+</I>&gt;<i>
+</I>&gt;<i> (A) From a *manual* point of view.
+</I>&gt;<i>   Flash programing requires at least :
+</I>&gt;<i>        1K ram for micro-controllers (internal flash)
+</I>&gt;<i>        2K ram for any external flash.
+</I>&gt;<i>   For *large* system on a chip solutions - 2K is enough
+</I>&gt;<i>   However we recommend 4K on systems with SDRAM.
+</I>&gt;<i>
+</I>
+For microcontrollers, 1K is plenty, but at least for some flash  
+drivers, none is necessary.  We should be more explicit than just  
+saying &quot;1K minimum.&quot;  What happens if no working area is available?   
+Do they fallback to a slow mechanism or does it return a failure?
+
+&gt;<i> (B) From a *manual* point of view..
+</I>&gt;<i>   We tell users:
+</I>&gt;<i>   If at all possible - dedicate a N-Byte region for the DCC.
+</I>&gt;<i>
+</I>&gt;<i>   Today N = 24 bytes, but think future.    Should the manual say 64  
+</I>&gt;<i> bytes - or 128 bytes?
+</I>&gt;<i>   And use the extra bytes for data abort capturing (if needed)
+</I>&gt;<i>
+</I>
+What happens if no work area is defined in the config?  It should fall  
+back to something reasonable, albeit slow.
+
+&gt;<i> (C) FUTURE:
+</I>&gt;<i>   Maybe we even create a &quot;-dcc-work-area&quot; target option?
+</I>&gt;<i>   It would always be backed up and restored ..
+</I>&gt;<i>   And - it needs to be smart about GDB loading over the top of it.
+</I>&gt;<i>
+</I>&gt;<i>   Maybe we create a &quot;-flash-work-area&quot; target option?
+</I>&gt;<i>
+</I>&gt;<i>   Today - existing OpenOCD code treats &quot;work area as work area&quot;  
+</I>&gt;<i> generically.
+</I>&gt;<i>
+</I>
+I see no reason to make these separate.  On small devices, RAM is  
+already at a premium.  Making the two working areas separate means  
+_more_ space has to be dedicated to OpenOCD.  There doesn't seem to be  
+any advantage other than having the DCC area always backup.  That  
+isn't even really necessary.  Backing up the area is slow and if the  
+target app has been designed such that an unused area of RAM is  
+available, we shouldn't waste time doing a backup.  Only the config  
+file writer know the right thing to do and we should make it simple  
+for them.
+
+&gt;<i> (D) On chips like ARM 9 - that have Vector Catch.
+</I>&gt;<i>   Vector Catch should be enabled during this period.
+</I>&gt;<i>   And &quot;restored to previous state&quot; when done.
+</I>&gt;<i>   Perhaps this should be on any time &quot;run algorithm&quot; is used.
+</I>&gt;<i>
+</I>&gt;<i> (E) Not sure about Vector Catch on Arm7.
+</I>&gt;<i>   Not familiar enough with arm11 and cortex variants.
+</I>&gt;<i>
+</I>&gt;<i> (F) Some places for work could be:
+</I>&gt;<i>    Improve the flash algorithms to &quot;ping-pong&quot;buffers
+</I>&gt;<i>   ie: Instead of polling the flash for completion
+</I>&gt;<i>   Start downloading the next sector.
+</I>
+That would require 2 buffers in the working area so the individual  
+algorithm runs would be on half-sized blocks.  That _might_ be  
+suboptimal for some flash controllers unless the working area is  
+doubled.
+
+&gt;<i>
+</I>&gt;<i> =======
+</I>&gt;<i> **END**
+</I>&gt;<i> =======
+</I>&gt;<i>
+</I>
+--
+Rick Altherr
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">kc8apf at kc8apf.net</A>
+
+&quot;He said he hadn't had a byte in three days. I had a short, so I split  
+it with him.&quot;
+  -- Unsigned
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2446 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081130/a6c32f54/attachment.bin">https://lists.berlios.de/pipermail/openocd-development/attachments/20081130/a6c32f54/attachment.bin</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003811.html">[Openocd-development] Work Area Size/Policy?
+</A></li>
+	<LI>Next message: <A HREF="003814.html">[Openocd-development] Work Area Size/Policy?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3812">[ date ]</a>
+              <a href="thread.html#3812">[ thread ]</a>
+              <a href="subject.html#3812">[ subject ]</a>
+              <a href="author.html#3812">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

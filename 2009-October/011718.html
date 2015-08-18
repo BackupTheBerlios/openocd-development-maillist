@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rft] XSVF:	call	svf_add_statemove() as needed
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rft%5D%20XSVF%3A%0A%09call%09svf_add_statemove%28%29%20as%20needed&In-Reply-To=%3C20091027203250.GA11636%40dream.aleph1.co.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011708.html">
+   <LINK REL="Next"  HREF="011723.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rft] XSVF:	call	svf_add_statemove() as needed</H1>
+    <B>Wookey</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rft%5D%20XSVF%3A%0A%09call%09svf_add_statemove%28%29%20as%20needed&In-Reply-To=%3C20091027203250.GA11636%40dream.aleph1.co.uk%3E"
+       TITLE="[Openocd-development] [patch/rft] XSVF:	call	svf_add_statemove() as needed">wookey at wookware.org
+       </A><BR>
+    <I>Tue Oct 27 21:32:51 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011708.html">[Openocd-development] [patch/rft] XSVF:	call	svf_add_statemove() as needed
+</A></li>
+        <LI>Next message: <A HREF="011723.html">[Openocd-development] [patch/rft] XSVF:	call	svf_add_statemove() as needed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11718">[ date ]</a>
+              <a href="thread.html#11718">[ thread ]</a>
+              <a href="subject.html#11718">[ subject ]</a>
+              <a href="author.html#11718">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>+++ David Brownell [2009-10-27 11:30 -0700]:
+&gt;<i> On Tuesday 27 October 2009, Wookey wrote:
+</I>&gt;<i> &gt; &gt; Does that SVF version work OK?
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; No, but then I wouldn't expect it to in this case. The xsvf command
+</I>&gt;<i> &gt; allows the specification of a tap which means that an XSVF file
+</I>&gt;<i> &gt; nominally created for a single JTAG port still works with chained
+</I>&gt;<i> &gt; ports (magically - I wasn't expecting openocd to be that clever). The
+</I>&gt;<i> &gt; svf command doesn't have that option so the svf probably shouldn't
+</I>&gt;<i> &gt; work. I need to re-arrange hardware in order to do the direct
+</I>&gt;<i> &gt; side-by-side single-port test and/or generate files for chained-port
+</I>&gt;<i> &gt; use.
+</I>&gt;<i> 
+</I>&gt;<i> Too bad; but understandable.  That was another reason to
+</I>&gt;<i> create XSVF, as I understand:   not just smaller programming
+</I>&gt;<i> files, but ones that didn't always need to be rewritten for
+</I>&gt;<i> each different scan chain.
+</I>
+Apparently. I see that SVF specifies a head and tail for the bypassed
+devices, whilst XSVF gives the whole bitfield every time. I don't
+yet understand why that is functionally different, as it seems to
+amount to the same thing. But I am only on page 14 out of 25 :-)
+ 
+&gt;<i> &gt; &gt; The deal is that until someone (maybe me) writes code
+</I>&gt;<i> &gt; &gt; to more or less morph sequences of XSTATE opcodes into
+</I>&gt;<i> &gt; &gt; a pathmove() command, the SVF code can do pathmoves
+</I>&gt;<i> &gt; &gt; while XSVF can't.
+</I>&gt;<i> &gt;
+</I>&gt;<i> &gt; OK. Could you elaborate a bit on why it used to work, but now the
+</I>&gt;<i> &gt; above is needed.
+</I>&gt;<i> 
+</I>&gt;<i> As I understand now -- I wasn't paying attention to this
+</I>&gt;<i> stuff back when this changed! -- the core issue is that
+</I>&gt;<i> the JTAG primitives we used back then got changed.
+</I>&gt;<i> 
+</I>&gt;<i> There are now basically two primitives for passing through
+</I>&gt;<i> the JTAG stage machine:  (a) statemove, which moves from
+</I>&gt;<i> one &quot;stable&quot; state to another using a standardized path,
+</I>&gt;<i> and (b) pathmove, which does so using a caller-specified
+</I>&gt;<i> series of transitions.
+</I>&gt;<i> 
+</I>&gt;<i> Previously, I think the &quot;between stable states&quot; constraint
+</I>&gt;<i> wasn't consistently enforced.  Ergo rude errors, and the
+</I>&gt;<i> change.  The issue with XSVF is that it expects either a
+</I>&gt;<i> flavor of (a) or else a third way to move, (c) from one
+</I>&gt;<i> state to an adjacent one.  That's sort of what statemove
+</I>&gt;<i> used to do, sometimes.
+</I>&gt;<i> 
+</I>&gt;<i> Thing is, that XSVF adjacent-states motion is used as an
+</I>&gt;<i> encoding shorthand for (b)... and I checked the xsvfdump
+</I>&gt;<i> output of your XSVF file, so you're not being a rude
+</I>&gt;<i> exception to such a rule.  In fact it looks like your file
+</I>&gt;<i> is mostly using it for (a) too ... if there's a config
+</I>&gt;<i> option not to expand the state transitions like that,
+</I>&gt;<i> you might not need this bug fixed yet.
+</I>
+Hmm, I can look in the webpack but this the 'standard' output so
+that's what I'd expect most people to be using. Interesting this is
+the exact opposite of what I thought the problem was (the xilinx XSVF
+is too detailed about the state transitions - I thought it was too
+vague (from openocd's point of view) :-)
+
+&gt;<i> So if I whack together a patch turning XSVF's (c) into
+</I>&gt;<i> the (b) which is supported, you could test it and maybe
+</I>&gt;<i> fix any goofs?
+</I>
+Yes, I think so (fighting chance at least).
+
+Wookey
+-- 
+Principal hats:  iEndian - Balloonboard - Toby Churchill - Emdebian
+<A HREF="http://wookware.org/">http://wookware.org/</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011708.html">[Openocd-development] [patch/rft] XSVF:	call	svf_add_statemove() as needed
+</A></li>
+	<LI>Next message: <A HREF="011723.html">[Openocd-development] [patch/rft] XSVF:	call	svf_add_statemove() as needed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11718">[ date ]</a>
+              <a href="thread.html#11718">[ thread ]</a>
+              <a href="subject.html#11718">[ subject ]</a>
+              <a href="author.html#11718">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

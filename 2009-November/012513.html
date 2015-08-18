@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 6/8] refactor	handle_nand_device_command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/8%5D%20refactor%0A%09handle_nand_device_command&In-Reply-To=%3C1258541816-15339-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012515.html">
+   <LINK REL="Next"  HREF="012514.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 6/8] refactor	handle_nand_device_command</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%206/8%5D%20refactor%0A%09handle_nand_device_command&In-Reply-To=%3C1258541816-15339-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 6/8] refactor	handle_nand_device_command">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 18 11:56:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012515.html">[Openocd-development] [PATCH 5/8] update 'flash bank' usage in	scripts
+</A></li>
+        <LI>Next message: <A HREF="012514.html">[Openocd-development] [PATCH 7/8] add support for naming NAND banks
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12513">[ date ]</a>
+              <a href="thread.html#12513">[ thread ]</a>
+              <a href="subject.html#12513">[ subject ]</a>
+              <a href="author.html#12513">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Move bulk of for-loop to a new static command helper function.
+
+Adds handle_nand_list_drivers command handler, registered as
+'nand drivers'.
+
+Improves command help text and error reporting.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/flash/nand.c |  130 +++++++++++++++++++++++++++---------------------------
+ 1 files changed, 65 insertions(+), 65 deletions(-)
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 01d7e67..a6f09ac 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -204,87 +204,87 @@ static struct nand_ecclayout nand_oob_64 = {
+ 		 .length = 38}}
+ };
+ 
+-/* nand device &lt;nand_controller&gt; [controller options]
+- */
+-COMMAND_HANDLER(handle_nand_device_command)
++COMMAND_HANDLER(handle_nand_list_drivers)
+ {
+-	int i;
+-	int retval;
++	command_print(CMD_CTX, &quot;Available NAND flash controller drivers:&quot;);
++	for (unsigned i = 0; nand_flash_controllers[i]; i++)
++		command_print(CMD_CTX, &quot;  %s&quot;, nand_flash_controllers[i]-&gt;name);
++	return ERROR_OK;
++}
+ 
+-	if (CMD_ARGC &lt; 1)
++static COMMAND_HELPER(create_nand_device,
++		struct nand_flash_controller *controller)
++{
++	int retval = controller-&gt;register_commands(CMD_CTX);
++	if (ERROR_OK != retval)
+ 	{
+-		LOG_WARNING(&quot;incomplete flash device nand configuration&quot;);
+-		return ERROR_FLASH_BANK_INVALID;
++		LOG_ERROR(&quot;couldn't register '%s' commands&quot;, controller-&gt;name);
++		return retval;
+ 	}
+ 
+-	for (i = 0; nand_flash_controllers[i]; i++)
+-	{
+-		struct nand_device *p, *c;
++	struct nand_device *c = malloc(sizeof(struct nand_device));
+ 
+-		if (strcmp(CMD_ARGV[0], nand_flash_controllers[i]-&gt;name) == 0)
+-		{
+-			/* register flash specific commands */
+-			if ((retval = nand_flash_controllers[i]-&gt;register_commands(CMD_CTX)) != ERROR_OK)
+-			{
+-				LOG_ERROR(&quot;couldn't register '%s' commands&quot;, CMD_ARGV[0]);
+-				return retval;
+-			}
++	c-&gt;controller = controller;
++	c-&gt;controller_priv = NULL;
++	c-&gt;manufacturer = NULL;
++	c-&gt;device = NULL;
++	c-&gt;bus_width = 0;
++	c-&gt;address_cycles = 0;
++	c-&gt;page_size = 0;
++	c-&gt;use_raw = 0;
++	c-&gt;next = NULL;
+ 
+-			c = malloc(sizeof(struct nand_device));
++	retval = CALL_COMMAND_HANDLER(controller-&gt;nand_device_command, c);
++	if (ERROR_OK != retval)
++	{
++		LOG_ERROR(&quot;'%s' driver rejected nand flash&quot;, controller-&gt;name);
++		free(c);
++		return ERROR_OK;
++	}
+ 
+-			c-&gt;controller = nand_flash_controllers[i];
+-			c-&gt;controller_priv = NULL;
+-			c-&gt;manufacturer = NULL;
+-			c-&gt;device = NULL;
+-			c-&gt;bus_width = 0;
+-			c-&gt;address_cycles = 0;
+-			c-&gt;page_size = 0;
+-			c-&gt;use_raw = 0;
+-			c-&gt;next = NULL;
++	if (nand_devices) {
++		struct nand_device *p = nand_devices;
++		while (p &amp;&amp; p-&gt;next) p = p-&gt;next;
++		p-&gt;next = c;
++	} else
++		nand_devices = c;
+ 
+-			retval = CALL_COMMAND_HANDLER(nand_flash_controllers[i]-&gt;nand_device_command, c);
+-			if (ERROR_OK != retval)
+-			{
+-				LOG_ERROR(&quot;'%s' driver rejected nand flash&quot;, c-&gt;controller-&gt;name);
+-				free(c);
+-				return ERROR_OK;
+-			}
+-
+-			/* put NAND device in linked list */
+-			if (nand_devices)
+-			{
+-				/* find last flash device */
+-				for (p = nand_devices; p &amp;&amp; p-&gt;next; p = p-&gt;next);
+-				if (p)
+-					p-&gt;next = c;
+-			}
+-			else
+-			{
+-				nand_devices = c;
+-			}
++	return ERROR_OK;
++}
+ 
+-			return ERROR_OK;
+-		}
++COMMAND_HANDLER(handle_nand_device_command)
++{
++	if (CMD_ARGC &lt; 1)
++	{
++		LOG_ERROR(&quot;incomplete nand device configuration&quot;);
++		return ERROR_FLASH_BANK_INVALID;
+ 	}
+ 
+-	/* no valid NAND controller was found (i.e. the configuration option,
+-	 * didn't match one of the compiled-in controllers)
+-	 */
+-	LOG_ERROR(&quot;No valid NAND flash controller found (%s)&quot;, CMD_ARGV[0]);
+-	LOG_ERROR(&quot;compiled-in NAND flash controllers:&quot;);
+-	for (i = 0; nand_flash_controllers[i]; i++)
++	const char *driver_name = CMD_ARGV[0];
++	for (unsigned i = 0; nand_flash_controllers[i]; i++)
+ 	{
+-		LOG_ERROR(&quot;%i: %s&quot;, i, nand_flash_controllers[i]-&gt;name);
++		struct nand_flash_controller *controller = nand_flash_controllers[i];
++		if (strcmp(driver_name, controller-&gt;name) != 0)
++			continue;
++
++		return CALL_COMMAND_HANDLER(create_nand_device, controller);
+ 	}
+ 
+-	return ERROR_OK;
++	LOG_ERROR(&quot;No valid NAND flash driver found (%s)&quot;, driver_name);
++	return CALL_COMMAND_HANDLER(handle_nand_list_drivers);
+ }
+ 
+ int nand_register_commands(struct command_context *cmd_ctx)
+ {
+-	nand_cmd = register_command(cmd_ctx, NULL, &quot;nand&quot;, NULL, COMMAND_ANY, &quot;NAND specific commands&quot;);
+-
+-	register_command(cmd_ctx, nand_cmd, &quot;device&quot;, handle_nand_device_command, COMMAND_CONFIG, NULL);
++	nand_cmd = register_command(cmd_ctx, NULL, &quot;nand&quot;,
++			NULL, COMMAND_ANY, &quot;NAND specific commands&quot;);
++
++	register_command(cmd_ctx, nand_cmd, &quot;device&quot;,
++			&amp;handle_nand_device_command, COMMAND_CONFIG,
++			&quot;defines a new NAND bank&quot;);
++	register_command(cmd_ctx, nand_cmd, &quot;drivers&quot;,
++			&amp;handle_nand_list_drivers, COMMAND_ANY,
++			&quot;lists available NAND drivers&quot;);
+ 
+ 	return ERROR_OK;
+ }
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012515.html">[Openocd-development] [PATCH 5/8] update 'flash bank' usage in	scripts
+</A></li>
+	<LI>Next message: <A HREF="012514.html">[Openocd-development] [PATCH 7/8] add support for naming NAND banks
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12513">[ date ]</a>
+              <a href="thread.html#12513">[ thread ]</a>
+              <a href="subject.html#12513">[ subject ]</a>
+              <a href="author.html#12513">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

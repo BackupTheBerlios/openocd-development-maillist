@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] NOR: invalidate cached state on	target resume
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%3A%20invalidate%20cached%20state%20on%0A%09target%20resume&In-Reply-To=%3C201003031323.12656.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015112.html">
+   <LINK REL="Next"  HREF="015116.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] NOR: invalidate cached state on	target resume</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%3A%20invalidate%20cached%20state%20on%0A%09target%20resume&In-Reply-To=%3C201003031323.12656.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] NOR: invalidate cached state on	target resume">david-b at pacbell.net
+       </A><BR>
+    <I>Wed Mar  3 22:23:12 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015112.html">[Openocd-development] [patch/rfc 0/4] ADIv5	transport-neutrality updates (for SWD)
+</A></li>
+        <LI>Next message: <A HREF="015116.html">[Openocd-development] Multi-Interface Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15122">[ date ]</a>
+              <a href="thread.html#15122">[ thread ]</a>
+              <a href="subject.html#15122">[ subject ]</a>
+              <a href="author.html#15122">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>The NOR infrastructure caches some per-sector state, but
+it's not used much ... because the cache is not trustworthy.
+
+This patch addresses one part of that problem, by ensuring
+that state cached by NOR drivers gets invalidated once we
+resume the target -- since targets may then modify sectors.
+
+Now if we see sector protection or erase status marked as
+anything other than &quot;unknown&quot;, we should be able to rely
+on that as being accurate.  (That is ... if we assume the
+drivers initialize and update this state correctly.)
+
+Another part of that problem is that the cached state isn't
+much used (being unreliable, it would have been unsafe).
+Those issues can be addressed in later patches.
+---
+Haven't merged this yet.  The effect should be slightly
+visible via &quot;flash protect_check&quot; and &quot;flash info&quot; commands;
+basically, once you resume, you'll need to protect_check
+again.
+
+I'm tempted to rename the new routine to &quot;nor_resume()&quot;
+to help nove a way from the bad &quot;all is NOR&quot; assumption...
+
+I'd like to merge this in a few days, to enable various bits of
+cleanup which would use the now-more-valid cached state to avoid
+needless and/or inappropriate flash ops, and finish fixing
+
+	<A HREF="http://sourceforge.net/apps/trac/openocd/ticket/11">http://sourceforge.net/apps/trac/openocd/ticket/11</A>
+
+ src/flash/nor/core.c |   31 +++++++++++++++++++++++++++++++
+ src/flash/nor/core.h |    3 +++
+ src/target/target.c  |    9 +++++++++
+ 3 files changed, 43 insertions(+)
+
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -657,3 +657,34 @@ int flash_write(struct target *target, s
+ {
+ 	return flash_write_unlock(target, image, written, erase, false);
+ }
++
++/**
++ * Invalidates cached flash state which a target can change as it runs.
++ *
++ * @param target The target being resumed
++ *
++ * OpenOCD caches some flash state for brief periods.  For example, a sector
++ * that is protected must be unprotected before OpenOCD tries to write it,
++ * Also, a sector that's not erased must be erased before it's written.
++ *
++ * As a rule, OpenOCD and target firmware can both modify the flash, so
++ * when a target starts running, OpenOCD needs invalidate its cached state.
++ */
++void flash_resume(struct target *target)
++{
++	struct flash_bank *bank;
++
++	for (bank = flash_banks; bank; bank = bank-&gt;next) {
++		int i;
++
++		if (bank-&gt;target != target)
++			continue;
++
++		for (i = 0; i &lt; bank-&gt;num_sectors; i++) {
++			struct flash_sector *sector = bank-&gt;sectors + i;
++
++			sector-&gt;is_erased = -1;
++			sector-&gt;is_protected = -1;
++		}
++	}
++}
+--- a/src/flash/nor/core.h
++++ b/src/flash/nor/core.h
+@@ -122,6 +122,9 @@ int flash_erase_address_range(struct tar
+  */
+ int flash_write(struct target *target,
+ 		struct image *image, uint32_t *written, int erase);
++
++void flash_resume(struct target *target);
++
+ /**
+  * Forces targets to re-examine their erase/protection state.
+  * This routine must be called when the system may modify the status.
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -35,6 +35,7 @@
+ 
+ #include &lt;helper/time_support.h&gt;
+ #include &lt;jtag/jtag.h&gt;
++#include &lt;flash/nor/core.h&gt;
+ 
+ #include &quot;target.h&quot;
+ #include &quot;target_type.h&quot;
+@@ -472,6 +473,14 @@ int target_resume(struct target *target,
+ 	if ((retval = target-&gt;type-&gt;resume(target, current, address, handle_breakpoints, debug_execution)) != ERROR_OK)
+ 		return retval;
+ 
++	/* Invalidate any cached protect/erase/... flash status, since
++	 * almost all targets will now be able modify the flash by
++	 * themselves.  We want flash drivers and infrastructure to
++	 * be able to rely on (non-invalidated) cached state.
++	 *
++	 * REVISIT do the same for NAND ; maybe other flash flavors too...
++	 */
++	flash_resume(target);
+ 	return retval;
+ }
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015112.html">[Openocd-development] [patch/rfc 0/4] ADIv5	transport-neutrality updates (for SWD)
+</A></li>
+	<LI>Next message: <A HREF="015116.html">[Openocd-development] Multi-Interface Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15122">[ date ]</a>
+              <a href="thread.html#15122">[ thread ]</a>
+              <a href="subject.html#15122">[ subject ]</a>
+              <a href="author.html#15122">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

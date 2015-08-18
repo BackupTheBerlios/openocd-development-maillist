@@ -1,0 +1,236 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%20FLASH%3A%20only%20erase/unlock%0A%09whole%20sectors&In-Reply-To=%3C200912241607.55822.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013798.html">
+   <LINK REL="Next"  HREF="013842.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch/rfc%5D%20NOR%20FLASH%3A%20only%20erase/unlock%0A%09whole%20sectors&In-Reply-To=%3C200912241607.55822.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Dec 25 01:07:55 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013798.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+        <LI>Next message: <A HREF="013842.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13825">[ date ]</a>
+              <a href="thread.html#13825">[ thread ]</a>
+              <a href="subject.html#13825">[ subject ]</a>
+              <a href="author.html#13825">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Tuesday 22 December 2009, Yegor Yefremov wrote:
+&gt;<i> flash write_image erase image.bin 0x1000 bin
+</I>&gt;<i> auto erase enabled
+</I>&gt;<i> address range 0x00001000 .. 0x000135d3 is not sector-aligned
+</I>&gt;<i> Command handler execution failed
+</I>
+The following patch should help in at least some cases;
+it doesn't insert sector pre-padding but does update the
+existing post-pad logic.
+
+- Dave
+
+========== CUT HERE
+From: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dbrownell at users.sourceforge.net</A>&gt;
+Subject:  NOR: make flash_write_unlock() pad to sector end
+
+Resolve a regression when using new automagic &quot;write_image&quot; modes,
+by always padding to the end of affected sectors.  Also:
+
+ - Allocate the right amount of memory on 64-bit hosts (previous
+   code could corrupt server memory), switching to calloc() to
+   simplify review and initialization.
+
+ - Document issues associated with the newish automagic options,
+   adding some code comments too.
+
+ - Fix syntax error:  wrote N &quot;bytes&quot;; writing a single byte is
+   an unusual case, not the normal one.
+
+We might need similar padding at the *beginning* of some sectors,
+but this is a minimalist fix for the problems which have currently
+been reported (plus that bug on 64-bit hosts, and doc fixes).
+---
+ doc/openocd.texi     |   25 +++++++++++++++++++++++--
+ src/flash/nor/core.c |   46 +++++++++++++++++++++++++++++++++++++++++++---
+ src/flash/nor/tcl.c  |    4 ++--
+ 3 files changed, 68 insertions(+), 7 deletions(-)
+
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -3797,8 +3797,29 @@ explicitly as @option{bin} (binary), @op
+ The relevant flash sectors will be erased prior to programming
+ if the @option{erase} parameter is given. If @option{unlock} is
+ provided, then the flash banks are unlocked before erase and
+-program. The flash bank to use is inferred from the @var{address} of
+-each image segment.
++program. The flash bank to use is inferred from the address of
++each image section.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at quotation</A> Warning
++Be careful using the @option{erase} flag when the flash is holding
++data you want to preserve.
++Portions of the flash outside those described in the image's
++sections might be erased with no notice.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A>
++When a section of the image being written does not fill out all the
++sectors it uses, the unwritten parts of those sectors are necessarily
++also erased, because sectors can't be partially erased.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at item</A>
++Data stored in sector &quot;holes&quot; between image sections is also affected.
++For example, &quot;@command{flash write_image erase ...}&quot; of an image with
++one byte at the beginning of a flash bank and one byte at the end
++erases the entire bank -- not just the two sectors being written.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> itemize
++Also, when flash protection is important, you must re-apply it after
++it has been removed by the @option{unlock} flag.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">+ at end</A> quotation
++
+ @end deffn
+ 
+ @section Other Flash commands
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -401,7 +401,7 @@ int flash_write_unlock(struct target *ta
+ 	}
+ 
+ 	/* allocate padding array */
+-	padding = malloc(image-&gt;num_sections * sizeof(padding));
++	padding = calloc(image-&gt;num_sections, sizeof(*padding));
+ 
+ 	/* loop until we reach end of the image */
+ 	while (section &lt; image-&gt;num_sections)
+@@ -439,9 +439,26 @@ int flash_write_unlock(struct target *ta
+ 		{
+ 			if (image-&gt;sections[section_last + 1].base_address &lt; (run_address + run_size))
+ 			{
+-				LOG_DEBUG(&quot;section %d out of order(very slightly surprising, but supported)&quot;, section_last + 1);
++				LOG_DEBUG(&quot;section %d out of order &quot;
++						&quot;(surprising, but supported)&quot;,
++						section_last + 1);
++				/* REVISIT this can break with autoerase ...
++				 * clobbering data after it's written.
++				 */
+ 				break;
+ 			}
++
++			/* REVISIT This needlessly touches sectors BETWEEN the
++			 * sections it's writing.  Without auto erase, it just
++			 * writes ones; unlikely to destroy data.
++			 *
++			 * With auto erase enabled, data in those sectors will
++			 * be needlessly destroyed; and some of the limited
++			 * number of flash erase cycles will be wasted.
++			 *
++			 * In both cases, the extra writes slow things down.
++			 */
++
+ 			/* if we have multiple sections within our image, flash programming could fail due to alignment issues
+ 			 * attempt to rebuild a consecutive buffer for the flash loader */
+ 			pad_bytes = (image-&gt;sections[section_last + 1].base_address) - (run_address + run_size);
+@@ -450,7 +467,6 @@ int flash_write_unlock(struct target *ta
+ 			padding[section_last] = pad_bytes;
+ 			run_size += image-&gt;sections[++section_last].size;
+ 			run_size += pad_bytes;
+-			padding[section_last] = 0;
+ 
+ 			LOG_INFO(&quot;Padding image section %d with %d bytes&quot;, section_last-1, pad_bytes);
+ 		}
+@@ -458,11 +474,35 @@ int flash_write_unlock(struct target *ta
+ 		/* fit the run into bank constraints */
+ 		if (run_address + run_size - 1 &gt; c-&gt;base + c-&gt;size - 1)
+ 		{
++			/* REVISIT isn't this superfluous, given the while()
++			 * loop conditions above??
++			 */
+ 			LOG_WARNING(&quot;writing %d bytes only - as image section is %d bytes and bank is only %d bytes&quot;, \
+ 				    (int)(c-&gt;base + c-&gt;size - run_address), (int)(run_size), (int)(c-&gt;size));
+ 			run_size = c-&gt;base + c-&gt;size - run_address;
+ 		}
+ 
++		/* If we're applying any sector automagic, then pad this
++		 * (maybe-combined) segment to the end of its last sector.
++		 */
++		if (unlock || erase) {
++			int sector;
++			uint32_t offset_start = run_address - c-&gt;base;
++			uint32_t offset_end = offset_start + run_size;
++			uint32_t end = offset_end, delta;
++
++			for (sector = 0; sector &lt; c-&gt;num_sectors; sector++) {
++				end = c-&gt;sectors[sector].offset
++						+ c-&gt;sectors[sector].size;
++				if (offset_end &lt;= end)
++					break;
++			}
++
++			delta = end - offset_end;
++			padding[section_last] += delta;
++			run_size += delta;
++		}
++
+ 		/* allocate buffer */
+ 		buffer = malloc(run_size);
+ 		buffer_size = 0;
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -439,7 +439,7 @@ COMMAND_HANDLER(handle_flash_write_image
+ 
+ 	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		command_print(CMD_CTX, &quot;wrote %&quot; PRIu32 &quot; byte from file %s &quot;
++		command_print(CMD_CTX, &quot;wrote %&quot; PRIu32 &quot; bytes from file %s &quot;
+ 				&quot;in %fs (%0.3f kb/s)&quot;, written, CMD_ARGV[0],
+ 				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, written));
+ 	}
+@@ -625,7 +625,7 @@ COMMAND_HANDLER(handle_flash_write_bank_
+ 
+ 	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		command_print(CMD_CTX, &quot;wrote %zu byte from file %s to flash bank %u&quot;
++		command_print(CMD_CTX, &quot;wrote %zu bytes from file %s to flash bank %u&quot;
+ 				&quot; at offset 0x%8.8&quot; PRIx32 &quot; in %fs (%0.3f kb/s)&quot;,
+ 				fileio.size, CMD_ARGV[1], p-&gt;bank_number, offset,
+ 				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, fileio.size));
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013798.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+	<LI>Next message: <A HREF="013842.html">[Openocd-development] [patch/rfc] NOR FLASH: only erase/unlock	whole sectors
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13825">[ date ]</a>
+              <a href="thread.html#13825">[ thread ]</a>
+              <a href="subject.html#13825">[ subject ]</a>
+              <a href="author.html#13825">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

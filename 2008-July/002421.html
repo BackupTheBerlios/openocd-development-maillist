@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] cortex support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20cortex%20support&In-Reply-To=%3CE1KFy9U-000G0G-0u%40smtp1.global.net.uk%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002418.html">
+   <LINK REL="Next"  HREF="002416.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] cortex support</H1>
+    <B>Spen</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20cortex%20support&In-Reply-To=%3CE1KFy9U-000G0G-0u%40smtp1.global.net.uk%3E"
+       TITLE="[Openocd-development] cortex support">spen at spen-soft.co.uk
+       </A><BR>
+    <I>Mon Jul  7 23:21:47 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002418.html">[Openocd-development] cortex support
+</A></li>
+        <LI>Next message: <A HREF="002416.html">[Openocd-development] cortex support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2421">[ date ]</a>
+              <a href="thread.html#2421">[ thread ]</a>
+              <a href="subject.html#2421">[ subject ]</a>
+              <a href="author.html#2421">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Duane,
+
+&gt;<i> Earlier I was asking about cortex support.
+</I>&gt;<i> 
+</I>&gt;<i> Spen pointed me here:
+</I>&gt;<i> 
+</I>&gt;<i> spen&gt; openocd contains a few hacks (define ARMV7_GDB_HACKS in
+</I>&gt;<i> spen&gt; armv7m.h) that makes mainlinegdb behave better with the
+</I>&gt;<i> spen&gt; v7 arch.
+</I>&gt;<i>
+</I>
+Sorry i have not had time to reply properly.
+ 
+&gt;<i> In other mail - 
+</I>&gt;<i> 
+</I>&gt;<i> SimonQian&gt; I am using IAR EWARM 5.11 with STM32, it support 
+</I>&gt;<i> OpenOCD. But 
+</I>&gt;<i> SimonQian&gt; ARMV7_GDB_HACKS in armv7m.h must be disabled. I 
+</I>&gt;<i> was told that 
+</I>&gt;<i> SimonQian&gt; GDB doesn't support Cortex chips.
+</I>&gt;<i> 
+</I>&gt;<i> I see no real reason why this should be a #DEFINE.
+</I>&gt;<i> 
+</I>&gt;<i> I propose:
+</I>&gt;<i> 
+</I>&gt;<i> (a)  a configuration command that lets one enable or disable this.
+</I>&gt;<i> 
+</I>&gt;<i> (b)  The default value should T.B.D.
+</I>&gt;<i> 
+</I>&gt;<i> Suggestions?
+</I>&gt;<i> 
+</I>
+The problem is a bit of a pain really.
+on one side we have mainline gdb that requires ARMV7_GDB_HACKS defining.
+
+codesoucery will behave fine after the correct target.xml is sent - see
+below
+iar works fine as long as ARMV7_GDB_HACKS is not defined.
+
+currently in openocd we do not send any target.xml files.
+when gdb connects it asks what do you support via the 'qSupported' packet.
+at the moment we only reply with the target memory map.
+
+I have attached a small patch that will send the correct armv7 target.xml
+file to codesoucery gdb.
+mainline will reject it as an unknown type - org.gnu.gdb.arm.core-v7m.
+Other target xml files can be found in the gdb/features directory.
+
+The grand plan is to always send the target.xml file for all targets, arm7,
+arm9 etc.
+The bonus is we can send other things such as peripheral registers.
+For all this to work you will need an xml enabled gdb - configure with
+--with-libexpat
+
+Just not had time lately to finish the support, you are welcome to have a
+look.
+You will notice that i also send the older fp registers to gdb - this would
+not normally be required.
+It is because openocd hardcodes the arm registers - this will have to become
+dynamic to fully support the target.xml stuff.
+
+do not attempt to send a target.xml file to insight - its a good way of
+locking it up.
+
+A option to replace the ARMV7_GDB_HACKS define may be the best solution.
+If only gdb gave a result back from the qXfer:features:read: packet this
+could be automatic.
+
+as for your debugging problems.
+I have attached a stm32 config that i use.
+one thing i would recommend on the cortex - make sure you set the entry
+point in the linker
+script, eg.
+ENTRY(ResetISR)
+
+gdb will otherwise assume 0, which happens to be the initial stack pointer -
+causes a bit of confusion.
+
+Cheers
+Spen
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: cortex_gdb.patch
+Type: application/octet-stream
+Size: 2646 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080707/c6e037b6/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080707/c6e037b6/attachment.obj</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: openocd.cfg
+Type: application/octet-stream
+Size: 1329 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080707/c6e037b6/attachment-0001.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080707/c6e037b6/attachment-0001.obj</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002418.html">[Openocd-development] cortex support
+</A></li>
+	<LI>Next message: <A HREF="002416.html">[Openocd-development] cortex support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2421">[ date ]</a>
+              <a href="thread.html#2421">[ thread ]</a>
+              <a href="subject.html#2421">[ subject ]</a>
+              <a href="author.html#2421">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

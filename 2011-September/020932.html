@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] jtag dependendy removed from	arm_adi_v5
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%20dependendy%20removed%20from%0A%09arm_adi_v5&In-Reply-To=%3CCAFYkXjnfQUnMs9f_82FsazrbqYRS16Y%2BogWUC345hzH9N9foLQ%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020931.html">
+   <LINK REL="Next"  HREF="020922.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] jtag dependendy removed from	arm_adi_v5</H1>
+    <B>Tomek CEDRO</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20jtag%20dependendy%20removed%20from%0A%09arm_adi_v5&In-Reply-To=%3CCAFYkXjnfQUnMs9f_82FsazrbqYRS16Y%2BogWUC345hzH9N9foLQ%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH] jtag dependendy removed from	arm_adi_v5">tomek.cedro at gmail.com
+       </A><BR>
+    <I>Sat Sep  3 13:56:36 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020931.html">[Openocd-development] [PATCH] jtag dependendy removed from	arm_adi_v5
+</A></li>
+        <LI>Next message: <A HREF="020922.html">[Openocd-development] [PATCH] jtag dependendy removed	from	arm_adi_v5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20932">[ date ]</a>
+              <a href="thread.html#20932">[ thread ]</a>
+              <a href="subject.html#20932">[ subject ]</a>
+              <a href="author.html#20932">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sat, Sep 3, 2011 at 11:08 AM, Sven Krauss &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">sven.krauss at web.de</A>&gt; wrote:
+&gt;<i> SWD will not work without patching the arm_adi_v5 file. You will get
+</I>&gt;<i> errors because of the direct calls to the jtag subsystem.
+</I>
+Hello Sven :-) This is why I suggested reorganization of source code
+to be more modular not jtag cntric and this is why transport layers is
+introduced :-)
+
+
+&gt;<i> I wrote my own driver for a SWD test. With this driver I can
+</I>&gt;<i> successfully read and write memory and control the core of a LPC1343 via
+</I>&gt;<i> openocd. For the moment it's a proof of concept driver. It's not as fast
+</I>&gt;<i> as I expected. Each transfer over usb hardware needs about 10ms. Next, I
+</I>&gt;<i> will try libusb instead of cdc-acm implementation.
+</I>
+You can design high-level API for high-level drivers, this is highly
+wanted at the moment, but let it be compatible with current swd work
+plz :-)
+
+&gt;<i> I had a closer look to your fork from openocd. In my opinion it's not a
+</I>&gt;<i> good idea doing the SWD bit disassembling in the transport layer. If you
+</I>&gt;<i> do this, the driver has no chance to optimise the performance. It has to
+</I>&gt;<i> be synchronous with the hardware. This means you write the 8 bit SWD
+</I>&gt;<i> header, then you read the 3 bit ack. With the value of the ack you can
+</I>&gt;<i> decide what to do. You need at least 4 USB transfers.
+</I>
+Take a closer look at queue mechanism in libswd - packets can be added
+with ENQUEUE and EXECUTE, so if the readback is necessary user pass
+EXECUTE otherwise ENQUEUE to minimalise traffic all queue is flushed
+at EXECUTE.
+
+
+&gt;<i> I think the driver should have the choice whether using you library or
+</I>&gt;<i> not. In my proof of concept driver I send the whole command queue to the
+</I>&gt;<i> uC with one USB transfer.
+</I>
+See above :-) Not all drivers must use libswd it was created to
+generate full bistream, however high level drivers, such as JLink
+according to the documentation also don't know the swd contructs
+itself so they propably also need to use lbswd. The problem you are
+describing is the efficiency problem no the API and it can be easily
+solved with EXECUTE/ENQUEUE.
+
+
+&gt;<i> What do you think about the extension of the command queue? I attached a
+</I>&gt;<i> patch file. The swd transport implementation sends one or more commands
+</I>&gt;<i> (ADI_AP_READ, ADI_AP_WRITE, ADI_DP_READ and ADI_DP_WRITE) through the
+</I>&gt;<i> existing queue and then calls jtag_execute_queue. The driver can decide
+</I>&gt;<i> if using the SWD library or not. In case of the ft2232 the library must
+</I>&gt;<i> be used. But for higher performances the debug hardware should implement
+</I>&gt;<i> the low level SWD protocol.
+</I>
+Uhm, this is more complicated and I have tried that way already and it
+failed, the current command queue is jtag centric and it depicts
+alternative way to using libswd and transport layer itself because it
+works on central queue not transport itself, so it will bring problems
+in future and make extensions harder to implement and integrate. I
+would rahter see driver to decide. Transport can be implemented as
+separate library (i.e. libswd) that can be used among other
+applications also can be implemented in hardware interfaces, but it
+should provide common api to the higher layers and no ingerention into
+higher layers should be made. The transport provide ap/dp_read/write
+functions in the namespace after transport initialization, in future I
+would see this part of big openocd context, but leaving internal queue
+for its own purposes.
+
+I can see following program structure:
+1. Board
+2. Target (i.e. adi_v5)
+3. Transport (i.e. swd)
+4. Interface Driver (i.e. ft2232, jlink,rlink, ...)
+
+Target calls the transport_ap/dp_read/write functions defined by
+transport layer and this performs operations on internal queue to be
+then flushed into driver using standard function set (char array
+read/write that it interface specific, single pin bitbang must be
+hardware dependent but must provide common api to the upper layers). I
+am working already in this direction and lots have been done (both in
+considerations and programming).
+
+I haven't seen a cable where u can ask it to perform AP_READ, but even
+if such cable exist we need better integration between transport and
+driver layer. Each element of the libswd queue has its type (a
+quantific designator for swd operation such as ack, request, data,
+parity, trn, ...). In this case we dond neet to place command payload
+only the information about the command, this is where your idea on
+queueing comes into action. I think we should place it in transport
+layer queue, because when we put it above then we can ommit the
+transport layer and so the program structure breaks down...
+
+I have provided void * witihin each &quot;transfer&quot; and &quot;bitbang&quot; driver
+members prototype, so a pointer to a transport queue can be passed and
+data can be analyzed in a way specific to a driver, not necessairly to
+read/write char array:
+
+int ft2232_transfer(void *device, int bits, char *mosidata, char
+*misodata, int nLSBfirst);
+
+As you can see this opens a door for dumb-forward-drivers such as
+ft2232 that needs to get payload to transfer, also for
+high-level-intelligent drivers that does not need to know the payload
+but only the command (also the command needs parameters so the payload
+is important) so the universal access with void * is provided. I would
+rather use it this way. The program structure is very important, for
+readability and extensibility in future with functionalities we now
+cannot predict (just as it was jtag centric and it was hard to
+implement swd). This organization is clean and elegant I think. When
+we start to mess transport beyond transport there is no need for
+transport :-)
+
+Also the description presented above can be the common API for bith
+high-level and low-level drivers..? I have already implemented this in
+dumb-driver ft2232 and also plan to do it with high-level rlink
+interface but there sooo many tasks on my head, it needs some time and
+I need a vacation ;-P
+
+
+Best regards! :-)
+Tomek Cedro
+
+
+
+-- 
+CeDeROM, SQ7MHZ, <A HREF="http://www.tomek.cedro.info">http://www.tomek.cedro.info</A>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020931.html">[Openocd-development] [PATCH] jtag dependendy removed from	arm_adi_v5
+</A></li>
+	<LI>Next message: <A HREF="020922.html">[Openocd-development] [PATCH] jtag dependendy removed	from	arm_adi_v5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20932">[ date ]</a>
+              <a href="thread.html#20932">[ thread ]</a>
+              <a href="subject.html#20932">[ subject ]</a>
+              <a href="author.html#20932">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

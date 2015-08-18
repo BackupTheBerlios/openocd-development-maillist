@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/2] target: are we running	algorithm code?
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20target%3A%20are%20we%20running%0A%09algorithm%20code%3F&In-Reply-To=%3C201004031857.04083.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015414.html">
+   <LINK REL="Next"  HREF="015416.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/2] target: are we running	algorithm code?</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/2%5D%20target%3A%20are%20we%20running%0A%09algorithm%20code%3F&In-Reply-To=%3C201004031857.04083.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/2] target: are we running	algorithm code?">david-b at pacbell.net
+       </A><BR>
+    <I>Sun Apr  4 03:57:03 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015414.html">[Openocd-development] [patch 1/2]simplify and unconfuse	target_run_algorithm()
+</A></li>
+        <LI>Next message: <A HREF="015416.html">[Openocd-development] [patch 0/2]
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15415">[ date ]</a>
+              <a href="thread.html#15415">[ thread ]</a>
+              <a href="subject.html#15415">[ subject ]</a>
+              <a href="author.html#15415">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>ixing one bug can easily uncover another  .... in this case,
+making sure that we properly invalidate some cached NOR state when
+resuming arbitrary target code turned up an issue when the code
+wasn't quite arbitrary (and we couldn't know that, but some parts
+of OpenOCD assumed the cache would not be invalidated.
+
+Specifically:  some flash drivers (like CFI) update that state in loops
+with downloaded algorithms, thus invalidating the state as it's probed.
+
+ + Add a new target state flag, to record whether the target is
+  running downloaded algorithm code.
+
+ + Use that flag to add a special case:  &quot;trust&quot; downloaded algorithms
+   not to corrupt that cached state, bypassing cache invalidation.
+   
+   
+---
+ src/target/target.c |    9 ++++++++-
+ src/target/target.h |    8 ++++++++
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -478,9 +478,14 @@ int target_resume(struct target *target,
+ 	 * themselves.  We want flash drivers and infrastructure to
+ 	 * be able to rely on (non-invalidated) cached state.
+ 	 *
++	 * For now we require that algorithms provided by OpenOCD are
++	 * used only by code which properly maintains that  cached state.
++	 * state
++	 *
+ 	 * REVISIT do the same for NAND ; maybe other flash flavors too...
+ 	 */
+-	nor_resume(target);
++		if (!target-&gt;running_alg)
++		nor_resume(target);
+ 	return retval;
+ }
+ 
+@@ -659,10 +664,12 @@ int target_run_algorithm(struct target *
+ 		goto done;
+ 	}
+ 
++	target-&gt;running_alg = true;
+ 	retval = target-&gt;type-&gt;run_algorithm(target,
+ 			num_mem_params, mem_params,
+ 			num_reg_params, reg_param,
+ 			entry_point, exit_point, timeout_ms, arch_info);
++	target-&gt;running_alg = false;
+ 
+ done:
+ 	return retval;
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -117,6 +117,14 @@ struct target
+ 	 */
+ 	bool examined;
+ 
++	/** true iff the  target is currently running a downloaded
++	 *  &quot;algorithm&quot; instetad of arbitrary user code.  OpenOCD code
++	 *  invoking algorithms is trusted to maintain correctness of
++	 *  any cached state (e.g. for flash status), which arbitrary
++	 *  code will have no reason to know about.
++	 */
++	bool running_alg;
++
+ 	struct target_event_action *event_action;
+ 
+ 	int reset_halt;						/* attempt resetting the CPU into the halted mode? */
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015414.html">[Openocd-development] [patch 1/2]simplify and unconfuse	target_run_algorithm()
+</A></li>
+	<LI>Next message: <A HREF="015416.html">[Openocd-development] [patch 0/2]
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15415">[ date ]</a>
+              <a href="thread.html#15415">[ thread ]</a>
+              <a href="subject.html#15415">[ subject ]</a>
+              <a href="author.html#15415">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,285 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 06/11] improve str_to_buf and	buf_to_str helpers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2006/11%5D%20improve%20str_to_buf%20and%0A%09buf_to_str%20helpers&In-Reply-To=%3C1258226054-31631-7-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012364.html">
+   <LINK REL="Next"  HREF="012329.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 06/11] improve str_to_buf and	buf_to_str helpers</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2006/11%5D%20improve%20str_to_buf%20and%0A%09buf_to_str%20helpers&In-Reply-To=%3C1258226054-31631-7-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 06/11] improve str_to_buf and	buf_to_str helpers">zw at superlucidity.net
+       </A><BR>
+    <I>Sat Nov 14 20:14:09 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012364.html">[Openocd-development] [PATCH 05/11] bitbuffer: move variables to point of first use
+</A></li>
+        <LI>Next message: <A HREF="012329.html">[Openocd-development] [PATCH 07/11] improve buf_cmp and	buf_cmp_mask helpers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12333">[ date ]</a>
+              <a href="thread.html#12333">[ thread ]</a>
+              <a href="subject.html#12333">[ subject ]</a>
+              <a href="author.html#12333">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Improve types: use void * and unsigned.  Move all variables to point of
+first use.  Move radix guessing logic to new str_radix_guess helper.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/helper/binarybuffer.c |  126 +++++++++++++++++++++++----------------------
+ src/helper/binarybuffer.h |    6 +-
+ 2 files changed, 67 insertions(+), 65 deletions(-)
+
+diff --git a/src/helper/binarybuffer.c b/src/helper/binarybuffer.c
+index 95e084e..0def948 100644
+--- a/src/helper/binarybuffer.c
++++ b/src/helper/binarybuffer.c
+@@ -169,43 +169,36 @@ int ceil_f_to_u32(float x)
+ 	return y;
+ }
+ 
+-char* buf_to_str(const uint8_t *buf, int buf_len, int radix)
++char* buf_to_str(const void *_buf, unsigned buf_len, unsigned radix)
+ {
+-	const char *DIGITS = &quot;0123456789ABCDEF&quot;;
+ 	float factor;
+-	char *str;
+-	int str_len;
+-	int b256_len = CEIL(buf_len, 8);
+-	uint32_t tmp;
+-
+-	int j; /* base-256 digits */
+-	int i; /* output digits (radix) */
+-
+-	if (radix == 16)
+-	{
++	switch (radix) {
++	case 16:
+ 		factor = 2.0;   /* log(256) / log(16) = 2.0 */
+-	}
+-	else if (radix == 10)
+-	{
++		break;
++	case 10:
+ 		factor = 2.40824;   /* log(256) / log(10) = 2.40824 */
+-	}
+-	else if (radix == 8)
+-	{
++		break;
++	case 8:
+ 		factor = 2.66667;	/* log(256) / log(8) = 2.66667 */
+-	}
+-	else
++		break;
++	default:
+ 		return NULL;
++	}
+ 
+-	str_len = ceil_f_to_u32(CEIL(buf_len, 8) * factor);
+-	str = calloc(str_len + 1, 1);
++	unsigned str_len = ceil_f_to_u32(CEIL(buf_len, 8) * factor);
++	char *str = calloc(str_len + 1, 1);
+ 
+-	for (i = b256_len - 1; i &gt;= 0; i--)
++	const uint8_t *buf = _buf;
++	int b256_len = CEIL(buf_len, 8);
++	for (int i = b256_len - 1; i &gt;= 0; i--)
+ 	{
+-		tmp = buf[i];
+-		if ((i == (buf_len / 8)) &amp;&amp; (buf_len % 8))
++		uint32_t tmp = buf[i];
++		if (((unsigned)i == (buf_len / 8)) &amp;&amp; (buf_len % 8))
+ 			tmp &amp;= (0xff &gt;&gt; (8 - (buf_len % 8)));
+ 
+-		for (j = str_len; j &gt; 0; j--)
++		/* base-256 digits */
++		for (unsigned j = str_len; j &gt; 0; j--)
+ 		{
+ 			tmp += (uint32_t)str[j-1] * 256;
+ 			str[j-1] = (uint8_t)(tmp % radix);
+@@ -213,44 +206,49 @@ char* buf_to_str(const uint8_t *buf, int buf_len, int radix)
+ 		}
+ 	}
+ 
+-	for (j = 0; j &lt; str_len; j++)
++	const char *DIGITS = &quot;0123456789ABCDEF&quot;;
++	for (unsigned j = 0; j &lt; str_len; j++)
+ 		str[j] = DIGITS[(int)str[j]];
+ 
+ 	return str;
+ }
+ 
+-int str_to_buf(const char *str, int str_len, uint8_t *buf, int buf_len, int radix)
++/// identify radix, and skip radix-prefix (0, 0x or 0X)
++static void str_radix_guess(const char **_str, unsigned *_str_len,
++		unsigned *_radix)
+ {
+-	char *charbuf;
+-	uint32_t tmp;
+-	float factor;
+-	uint8_t *b256_buf;
+-	int b256_len;
+-
+-	int j; /* base-256 digits */
+-	int i; /* input digits (ASCII) */
+-
+-	if (radix == 0)
++	unsigned radix = *_radix;
++	if (0 != radix)
++		return;
++	const char *str = *_str;
++	unsigned str_len = *_str_len;	
++	if (str[0] == '0' &amp;&amp; (str[1] == 'x' || str[1] == 'X'))
+ 	{
+-		/* identify radix, and skip radix-prefix (0, 0x or 0X) */
+-		if ((str[0] == '0') &amp;&amp; (str[1] &amp;&amp; ((str[1] == 'x') || (str[1] == 'X'))))
+-		{
+-			radix = 16;
+-			str += 2;
+-			str_len -= 2;
+-		}
+-		else if ((str[0] == '0') &amp;&amp; (str_len != 1))
+-		{
+-			radix = 8;
+-			str += 1;
+-			str_len -= 1;
+-		}
+-		else
+-		{
+-			radix = 10;
+-		}
++		radix = 16;
++		str += 2;
++		str_len -= 2;
+ 	}
++	else if ((str[0] == '0') &amp;&amp; (str_len != 1))
++	{
++		radix = 8;
++		str += 1;
++		str_len -= 1;
++	}
++	else
++	{
++		radix = 10;
++	}
++	*_str = str;
++	*_str_len = str_len;
++	*_radix = radix;
++}
++
++int str_to_buf(const char *str, unsigned str_len,
++		void *_buf, unsigned buf_len, unsigned radix)
++{
++	str_radix_guess(&amp;str, &amp;str_len, &amp;radix);
+ 
++	float factor;
+ 	if (radix == 16)
+ 		factor = 0.5; /* log(16) / log(256) = 0.5 */
+ 	else if (radix == 10)
+@@ -261,18 +259,20 @@ int str_to_buf(const char *str, int str_len, uint8_t *buf, int buf_len, int radi
+ 		return 0;
+ 
+ 	/* copy to zero-terminated buffer */
+-	charbuf = malloc(str_len + 1);
++	char *charbuf = malloc(str_len + 1);
+ 	memcpy(charbuf, str, str_len);
+ 	charbuf[str_len] = '\0';
+ 
+ 	/* number of digits in base-256 notation */
+-	b256_len = ceil_f_to_u32(str_len * factor);
+-	b256_buf = calloc(b256_len, 1);
++	unsigned b256_len = ceil_f_to_u32(str_len * factor);
++	uint8_t *b256_buf = calloc(b256_len, 1);
+ 
+ 	/* go through zero terminated buffer */
++	/* input digits (ASCII) */
++	unsigned i;
+ 	for (i = 0; charbuf[i]; i++)
+ 	{
+-		tmp = charbuf[i];
++		uint32_t tmp = charbuf[i];
+ 		if ((tmp &gt;= '0') &amp;&amp; (tmp &lt;= '9'))
+ 			tmp = (tmp - '0');
+ 		else if ((tmp &gt;= 'a') &amp;&amp; (tmp &lt;= 'f'))
+@@ -281,10 +281,11 @@ int str_to_buf(const char *str, int str_len, uint8_t *buf, int buf_len, int radi
+ 			tmp = (tmp - 'A' + 10);
+ 		else continue;	/* skip characters other than [0-9,a-f,A-F] */
+ 
+-		if (tmp &gt;= (uint32_t)radix)
++		if (tmp &gt;= radix)
+ 			continue;	/* skip digits invalid for the current radix */
+ 
+-		for (j = 0; j &lt; b256_len; j++)
++		/* base-256 digits */
++		for (unsigned j = 0; j &lt; b256_len; j++)
+ 		{
+ 			tmp += (uint32_t)b256_buf[j] * radix;
+ 			b256_buf[j] = (uint8_t)(tmp &amp; 0xFF);
+@@ -293,7 +294,8 @@ int str_to_buf(const char *str, int str_len, uint8_t *buf, int buf_len, int radi
+ 
+ 	}
+ 
+-	for (j = 0; j &lt; CEIL(buf_len, 8); j++)
++	uint8_t *buf = _buf;
++	for (unsigned j = 0; j &lt; CEIL(buf_len, 8); j++)
+ 	{
+ 		if (j &lt; b256_len)
+ 			buf[j] = b256_buf[j];
+diff --git a/src/helper/binarybuffer.h b/src/helper/binarybuffer.h
+index 400cbbe..4905007 100644
+--- a/src/helper/binarybuffer.h
++++ b/src/helper/binarybuffer.h
+@@ -79,9 +79,9 @@ uint8_t* buf_set_ones(uint8_t *buf, int count);
+ uint8_t* buf_set_buf(const uint8_t *src, int src_start,
+ 		uint8_t *dst, int dst_start, int len);
+ 
+-int str_to_buf(const char *str, int len,
+-		uint8_t *bin_buf, int buf_size, int radix);
+-char* buf_to_str(const uint8_t *buf, int size, int radix);
++int str_to_buf(const char *str, unsigned len,
++		void *bin_buf, unsigned buf_size, unsigned radix);
++char* buf_to_str(const void *buf, unsigned size, unsigned radix);
+ 
+ #define CEIL(m, n)	(((m) + (n) - 1) / (n))
+ 
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012364.html">[Openocd-development] [PATCH 05/11] bitbuffer: move variables to point of first use
+</A></li>
+	<LI>Next message: <A HREF="012329.html">[Openocd-development] [PATCH 07/11] improve buf_cmp and	buf_cmp_mask helpers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12333">[ date ]</a>
+              <a href="thread.html#12333">[ thread ]</a>
+              <a href="subject.html#12333">[ subject ]</a>
+              <a href="author.html#12333">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

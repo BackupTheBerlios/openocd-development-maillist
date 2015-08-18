@@ -1,0 +1,273 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [PATCH 2/3] ARM semihosting: add ARMv7M semihosting support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%202/3%5D%20ARM%20semihosting%3A%20add%20ARMv7M%20semihosting%20support&In-Reply-To=%3Cmailman.111.1331735955.7537.openocd-development%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014555.html">
+   <LINK REL="Next"  HREF="014554.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[PATCH 2/3] ARM semihosting: add ARMv7M semihosting support</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BPATCH%202/3%5D%20ARM%20semihosting%3A%20add%20ARMv7M%20semihosting%20support&In-Reply-To=%3Cmailman.111.1331735955.7537.openocd-development%40lists.berlios.de%3E"
+       TITLE="[PATCH 2/3] ARM semihosting: add ARMv7M semihosting support">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Tue Feb  2 14:07:28 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014555.html">[PATCH 1/3] ARM semihosting: split do_semihosting
+</A></li>
+        <LI>Next message: <A HREF="014554.html">[Openocd-development] [PATCH 1/3] ARM semihosting: split	do_semihosting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14557">[ date ]</a>
+              <a href="thread.html#14557">[ thread ]</a>
+              <a href="subject.html#14557">[ subject ]</a>
+              <a href="author.html#14557">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Add ARMv7M support to current arm semihosting implementation.
+
+armv7m_arch_state will now show semihosting status.
+
+CortexM3 semihosting command added.
+
+Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">ntfreak at users.sourceforge.net</A>&gt;
+---
+ src/target/arm_semihosting.c |   47 ++++++++++++++++++++++++++++++++++++++++++
+ src/target/arm_semihosting.h |    1 +
+ src/target/armv7m.c          |    8 +++---
+ src/target/armv7m.h          |    1 +
+ src/target/cortex_m3.c       |   44 ++++++++++++++++++++++++++++++++++++++-
+ 5 files changed, 96 insertions(+), 5 deletions(-)
+
+diff --git a/src/target/arm_semihosting.c b/src/target/arm_semihosting.c
+index 438084e..9c4a3ce 100644
+--- a/src/target/arm_semihosting.c
++++ b/src/target/arm_semihosting.c
+@@ -39,6 +39,8 @@
+ 
+ #include &quot;arm.h&quot;
+ #include &quot;armv4_5.h&quot;
++#include &quot;armv7m.h&quot;
++#include &quot;cortex_m3.h&quot;
+ #include &quot;register.h&quot;
+ #include &quot;arm_semihosting.h&quot;
+ #include &lt;helper/binarybuffer.h&gt;
+@@ -494,5 +496,50 @@ int armv4_5_semihosting(struct target *target, int *retval)
+ 	return 1;
+ }
+ 
++int armv7m_semihosting(struct target *target, int *retval)
++{
++	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
++	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
++	uint32_t pc;
++	struct reg *r;
++	uint16_t insn;
++	int result;
++
++	if (!armv7m-&gt;semi_hosting_info.is_semihosting)
++		return 0;
++
++	if (target-&gt;debug_reason != DBG_REASON_BREAKPOINT)
++		return 0;
++
++	r = &amp;armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PC];
++	pc = buf_get_u32(r-&gt;value, 0, 32);
++
++	pc &amp;= ~1;
++	*retval = target_read_u16(target, pc, &amp;insn);
++	if (*retval != ERROR_OK)
++		return 1;
++
++	/* bkpt 0xAB */
++	if (insn != 0xBEAB)
++		return 0;
++
++	*retval = do_semihosting(target,
++			buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[0].value, 0, 32),
++			buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[1].value, 0, 32),
++			&amp;armv7m-&gt;semi_hosting_info,
++			&amp;result);
++
++	if (*retval != ERROR_OK)
++		return 1;
++
++	/* resume execution, this will be pc+2 to skip over the
++	 * bkpt instruction */
++
++	/* return result in R0 */
++	buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[0].value, 0, 32, result);
++	armv7m-&gt;core_cache-&gt;reg_list[0].dirty = 1;
++
++	*retval = target_resume(target, 1, 0, 0, 0);
++
+ 	return 1;
+ }
+diff --git a/src/target/arm_semihosting.h b/src/target/arm_semihosting.h
+index c7c992b..bc308e5 100644
+--- a/src/target/arm_semihosting.h
++++ b/src/target/arm_semihosting.h
+@@ -31,5 +31,6 @@ struct arm_semi_hosting {
+ };
+ 
+ int armv4_5_semihosting(struct target *target, int *retval);
++int armv7m_semihosting(struct target *target, int *retval);
+ 
+ #endif
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index edfcdf9..c6efe51 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -473,20 +473,20 @@ int armv7m_run_algorithm(struct target *target,
+ int armv7m_arch_state(struct target *target)
+ {
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	uint32_t ctrl, sp;
++	uint32_t ctrl;
+ 
+ 	ctrl = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].value, 0, 32);
+-	sp = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_R13].value, 0, 32);
+ 
+ 	LOG_USER(&quot;target halted due to %s, current mode: %s %s\n&quot;
+-		&quot;xPSR: %#8.8&quot; PRIx32 &quot; pc: %#8.8&quot; PRIx32 &quot; %csp: %#8.8&quot; PRIx32,
++		&quot;xPSR: %#8.8&quot; PRIx32 &quot; pc: %#8.8&quot; PRIx32 &quot; %csp: %#8.8&quot; PRIx32 &quot;%s&quot;,
+ 		debug_reason_name(target),
+ 		armv7m_mode_strings[armv7m-&gt;core_mode],
+ 		armv7m_exception_string(armv7m-&gt;exception_number),
+ 		buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32),
+ 		buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PC].value, 0, 32),
+ 		(ctrl &amp; 0x02) ? 'p' : 'm',
+-		sp);
++		buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_R13].value, 0, 32),
++		armv7m-&gt;semi_hosting_info.is_semihosting ? &quot;, semihosting&quot; : &quot;&quot;);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/armv7m.h b/src/target/armv7m.h
+index 9787e30..d470507 100644
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -105,6 +105,7 @@ struct armv7m_common
+ 	enum armv7m_mode core_mode;
+ 	int exception_number;
+ 	struct swjdp_common swjdp_info;
++	struct arm_semi_hosting semi_hosting_info;
+ 
+ 	uint32_t demcr;
+ 
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 3f34769..b77f578 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -38,7 +38,7 @@
+ #include &quot;arm_disassembler.h&quot;
+ #include &quot;register.h&quot;
+ #include &quot;arm_opcodes.h&quot;
+-
++#include &quot;arm_semihosting.h&quot;
+ 
+ /* NOTE:  most of this should work fine for the Cortex-M1 and
+  * Cortex-M0 cores too, although they're ARMv6-M not ARMv7-M.
+@@ -464,6 +464,9 @@ static int cortex_m3_poll(struct target *target)
+ 			if ((retval = cortex_m3_debug_entry(target)) != ERROR_OK)
+ 				return retval;
+ 
++			if (armv7m_semihosting(target, &amp;retval) != 0)
++				return retval;
++
+ 			target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+ 		}
+ 		if (prev_target_state == TARGET_DEBUG_RUNNING)
+@@ -2025,6 +2028,38 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(handle_cortex_m3_semihosting_command)
++{
++	struct target *target = get_current_target(CMD_CTX);
++	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
++	int retval;
++
++	retval = cortex_m3_verify_pointer(CMD_CTX, cortex_m3);
++	if (retval != ERROR_OK)
++		return retval;
++
++	if (CMD_ARGC &gt; 0)
++	{
++		int semihosting;
++
++		COMMAND_PARSE_ENABLE(CMD_ARGV[0], semihosting);
++
++		if (!target_was_examined(target))
++		{
++			LOG_ERROR(&quot;Target not examined yet&quot;);
++			return ERROR_FAIL;
++		}
++
++		cortex_m3-&gt;armv7m.semi_hosting_info.is_semihosting = semihosting;
++	}
++
++	command_print(CMD_CTX, &quot;semihosting is %s&quot;,
++			cortex_m3-&gt;armv7m.semi_hosting_info.is_semihosting
++			? &quot;enabled&quot; : &quot;disabled&quot;);
++
++	return ERROR_OK;
++}
++
+ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 	{
+ 		.name = &quot;disassemble&quot;,
+@@ -2047,6 +2082,13 @@ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 		.help = &quot;configure hardware vectors to trigger debug entry&quot;,
+ 		.usage = &quot;['all'|'none'|('bus_err'|'chk_err'|...)*]&quot;,
+ 	},
++	{
++		.name = &quot;semihosting&quot;,
++		.handler = handle_cortex_m3_semihosting_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;activate support for semihosting operations&quot;,
++		.usage = &quot;['enable'|'disable']&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ static const struct command_registration cortex_m3_command_handlers[] = {
+-- 
+1.6.5.1.1367.gcd48
+
+
+--------------000503090604030306070703--
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014555.html">[PATCH 1/3] ARM semihosting: split do_semihosting
+</A></li>
+	<LI>Next message: <A HREF="014554.html">[Openocd-development] [PATCH 1/3] ARM semihosting: split	do_semihosting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14557">[ date ]</a>
+              <a href="thread.html#14557">[ thread ]</a>
+              <a href="subject.html#14557">[ subject ]</a>
+              <a href="author.html#14557">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

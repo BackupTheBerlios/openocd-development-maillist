@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] (patch) Change target script for LPC2478
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%28patch%29%20Change%20target%20script%20for%20LPC2478&In-Reply-To=%3C4CFA3B41.7020106%40yahoo.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="017454.html">
+   <LINK REL="Next"  HREF="017459.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] (patch) Change target script for LPC2478</H1>
+    <B>Rolf Meeser</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%28patch%29%20Change%20target%20script%20for%20LPC2478&In-Reply-To=%3C4CFA3B41.7020106%40yahoo.de%3E"
+       TITLE="[Openocd-development] (patch) Change target script for LPC2478">rolfm_9dq at yahoo.de
+       </A><BR>
+    <I>Sat Dec  4 13:59:45 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="017454.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+        <LI>Next message: <A HREF="017459.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17458">[ date ]</a>
+              <a href="thread.html#17458">[ thread ]</a>
+              <a href="subject.html#17458">[ subject ]</a>
+              <a href="author.html#17458">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Definitely my last post on this thread.
+
+On 12/04/2010 12:33 PM, Freddie Chopin wrote:
+&gt;<i> On 2010-12-04 12:05, Rolf Meeser wrote:
+</I>&gt;&gt;&gt;<i> When doing &quot;reset halt&quot; (which would halt the chip immediately after
+</I>&gt;&gt;&gt;<i> reset) the clock would be 4MHz.
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i> Wrong. I've explained that often enough.
+</I>&gt;<i>
+</I>&gt;<i> So you say that after reset and immediate halt the chip clock (for new 
+</I>&gt;<i> LPCs) is not 4MHz? Are you working for NXP and do you know something 
+</I>&gt;<i> that's not public? Because the manuals say something different than 
+</I>&gt;<i> you. Bootloader has nothing to do with it, as &quot;reset halt&quot; will 
+</I>&gt;<i> prevent it from running and changing anything.
+</I>&gt;<i>
+</I>One last time. OpenOCD cannot halt an LPC2000 immediately after reset. 
+It must let the CPU run, then try to gain control over the CPU as fast 
+as possible. How fast it can do that depends on the JTAG clock and on 
+delay settings.
+By the time OpenOCD has taken control, the CPU may have entered ISP mode 
+(it does that if the flash contains no user firmware). In that case the 
+clock will be 14.748 MHz, and not 4 MHz anymore. If there is valid user 
+firmware, this firmware may have set the PLL to any value you like, 
+leaving you with an unknown clock frequency.
+
+This process is not under your control. The only possible conclusion is 
+that you cannot have knowledge of the CPU frequency even after reset halt.
+
+As a side note: This is the reason why PLL initialization of an LPC2000 
+device should first disconnect and disable the PLL before it 
+configures/starts/connects it again. If the device runs standalone, this 
+step is unnecessary (the PLL is off after reset). However, if you debug 
+the application via JTAG, things are different: Your JTAG box may not be 
+able to stop the CPU before the firmware starts the PLL. The debugger 
+will then just set the program counter to 0, so that it *appears* to be 
+the reset state. But it isn't. Running PLL initialization again on the 
+now already connected PLL will let your system crash.
+
+That's a fact which you should accept. Not only because I do indeed work 
+for NXP.
+
+&gt;&gt;&gt;<i> Indeed - older LPCs don't work this way, because there is no internal
+</I>&gt;&gt;&gt;<i> oscillator. So why change lpc2478.cfg that CAN work with default
+</I>&gt;&gt;&gt;<i> value, and leave all older files that CAN'T?
+</I>&gt;&gt;&gt;<i>
+</I>&gt;&gt;<i> No, the lpc2478.cfg *CANNOT* work with a default, because there is none.
+</I>&gt;<i>
+</I>&gt;<i> You say there is none, I say there is. There's no way we can agree.
+</I>&gt;<i>
+</I>If you follow the arguments above about clock frequency uncertainty, 
+then with all due respect you cannot but agree :-)
+
+
+&gt;&gt;<i> lpc2103.cfg: The clock frequency is hard-coded as 12 MHz.
+</I>&gt;&gt;<i> So you're saying is that anybody using crystals of 10, 14.756, 16,
+</I>&gt;&gt;<i> 18.432, 20, 24 MHz has to accept that flashing won't work for him?
+</I>&gt;&gt;<i> Just because you don't mind failures here and then?
+</I>&gt;<i>
+</I>&gt;<i> Obviously this device cannot be used with 14.765 crystal because 
+</I>&gt;<i> LPC2148 also cannot (see your paragraph above) - I don't know why is 
+</I>&gt;<i> that, but if you say so...
+</I>&gt;<i>
+</I>I haven't said so.
+
+I said that nobody will do it. The LPC2148 will only be used by people 
+who want USB. That requires a 12 MHz crystal, 14.756 MHz will not work. 
+Besides the general nonsense of default frequencies in all these files, 
+I took this as an outstanding example of a config file that will fit 
+*ZERO* real world applications.
+
+
+&gt;<i> Changing these 5 numbers is pretty straightforward and people do that 
+</I>&gt;<i> (as OpenOCD works for them). I do. And are you saying that programming 
+</I>&gt;<i> flash with wrong speed causes it to fail LATER? Again - do you have 
+</I>&gt;<i> some secret knowledge from NXP that general public doesn't?
+</I>You do not want to write a 3-line board file to describe your 
+application, but you do accept having to modify predefined files, with 
+the risk that they get overwritten next time you update OpenOCD?
+Are you teasing me?
+
+This is not the place to teach you about flash technology. Just a simple 
+reminder: Flash is an analog component. Not applying a proper 
+programming pulse will leave a cell charged at only say 30%. Every flash 
+cell loses charge over time, but while the correctly handled cell keeps 
+its charge for 20 years, the incorrectly handled cell may already fail 
+after a few months.
+
+&gt;<i> Yes, this must be plain wrong, and you must be plain right, as the 
+</I>&gt;<i> world is black and white. Ease of use does not matter, the most 
+</I>&gt;<i> important thing is to be ultra-correct with everything. Do you 
+</I>&gt;<i> actually care about the users, or maybe you're affiliated with Keil or 
+</I>&gt;<i> IAR and your goal is to make using OpenOCD harder? 
+</I>Let me quote Sergeant Hartman:
+&quot;What is your major malfunction?&quot;
+
+&gt;<i> Really - your change does nothing more than make OpenOCD harder to 
+</I>&gt;<i> use, as everyone could change that frequency before that (and they 
+</I>&gt;<i> did, as people were using OpenOCD successfully with those chips for a 
+</I>&gt;<i> long time), but to do that no additional file was required.
+</I>&gt;<i>
+</I>&gt;<i> Again (and again) - default (whatever they may or may not be) values 
+</I>&gt;<i> with warning for ALL LPC config files are GOOD. Adding &quot;board&quot; files 
+</I>&gt;<i> with such default value is exactly the same as leaving default value 
+</I>&gt;<i> inside target files. You loose nothing, we gain easy use and we are 
+</I>&gt;<i> warned that this may fail in some way or another.
+</I>&gt;<i>
+</I>I'm sorry, but the fact that you don't use anything but 12 MHz crystals 
+should not give direction for others.
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="017454.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+	<LI>Next message: <A HREF="017459.html">[Openocd-development] (patch) Change target script for LPC2478
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#17458">[ date ]</a>
+              <a href="thread.html#17458">[ thread ]</a>
+              <a href="subject.html#17458">[ subject ]</a>
+              <a href="author.html#17458">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

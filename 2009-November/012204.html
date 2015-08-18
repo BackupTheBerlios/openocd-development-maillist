@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 05/20] use COMMAND_HELPER for command	helper functions
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2005/20%5D%20use%20COMMAND_HELPER%20for%20command%0A%09helper%20functions&In-Reply-To=%3C1257948772-26222-6-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012208.html">
+   <LINK REL="Next"  HREF="012201.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 05/20] use COMMAND_HELPER for command	helper functions</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%2005/20%5D%20use%20COMMAND_HELPER%20for%20command%0A%09helper%20functions&In-Reply-To=%3C1257948772-26222-6-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 05/20] use COMMAND_HELPER for command	helper functions">zw at superlucidity.net
+       </A><BR>
+    <I>Wed Nov 11 15:12:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012208.html">[Openocd-development] [PATCH 04/20] use COMMAND_HANDLER macro to	define all commands
+</A></li>
+        <LI>Next message: <A HREF="012201.html">[Openocd-development] [PATCH 06/20] arm_adi,	armv7[am]: use COMMAND_HELPER for helpers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12204">[ date ]</a>
+              <a href="thread.html#12204">[ thread ]</a>
+              <a href="subject.html#12204">[ subject ]</a>
+              <a href="author.html#12204">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Define the numerous helpers that inherit command handler parameters
+using the COMMAND_HELPER macro.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/server/server.c |    3 +--
+ src/server/server.h |   12 ++++++++++--
+ src/target/arm11.c  |    5 ++---
+ src/target/etm.c    |    7 +++----
+ src/target/target.c |    9 ++++-----
+ 5 files changed, 20 insertions(+), 16 deletions(-)
+
+diff --git a/src/server/server.c b/src/server/server.c
+index c000b7c..ada0a60 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -551,8 +551,7 @@ int server_register_commands(command_context_t *context)
+ }
+ 
+ 
+-int server_port_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc, unsigned short *out)
++SERVER_PORT_COMMAND()
+ {
+ 	switch (argc) {
+ 	case 0:
+diff --git a/src/server/server.h b/src/server/server.h
+index d4f1b6b..abb501d 100644
+--- a/src/server/server.h
++++ b/src/server/server.h
+@@ -81,8 +81,16 @@ int server_loop(command_context_t *command_context);
+ 
+ int server_register_commands(command_context_t *context);
+ 
+-int server_port_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc, unsigned short *port);
++/**
++ * Defines an extended command handler function declaration to enable
++ * access to (and manipulation of) the server port number.
++ * Call server_port like a normal COMMAND_HANDLER with an extra @a out parameter
++ * to receive the specified port number.
++ */
++#define SERVER_PORT_COMMAND() \
++		COMMAND_HELPER(server_port_command, unsigned short *out)
++
++SERVER_PORT_COMMAND();
+ 
+ extern int server_use_pipes;
+ 
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 098b0af..949c947 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1991,8 +1991,7 @@ static int arm11_build_reg_cache(target_t *target)
+ 	return ERROR_OK;
+ }
+ 
+-static int arm11_handle_bool(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc, bool * var, char * name)
++static COMMAND_HELPER(arm11_handle_bool, bool *var, char *name)
+ {
+ 	if (argc == 0)
+ 	{
+@@ -2143,7 +2142,7 @@ static int arm11_mcr(target_t *target, int cpnum,
+ 	return arm11_mrc_inner(target, cpnum, op1, op2, CRn, CRm, &amp;value, false);
+ }
+ 
+-static int arm11_handle_etm_read_write(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, bool read)
++static COMMAND_HELPER(arm11_handle_etm_read_write, bool read)
+ {
+ 	if (argc != (read ? 2 : 3))
+ 	{
+diff --git a/src/target/etm.c b/src/target/etm.c
+index b376e9f..c0b683f 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -1153,9 +1153,8 @@ static int etmv1_analyze_trace(etm_context_t *ctx, struct command_context_s *cmd
+ 	return ERROR_OK;
+ }
+ 
+-static int handle_etm_tracemode_command_update(
+-		struct command_context_s *cmd_ctx,
+-		char **args, etmv1_tracemode_t *mode)
++static COMMAND_HELPER(handle_etm_tracemode_command_update,
++		etmv1_tracemode_t *mode)
+ {
+ 	etmv1_tracemode_t tracemode;
+ 
+@@ -1251,7 +1250,7 @@ COMMAND_HANDLER(handle_etm_tracemode_command)
+ 	case 0:
+ 		break;
+ 	case 4:
+-		handle_etm_tracemode_command_update(cmd_ctx, args, &amp;tracemode);
++		handle_etm_tracemode_command_update(cmd_ctx, cmd, args, argc, &amp;tracemode);
+ 		break;
+ 	default:
+ 		command_print(cmd_ctx, &quot;usage: configure trace mode &quot;
+diff --git a/src/target/target.c b/src/target/target.c
+index 401f4df..26c20cf 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2363,8 +2363,7 @@ COMMAND_HANDLER(handle_mw_command)
+ 
+ }
+ 
+-static int parse_load_image_command_args(struct command_context_s *cmd_ctx,
+-		char **args, int argc, image_t *image,
++static COMMAND_HELPER(parse_load_image_command_args, image_t *image,
+ 		uint32_t *min_address, uint32_t *max_address)
+ {
+ 	if (argc &lt; 1 || argc &gt; 5)
+@@ -2411,7 +2410,7 @@ COMMAND_HANDLER(handle_load_image_command)
+ 	int i;
+ 	image_t image;
+ 
+-	int retval = parse_load_image_command_args(cmd_ctx, args, argc,
++	int retval = parse_load_image_command_args(cmd_ctx, cmd, args, argc,
+ 			&amp;image, &amp;min_address, &amp;max_address);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+@@ -2555,7 +2554,7 @@ COMMAND_HANDLER(handle_dump_image_command)
+ 	return retval;
+ }
+ 
+-static int handle_verify_image_command_internal(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, int verify)
++static COMMAND_HELPER(handle_verify_image_command_internal, int verify)
+ {
+ 	uint8_t *buffer;
+ 	uint32_t buf_cnt;
+@@ -4548,7 +4547,7 @@ COMMAND_HANDLER(handle_fast_load_image_command)
+ 
+ 	image_t image;
+ 
+-	int retval = parse_load_image_command_args(cmd_ctx, args, argc,
++	int retval = parse_load_image_command_args(cmd_ctx, cmd, args, argc,
+ 			&amp;image, &amp;min_address, &amp;max_address);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012208.html">[Openocd-development] [PATCH 04/20] use COMMAND_HANDLER macro to	define all commands
+</A></li>
+	<LI>Next message: <A HREF="012201.html">[Openocd-development] [PATCH 06/20] arm_adi,	armv7[am]: use COMMAND_HELPER for helpers
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12204">[ date ]</a>
+              <a href="thread.html#12204">[ thread ]</a>
+              <a href="subject.html#12204">[ subject ]</a>
+              <a href="author.html#12204">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

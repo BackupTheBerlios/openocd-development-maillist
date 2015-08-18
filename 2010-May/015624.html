@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Atmel AT91SAM9XXX NAND Flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Atmel%20AT91SAM9XXX%20NAND%20Flash&In-Reply-To=%3CC8044F95.A7A4%25gcarlson%40carlson-minot.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015618.html">
+   <LINK REL="Next"  HREF="015625.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Atmel AT91SAM9XXX NAND Flash</H1>
+    <B>Gary Carlson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Atmel%20AT91SAM9XXX%20NAND%20Flash&In-Reply-To=%3CC8044F95.A7A4%25gcarlson%40carlson-minot.com%3E"
+       TITLE="[Openocd-development] Atmel AT91SAM9XXX NAND Flash">gcarlson at carlson-minot.com
+       </A><BR>
+    <I>Mon May  3 19:01:57 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015618.html">[Openocd-development] Atmel AT91SAM9XXX NAND Flash
+</A></li>
+        <LI>Next message: <A HREF="015625.html">[Openocd-development] Atmel AT91SAM9XXX NAND Flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15624">[ date ]</a>
+              <a href="thread.html#15624">[ thread ]</a>
+              <a href="subject.html#15624">[ subject ]</a>
+              <a href="author.html#15624">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Dean/Peter,
+
+Well I have some good news on this problem.  I finally discovered on Friday
+what the issue was.  Atmel&#185;s technical support confirmed my suspicions this
+morning.  On the bright side, it turns out this is not directly an OpenOCD
+issue.  :)
+
+Atmel&#185;s internal BootROM masked programmed at the factory utilizes the ARM
+exception vector six to determine the image size of the first stage
+bootstrapper.  If you look at the linker script and startup file they
+provide for the AT91 bootstrapper utility you will notice the crt0_gnu.S has
+the following define for vector 6:
+
+        .word           _edata          /* Size of the image for SAM-BA */
+
+ Where _edata is defined by the linker script elf32-littlearm.lds:
+
+         /* collect all initialized .data sections */
+         .data : AT ( ADDR (.text) + SIZEOF (.text) ) {
+                 _sdata = .;
+                 *(.vectors)
+                 *(.data)
+                 _edata = .;
+         }
+
+The problem with this is that the linker script will assign the absolute
+address of the last location rather then the size which should be calculated
+by subtracting the starting address from this value.  If the linker script
+is changed to: 
+
+
+         /* collect all initialized .data sections */
+         .data : AT ( ADDR (.text) + SIZEOF (.text) ) {
+                 _sdata = .;
+                 *(.vectors)
+                 *(.data)
+                 _edata = (. - ADDR (.text));
+         }
+
+Then everything works swell.  The image can be downloaded to the first block
+with OpenOCD and it will actually boot.
+
+So naturally this leads to the next question.  Why does this work at all?
+
+Well...Atmel confirmed that their native ISP tool is modifying the vector
+behind the scenes prior to committing the image to flash.  Although I
+downloaded the image programmed by their tool and eventually spotted the
+difference, I was so initially focused on the reset vector being right that
+I missed this subtle difference between what the compiler/linker was
+generating and what their tool actually had programmed further down the
+image.
+
+When I surrendered and actually performed a byte-by-byte comparison of the
+files out of despair rather the just looking at the reset vector, I finally
+made progress towards the solution.
+
+So while this is not a direct problem with OpenOCD, I wanted to expound on
+it so other fellow OpenOCD developer/users don't flail around for days like
+I did.  Atmel indicated that they will likely modify their application note
+to point this subtlety out also.
+
+Thanks to everyone for their help and advice!
+
+Gary
+
+
+On 5/3/10 7:10 AM, &quot;Dean Glazeski&quot; &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">dnglaze at gmail.com</A>&gt; wrote:
+
+&gt;<i> On Mon, May 3, 2010 at 6:36 AM, Peter Korsgaard &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">jacmet at sunsite.dk</A>&gt; wrote:
+</I>&gt;&gt;&gt;&gt;&gt;&gt;&gt;<i> &quot;Gary&quot; == Gary Carlson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">gcarlson at carlson-minot.com</A>&gt; writes:
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> &#160;Gary&gt; I wanted to see if anyone has any experience trying to upload the
+</I>&gt;&gt;<i> &#160;Gary&gt; AT91Bootstrap code into NAND flash for any of the AT91SAM9XXX parts
+</I>&gt;&gt;<i> (i.e.
+</I>&gt;&gt;<i> &#160;Gary&gt; AT91SAM9260, AT91SAM9G20, etc.) using OpenOCD?
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> &#160;Gary&gt; I have tried erasing and programming the first block of the NAND
+</I>&gt;&gt;<i> &#160;Gary&gt; flash in every command combination possible with the image I
+</I>&gt;&gt;<i> &#160;Gary&gt; have. &#160;The programming cycle is successful, the verify command is
+</I>&gt;&gt;<i> &#160;Gary&gt; successful, but the internal first stage boot ROM concludes that
+</I>&gt;&gt;<i> &#160;Gary&gt; it isn't a valid image and goes limp (or brain dead depending on
+</I>&gt;&gt;<i> &#160;Gary&gt; how you want to look at it). &#160;The Atmel startup diagnostics from
+</I>&gt;&gt;<i> &#160;Gary&gt; the internal boot code is naturally zero, so it is left to wild
+</I>&gt;&gt;<i> &#160;Gary&gt; imagination what the problem is.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> I haven't used it, but my guess is that the boot ROM expects a different
+</I>&gt;&gt;<i> OOB / EEC layout than what openocd writes.
+</I>&gt;&gt;<i> 
+</I>&gt;&gt;<i> --
+</I>&gt;&gt;<i> Bye, Peter Korsgaard
+</I>&gt;&gt;<i> _______________________________________________
+</I>&gt;&gt;<i> Openocd-development mailing list
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i> 
+</I>&gt;<i> This is interesting.&#160; I'm the one that actually wrote the original AT91SAM9
+</I>&gt;<i> NAND flash piece.&#160; To be honest, I haven't been able to test the &quot;bootability&quot;
+</I>&gt;<i> of the flash stuff that gets written.&#160; I thought that if I could write and
+</I>&gt;<i> then read the same data, then everything should be okay.&#160; Something I'm
+</I>&gt;<i> thinking I should have done is try to write with SAM-BA and then verified what
+</I>&gt;<i> was written with the OpenOCD driver.&#160; I have plans of playing with this more
+</I>&gt;<i> once I get out of classes for the year.&#160; Right now, I'm sort of swamped in
+</I>&gt;<i> projects.
+</I>&gt;<i> 
+</I>&gt;<i> // Dean Glazeski
+</I>&gt;<i> 
+</I>
+
+
+
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015618.html">[Openocd-development] Atmel AT91SAM9XXX NAND Flash
+</A></li>
+	<LI>Next message: <A HREF="015625.html">[Openocd-development] Atmel AT91SAM9XXX NAND Flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15624">[ date ]</a>
+              <a href="thread.html#15624">[ thread ]</a>
+              <a href="subject.html#15624">[ subject ]</a>
+              <a href="author.html#15624">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

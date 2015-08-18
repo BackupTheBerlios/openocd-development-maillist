@@ -1,0 +1,116 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32: &quot;flash write_image&quot; has an alignment issue and flash protect/erase is broken
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%3A%20%22flash%20write_image%22%20has%20an%0A%20alignment%20issue%20and%20flash%20protect/erase%20is%20broken&In-Reply-To=%3C4B0956D5.8070609%40milksnot.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012692.html">
+   <LINK REL="Next"  HREF="012702.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32: &quot;flash write_image&quot; has an alignment issue and flash protect/erase is broken</H1>
+    <B>Johnny Halfmoon</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%3A%20%22flash%20write_image%22%20has%20an%0A%20alignment%20issue%20and%20flash%20protect/erase%20is%20broken&In-Reply-To=%3C4B0956D5.8070609%40milksnot.com%3E"
+       TITLE="[Openocd-development] STM32: &quot;flash write_image&quot; has an alignment issue and flash protect/erase is broken">jhalfmoon at milksnot.com
+       </A><BR>
+    <I>Sun Nov 22 16:20:53 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012692.html">[Openocd-development] STM32: &quot;flash write_image&quot; has an	alignment issue and flash protect/erase is broken
+</A></li>
+        <LI>Next message: <A HREF="012702.html">[Openocd-development] STM32: &quot;flash write_image&quot; has an	alignment issue and flash protect/erase is broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12701">[ date ]</a>
+              <a href="thread.html#12701">[ thread ]</a>
+              <a href="subject.html#12701">[ subject ]</a>
+              <a href="author.html#12701">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>
+&#216;yvind Harboe wrote:
+&gt;&gt;<i> Maybe the following example (output is pasted below) can illustrate the issue
+</I>&gt;&gt;<i> a bit better. First I try to flash a 20KB block, then a 21KB block and
+</I>&gt;&gt;<i> finally a 24KB block. Only the blocks of 20 and 24 succeed, because they happen
+</I>&gt;&gt;<i> to be nicely 4K alligned. All blocks that are not 4K alligned will fail. OpenOCD
+</I>&gt;&gt;<i> tries to erase, (un)protect and flash only those sectors that are modified,
+</I>&gt;&gt;<i> but doesn't take into account that some platforms require certain alligments.
+</I>&gt;<i> 
+</I>&gt;<i> This error message is specific to stm32.
+</I>&gt;<i> 
+</I>&gt;<i> Did you look at the stm32 source code?
+</I>
+Yes, I know that code. I've got a committed patch of mine in there.
+
+&gt;<i> Are you *sure* the error message isn't in fact telling you that this is a quaint
+</I>&gt;<i> requirement of stm32?
+</I>
+It most certainly an STM32 specific quirk. This is sort of what I was trying to say in the first place. Let met explain further:
+
+* The &quot;flash write_image&quot; function is trying to be smart by only deleting, (un)protecting and flashing those sectors that have to be modified. This is a good thing.
+
+* The STM32 specific flash code has certain alignment requirements, which currently only generate an error in case of a non-compliant situation. This is not very bad, but it can be done better.
+
+* My suggestion is to add a global parameter which tells OpenOCD to handle alignment issues in a smart way (globally); by adjusting the sector counts automatically in such that these errors do not appear. I suggest that we do not make this the default setting, because the &quot;flash write_image&quot; and &quot;flash write_sectors&quot; use the same code to write to the flash. If the default settings are such that OpenOCD automatically adjusts sector counts, then the user might get unexpected results when using &quot;flash write_sectors&quot;. So to be safe, OpenOCD must not adjust sector counts, but only when told to do so.
+
+* For now, the smart_sector_aligment setting will only be regarded by the STM32-specific code. Any other platforms that are eligible for alligment smartness? A quick grep through the code gives:
+
+./src/flash/lpc288x.c:320:              return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/lpc2000.c:568:              return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/stellaris.c:946:            return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/stm32x.c:572:               return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/str9xpec.c:589:             return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/pic32mx.c:482:              return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/at91sam7.c:975:             return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/avrf.c:229:                 return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/str9x.c:481:                return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+./src/flash/str7x.c:449:                return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+
+So, I'll try and figure out where smart_aligment might be useful. As these are quite a diverse bunch of controllers, I'm not sure I dare touch all of the code. I'll have to see if it's worth the trouble, if at all do-able.
+
+&gt;<i> There is a bug in stm32 code in that it gives you a warning and not
+</I>&gt;<i> an error, but that's minor.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 	if ((first &amp;&amp; (first % stm32x_info-&gt;ppage_size)) || ((last + 1) &amp;&amp;
+</I>&gt;<i> (last + 1) % stm32x_info-&gt;ppage_size))
+</I>&gt;<i> 	{
+</I>&gt;<i> 		LOG_WARNING(&quot;Error: start and end sectors must be on a %d sector
+</I>&gt;<i> boundary&quot;, stm32x_info-&gt;ppage_size);
+</I>&gt;<i> 		return ERROR_FLASH_SECTOR_INVALID;
+</I>&gt;<i> 	}
+</I>
+Correct. And I will remove this little &quot;beauty mark&quot; along with adding the alignment parameter then :-)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012692.html">[Openocd-development] STM32: &quot;flash write_image&quot; has an	alignment issue and flash protect/erase is broken
+</A></li>
+	<LI>Next message: <A HREF="012702.html">[Openocd-development] STM32: &quot;flash write_image&quot; has an	alignment issue and flash protect/erase is broken
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12701">[ date ]</a>
+              <a href="thread.html#12701">[ thread ]</a>
+              <a href="subject.html#12701">[ subject ]</a>
+              <a href="author.html#12701">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

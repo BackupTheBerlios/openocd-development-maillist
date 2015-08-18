@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Error: BUG: TAP_TLR is not a valid state	for pathmove sequences (patch)
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Error%3A%20BUG%3A%20TAP_TLR%20is%20not%20a%20valid%20state%0A%09for%20pathmove%20sequences%20%28patch%29&In-Reply-To=%3C20081103120010.GE11576%40htp-tel.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="003566.html">
+   <LINK REL="Next"  HREF="003579.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Error: BUG: TAP_TLR is not a valid state	for pathmove sequences (patch)</H1>
+    <B>Peter Hettkamp</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Error%3A%20BUG%3A%20TAP_TLR%20is%20not%20a%20valid%20state%0A%09for%20pathmove%20sequences%20%28patch%29&In-Reply-To=%3C20081103120010.GE11576%40htp-tel.de%3E"
+       TITLE="[Openocd-development] Error: BUG: TAP_TLR is not a valid state	for pathmove sequences (patch)">peter.hettkamp at htp-tel.de
+       </A><BR>
+    <I>Mon Nov  3 13:00:10 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="003566.html">[Openocd-development] Error: BUG: TAP_TLR is not a valid state	for pathmove sequences
+</A></li>
+        <LI>Next message: <A HREF="003579.html">[Openocd-development] Error: BUG: TAP_TLR is not a valid state	for pathmove sequences (patch)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3578">[ date ]</a>
+              <a href="thread.html#3578">[ thread ]</a>
+              <a href="subject.html#3578">[ subject ]</a>
+              <a href="author.html#3578">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi,
+
+On Sun, Nov 02, 2008 at 08:04:21PM +0100, ?yvind Harboe wrote:
+&gt;<i> &gt; I guess that a move to TLR must be handled not by jtag_add_pathmove but
+</I>&gt;<i> &gt; rather by jtag_add_tlr?
+</I>&gt;<i> 
+</I>&gt;<i> That's correct.
+</I>Ok, I've put together a preliminary patch that tries to keep TAP_TLR out of
+the calls to jtag_add_pathmove, calling jtag_add_tlr instead.
+
+This gets rid of the annoying BUG messages with the accompanying shutdown of
+openocd. But it still does not allow me to use the xsvf player.
+
+As &#216;yvind pointed out, jtag_add_tlr does more than just moving the TAP
+statemachine to the TLR state, incidentally setting all devices to bypass.
+
+Now, I've identified two places where the the TLR state is used inside the
+xsvf player. One is in the XSTATE command. If and when XSTATE 00 is coded in
+the xsvf file, my patch issues jtag_add_tlr, even if it's in the middle of
+other XSTATE commands. 
+The other place is within the xsvf_add_statemove. I need to investigate this
+further, but my target seems to have blown a gasket. This will have to be
+fixed first.
+
+Peter
+-- 
+&quot;Only wimps use tape backup: _real_ men just upload their important stuff
+on ftp, and let the rest of the world mirror it ;)&quot;
+(Linus Torvalds, about his failing hard drive on linux.cs.helsinki.fi)
+-------------- next part --------------
+Index: src/xsvf/xsvf.c
+===================================================================
+--- src/xsvf/xsvf.c	(revision 1117)
++++ src/xsvf/xsvf.c	(working copy)
+@@ -86,6 +86,7 @@
+ 	if ((state != TAP_TLR) &amp;&amp; (state == cmd_queue_cur_state))
+ 		return;
+ 
++	if(state==TAP_TLR) {jtag_add_tlr(); return; }
+ 	for (i=0; i&lt;7; i++)
+ 	{
+ 		int j = (move &gt;&gt; i) &amp; 1;
+@@ -401,7 +402,19 @@
+ 						do_abort = 1;
+ 					else
+ 					{
+-						jtag_add_pathmove(path_len, path);
++						int i,lasti;
++						for(i=0,lasti=0;i&lt;path_len;i++) {
++							if(path[i]==TAP_TLR) {
++								if(i&gt;lasti)  {
++									jtag_add_pathmove(i-lasti,path+lasti);
++								}
++								lasti=i+1;
++								jtag_add_tlr();
++							}
++						}
++						if(i&gt;=lasti) {
++							jtag_add_pathmove(i-lasti, path+lasti);
++						}
+ 					}
+ 					free(path);
+ 				}
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 189 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20081103/e9325ff3/attachment.pgp">https://lists.berlios.de/pipermail/openocd-development/attachments/20081103/e9325ff3/attachment.pgp</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="003566.html">[Openocd-development] Error: BUG: TAP_TLR is not a valid state	for pathmove sequences
+</A></li>
+	<LI>Next message: <A HREF="003579.html">[Openocd-development] Error: BUG: TAP_TLR is not a valid state	for pathmove sequences (patch)
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3578">[ date ]</a>
+              <a href="thread.html#3578">[ thread ]</a>
+              <a href="subject.html#3578">[ subject ]</a>
+              <a href="author.html#3578">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

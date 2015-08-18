@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] udev rules for openocd
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20udev%20rules%20for%20openocd&In-Reply-To=%3C1232597164.28872.204.camel%40zaphod.localdomain%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="004547.html">
+   <LINK REL="Next"  HREF="004515.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] udev rules for openocd</H1>
+    <B>John McCarthy</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20udev%20rules%20for%20openocd&In-Reply-To=%3C1232597164.28872.204.camel%40zaphod.localdomain%3E"
+       TITLE="[Openocd-development] udev rules for openocd">jgmcc at magma.ca
+       </A><BR>
+    <I>Thu Jan 22 05:06:04 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="004547.html">[Openocd-development] udev rules for openocd
+</A></li>
+        <LI>Next message: <A HREF="004515.html">[Openocd-development] udev rules for openocd
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4548">[ date ]</a>
+              <a href="thread.html#4548">[ thread ]</a>
+              <a href="subject.html#4548">[ subject ]</a>
+              <a href="author.html#4548">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hmm, guess I should have read the whole thread before I posted. ;-)
+I see the openocd.udev patch is worrying about permissions for the USB
+devices.  For my FT2232 based OpenOCD USB device the tty devices are
+also important.
+
+This becomes a real headache when you have multiple ttyUSB devices
+(OpenOCD USB, RS232&lt;&gt;USB, Arduino USB board, etc) since they all get
+ttyUSB devices and the number changes depending on what order they
+attach/detach in.  What my rule does is create a symlink based on the
+device name so I can depend on /dev/openocd00 and openocd01 being the
+first and second serial interfaces on my OpenOCD USB adapter.
+
+A few other observations:
+
+  - is the SUBSYSTEM!==&quot;usb_device&quot; condition a typo for '!=' or
+    a special udev condition?
+
+  - neither of Fedora/RHEL/CentOS have a plugdev group
+      + can't see a good alternative so maybe the openocd packagers
+        will have to add it when they install
+      + my rule lets the system rules set perms/group for the ttyUSB*
+        dev (group uucp on Redhat)
+
+  - at least on Fedora, the KERNEL==&quot;ttyUSB*&quot; is the magic to match ttys
+      + is this the same on debian?
+      + we should add a ttyUSB symlinks section for rules like mine
+
+If you agree I can put together a patch with my rule.  Generally these
+rules should also create a symlink based on the serial number for the
+case of multiple devices being attached.  Unfortunately, as programmed
+my device only returns serial #0.  Once I get time to figure out how to
+program the FT2232 EEPROM I'll fix that (and update my rule).
+
+What do you think?
+
+
+Cheers,
+John McCarthy.
+
+
+On Wed, 2009-01-21 at 21:44 -0500, John McCarthy wrote:
+&gt;<i> how about this one for the OpenOCD USB from Embedded-Projects.net:
+</I>&gt;<i> 
+</I>&gt;<i> SUBSYSTEMS==&quot;usb&quot;, ATTRS{product}==&quot;Dual RS232&quot;,      ATTRS{idProduct}==&quot;6010&quot;, ATTRS{idVendor}==&quot;0403&quot;, KERNEL==&quot;ttyUSB*&quot;, SYMLINK+=&quot;openocd$attr{bInterfaceNumber}&quot;
+</I>&gt;<i> 
+</I>&gt;<i> creates /dev/openocd00 and /dev/openocd01 for the two serial interfaces.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Cheers,
+</I>&gt;<i> John McC.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> On Mon, 2009-01-19 at 21:10 -0600, Dean Glazeski wrote:
+</I>&gt;<i> &gt; Let's not forget the little Olimex OpenOCD JTAG TINY.
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; # Olimex ARM-USB-OCD-TINY
+</I>&gt;<i> &gt; SYSFS{idVendor}==&quot;15ba&quot;, SYSFS{idProduct}==&quot;0004&quot;, MODE=&quot;664&quot;,
+</I>&gt;<i> &gt; GROUP=&quot;plugdev&quot;
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; // Dean
+</I>&gt;<i> &gt; 
+</I>&gt;<i> &gt; Zach Welch wrote: 
+</I>&gt;<i> &gt; &gt; On Tue, 2009-01-20 at 03:43 +0100, Uwe Hermann wrote:
+</I>&gt;<i> &gt; &gt;   
+</I>&gt;<i> &gt; &gt; &gt; here's a short udev rules file for OpenOCD which I'm using in the Debian
+</I>&gt;<i> &gt; &gt; &gt; package. It should probably be added to svn, together with some
+</I>&gt;<i> &gt; &gt; &gt; autotools hooking so that it gets installed somewhere upon 'make install'
+</I>&gt;<i> &gt; &gt; &gt; (or not, and leave that step to the user).
+</I>&gt;<i> &gt; &gt; &gt;     
+</I>&gt;<i> &gt; &gt; 
+</I>&gt;<i> &gt; &gt; Yup, this would be a good thing to have; here is another line for the
+</I>&gt;<i> &gt; &gt; programmer that I am using under Ubuntu:
+</I>&gt;<i> &gt; &gt; 
+</I>&gt;<i> &gt; &gt; # IAR J-Link USB
+</I>&gt;<i> &gt; &gt; SYSFS{idVendor}==&quot;1366&quot;, SYSFS{idProduct}==&quot;0101&quot;, MODE=&quot;664&quot;, GROUP=&quot;plugdev&quot;
+</I>&gt;<i> &gt; &gt; 
+</I>&gt;<i> &gt; &gt; Cheers,
+</I>&gt;<i> &gt; &gt; 
+</I>&gt;<i> &gt; &gt; Zach
+</I>&gt;<i> &gt; &gt; 
+</I>&gt;<i> &gt; &gt; _______________________________________________
+</I>&gt;<i> &gt; &gt; Openocd-development mailing list
+</I>&gt;<i> &gt; &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> &gt; &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i> &gt; &gt;   
+</I>&gt;<i> &gt; _______________________________________________
+</I>&gt;<i> &gt; Openocd-development mailing list
+</I>&gt;<i> &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> &gt; <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="004547.html">[Openocd-development] udev rules for openocd
+</A></li>
+	<LI>Next message: <A HREF="004515.html">[Openocd-development] udev rules for openocd
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4548">[ date ]</a>
+              <a href="thread.html#4548">[ thread ]</a>
+              <a href="subject.html#4548">[ subject ]</a>
+              <a href="author.html#4548">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

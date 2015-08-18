@@ -1,0 +1,1058 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/8] explode tcl_target_func into many	handlers
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/8%5D%20explode%20tcl_target_func%20into%20many%0A%09handlers&In-Reply-To=%3C1259273350-9173-5-git-send-email-zw%40superlucidity.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012968.html">
+   <LINK REL="Next"  HREF="012967.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/8] explode tcl_target_func into many	handlers</H1>
+    <B>Zachary T Welch</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/8%5D%20explode%20tcl_target_func%20into%20many%0A%09handlers&In-Reply-To=%3C1259273350-9173-5-git-send-email-zw%40superlucidity.net%3E"
+       TITLE="[Openocd-development] [PATCH 4/8] explode tcl_target_func into many	handlers">zw at superlucidity.net
+       </A><BR>
+    <I>Thu Nov 26 23:09:06 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012968.html">[Openocd-development] [PATCH 3/8] split jim_target into multiple	handlers
+</A></li>
+        <LI>Next message: <A HREF="012967.html">[Openocd-development] [PATCH 5/8] add more stub handlers to testee	target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12969">[ date ]</a>
+              <a href="thread.html#12969">[ thread ]</a>
+              <a href="subject.html#12969">[ subject ]</a>
+              <a href="author.html#12969">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Eliminate the monolithic tcl_target_func by registering each of its
+commands using the new chained command registration mechanism.
+
+Also chains the target's commands under the CPU command, though these
+may not work properly without some further modification.
+
+Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">zw at superlucidity.net</A>&gt;
+---
+ src/target/target.c |  918 +++++++++++++++++++++++++++++----------------------
+ 1 files changed, 531 insertions(+), 387 deletions(-)
+
+diff --git a/src/target/target.c b/src/target/target.c
+index fddf983..856936f 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3357,7 +3357,7 @@ static int target_array2mem(Jim_Interp *interp, struct target *target, int argc,
+ 	 * argv[4] = count to write
+ 	 */
+ 	if (argc != 4) {
+-		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
++		Jim_WrongNumArgs(interp, 0, argv, &quot;varname width addr nelems&quot;);
+ 		return JIM_ERR;
+ 	}
+ 	varname = Jim_GetString(argv[0], &amp;len);
+@@ -3826,422 +3826,553 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 	return JIM_OK;
+ }
+ 
+-/** this is the 'tcl' handler for the target specific command */
+-static int tcl_target_func(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++static int jim_target_configure(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	Jim_GetOptInfo goi;
+-	jim_wide a,b,c;
+-	int x,y,z;
+-	uint8_t  target_buf[32];
+-	Jim_Nvp *n;
+-	struct target *target;
+-	struct command_context *cmd_ctx;
+-	int e;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++	goi.isconfigure = strcmp(Jim_GetString(argv[0], NULL), &quot;configure&quot;) == 0;
++	int need_args = 1 + goi.isconfigure;
++	if (goi.argc &lt; need_args)
++	{
++		Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv,
++			goi.isconfigure
++				? &quot;missing: -option VALUE ...&quot;
++				: &quot;missing: -option ...&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	return target_configure(&amp;goi, target);
++}
+ 
+-	enum {
+-		TS_CMD_CONFIGURE,
+-		TS_CMD_CGET,
+-
+-		TS_CMD_MWW, TS_CMD_MWH, TS_CMD_MWB,
+-		TS_CMD_MDW, TS_CMD_MDH, TS_CMD_MDB,
+-		TS_CMD_MRW, TS_CMD_MRH, TS_CMD_MRB,
+-		TS_CMD_MEM2ARRAY, TS_CMD_ARRAY2MEM,
+-		TS_CMD_EXAMINE,
+-		TS_CMD_POLL,
+-		TS_CMD_RESET,
+-		TS_CMD_HALT,
+-		TS_CMD_WAITSTATE,
+-		TS_CMD_EVENTLIST,
+-		TS_CMD_CURSTATE,
+-		TS_CMD_INVOKE_EVENT,
+-	};
++static int jim_target_mw(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
+ 
+-	static const Jim_Nvp target_options[] = {
+-		{ .name = &quot;configure&quot;, .value = TS_CMD_CONFIGURE },
+-		{ .name = &quot;cget&quot;, .value = TS_CMD_CGET },
+-		{ .name = &quot;mww&quot;, .value = TS_CMD_MWW },
+-		{ .name = &quot;mwh&quot;, .value = TS_CMD_MWH },
+-		{ .name = &quot;mwb&quot;, .value = TS_CMD_MWB },
+-		{ .name = &quot;mdw&quot;, .value = TS_CMD_MDW },
+-		{ .name = &quot;mdh&quot;, .value = TS_CMD_MDH },
+-		{ .name = &quot;mdb&quot;, .value = TS_CMD_MDB },
+-		{ .name = &quot;mem2array&quot;, .value = TS_CMD_MEM2ARRAY },
+-		{ .name = &quot;array2mem&quot;, .value = TS_CMD_ARRAY2MEM },
+-		{ .name = &quot;eventlist&quot;, .value = TS_CMD_EVENTLIST },
+-		{ .name = &quot;curstate&quot;,  .value = TS_CMD_CURSTATE },
+-
+-		{ .name = &quot;arp_examine&quot;, .value = TS_CMD_EXAMINE },
+-		{ .name = &quot;arp_poll&quot;, .value = TS_CMD_POLL },
+-		{ .name = &quot;arp_reset&quot;, .value = TS_CMD_RESET },
+-		{ .name = &quot;arp_halt&quot;, .value = TS_CMD_HALT },
+-		{ .name = &quot;arp_waitstate&quot;, .value = TS_CMD_WAITSTATE },
+-		{ .name = &quot;invoke-event&quot;, .value = TS_CMD_INVOKE_EVENT },
+-
+-		{ .name = NULL, .value = -1 },
+-	};
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
+ 
+-	/* go past the &quot;command&quot; */
+-	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	if (goi.argc != 2 &amp;&amp; goi.argc != 3)
++	{
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;usage: %s &lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;, cmd_name);
++		return JIM_ERR;
++	}
+ 
+-	target = Jim_CmdPrivData(goi.interp);
+-	cmd_ctx = Jim_GetAssocData(goi.interp, &quot;context&quot;);
++	jim_wide a;
++	int e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK)
++		return e;
+ 
+-	/* commands here are in an NVP table */
+-	e = Jim_GetOpt_Nvp(&amp;goi, target_options, &amp;n);
+-	if (e != JIM_OK) {
+-		Jim_GetOpt_NvpUnknown(&amp;goi, target_options, 0);
++	jim_wide b;
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;b);
++	if (e != JIM_OK)
+ 		return e;
++
++	jim_wide c = 1;
++	if (goi.argc == 3)
++	{
++		e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
++		if (e != JIM_OK)
++			return e;
+ 	}
+-	/* Assume blank result */
+-	Jim_SetEmptyResult(goi.interp);
+ 
+-	switch (n-&gt;value) {
+-	case TS_CMD_CONFIGURE:
+-		if (goi.argc &lt; 2) {
+-			Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv, &quot;missing: -option VALUE ...&quot;);
+-			return JIM_ERR;
+-		}
+-		goi.isconfigure = 1;
+-		return target_configure(&amp;goi, target);
+-	case TS_CMD_CGET:
+-		// some things take params
+-		if (goi.argc &lt; 1) {
+-			Jim_WrongNumArgs(goi.interp, 0, goi.argv, &quot;missing: ?-option?&quot;);
+-			return JIM_ERR;
+-		}
+-		goi.isconfigure = 0;
+-		return target_configure(&amp;goi, target);
+-		break;
+-	case TS_CMD_MWW:
+-	case TS_CMD_MWH:
+-	case TS_CMD_MWB:
+-		/* argv[0] = cmd
+-		 * argv[1] = address
+-		 * argv[2] = data
+-		 * argv[3] = optional count.
+-		 */
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	uint8_t  target_buf[32];
++	if (strcasecmp(cmd_name, &quot;mww&quot;) == 0) {
++		target_buffer_set_u32(target, target_buf, b);
++		b = 4;
++	}
++	else if (strcasecmp(cmd_name, &quot;mwh&quot;) == 0) {
++		target_buffer_set_u16(target, target_buf, b);
++		b = 2;
++	}
++	else if (strcasecmp(cmd_name, &quot;mwb&quot;) == 0) {
++		target_buffer_set_u8(target, target_buf, b);
++		b = 1;
++	} else {
++		LOG_ERROR(&quot;command '%s' unknown: &quot;, cmd_name);
++		return JIM_ERR;
++	}
+ 
+-		if ((goi.argc == 2) || (goi.argc == 3)) {
+-			/* all is well */
+-		} else {
+-		mwx_error:
+-			Jim_SetResult_sprintf(goi.interp, &quot;expected: %s ADDR DATA [COUNT]&quot;, n-&gt;name);
++	for (jim_wide x = 0; x &lt; c; x++)
++	{
++		e = target_write_memory(target, a, b, 1, target_buf);
++		if (e != ERROR_OK)
++		{
++			Jim_SetResult_sprintf(interp,
++					&quot;Error writing @ 0x%08x: %d\n&quot;, (int)(a), e);
+ 			return JIM_ERR;
+ 		}
++		/* b = width */
++		a = a + b;
++	}
++	return JIM_OK;
++}
+ 
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+-		if (e != JIM_OK) {
+-			goto mwx_error;
+-		}
++static int jim_target_md(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
+ 
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;b);
+-		if (e != JIM_OK) {
+-			goto mwx_error;
+-		}
+-		if (goi.argc == 3) {
+-			e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+-			if (e != JIM_OK) {
+-				goto mwx_error;
+-			}
+-		} else {
+-			c = 1;
+-		}
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
+ 
+-		switch (n-&gt;value) {
+-		case TS_CMD_MWW:
+-			target_buffer_set_u32(target, target_buf, b);
+-			b = 4;
+-			break;
+-		case TS_CMD_MWH:
+-			target_buffer_set_u16(target, target_buf, b);
+-			b = 2;
+-			break;
+-		case TS_CMD_MWB:
+-			target_buffer_set_u8(target, target_buf, b);
+-			b = 1;
+-			break;
+-		}
+-		for (x = 0 ; x &lt; c ; x++) {
+-			e = target_write_memory(target, a, b, 1, target_buf);
+-			if (e != ERROR_OK) {
+-				Jim_SetResult_sprintf(interp, &quot;Error writing @ 0x%08x: %d\n&quot;, (int)(a), e);
+-				return JIM_ERR;
+-			}
+-			/* b = width */
+-			a = a + b;
+-		}
+-		return JIM_OK;
+-		break;
++	if ((goi.argc == 2) || (goi.argc == 3))
++	{
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;usage: %s &lt;address&gt; [&lt;count&gt;]&quot;, cmd_name);
++		return JIM_ERR;
++	}
+ 
+-		/* display */
+-	case TS_CMD_MDW:
+-	case TS_CMD_MDH:
+-	case TS_CMD_MDB:
+-		/* argv[0] = command
+-		 * argv[1] = address
+-		 * argv[2] = optional count
+-		 */
+-		if ((goi.argc == 2) || (goi.argc == 3)) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;expected: %s ADDR [COUNT]&quot;, n-&gt;name);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	jim_wide a;
++	int e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK) {
++		return JIM_ERR;
++	}
++	jim_wide c;
++	if (goi.argc) {
++		e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+ 		if (e != JIM_OK) {
+ 			return JIM_ERR;
+ 		}
+-		if (goi.argc) {
+-			e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+-			if (e != JIM_OK) {
+-				return JIM_ERR;
+-			}
+-		} else {
+-			c = 1;
++	} else {
++		c = 1;
++	}
++	jim_wide b = 1; /* shut up gcc */
++	if (strcasecmp(cmd_name, &quot;mdw&quot;) == 0)
++		b = 4;
++	else if (strcasecmp(cmd_name, &quot;mdh&quot;) == 0)
++		b = 2;
++	else if (strcasecmp(cmd_name, &quot;mdb&quot;) == 0)
++		b = 1;
++	else {
++		LOG_ERROR(&quot;command '%s' unknown: &quot;, cmd_name);
++		return JIM_ERR;
++	}
++
++	/* convert count to &quot;bytes&quot; */
++	c = c * b;
++
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	uint8_t  target_buf[32];
++	jim_wide x, y, z;
++	while (c &gt; 0) {
++		y = c;
++		if (y &gt; 16) {
++			y = 16;
+ 		}
+-		b = 1; /* shut up gcc */
+-		switch (n-&gt;value) {
+-		case TS_CMD_MDW:
+-			b =  4;
+-			break;
+-		case TS_CMD_MDH:
+-			b = 2;
+-			break;
+-		case TS_CMD_MDB:
+-			b = 1;
+-			break;
++		e = target_read_memory(target, a, b, y / b, target_buf);
++		if (e != ERROR_OK) {
++			Jim_SetResult_sprintf(interp, &quot;error reading target @ 0x%08lx&quot;, (int)(a));
++			return JIM_ERR;
+ 		}
+ 
+-		/* convert to &quot;bytes&quot; */
+-		c = c * b;
+-		/* count is now in 'BYTES' */
+-		while (c &gt; 0) {
+-			y = c;
+-			if (y &gt; 16) {
+-				y = 16;
++		Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;0x%08x &quot;, (int)(a));
++		switch (b) {
++		case 4:
++			for (x = 0; x &lt; 16 &amp;&amp; x &lt; y; x += 4)
++			{
++				z = target_buffer_get_u32(target, &amp;(target_buf[ x * 4 ]));
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%08x &quot;, (int)(z));
+ 			}
+-			e = target_read_memory(target, a, b, y / b, target_buf);
+-			if (e != ERROR_OK) {
+-				Jim_SetResult_sprintf(interp, &quot;error reading target @ 0x%08lx&quot;, (int)(a));
+-				return JIM_ERR;
++			for (; (x &lt; 16) ; x += 4) {
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;         &quot;);
+ 			}
+-
+-			Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;0x%08x &quot;, (int)(a));
+-			switch (b) {
+-			case 4:
+-				for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 4) {
+-					z = target_buffer_get_u32(target, &amp;(target_buf[ x * 4 ]));
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%08x &quot;, (int)(z));
+-				}
+-				for (; (x &lt; 16) ; x += 4) {
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;         &quot;);
+-				}
+-				break;
+-			case 2:
+-				for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 2) {
+-					z = target_buffer_get_u16(target, &amp;(target_buf[ x * 2 ]));
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%04x &quot;, (int)(z));
+-				}
+-				for (; (x &lt; 16) ; x += 2) {
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;     &quot;);
+-				}
+-				break;
+-			case 1:
+-			default:
+-				for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 1) {
+-					z = target_buffer_get_u8(target, &amp;(target_buf[ x * 4 ]));
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%02x &quot;, (int)(z));
+-				}
+-				for (; (x &lt; 16) ; x += 1) {
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;   &quot;);
+-				}
+-				break;
++			break;
++		case 2:
++			for (x = 0; x &lt; 16 &amp;&amp; x &lt; y; x += 2)
++			{
++				z = target_buffer_get_u16(target, &amp;(target_buf[ x * 2 ]));
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%04x &quot;, (int)(z));
+ 			}
+-			/* ascii-ify the bytes */
+-			for (x = 0 ; x &lt; y ; x++) {
+-				if ((target_buf[x] &gt;= 0x20) &amp;&amp;
+-					(target_buf[x] &lt;= 0x7e)) {
+-					/* good */
+-				} else {
+-					/* smack it */
+-					target_buf[x] = '.';
+-				}
++			for (; (x &lt; 16) ; x += 2) {
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;     &quot;);
+ 			}
+-			/* space pad  */
+-			while (x &lt; 16) {
+-				target_buf[x] = ' ';
+-				x++;
++			break;
++		case 1:
++		default:
++			for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 1) {
++				z = target_buffer_get_u8(target, &amp;(target_buf[ x * 4 ]));
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%02x &quot;, (int)(z));
+ 			}
+-			/* terminate */
+-			target_buf[16] = 0;
+-			/* print - with a newline */
+-			Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%s\n&quot;, target_buf);
+-			/* NEXT... */
+-			c -= 16;
+-			a += 16;
+-		}
+-		return JIM_OK;
+-	case TS_CMD_MEM2ARRAY:
+-		return target_mem2array(goi.interp, target, goi.argc, goi.argv);
+-		break;
+-	case TS_CMD_ARRAY2MEM:
+-		return target_array2mem(goi.interp, target, goi.argc, goi.argv);
+-		break;
+-	case TS_CMD_EXAMINE:
+-		if (goi.argc) {
+-			Jim_WrongNumArgs(goi.interp, 2, argv, &quot;[no parameters]&quot;);
+-			return JIM_ERR;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		e = target-&gt;type-&gt;examine(target);
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(interp, &quot;examine-fails: %d&quot;, e);
+-			return JIM_ERR;
+-		}
+-		return JIM_OK;
+-	case TS_CMD_POLL:
+-		if (goi.argc) {
+-			Jim_WrongNumArgs(goi.interp, 2, argv, &quot;[no parameters]&quot;);
+-			return JIM_ERR;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		if (!(target_was_examined(target))) {
+-			e = ERROR_TARGET_NOT_EXAMINED;
+-		} else {
+-			e = target-&gt;type-&gt;poll(target);
+-		}
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(interp, &quot;poll-fails: %d&quot;, e);
+-			return JIM_ERR;
+-		} else {
+-			return JIM_OK;
+-		}
+-		break;
+-	case TS_CMD_RESET:
+-		if (goi.argc != 2) {
+-			Jim_WrongNumArgs(interp, 2, argv,
+-					&quot;([tT]|[fF]|assert|deassert) BOOL&quot;);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Nvp(&amp;goi, nvp_assert, &amp;n);
+-		if (e != JIM_OK) {
+-			Jim_GetOpt_NvpUnknown(&amp;goi, nvp_assert, 1);
+-			return e;
+-		}
+-		/* the halt or not param */
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+-		if (e != JIM_OK) {
+-			return e;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		if (!target-&gt;type-&gt;assert_reset
+-				|| !target-&gt;type-&gt;deassert_reset) {
+-			Jim_SetResult_sprintf(interp,
+-					&quot;No target-specific reset for %s&quot;,
+-					target_name(target));
+-			return JIM_ERR;
+-		}
+-		/* determine if we should halt or not. */
+-		target-&gt;reset_halt = !!a;
+-		/* When this happens - all workareas are invalid. */
+-		target_free_all_working_areas_restore(target, 0);
+-
+-		/* do the assert */
+-		if (n-&gt;value == NVP_ASSERT) {
+-			e = target-&gt;type-&gt;assert_reset(target);
+-		} else {
+-			e = target-&gt;type-&gt;deassert_reset(target);
+-		}
+-		return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
+-	case TS_CMD_HALT:
+-		if (goi.argc) {
+-			Jim_WrongNumArgs(goi.interp, 0, argv, &quot;halt [no parameters]&quot;);
+-			return JIM_ERR;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		e = target-&gt;type-&gt;halt(target);
+-		return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
+-	case TS_CMD_WAITSTATE:
+-		/* params:  &lt;name&gt;  statename timeoutmsecs */
+-		if (goi.argc != 2) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;%s STATENAME TIMEOUTMSECS&quot;, n-&gt;name);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_state, &amp;n);
+-		if (e != JIM_OK) {
+-			Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_state,1);
+-			return e;
+-		}
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+-		if (e != JIM_OK) {
+-			return e;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		e = target_wait_state(target, n-&gt;value, a);
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(goi.interp,
+-					&quot;target: %s wait %s fails (%d) %s&quot;,
+-					target_name(target), n-&gt;name,
+-					e, target_strerror_safe(e));
+-			return JIM_ERR;
+-		} else {
+-			return JIM_OK;
+-		}
+-	case TS_CMD_EVENTLIST:
+-		/* List for human, Events defined for this target.
+-		 * scripts/programs should use 'name cget -event NAME'
+-		 */
+-		{
+-			struct target_event_action *teap;
+-			teap = target-&gt;event_action;
+-			command_print(cmd_ctx,
+-					&quot;Event actions for target (%d) %s\n&quot;,
+-					target-&gt;target_number,
+-					target_name(target));
+-			command_print(cmd_ctx, &quot;%-25s | Body&quot;, &quot;Event&quot;);
+-			command_print(cmd_ctx, &quot;------------------------- | ----------------------------------------&quot;);
+-			while (teap) {
+-				command_print(cmd_ctx,
+-							   &quot;%-25s | %s&quot;,
+-							   Jim_Nvp_value2name_simple(nvp_target_event, teap-&gt;event)-&gt;name,
+-							   Jim_GetString(teap-&gt;body, NULL));
+-				teap = teap-&gt;next;
++			for (; (x &lt; 16) ; x += 1) {
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;   &quot;);
+ 			}
+-			command_print(cmd_ctx, &quot;***END***&quot;);
+-			return JIM_OK;
+-		}
+-	case TS_CMD_CURSTATE:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 0, argv, &quot;[no parameters]&quot;);
+-			return JIM_ERR;
++			break;
+ 		}
+-		Jim_SetResultString(goi.interp,
+-							target_state_name( target ),
+-							-1);
+-		return JIM_OK;
+-	case TS_CMD_INVOKE_EVENT:
+-		if (goi.argc != 1) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;%s ?EVENTNAME?&quot;,n-&gt;name);
+-			return JIM_ERR;
++		/* ascii-ify the bytes */
++		for (x = 0 ; x &lt; y ; x++) {
++			if ((target_buf[x] &gt;= 0x20) &amp;&amp;
++				(target_buf[x] &lt;= 0x7e)) {
++				/* good */
++			} else {
++				/* smack it */
++				target_buf[x] = '.';
++			}
+ 		}
+-		e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_event, &amp;n);
+-		if (e != JIM_OK) {
+-			Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_event, 1);
+-			return e;
++		/* space pad  */
++		while (x &lt; 16) {
++			target_buf[x] = ' ';
++			x++;
+ 		}
+-		target_handle_event(target, n-&gt;value);
+-		return JIM_OK;
++		/* terminate */
++		target_buf[16] = 0;
++		/* print - with a newline */
++		Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%s\n&quot;, target_buf);
++		/* NEXT... */
++		c -= 16;
++		a += 16;
+ 	}
+-	return JIM_ERR;
++	return JIM_OK;
++}
++
++static int jim_target_mem2array(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct target *target = Jim_CmdPrivData(interp);
++	return target_mem2array(interp, target, argc - 1, argv + 1);
++}
++
++static int jim_target_array2mem(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct target *target = Jim_CmdPrivData(interp);
++	return target_array2mem(interp, target, argc - 1, argv + 1);
++}
+ 
+-err_tap_disabled:
++static int jim_target_tap_disabled(Jim_Interp *interp)
++{
+ 	Jim_SetResult_sprintf(interp, &quot;[TAP is disabled]&quot;);
+ 	return JIM_ERR;
+ }
+ 
++static int jim_target_examine(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++
++	int e = target-&gt;type-&gt;examine(target);
++	if (e != ERROR_OK)
++	{
++		Jim_SetResult_sprintf(interp, &quot;examine-fails: %d&quot;, e);
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++
++static int jim_target_poll(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++
++	int e;
++	if (!(target_was_examined(target))) {
++		e = ERROR_TARGET_NOT_EXAMINED;
++	} else {
++		e = target-&gt;type-&gt;poll(target);
++	}
++	if (e != ERROR_OK)
++	{
++		Jim_SetResult_sprintf(interp, &quot;poll-fails: %d&quot;, e);
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++
++static int jim_target_reset(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++
++	if (goi.argc != 2)
++	{
++		Jim_WrongNumArgs(interp, 0, argv,
++				&quot;([tT]|[fF]|assert|deassert) BOOL&quot;);
++		return JIM_ERR;
++	}
++
++	Jim_Nvp *n;
++	int e = Jim_GetOpt_Nvp(&amp;goi, nvp_assert, &amp;n);
++	if (e != JIM_OK)
++	{
++		Jim_GetOpt_NvpUnknown(&amp;goi, nvp_assert, 1);
++		return e;
++	}
++	/* the halt or not param */
++	jim_wide a;
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK)
++		return e;
++
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++	if (!target-&gt;type-&gt;assert_reset || !target-&gt;type-&gt;deassert_reset)
++	{
++		Jim_SetResult_sprintf(interp,
++				&quot;No target-specific reset for %s&quot;,
++				target_name(target));
++		return JIM_ERR;
++	}
++	/* determine if we should halt or not. */
++	target-&gt;reset_halt = !!a;
++	/* When this happens - all workareas are invalid. */
++	target_free_all_working_areas_restore(target, 0);
++
++	/* do the assert */
++	if (n-&gt;value == NVP_ASSERT) {
++		e = target-&gt;type-&gt;assert_reset(target);
++	} else {
++		e = target-&gt;type-&gt;deassert_reset(target);
++	}
++	return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
++}
++
++static int jim_target_halt(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1) {
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++	int e = target-&gt;type-&gt;halt(target);
++	return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
++}
++
++static int jim_target_wait_state(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++
++	/* params:  &lt;name&gt;  statename timeoutmsecs */
++	if (goi.argc != 2)
++	{
++		const char *cmd_name = Jim_GetString(argv[0], NULL);
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;%s &lt;state_name&gt; &lt;timeout_in_msec&gt;&quot;, cmd_name);
++		return JIM_ERR;
++	}
++
++	Jim_Nvp *n;
++	int e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_state, &amp;n);
++	if (e != JIM_OK) {
++		Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_state,1);
++		return e;
++	}
++	jim_wide a;
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK) {
++		return e;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++
++	e = target_wait_state(target, n-&gt;value, a);
++	if (e != ERROR_OK)
++	{
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;target: %s wait %s fails (%d) %s&quot;,
++				target_name(target), n-&gt;name,
++				e, target_strerror_safe(e));
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++/* List for human, Events defined for this target.
++ * scripts/programs should use 'name cget -event NAME'
++ */
++static int jim_target_event_list(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	struct target *target = Jim_CmdPrivData(interp);
++	struct target_event_action *teap = target-&gt;event_action;
++	command_print(cmd_ctx, &quot;Event actions for target (%d) %s\n&quot;,
++				   target-&gt;target_number,
++				   target_name(target));
++	command_print(cmd_ctx, &quot;%-25s | Body&quot;, &quot;Event&quot;);
++	command_print(cmd_ctx, &quot;------------------------- | &quot;
++			&quot;----------------------------------------&quot;);
++	while (teap)
++	{
++		Jim_Nvp *opt = Jim_Nvp_value2name_simple(nvp_target_event, teap-&gt;event);
++		command_print(cmd_ctx, &quot;%-25s | %s&quot;,
++				opt-&gt;name, Jim_GetString(teap-&gt;body, NULL));
++		teap = teap-&gt;next;
++	}
++	command_print(cmd_ctx, &quot;***END***&quot;);
++	return JIM_OK;
++}
++static int jim_target_current_state(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	Jim_SetResultString(interp, target_state_name(target), -1);
++	return JIM_OK;
++}
++static int jim_target_invoke_event(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++	if (goi.argc != 1)
++	{
++		const char *cmd_name = Jim_GetString(argv[0], NULL);
++		Jim_SetResult_sprintf(goi.interp, &quot;%s &lt;eventname&gt;&quot;, cmd_name);
++		return JIM_ERR;
++	}
++	Jim_Nvp *n;
++	int e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_event, &amp;n);
++	if (e != JIM_OK)
++	{
++		Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_event, 1);
++		return e;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	target_handle_event(target, n-&gt;value);
++	return JIM_OK;
++}
++
++static struct command_registration target_instance_command_handlers[] = {
++	{
++		.name = &quot;configure&quot;,
++		.mode = COMMAND_CONFIG,
++		.jim_handler = &amp;jim_target_configure,
++		.usage = &quot;[&lt;target_options&gt; ...]&quot;,
++		.help  = &quot;configure a new target for use&quot;,
++	},
++	{
++		.name = &quot;cget&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_configure,
++		.usage = &quot;&lt;target_type&gt; [&lt;target_options&gt; ...]&quot;,
++		.help  = &quot;configure a new target for use&quot;,
++	},
++	{
++		.name = &quot;mww&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mw,
++		.usage = &quot;&lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Write 32-bit word(s) to target memory&quot;,
++	},
++	{
++		.name = &quot;mwh&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mw,
++		.usage = &quot;&lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Write 16-bit half-word(s) to target memory&quot;,
++	},
++	{
++		.name = &quot;mwb&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mw,
++		.usage = &quot;&lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Write byte(s) to target memory&quot;,
++	},
++	{
++		.name = &quot;mdw&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_md,
++		.usage = &quot;&lt;address&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Display target memory as 32-bit words&quot;,
++	},
++	{
++		.name = &quot;mdh&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_md,
++		.usage = &quot;&lt;address&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Display target memory as 16-bit half-words&quot;,
++	},
++	{
++		.name = &quot;mdb&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_md,
++		.usage = &quot;&lt;address&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Display target memory as 8-bit bytes&quot;,
++	},
++	{
++		.name = &quot;array2mem&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_array2mem,
++	},
++	{
++		.name = &quot;mem2array&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mem2array,
++	},
++	{
++		.name = &quot;eventlist&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_event_list,
++	},
++	{
++		.name = &quot;curstate&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_current_state,
++	},
++	{
++		.name = &quot;arp_examine&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_examine,
++	},
++	{
++		.name = &quot;arp_poll&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_poll,
++	},
++	{
++		.name = &quot;arp_reset&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_reset,
++	},
++	{
++		.name = &quot;arp_halt&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_halt,
++	},
++	{
++		.name = &quot;arp_waitstate&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_wait_state,
++	},
++	{
++		.name = &quot;invoke-event&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_invoke_event,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++static void target_command_handlers_update(struct command_registration *cra,
++		struct target *target)
++{
++	for (unsigned i = 0; NULL != cra[i].name || NULL != cra[i].chain; i++)
++	{
++		struct command_registration *cr = cra + i;
++		cr-&gt;jim_handler_data = target;
++		if (NULL != cr-&gt;chain)
++		{
++			target_command_handlers_update(
++				(struct command_registration *)cr-&gt;chain,
++				target);
++		}
++	}
++}
++
+ static int target_create(Jim_GetOptInfo *goi)
+ {
+ 	Jim_Obj *new_cmd;
+@@ -4389,16 +4520,29 @@ static int target_create(Jim_GetOptInfo *goi)
+ 		}
+ 		*tpp = target;
+ 	}
+-
++	
++	target_command_handlers_update(target_instance_command_handlers, target);
+ 	/* now - create the new target name command */
+-	const struct command_registration target_command = {
+-		.name = cp,
+-		.jim_handler = &amp;tcl_target_func,
+-		.jim_handler_data = target,
+-		.help = &quot;target command group&quot;,
++	const struct command_registration target_subcommands[] = {
++		{
++			.chain = target_instance_command_handlers,
++		},
++		{
++			.chain = target-&gt;type-&gt;commands,
++		},
++		COMMAND_REGISTRATION_DONE
++	};
++	const struct command_registration target_commands[] = {
++		{
++			.name = cp,
++			.mode = COMMAND_ANY,
++			.help = &quot;target command group&quot;,
++			.chain = target_subcommands,
++		},
++		COMMAND_REGISTRATION_DONE
+ 	};
+-	struct command *c = register_command(cmd_ctx, NULL, &amp;target_command);
+-	return (NULL != c) ? ERROR_OK : ERROR_FAIL;
++	e = register_commands(cmd_ctx, NULL, target_commands);
++	return (ERROR_OK == e) ? JIM_OK : JIM_ERR;
+ }
+ 
+ static int jim_target_current(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012968.html">[Openocd-development] [PATCH 3/8] split jim_target into multiple	handlers
+</A></li>
+	<LI>Next message: <A HREF="012967.html">[Openocd-development] [PATCH 5/8] add more stub handlers to testee	target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12969">[ date ]</a>
+              <a href="thread.html#12969">[ thread ]</a>
+              <a href="subject.html#12969">[ subject ]</a>
+              <a href="author.html#12969">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

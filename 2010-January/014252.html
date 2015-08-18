@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20regression%20-%20first%20%22load%22%20after%0A%09power-up%20fails&In-Reply-To=%3C201001171653.46271.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014246.html">
+   <LINK REL="Next"  HREF="014254.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20STM32%20regression%20-%20first%20%22load%22%20after%0A%09power-up%20fails&In-Reply-To=%3C201001171653.46271.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails">david-b at pacbell.net
+       </A><BR>
+    <I>Mon Jan 18 01:53:46 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014246.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+        <LI>Next message: <A HREF="014254.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14252">[ date ]</a>
+              <a href="thread.html#14252">[ thread ]</a>
+              <a href="subject.html#14252">[ subject ]</a>
+              <a href="author.html#14252">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sunday 17 January 2010, &#216;yvind Harboe wrote:
+&gt;<i> I'm not sure we have a regression here.
+</I>
+Against 0.3.1 it seems we don't have one...
+Against 0.2.0 it looks like we do (did)...
+
+(If I understand correctly.)
+
+
+&gt;<i> A regression test should minimally include:
+</I>&gt;<i> 
+</I>&gt;<i> 1. test sequence
+</I>&gt;<i> 
+</I>&gt;<i> 2. expected result
+</I>&gt;<i> 
+</I>&gt;<i> If we agree that both are according to OpenOCD documentation/support,
+</I>&gt;<i> and it fails on one version and not the other, then we have a regression.
+</I>
+Actually, behavior change suffices ... so long as that change isn't
+a bugfix, or documented as a new behavior (e.g. new feature).
+
+Unfortunately not every behavior is documented clearly enough to use
+the documentation to make a &quot;bugfix?&quot; call.
+
+Changes in undocumented (or badly documented) behaviors are troublesome
+in two ways:  first the docs; second that anyone relied on the behavior.
+
+That's a real nightmare when anyone has committed to binary interfaces,
+unless they're well versioned, since they're pretty much stuck forever
+with being backwards bug-compatible.  Protocol interfaces are one flavor
+of binary interface.
+
+
+
+&gt;<i> Could you provide 1+2? (I could perhaps extract that information from
+</I>&gt;<i> the logs, but
+</I>&gt;<i> I want to hear more about what you intended and what you expected to see.)
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> A few comments relating to the gdb sync feature and openocd/gdb
+</I>&gt;<i> making fewer assumptions about the target:
+</I>&gt;<i> 
+</I>&gt;<i> Targets and interfaces will have some state when OpenOCD is not
+</I>&gt;<i> running and/or the target is not connected. Obviously openocd should not try
+</I>&gt;<i> to make much in the way of assumptions about disconnected targets.
+</I>&gt;<i> 
+</I>&gt;<i> I made a change where I made OpenOCD do *nothing* upon
+</I>&gt;<i> connecting w/GDB, not even query the target.
+</I>&gt;<i> 
+</I>&gt;<i> This solves a raft of issues w.r.t. configuring what should happen upon
+</I>&gt;<i> connect and how you put the target into a particular state.
+</I>&gt;<i> 
+</I>&gt;<i> You simply put whatever you want into
+</I>&gt;<i> the gdb init sequence, no config options, fancy events, etc. Previously
+</I>&gt;<i> openocd would issue a halt upon gdb connect, whether or not that
+</I>&gt;<i> was something that the user needed or wanted to happen. Most likely
+</I>&gt;<i> the user was unaware of it.
+</I>&gt;<i> 
+</I>&gt;<i> So, typically when connecting with GDB and loading you should do
+</I>&gt;<i> something like:
+</I>&gt;<i> 
+</I>&gt;<i> target remote xxx
+</I>&gt;<i> # the target is not affected or queried by a gdb connnect. Dummy values are
+</I>&gt;<i> # returned and a white lie takes place w.r.t. that the target is halted.
+</I>
+That &quot;white lie&quot; may be problematic.  However, I've only looked
+a bit at the GDB remote protocol, and I suspect that it's causing
+some issues.  It doesn't *require* clean target identification, as
+just one example ...
+
+
+&gt;<i> # OpenOCD allows gdb to be in the halted state and have the
+</I>&gt;<i> # target running or halted. You can resume openocd when the target
+</I>&gt;<i> # is either running or halted, as the openocd GDB server will
+</I>&gt;<i> # sync up to the target upon a stepi/continue.
+</I>&gt;<i> #
+</I>&gt;<i> # halt can *fail* before monitor reset init, so fortunally
+</I>&gt;<i> # we have *complete* control over the gdb init sequence now
+</I>&gt;<i> monitor reset init
+</I>
+This reset step is obviously not required in all cases.
+
+I agree that it should not be *automagically* performed,
+even the weaker &quot;monitor halt&quot; equivalent which was
+happening prior to the &quot;gdb sync&quot; patch.
+
+
+&gt;<i> load
+</I>&gt;<i> # the gdb sync flag is set upon GDB connect,
+</I>&gt;<i> # stepi will not step here, but cause a fresh set of registers
+</I>&gt;<i> # to be fetched into gdb
+</I>&gt;<i> stepi
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Example #2:
+</I>&gt;<i> 
+</I>&gt;<i> I want to get fancy and try to hotplug to a target and halt it:
+</I>
+I don't think I'd call that &quot;fancy&quot;.  :)
+
+
+&gt;<i> # 1. start openocd
+</I>&gt;<i> # 2. hotplug a target we want to examine
+</I>&gt;<i> target remote xxxx
+</I>&gt;<i> # we're now connected to the GDB server, OpenOCD has not
+</I>&gt;<i> # talked to the target yet. GDB is &quot;halted&quot;, but really the target
+</I>&gt;<i> # could be running or halted, we don't know. The sync flag
+</I>&gt;<i> # is set upon connect, so &quot;stepi&quot; will not stepi, but wait for the target to be
+</I>&gt;<i> # halted, if it isn't already and then fetch a fresh set of registers
+</I>&gt;<i> stepi
+</I>&gt;<i> =&gt; press ctrl - c, if we're lucky, we can now debug the hot plugged target
+</I>
+I guess I'm puzzled why &quot;stepi&quot; would be used instead of
+some kind of real &quot;halt&quot;.
+
+Is the issue that GDB's &quot;remote&quot; protocol doesn't have a
+very good notion of target state init?
+
+
+&gt;<i> 
+</I>&gt;<i> Now.... hotplugging *can* work on simpler CPUs, but anything reasonably
+</I>&gt;<i> complex(Cortex-A8, XScale, etc.), naive hotplugging is *very* unlikely to
+</I>&gt;<i> be of much use.
+</I>
+XScale is kind of odd; it requires special magic to hotplug.
+In large part that is ISTR caused by its funky requirement to
+run with a baby debug monitor loaded into its mini-ICache.
+
+Other than that ... what do you mean by &quot;naive&quot;?
+
+- Dave
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014246.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+	<LI>Next message: <A HREF="014254.html">[Openocd-development] STM32 regression - first &quot;load&quot; after	power-up fails
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14252">[ date ]</a>
+              <a href="thread.html#14252">[ thread ]</a>
+              <a href="subject.html#14252">[ subject ]</a>
+              <a href="author.html#14252">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

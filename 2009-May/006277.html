@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] fix jtag_add_ir_scan() regression in 1672
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fix%20jtag_add_ir_scan%28%29%20regression%20in%201672&In-Reply-To=%3Cc09652430905080852m584146a9w3a970129db34e8e7%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006295.html">
+   <LINK REL="Next"  HREF="006278.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] fix jtag_add_ir_scan() regression in 1672</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20fix%20jtag_add_ir_scan%28%29%20regression%20in%201672&In-Reply-To=%3Cc09652430905080852m584146a9w3a970129db34e8e7%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] fix jtag_add_ir_scan() regression in 1672">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Fri May  8 17:52:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006295.html">[Openocd-development] The &quot;in_handler&quot; Incident
+</A></li>
+        <LI>Next message: <A HREF="006278.html">[Openocd-development] in_handler: w/o &quot;in_value&quot;, mismatch in SIR
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6277">[ date ]</a>
+              <a href="thread.html#6277">[ thread ]</a>
+              <a href="subject.html#6277">[ subject ]</a>
+              <a href="author.html#6277">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This patch should fix the jtag_add_ir_scan() regression(SEGFAULT)
+in 1672 reported by Magnus Lundin.
+
+If someone can confirm that it works, I'll commit it, if not I'll have to
+see if I can test it later on tonight.
+
+-- 
+&#216;yvind Harboe
+Embedded software and hardware consulting services
+<A HREF="http://consulting.zylin.com">http://consulting.zylin.com</A>
+-------------- next part --------------
+Index: C:/workspace/openocd/src/jtag/jtag.c
+===================================================================
+--- C:/workspace/openocd/src/jtag/jtag.c	(revision 1676)
++++ C:/workspace/openocd/src/jtag/jtag.c	(working copy)
+@@ -45,6 +45,7 @@
+ 
+ int jtag_flush_queue_count; /* count # of flushes for profiling / debugging purposes */
+ 
++
+ /* note that this is not marked as static as it must be available from outside jtag.c for those
+    that implement the jtag_xxx() minidriver layer
+ */
+@@ -541,7 +542,6 @@
+ 	u32 id[8];
+ 	int modified[8];
+ 
+-
+ 	/* if we are to run a verification of the ir scan, we need to get the input back.
+ 	 * We may have to allocate space if the caller didn't ask for the input back.
+ 	 *
+@@ -621,10 +621,16 @@
+ 			break;
+ 		}
+ 		nth_tap++;
++
++		if (nth_tap &gt;= x )
++		{
++			LOG_ERROR(&quot;BUG: not enough fields allocated!&quot;);
++		}
++
+ 		scan_size = tap-&gt;ir_length;
+ 		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].tap = tap;
+ 		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].num_bits = scan_size;
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = fields[nth_tap].in_value;
++		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = NULL;
+ 
+ 		/* search the list */
+ 		for (j = 0; j &lt; num_fields; j++)
+@@ -632,6 +638,7 @@
+ 			if (tap == fields[j].tap)
+ 			{
+ 				found = 1;
++				(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = fields[j].in_value;
+ 				(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_cpy(fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 
+ 				tap-&gt;bypass = 0;
+@@ -649,6 +656,10 @@
+ 		/* update device information */
+ 		buf_cpy((*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].out_value, tap-&gt;cur_instr, scan_size);
+ 	}
++	if (nth_tap != (x-1) )
++	{
++		LOG_ERROR(&quot;BUG: all the scan fields where not filled out %d %d!&quot;, nth_tap, x);
++	}
+ 
+ 	return ERROR_OK;
+ }
+@@ -1450,7 +1461,7 @@
+ 	/* each flush can take as much as 1-2ms on high bandwidth low latency interfaces.
+ 	 * E.g. a JTAG over TCP/IP or USB....
+ 	 */
+-	jtag_flush_queue_count++; 
++	jtag_flush_queue_count++;
+ 
+ 	int retval=interface_jtag_execute_queue();
+ 	/* we keep the first error */
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006295.html">[Openocd-development] The &quot;in_handler&quot; Incident
+</A></li>
+	<LI>Next message: <A HREF="006278.html">[Openocd-development] in_handler: w/o &quot;in_value&quot;, mismatch in SIR
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6277">[ date ]</a>
+              <a href="thread.html#6277">[ thread ]</a>
+              <a href="subject.html#6277">[ subject ]</a>
+              <a href="author.html#6277">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

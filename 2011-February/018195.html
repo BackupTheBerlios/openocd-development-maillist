@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] dsp568013 - switching/disabling taps
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20dsp568013%20-%20switching/disabling%20taps&In-Reply-To=%3C4D5A165A.9030708%40freenet.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="018194.html">
+   <LINK REL="Next"  HREF="018196.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] dsp568013 - switching/disabling taps</H1>
+    <B>Mathias K.</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20dsp568013%20-%20switching/disabling%20taps&In-Reply-To=%3C4D5A165A.9030708%40freenet.de%3E"
+       TITLE="[Openocd-development] dsp568013 - switching/disabling taps">kesmtp at freenet.de
+       </A><BR>
+    <I>Tue Feb 15 06:59:54 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="018194.html">[Openocd-development] dsp568013 - switching/disabling taps
+</A></li>
+        <LI>Next message: <A HREF="018196.html">[Openocd-development] dsp568013 - switching/disabling taps
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18195">[ date ]</a>
+              <a href="thread.html#18195">[ thread ]</a>
+              <a href="subject.html#18195">[ subject ]</a>
+              <a href="author.html#18195">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hello,
+
+you can try configure with &quot;--enable-verbose-jtag-io&quot;. All the jtag input/output is done in interface.c.
+
+
+
+Regards,
+
+Mathias
+
+
+Am 15.02.2011 02:28, schrieb Rodrigo Rosa:
+&gt;<i> Hi,
+</I>&gt;<i> 
+</I>&gt;<i> We've been trying to communicate via JTAG (through a signalyzer H2)
+</I>&gt;<i> with a freescale 568013.
+</I>&gt;<i> Modifying the code for the dsp56321 we were able to communicate with
+</I>&gt;<i> our chip. It has two taps, a MASTER tap and a CORE tap.
+</I>&gt;<i> 
+</I>&gt;<i> The default tap is the MASTER tap, and by default the CORE tap is
+</I>&gt;<i> disabled. There is a command to switch from the MASTER tap to the CORE
+</I>&gt;<i> tap and vice versa. Since it is a switch, only ONE tap is connected at
+</I>&gt;<i> a time.
+</I>&gt;<i> We need to make openocd know that the command that switches from
+</I>&gt;<i> MASTER to CORE disables MASTER (and the command to switch from CORE to
+</I>&gt;<i> MASTER disables CORE).
+</I>&gt;<i> The config file (see below) shows the hack we are currently using
+</I>&gt;<i> (empty disable functions).
+</I>&gt;<i> 
+</I>&gt;<i> #-----------------------------------------------------------------
+</I>&gt;<i> #-----------------------------------------------------------------
+</I>&gt;<i> # Script for freescale DSP568013
+</I>&gt;<i> #
+</I>&gt;<i> source [find interface/signalyzer-h2.cfg]
+</I>&gt;<i> 
+</I>&gt;<i> if { [info exists CHIPNAME] } {	
+</I>&gt;<i>    set  _CHIPNAME $CHIPNAME
+</I>&gt;<i> } else {	
+</I>&gt;<i>    set  _CHIPNAME dsp568013
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> if { [info exists ENDIAN] } {	
+</I>&gt;<i>    set  _ENDIAN $ENDIAN
+</I>&gt;<i> } else {	
+</I>&gt;<i>   # this defaults to a big endian
+</I>&gt;<i>    set  _ENDIAN big
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> if { [info exists CPUTAPID ] } {
+</I>&gt;<i>    set _CPUTAPID $CPUTAPID
+</I>&gt;<i> } else {
+</I>&gt;<i>   # force an error till we get a good number
+</I>&gt;<i>    set _CPUTAPID 0x01f2801d
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> #jtag speed
+</I>&gt;<i> adapter_khz 10
+</I>&gt;<i> 
+</I>&gt;<i> #has only trst
+</I>&gt;<i> reset_config trst_only
+</I>&gt;<i> 
+</I>&gt;<i> #MASTER tap
+</I>&gt;<i> jtag newtap $_CHIPNAME chp -irlen 8 -ircapture 1 -irmask 0x03
+</I>&gt;<i> -expected-id $_CPUTAPID
+</I>&gt;<i> 
+</I>&gt;<i> #CORE tap
+</I>&gt;<i> jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 1 -irmask 0x03 -disable
+</I>&gt;<i> -expected-id 0x02211004
+</I>&gt;<i> 
+</I>&gt;<i> #target configuration
+</I>&gt;<i> set _TARGETNAME $_CHIPNAME.cpu
+</I>&gt;<i> #target create $_TARGETNAME dsp5680xx -endian $_ENDIAN -chain-position
+</I>&gt;<i> $_TARGETNAME
+</I>&gt;<i> 
+</I>&gt;<i> #select CORE tap by modifying the TLM register.
+</I>&gt;<i> #to be used when MASTER tap is selected.
+</I>&gt;<i> jtag configure $_TARGETNAME -event tap-enable &quot;
+</I>&gt;<i>      irscan $_CHIPNAME.chp 0x05;
+</I>&gt;<i>      drscan $_CHIPNAME.chp 4 0x02;
+</I>&gt;<i>      jtag tapdisable $_CHIPNAME.chp;
+</I>&gt;<i> &quot;
+</I>&gt;<i> 
+</I>&gt;<i> #select MASTER tap by modifying the TLM register.
+</I>&gt;<i> #to be used when CORE tap is selected.
+</I>&gt;<i> jtag configure $_CHIPNAME.chp -event tap-enable &quot;
+</I>&gt;<i>      irscan $_TARGETNAME 0x4;
+</I>&gt;<i>      drscan $_TARGETNAME 4 0x1;
+</I>&gt;<i>      jtag tapdisable $_TARGETNAME;
+</I>&gt;<i> &quot;
+</I>&gt;<i> 
+</I>&gt;<i> jtag configure $_TARGETNAME -event tap-disable {
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> jtag configure $_CHIPNAME.chp -event tap-disable {
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> #working area at base of ram
+</I>&gt;<i> #$_TARGETNAME configure -work-area-virt 0
+</I>&gt;<i> 
+</I>&gt;<i> #-----------------------------------------------------------------
+</I>&gt;<i> #-----------------------------------------------------------------
+</I>&gt;<i> 
+</I>&gt;<i> The tap seems to switch. After switching we can get what we believe is
+</I>&gt;<i> the CORE tap's IDCODE by executing:
+</I>&gt;<i> 
+</I>&gt;&gt;<i> scan_chain
+</I>&gt;<i>    TapName             Enabled  IdCode     Expected   IrLen IrCap IrMask
+</I>&gt;<i> -- ------------------- -------- ---------- ---------- ----- ----- ------
+</I>&gt;<i>  0 dsp568013.chp          Y     0x01f2801d 0x01f2801d     8 0x01  0x03
+</I>&gt;<i>  1 dsp568013.cpu          n     0x00000000 0x02211004     4 0x01  0x03
+</I>&gt;&gt;<i> jtag tapenable dsp568013.cpu
+</I>&gt;<i> JTAG tap: dsp568013.chp disabled
+</I>&gt;<i> JTAG tap: dsp568013.cpu enabled
+</I>&gt;<i> 1
+</I>&gt;&gt;<i> scan_chain
+</I>&gt;<i>    TapName             Enabled  IdCode     Expected   IrLen IrCap IrMask
+</I>&gt;<i> -- ------------------- -------- ---------- ---------- ----- ----- ------
+</I>&gt;<i>  0 dsp568013.chp          n     0x01f2801d 0x01f2801d     8 0x01  0x03
+</I>&gt;<i>  1 dsp568013.cpu          Y     0x00000000 0x02211004     4 0x01  0x03
+</I>&gt;&gt;<i> irscan dsp568013.cpu 0x2
+</I>&gt;&gt;<i> drscan dsp568013.cpu 32 0
+</I>&gt;<i> 02211004
+</I>&gt;&gt;<i>
+</I>&gt;<i> 
+</I>&gt;<i> Switching back to the MASTER tap does not seem to work correctly.
+</I>&gt;<i> After switching to the CORE tap and back to the MASTER tap we cannot
+</I>&gt;<i> execute IDCODE successfully.
+</I>&gt;<i> We get the following on telnet:
+</I>&gt;<i> 
+</I>&gt;&gt;<i> jtag tapenable dsp568013.chp
+</I>&gt;<i> JTAG tap: dsp568013.cpu disabled
+</I>&gt;<i> JTAG tap: dsp568013.chp enabled
+</I>&gt;<i> 1
+</I>&gt;&gt;<i> irscan dsp568013.chp 0x02
+</I>&gt;&gt;<i> drscan dsp568013.chp 32 0
+</I>&gt;<i> 00000000
+</I>&gt;&gt;<i> drscan dsp568013.chp 32 0
+</I>&gt;<i> 00000000
+</I>&gt;&gt;<i> drscan dsp568013.chp 32 2
+</I>&gt;<i> 00000004
+</I>&gt;<i> 
+</I>&gt;<i> looks like the tap is working in BYPASS. if we run &quot;pathmove RESET&quot;
+</I>&gt;<i> everything works fine again:
+</I>&gt;<i> 
+</I>&gt;&gt;<i> pathmove RESET
+</I>&gt;&gt;<i> irscan dsp568013.chp 0x02
+</I>&gt;&gt;<i> drscan dsp568013.chp 32 0
+</I>&gt;<i> 01F2801D
+</I>&gt;<i> 
+</I>&gt;<i> What is the correct way to do the switching?
+</I>&gt;<i> 
+</I>&gt;<i> Also, is there any way to get irscan to show what was shifted in?
+</I>&gt;<i> 
+</I>&gt;<i> Thanks!
+</I>&gt;<i> 
+</I>&gt;<i> --
+</I>&gt;<i> Rodrigo.
+</I>&gt;<i> _______________________________________________
+</I>&gt;<i> Openocd-development mailing list
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">Openocd-development at lists.berlios.de</A>
+</I>&gt;<i> <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">https://lists.berlios.de/mailman/listinfo/openocd-development</A>
+</I>&gt;<i> 
+</I>
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="018194.html">[Openocd-development] dsp568013 - switching/disabling taps
+</A></li>
+	<LI>Next message: <A HREF="018196.html">[Openocd-development] dsp568013 - switching/disabling taps
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18195">[ date ]</a>
+              <a href="thread.html#18195">[ thread ]</a>
+              <a href="subject.html#18195">[ subject ]</a>
+              <a href="author.html#18195">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

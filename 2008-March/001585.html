@@ -1,0 +1,216 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] XScale fixed
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20XScale%20fixed&In-Reply-To=%3Cc09652430803130106k3939a32br8e09087136f0ee58%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001584.html">
+   <LINK REL="Next"  HREF="001593.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] XScale fixed</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20XScale%20fixed&In-Reply-To=%3Cc09652430803130106k3939a32br8e09087136f0ee58%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] XScale fixed">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Thu Mar 13 09:06:06 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001584.html">[Openocd-development] XScale fixed
+</A></li>
+        <LI>Next message: <A HREF="001593.html">[Openocd-development] XScale fixed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1585">[ date ]</a>
+              <a href="thread.html#1585">[ thread ]</a>
+              <a href="subject.html#1585">[ subject ]</a>
+              <a href="author.html#1585">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>&gt;<i>  where every access takes around 0.5s.
+</I>
+Well spotted! Good bug-report!
+
+Fix committed.
+
+
+Index: C:/workspace/openocd_trunk/src/target/xscale.c
+===================================================================
+--- C:/workspace/openocd_trunk/src/target/xscale.c	(revision 507)
++++ C:/workspace/openocd_trunk/src/target/xscale.c	(working copy)
+@@ -481,41 +481,46 @@
+ 	jtag_set_check_value(fields+2, &amp;field2_check_value, &amp;field2_check_mask, NULL);
+
+ 	gettimeofday(&amp;timeout, NULL);
+-	timeval_add_time(&amp;timeout, 5, 0);
++	timeval_add_time(&amp;timeout, 1, 0);
+
+ 	for (;;)
+ 	{
+-		/* if we want to consume the register content (i.e. clear TX_READY),
+-		 * we have to go straight from Capture-DR to Shift-DR
+-		 * otherwise, we go from Capture-DR to Exit1-DR to Pause-DR
+-		*/
+-		if (consume)
+-			jtag_add_pathmove(3, path);
+-		else
+-		{
+-			jtag_add_pathmove(sizeof(noconsume_path)/sizeof(*noconsume_path),
+noconsume_path);
+-		}
+-
+-		jtag_add_dr_scan(3, fields, TAP_RTI);
+-
+-		if ((retval = jtag_execute_queue()) != ERROR_OK)
+-		{
+-			ERROR(&quot;JTAG error while reading TX&quot;);
+-			return ERROR_TARGET_TIMEOUT;
+-		}
+-
+-		gettimeofday(&amp;now, NULL);
+-		if ((now.tv_sec &gt; timeout.tv_sec) || ((now.tv_sec ==
+timeout.tv_sec)&amp;&amp; (now.tv_usec &gt; timeout.tv_usec)))
+-		{
+-			ERROR(&quot;time out reading TX register&quot;);
+-			return ERROR_TARGET_TIMEOUT;
+-		}
+-		if (!((!(field0_in &amp; 1)) &amp;&amp; consume))
++		int i;
++		for (i=0; i&lt;100; i++)
+ 		{
+-			break;
++			/* if we want to consume the register content (i.e. clear TX_READY),
++			 * we have to go straight from Capture-DR to Shift-DR
++			 * otherwise, we go from Capture-DR to Exit1-DR to Pause-DR
++			*/
++			if (consume)
++				jtag_add_pathmove(3, path);
++			else
++			{
++				jtag_add_pathmove(sizeof(noconsume_path)/sizeof(*noconsume_path),
+noconsume_path);
++			}
++	
++			jtag_add_dr_scan(3, fields, TAP_RTI);
++	
++			if ((retval = jtag_execute_queue()) != ERROR_OK)
++			{
++				ERROR(&quot;JTAG error while reading TX&quot;);
++				return ERROR_TARGET_TIMEOUT;
++			}
++	
++			gettimeofday(&amp;now, NULL);
++			if ((now.tv_sec &gt; timeout.tv_sec) || ((now.tv_sec ==
+timeout.tv_sec)&amp;&amp; (now.tv_usec &gt; timeout.tv_usec)))
++			{
++				ERROR(&quot;time out reading TX register&quot;);
++				return ERROR_TARGET_TIMEOUT;
++			}
++			if (!((!(field0_in &amp; 1)) &amp;&amp; consume))
++			{
++				goto done;
++			}
+ 		}
+-		usleep(500*1000); /* avoid flooding the logs */
++		usleep(10*1000); /* avoid flooding the logs */
+ 	}
++	done:
+
+ 	if (!(field0_in &amp; 1))
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+@@ -571,7 +576,7 @@
+ 	jtag_set_check_value(fields+2, &amp;field2_check_value, &amp;field2_check_mask, NULL);
+
+ 	gettimeofday(&amp;timeout, NULL);
+-	timeval_add_time(&amp;timeout, 5, 0);
++	timeval_add_time(&amp;timeout, 1, 0);
+
+ 	/* poll until rx_read is low */
+ 	DEBUG(&quot;polling RX&quot;);
+@@ -577,25 +582,30 @@
+ 	DEBUG(&quot;polling RX&quot;);
+ 	for (;;)
+ 	{
+-		jtag_add_dr_scan(3, fields, TAP_RTI);
+-
+-		if ((retval = jtag_execute_queue()) != ERROR_OK)
++		int i;
++		for (i=0; i&lt;10; i++)
+ 		{
+-			ERROR(&quot;JTAG error while writing RX&quot;);
+-			return retval;
+-		}
+-
+-		gettimeofday(&amp;now, NULL);
+-		if ((now.tv_sec &gt; timeout.tv_sec) || ((now.tv_sec ==
+timeout.tv_sec)&amp;&amp; (now.tv_usec &gt; timeout.tv_usec)))
+-		{
+-			ERROR(&quot;time out writing RX register&quot;);
+-			return ERROR_TARGET_TIMEOUT;
++			jtag_add_dr_scan(3, fields, TAP_RTI);
++	
++			if ((retval = jtag_execute_queue()) != ERROR_OK)
++			{
++				ERROR(&quot;JTAG error while writing RX&quot;);
++				return retval;
++			}
++	
++			gettimeofday(&amp;now, NULL);
++			if ((now.tv_sec &gt; timeout.tv_sec) || ((now.tv_sec ==
+timeout.tv_sec)&amp;&amp; (now.tv_usec &gt; timeout.tv_usec)))
++			{
++				ERROR(&quot;time out writing RX register&quot;);
++				return ERROR_TARGET_TIMEOUT;
++			}
++			if (!(field0_in &amp; 1))
++				goto done;
+ 		}
+-		if (!(field0_in &amp; 1))
+-			break;
+-		usleep(500*1000); /* wait 500ms to avoid flooding the logs */
++		usleep(10*1000); /* wait 10ms to avoid flooding the logs */
+ 	}
+-
++	done:
++	
+ 	/* set rx_valid */
+ 	field2 = 0x1;
+ 	jtag_add_dr_scan(3, fields, TAP_RTI);
+
+
+
+-- 
+&#216;yvind Harboe
+<A HREF="http://www.zylin.com">http://www.zylin.com</A> - eCos ARM &amp; FPGA developer kit
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001584.html">[Openocd-development] XScale fixed
+</A></li>
+	<LI>Next message: <A HREF="001593.html">[Openocd-development] XScale fixed
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1585">[ date ]</a>
+              <a href="thread.html#1585">[ thread ]</a>
+              <a href="subject.html#1585">[ subject ]</a>
+              <a href="author.html#1585">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

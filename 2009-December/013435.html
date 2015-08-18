@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] multiple JTAG interfaces
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20multiple%20JTAG%20interfaces&In-Reply-To=%3C200912081238.17366.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013418.html">
+   <LINK REL="Next"  HREF="013439.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] multiple JTAG interfaces</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20multiple%20JTAG%20interfaces&In-Reply-To=%3C200912081238.17366.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] multiple JTAG interfaces">david-b at pacbell.net
+       </A><BR>
+    <I>Tue Dec  8 21:38:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013418.html">[Openocd-development] multiple JTAG interfaces
+</A></li>
+        <LI>Next message: <A HREF="013439.html">[Openocd-development] multiple JTAG interfaces
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13435">[ date ]</a>
+              <a href="thread.html#13435">[ thread ]</a>
+              <a href="subject.html#13435">[ subject ]</a>
+              <a href="author.html#13435">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Monday 07 December 2009, Zach Welch wrote:
+&gt;<i> Hi all,
+</I>&gt;<i> 
+</I>&gt;<i> The following list describes the things that might still be accomplished
+</I>&gt;<i> before the 0.4.0-rc cycle starts.  These features are all &quot;mostly done&quot;
+</I>&gt;<i> in my tree; they work fine for me in limited testing.  They should all
+</I>&gt;<i> be safe incremental steps to take.
+</I>
+That &quot;mostly done&quot; bothers me... we need to be winding down current
+work which is almost completely merged, not starting a new merge
+cycle just to get in &quot;under the wire&quot;.  So I'm going to read this
+instead as mostly about things which might be done in 0.5 ... and
+most of which doesn't relate to $SUBJECT, for that matter!
+
+
+If by $SUBJECT you mean &quot;remove JTAG-related global state from
+all interfaces&quot;, I'm all for it.
+
+But probably not for 0.4 since it's a huge change ... it would
+touch *EVERYTHING* that gets anywhere near JTAG.  Like for example
+the TAP state logic, and SRST handling, &quot;reset_config&quot;, and more.
+
+Such a change would need to go in phases.  Maybe some of them could
+fit in the remaining part of the 0.4 cycle; but not most of them.
+
+(None of that is sanely factored; the &quot;fact&quot; that there's just one
+current JTAG scan chain, TAP state, SRST etc, is *everywhere* in the
+code.  Even when it's not actually true, e.g. SRST is a pretty rude
+signal to try using, unless there's only a single device.)
+
+And then that would need to bubble up to the command language
+too.  Maybe in a different release -- but eventually.  In short,
+supporting multiple scan chains would be a major change, not
+IMO suitable for rushing into the 0.4 release. 
+
+
+&gt;<i> - generic driver/instance helper module
+</I>&gt;<i>   - struct object: root of driver-instantiated objects
+</I>&gt;<i>   - struct driver: root of driver objects (and is-a object itself)
+</I>&gt;<i>   - Allows adding 'struct module' to provide loadable drivers someday.
+</I>
+Any time I hear about a proposed &quot;struct object&quot;, warning
+sirens start blaring loudly.  They're almost never needed,
+except maybe as part of enabling GC in a language runtime.
+
+You can add the notion of a loadable module separately from
+all that other stuff.  
+
+Loadable _driver_ does call for a clean framework into which
+that driver plugs ... and none of our drivers are that clean:
+we rely on tables, rather than ${TYPE}_driver_{add,remove}()
+calls that get triggered somehow.  Where TYPE could of course
+be JTAG adapter, CPU/target, NOR driver, NAND driver, and more.
+
+It ought to be easy to drop lots of drivers out of the tree,
+by just not compiling and linking them -- without changing
+the framework into which they plug.  Then later to tweak
+those frameworks to say &quot;hmm, no &lt;driver X&gt;, try modprobe
+to see if it appears&quot;.  The enabling comes from just having
+clean register-a-driver-to-this-subsystem interfaces.
+
+
+&gt;<i> - flash driver/instance unification
+</I>&gt;<i>   - NOR tree is converted to use 'object' and 'driver' model.
+</I>&gt;<i>     - flash_banks are 'object's of flash_driver device 'driver's
+</I>&gt;<i>   - NAND tree can be converted similarly (when done with other patches).
+</I>
+Maybe you could start a separate thread on this subject,
+showing precisely what you mean.  Your single quotes prevent
+me from understanding what that &quot;flash_banks are...&quot; means.
+
+There's obvious messiness to clean up there, but I'd have to
+guess what you're intending to suggest...
+
+
+&gt;<i> - multiple JTAG interface API support (internal to the JTAG module only)
+</I>&gt;<i>   - adds jtag_device (object) to instantiate jtag_interface (driver)
+</I>
+Seems to me the notions we need here would be:
+
+  - scan chain, associated with
+      * state ... collected from all over: reset config, etc
+      * set of TAPs ... state; some TAPs have targets
+      * jtag adapter ... driver, with internal state
+
+So hook up multiple adapters, and get multiple scan chains each with
+their own TAPs and each of which gets reset differently.
+
+A &quot;jtag_device&quot; would be conceptually confusing; everything we touch
+is some flavor of that.  Focus instead on what role the device serves,
+and make type names match the role.
+
+
+&gt;<i>   - converts internal APIs: jtag_interface, driver commands, bitbang
+</I>&gt;<i>   - converts drivers to use new APIs, with dummy support many instances
+</I>&gt;<i>   - moves some global variables into structures
+</I>
+Hmm, I'd rather see the &quot;what&quot; (data structures) before the &quot;how do
+we get there&quot; (conversion steps).
+
+
+&gt;<i> So far, the JTAG conversion has been completely internal to that module,
+</I>&gt;<i> so it may not be desirable to introduce this support in 0.4.0 without
+</I>&gt;<i> &quot;finishing&quot; the work.  Specifically, support must be added at all levels
+</I>&gt;<i> of the system; many of the public JTAG APIs must be updated so callers
+</I>&gt;<i> pass the required jtag_device structure.  This process of associating
+</I>&gt;<i> all of the other parts of the system with a specific interface will take
+</I>&gt;<i> a larger concerted effort, and it may be too late to get this done.
+</I>&gt;<i> Even worse, we must integrate this somehow with the current commands. :/
+</I>
+It's way too late for 0.4, IMO.
+
+The &quot;easy&quot; way to package such a change would be to have one telnet and
+TCL port per scan chain, so the *runtime* commands don't need to change.
+
+But that'd still leave a mess for the configuration problem.  I think
+all the work you've done refactoring the command handling ought to be
+able to help sort that out.
+
+ 
+&gt;<i> Today, the patches allow updating the internal JTAG APIs to support
+</I>&gt;<i> multiple interfaces and allow drivers to encapsulate their own state.
+</I>&gt;<i> Indeed, I have updated the 'dummy' driver to show how multiple device
+</I>&gt;<i> instances can be supported in one driver with the new interface APIs.
+</I>
+Getting rid of static (presumably!) per-driver state sounds like it's
+something that might safely get merged for 0.4 ... at least, &quot;enabling&quot;,
+plus maybe converting a few drivers.  It wouldn't suffice for making
+multiple JTAG interfaces work, but it's obviously a necessary step.
+
+Maybe you could post the interface change patch (there is just one??)
+for discussion.
+
+Also, the Zylin stuff seems to presuppose there can't be multiple
+JTAG adapters -- so that it can inline fragments implementing the
+single adapter all over the place.  That's not necessarily in big
+conflict with well designed hooks; just a compile time option to
+turn most of them into stubs.  (And for that matter, GCC does have
+the &quot;-fwhole-program --combine&quot; optimizations which have helped in
+similar cases.)
+
+
+&gt;<i> When the high-level APIs switch away from using a global device pointer,
+</I>&gt;<i> that driver should just work as expected.  Others maintainers should
+</I>&gt;<i> find it easy to update their own drivers to add this support, even
+</I>&gt;<i> though this requires removing all post-configuration global variables.
+</I>&gt;<i> 
+</I>&gt;<i> Mirrored in my 'object', 'mem', and 'jtag' branches on repo.or.cz:
+</I>&gt;<i> 
+</I>&gt;<i> 	<A HREF="http://repo.or.cz/w/openocd/ztw.git">http://repo.or.cz/w/openocd/ztw.git</A>
+</I>&gt;<i> 
+</I>&gt;<i> While I am going to continue looking at the JTAG layer, I believe that
+</I>&gt;<i> this current work would be relatively safe to push.  It might be best to
+</I>&gt;<i> do this integration in stages so each phase gets good testing, but what
+</I>&gt;<i> do others think about these changes and overall strategy?
+</I>
+Hmm, I'll have to make time to look at all that.  For now, my bias
+is that none of this is *needed* for 0.4 ... so I'd say to hold off.
+
+Reviewing code in a repository isn't a good way to go, IMO.  I'd
+rather see emails proposing interface changes -- first as overview
+for discussion, eventually in the form of a reviewable patch -- with
+perhaps a brief overview of where those changes are leading, in some
+cases.
+
+Plus, having a *small* number of changes to review at a time is a
+lot easier to cope with than a wall of patches...
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013418.html">[Openocd-development] multiple JTAG interfaces
+</A></li>
+	<LI>Next message: <A HREF="013439.html">[Openocd-development] multiple JTAG interfaces
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13435">[ date ]</a>
+              <a href="thread.html#13435">[ thread ]</a>
+              <a href="subject.html#13435">[ subject ]</a>
+              <a href="author.html#13435">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

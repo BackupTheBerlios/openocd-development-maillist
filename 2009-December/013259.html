@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 1/7] ARM DPM:  tweak initialization
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/7%5D%20ARM%20DPM%3A%20%20tweak%20initialization&In-Reply-To=%3C200912022235.21361.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="013257.html">
+   <LINK REL="Next"  HREF="013258.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 1/7] ARM DPM:  tweak initialization</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%201/7%5D%20ARM%20DPM%3A%20%20tweak%20initialization&In-Reply-To=%3C200912022235.21361.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 1/7] ARM DPM:  tweak initialization">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Dec  3 07:35:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="013257.html">[Openocd-development] [patch 0/7] ARM11 cleanups (mostly)
+</A></li>
+        <LI>Next message: <A HREF="013258.html">[Openocd-development] [patch 2/7] ARM11: minor cleanup #1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13259">[ date ]</a>
+              <a href="thread.html#13259">[ thread ]</a>
+              <a href="subject.html#13259">[ subject ]</a>
+              <a href="author.html#13259">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Move the initial breakpoint/watchpoint disable calls to
+arm_dpm_initialize(), and start using that routine.  This
+split helps with arm11 support.
+---
+ src/target/arm11.c        |    6 ++----
+ src/target/arm11_dbgtap.c |   13 +++++++++++--
+ src/target/arm11_dbgtap.h |    3 +--
+ src/target/arm_dpm.c      |   25 ++++++++++++-------------
+ src/target/arm_dpm.h      |    2 +-
+ src/target/cortex_a8.c    |    7 ++++++-
+ 6 files changed, 33 insertions(+), 23 deletions(-)
+
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1330,10 +1330,8 @@ static int arm11_examine(struct target *
+ 	/* Build register cache &quot;late&quot;, after target_init(), since we
+ 	 * want to know if this core supports Secure Monitor mode.
+ 	 */
+-	if (!target_was_examined(target)) {
+-		arm11_dpm_init(arm11, didr);
+-		retval = arm_dpm_setup(&amp;arm11-&gt;dpm);
+-	}
++	if (!target_was_examined(target))
++		retval = arm11_dpm_init(arm11, didr);
+ 
+ 	/* ETM on ARM11 still uses original scanchain 6 access mode */
+ 	if (arm11-&gt;arm.etm &amp;&amp; !target_was_examined(target)) {
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -1022,10 +1022,11 @@ static int arm11_dpm_instr_read_data_r0(
+ 			opcode, data);
+ }
+ 
+-
+-void arm11_dpm_init(struct arm11_common *arm11, uint32_t didr)
++/** Set up high-level debug module utilities */
++int arm11_dpm_init(struct arm11_common *arm11, uint32_t didr)
+ {
+ 	struct arm_dpm *dpm = &amp;arm11-&gt;dpm;
++	int retval;
+ 
+ 	dpm-&gt;arm = &amp;arm11-&gt;arm;
+ 
+@@ -1039,4 +1040,12 @@ void arm11_dpm_init(struct arm11_common 
+ 
+ 	dpm-&gt;instr_read_data_dcc = arm11_dpm_instr_read_data_dcc;
+ 	dpm-&gt;instr_read_data_r0 = arm11_dpm_instr_read_data_r0;
++
++	retval = arm_dpm_setup(dpm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	retval = arm_dpm_initialize(dpm);
++
++	return retval;
+ }
+--- a/src/target/arm11_dbgtap.h
++++ b/src/target/arm11_dbgtap.h
+@@ -60,7 +60,6 @@ void arm11_sc7_set_vcr(struct arm11_comm
+ int arm11_read_memory_word(struct arm11_common *arm11,
+ 		uint32_t address, uint32_t *result);
+ 
+-/* Set up high-level debug module utilities */
+-void arm11_dpm_init(struct arm11_common *arm11, uint32_t didr);
++int arm11_dpm_init(struct arm11_common *arm11, uint32_t didr);
+ 
+ #endif // ARM11_DBGTAP_H
+--- a/src/target/arm_dpm.c
++++ b/src/target/arm_dpm.c
+@@ -807,18 +807,6 @@ int arm_dpm_setup(struct arm_dpm *dpm)
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	/* Disable all breakpoints and watchpoints at startup. */
+-	if (dpm-&gt;bpwp_disable) {
+-		unsigned i;
+-
+-		for (i = 0; i &lt; dpm-&gt;nbp; i++)
+-			(void) dpm-&gt;bpwp_disable(dpm, i);
+-		for (i = 0; i &lt; dpm-&gt;nwp; i++)
+-			(void) dpm-&gt;bpwp_disable(dpm, 16 + i);
+-	} else
+-		LOG_WARNING(&quot;%s: can't disable breakpoints and watchpoints&quot;,
+-			target_name(target));
+-
+ 	LOG_INFO(&quot;%s: hardware has %d breakpoints, %d watchpoints&quot;,
+ 			target_name(target), dpm-&gt;nbp, dpm-&gt;nwp);
+ 
+@@ -835,6 +823,17 @@ int arm_dpm_setup(struct arm_dpm *dpm)
+  */
+ int arm_dpm_initialize(struct arm_dpm *dpm)
+ {
+-	/* FIXME -- nothing yet */
++	/* Disable all breakpoints and watchpoints at startup. */
++	if (dpm-&gt;bpwp_disable) {
++		unsigned i;
++
++		for (i = 0; i &lt; dpm-&gt;nbp; i++)
++			(void) dpm-&gt;bpwp_disable(dpm, i);
++		for (i = 0; i &lt; dpm-&gt;nwp; i++)
++			(void) dpm-&gt;bpwp_disable(dpm, 16 + i);
++	} else
++		LOG_WARNING(&quot;%s: can't disable breakpoints and watchpoints&quot;,
++			target_name(dpm-&gt;arm-&gt;target));
++
+ 	return ERROR_OK;
+ }
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -129,7 +129,7 @@ struct arm_dpm {
+ };
+ 
+ int arm_dpm_setup(struct arm_dpm *dpm);
+-int arm_dpm_reinitialize(struct arm_dpm *dpm);
++int arm_dpm_initialize(struct arm_dpm *dpm);
+ 
+ int arm_dpm_read_current_registers(struct arm_dpm *);
+ int arm_dpm_write_dirty_registers(struct arm_dpm *, bool bpwp);
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -523,6 +523,7 @@ static int cortex_a8_bpwp_disable(struct
+ static int cortex_a8_dpm_setup(struct cortex_a8_common *a8, uint32_t didr)
+ {
+ 	struct arm_dpm *dpm = &amp;a8-&gt;armv7a_common.dpm;
++	int retval;
+ 
+ 	dpm-&gt;arm = &amp;a8-&gt;armv7a_common.armv4_5_common;
+ 	dpm-&gt;didr = didr;
+@@ -540,7 +541,11 @@ static int cortex_a8_dpm_setup(struct co
+ 	dpm-&gt;bpwp_enable = cortex_a8_bpwp_enable;
+ 	dpm-&gt;bpwp_disable = cortex_a8_bpwp_disable;
+ 
+-	return arm_dpm_setup(dpm);
++	retval = arm_dpm_setup(dpm);
++	if (retval == ERROR_OK)
++		retval = arm_dpm_initialize(dpm);
++
++	return retval;
+ }
+ 
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="013257.html">[Openocd-development] [patch 0/7] ARM11 cleanups (mostly)
+</A></li>
+	<LI>Next message: <A HREF="013258.html">[Openocd-development] [patch 2/7] ARM11: minor cleanup #1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#13259">[ date ]</a>
+              <a href="thread.html#13259">[ thread ]</a>
+              <a href="subject.html#13259">[ subject ]</a>
+              <a href="author.html#13259">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

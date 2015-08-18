@@ -1,0 +1,269 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] NAND documentation?  My current notes...
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20NAND%20documentation%3F%20%20My%20current%20notes...&In-Reply-To=%3Calpine.LFD.2.00.0905182108460.6741%40xanadu.home%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="006703.html">
+   <LINK REL="Next"  HREF="006978.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] NAND documentation?  My current notes...</H1>
+    <B>Nicolas Pitre</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20NAND%20documentation%3F%20%20My%20current%20notes...&In-Reply-To=%3Calpine.LFD.2.00.0905182108460.6741%40xanadu.home%3E"
+       TITLE="[Openocd-development] NAND documentation?  My current notes...">nico at cam.org
+       </A><BR>
+    <I>Tue May 19 03:24:42 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="006703.html">[Openocd-development] NAND documentation?  My current notes...
+</A></li>
+        <LI>Next message: <A HREF="006978.html">[Openocd-development] NAND documentation?  My current notes...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6786">[ date ]</a>
+              <a href="thread.html#6786">[ thread ]</a>
+              <a href="subject.html#6786">[ subject ]</a>
+              <a href="author.html#6786">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Sun, 17 May 2009, David Brownell wrote:
+
+&gt;<i> The following are some notes I put together about the &quot;nand&quot;
+</I>&gt;<i> commands based on reading the source code.
+</I>&gt;<i> 
+</I>&gt;<i> I plan to turn them into documentation sometime later, maybe by this
+</I>&gt;<i> time next week.  I've seen no documentation on the NAND commands; that
+</I>&gt;<i> seems like a significant omission.
+</I>&gt;<i> 
+</I>&gt;<i> Meanwhile I thought I'd send them around for comments and corrections.
+</I>
+Looks all fine to me.  This matches my own understanding of the code.
+
+&gt;<i> The &quot;==&gt;&quot; comments are things which seem like they deserve some action
+</I>&gt;<i> other than documenting the current status.  One example is removing (or
+</I>&gt;<i> at least disabling) the &quot;nand copy&quot; command until it gets implemented.
+</I>
+Implementing it in a generic way would be quite slow if the data has to 
+make the round trip to the host and back to the target over the JTAG 
+link.  Ideally each controller driver would need to implement its own 
+copy method which would involve uploading some code on the target in 
+order to perform the copy directly.
+
+Still I don't see this as being really useful, otherwise someone would 
+have implemented it by now.  So disabling it is probably the best option 
+for the moment.
+
+&gt;<i> - Dave
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> NAND COMMANDS
+</I>&gt;<i> =============
+</I>&gt;<i> 
+</I>&gt;<i> At this writing:
+</I>&gt;<i> 
+</I>&gt;<i>   - Only NAND devices with 512 or 2048 byte pages are handled
+</I>&gt;<i>     properly.  Older devices with 256 byte pages are rejected.
+</I>&gt;<i> 
+</I>&gt;<i>     	==&gt; Erm, aren't chips with 4K pages mis-handled?
+</I>&gt;<i> 	At least in some paths.
+</I>&gt;<i> 
+</I>&gt;<i>   - ECC codes can be generated when pages are written, but are not
+</I>&gt;<i>     used to correct errors when data is read ... unless maybe
+</I>&gt;<i>     the underlying driver has a read_page() method which does so.
+</I>&gt;<i> 
+</I>&gt;<i>   - Writing a file to NAND, or reading it from NAND, ignores
+</I>&gt;<i>     bad block markers.
+</I>&gt;<i> 
+</I>&gt;<i>     	==&gt; Worth fixing, yes??  Just skipping bad blocks
+</I>&gt;<i> 	would match one common usage.  If not, then at least
+</I>&gt;<i> 	report errors instead of writing there...
+</I>&gt;<i> 
+</I>&gt;<i>   - Every NAND device is associated with a target.
+</I>&gt;<i> 
+</I>&gt;<i>     	==&gt; Hmm, so maybe that target should be stored in the
+</I>&gt;<i> 	NAND device instead of the controller-private data.
+</I>&gt;<i> 	And the lookup should be done by the NAND core not
+</I>&gt;<i> 	the individual drivers.  Or ... should the syntax be
+</I>&gt;<i> 	&quot;TARGET nand ...&quot; since the drivers are generally
+</I>&gt;<i> 	SoC-specific?
+</I>&gt;<i> 
+</I>&gt;<i>   - Nothing verifies that pages are erased before writing.
+</I>&gt;<i> 
+</I>&gt;<i>     	==&gt; Is that the same as NOR flash does?
+</I>&gt;<i> 
+</I>&gt;<i> The way to use these starts with:
+</I>&gt;<i> 
+</I>&gt;<i> 	nand device CONTROLLER TARGET [controller-options]
+</I>&gt;<i> 		... to declare each NAND chip.  For chips with two
+</I>&gt;<i> 		halves (e.g. a 2 GByte chip with two 1GB halves),
+</I>&gt;<i> 		declare each half separately.
+</I>&gt;<i> 	nand info
+</I>&gt;<i> 		... to see what number it was given
+</I>&gt;<i> 	nand probe NUM
+</I>&gt;<i> 		... to see what sort of chip is there 
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Then you can use &quot;write&quot; to transfer data from a file to the NAND
+</I>&gt;<i> chip, or &quot;dump&quot; to go the other direction.
+</I>&gt;<i> 
+</I>&gt;<i> Configuration
+</I>&gt;<i> -------------
+</I>&gt;<i> 
+</I>&gt;<i> nand device CONTROLLER TARGET [controller-options]
+</I>&gt;<i> 	There are several built-in controllers, some of which have
+</I>&gt;<i> 	controller-specific options or controller-specific commands.
+</I>&gt;<i> 	This *must* go into a config/init script.
+</I>&gt;<i> 
+</I>&gt;<i> 	&quot;lpc3180&quot;
+</I>&gt;<i> 	 - extra parameter: clock frequency
+</I>&gt;<i> 	 - special command: lpc3180 select NUM [mlc|slc]
+</I>&gt;<i> 	     There are two NAND controllers, one for SLC chips and
+</I>&gt;<i> 	     the other for MLC.  If a parameter is given, it selects
+</I>&gt;<i> 	     that controller.  The currently selected controller is
+</I>&gt;<i> 	     displayed unless there is an error.
+</I>&gt;<i> 	 - MLC controller seems to use hardware ECC logic... ?
+</I>&gt;<i> 
+</I>&gt;<i> 	&quot;orion&quot;
+</I>&gt;<i> 	 - extra parameter: address for the NAND chip
+</I>&gt;<i> 	 - no special commands
+</I>&gt;<i> 
+</I>&gt;<i> 	&quot;s3c2410&quot;
+</I>&gt;<i> 	&quot;s3c2412&quot;
+</I>&gt;<i> 	&quot;s3c2440&quot;
+</I>&gt;<i> 	&quot;s3c2443&quot;
+</I>&gt;<i> 	 - no extra parameters
+</I>&gt;<i> 	 - no special commands
+</I>&gt;<i> 
+</I>&gt;<i> nand list
+</I>&gt;<i> 	Prints a one-line summary of each device found, numbered
+</I>&gt;<i> 	from zero.  Note that un-probed devices show no details.
+</I>&gt;<i> 
+</I>&gt;<i> nand probe NUM
+</I>&gt;<i> 	Probes the specified device to determine key characteristics
+</I>&gt;<i> 	including size, manufacturer, page size, and erase size
+</I>&gt;<i> 
+</I>&gt;<i> Basic I/O
+</I>&gt;<i> ---------
+</I>&gt;<i> 
+</I>&gt;<i> nand dump NUM filename offset length [oob_raw|oob_only]
+</I>&gt;<i> 	Reads binary data from the NAND chip and writes it to the file,
+</I>&gt;<i> 	starting at the specified offset.
+</I>&gt;<i> 
+</I>&gt;<i> 	The offset and length must be an exact multiple of the chip's
+</I>&gt;<i> 	page size.
+</I>&gt;<i> 
+</I>&gt;<i> 	No error correction is done on the data that's read, unless the
+</I>&gt;<i> 	controller has a read_page() which does that transparently.
+</I>&gt;<i> 
+</I>&gt;<i> 	By default, only page data is saved to the specified file.  Two
+</I>&gt;<i> 	options allow the OOB data to be saved:
+</I>&gt;<i> 
+</I>&gt;<i> 	- oob_raw ... output file interleaves data and OOB data.
+</I>&gt;<i> 
+</I>&gt;<i> 	- oob_only ... output file has only raw OOB data.
+</I>&gt;<i> 
+</I>&gt;<i> nand erase NUM block_first block_last
+</I>&gt;<i> 	Erases blocks from first to last (inclusive), excepting
+</I>&gt;<i> 	bad blocks.  Checks for bad blocks first, if needed. 
+</I>&gt;<i> 
+</I>&gt;<i> nand write NUM filename offset [oob_raw|oob_only|oob_softecc|oob_softecc_kw]*
+</I>&gt;<i> 	Writes binary data from the file into the specified NAND chip,
+</I>&gt;<i> 	starting at the specified offset.  Those pages should already
+</I>&gt;<i> 	have been erased.
+</I>&gt;<i> 
+</I>&gt;<i> 	The offset must be an exact multiple of the chip's page size.
+</I>&gt;<i> 	Only full pages are written, and any extra space on the last
+</I>&gt;<i> 	page will be filled with 0xff bytes.  (That includes OOB data,
+</I>&gt;<i> 	if oob_raw is used.)
+</I>&gt;<i> 
+</I>&gt;<i> 	Unless one or more of the optional oob_* parameters is provided,
+</I>&gt;<i> 	no OOB data is written.  Provide only one oob_* paramater.
+</I>&gt;<i> 
+</I>&gt;<i> 		==&gt; No error currently reported if conflicting
+</I>&gt;<i> 		params are provided... fix?
+</I>&gt;<i> 
+</I>&gt;<i> 	- no oob_* parameter ... file has only page data, which is
+</I>&gt;<i> 	  written.  Each page's OOB area stays untouched, unless
+</I>&gt;<i> 	  the underlying driver has a write_page routine that updates
+</I>&gt;<i> 	  it (perhaps to hold hardware-computed ECC data) which is
+</I>&gt;<i> 	  used to write each page.
+</I>&gt;<i> 
+</I>&gt;<i> 	- oob_raw ... file interleaves data and OOB data, both of which
+</I>&gt;<i> 	  are written (in that order).
+</I>&gt;<i> 
+</I>&gt;<i> 	- oob_only ... file has only raw OOB data, which is written to
+</I>&gt;<i> 	  the OOB area.  Each page's data area stays untouched.
+</I>&gt;<i> 
+</I>&gt;<i> 	- oob_softecc ... file has only page data, which is written.
+</I>&gt;<i> 	  The OOB area is filled with 0xff, except for a standard 1-bit
+</I>&gt;<i> 	  software ECC code stored in conventional locations (for 512
+</I>&gt;<i> 	  or 2048 byte pages).
+</I>&gt;<i> 
+</I>&gt;<i> 	- oob_softecc_kw ... file has data, which is written.  The OOB
+</I>&gt;<i> 	  area is filled with 0xff, except for a 4-bit software ECC used
+</I>&gt;<i> 	  specific to the boot ROM in Marvell Kirkwood SoCs.
+</I>&gt;<i> 
+</I>&gt;<i> 
+</I>&gt;<i> Other
+</I>&gt;<i> -----
+</I>&gt;<i> 
+</I>&gt;<i> nand info NUM
+</I>&gt;<i> 	Prints the one-line summary from &quot;nand list&quot;, and if the
+</I>&gt;<i> 	device has been probed also prints the status of each block
+</I>&gt;<i> 	(if known):  erased/not/unknown, good/bad/unknown
+</I>&gt;<i> 
+</I>&gt;<i> nand check_bad_blocks NUM [block_first block_last]
+</I>&gt;<i> 	Scans for bad blocks if needed, from first to last (inclusive).
+</I>&gt;<i> 	If no parameters are provided, all blocks are scanned.
+</I>&gt;<i> 
+</I>&gt;<i> nand copy NUM offset length ram_addr
+</I>&gt;<i> 	==&gt; NOT IMPLEMENTED -- DISABLE AND DO NOT DOCUMENT
+</I>&gt;<i> 
+</I>&gt;<i> nand raw_access NUM &lt;enable|disable&gt;
+</I>&gt;<i> 	Sets or clears an flag affecting how page I/O is done.
+</I>&gt;<i> 
+</I>&gt;<i> 	By default, if the underlying controller driver provides a
+</I>&gt;<i> 	read_page() that is used when dumping data to a file or when
+</I>&gt;<i> 	scanning for bad blocks.  Similarly, if it provides write_page()
+</I>&gt;<i> 	that is used when writing file data to the chip.
+</I>&gt;<i> 
+</I>&gt;<i> 	Setting this flag makes those operations ignore those two
+</I>&gt;<i> 	methods, when they exist.  This might cause slower performance,
+</I>&gt;<i> 	or bypass hardware ECC logic.
+</I>
+Nicolas
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="006703.html">[Openocd-development] NAND documentation?  My current notes...
+</A></li>
+	<LI>Next message: <A HREF="006978.html">[Openocd-development] NAND documentation?  My current notes...
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6786">[ date ]</a>
+              <a href="thread.html#6786">[ thread ]</a>
+              <a href="subject.html#6786">[ subject ]</a>
+              <a href="author.html#6786">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

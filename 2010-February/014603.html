@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Renaming target configs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Renaming%20target%20configs&In-Reply-To=%3C201002032322.08194.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="014592.html">
+   <LINK REL="Next"  HREF="014604.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Renaming target configs</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Renaming%20target%20configs&In-Reply-To=%3C201002032322.08194.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] Renaming target configs">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Feb  4 08:22:08 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="014592.html">[Openocd-development] Renaming target configs
+</A></li>
+        <LI>Next message: <A HREF="014604.html">[Openocd-development] Renaming target configs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14603">[ date ]</a>
+              <a href="thread.html#14603">[ thread ]</a>
+              <a href="subject.html#14603">[ subject ]</a>
+              <a href="author.html#14603">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Wednesday 03 February 2010, Harald Kipp wrote:
+&gt;<i> Like I've done in my last patch for ethernut3/at91r40008 I'd like to
+</I>&gt;<i> clean-up the eir/sam7se512 combo. I'm not sure, how to do this in detail
+</I>&gt;<i> and would appreciate any advice.
+</I>&gt;<i> 
+</I>&gt;<i> The first thing I want to do is to move the target file from
+</I>&gt;<i> sam7se512.cfg to at91sam7se512.cfg. So far, board/eir.cfg seems the only
+</I>&gt;<i> one referencing that target. However, it may break existing private user
+</I>&gt;<i> scripts. Shall we keep sam7se512.cfg as
+</I>&gt;<i> 
+</I>&gt;<i>  source [find target/at91sam7se512.cfg]
+</I>&gt;<i> 
+</I>&gt;<i> ?
+</I>
+I'd think so.  An &quot;at91&quot; prefix is kind of superfluous.
+If we were doing it from scratch, having it might be nice;
+but at this point we should bias towards compatibility.
+
+The &quot;sam7...&quot; name doesn't break anything, and it matches
+the common usage I've heard.
+
+
+&gt;<i> Another idea is to follow at91sam7sx.cfg and create a more general file
+</I>&gt;<i> named at91sam7sex.cfg for all 3 members of this family. However, the
+</I>&gt;<i> chip IDs (CPUTAPID) differ:
+</I>&gt;<i> 
+</I>&gt;<i>  AT91SAM7SE32 0x27280340
+</I>&gt;<i>  AT91SAM7SE256 0x272A0940
+</I>&gt;<i>  AT91SAM7SE512 0x272A0A40
+</I>
+That's a bit of a problem.  But it's workable by having a common config
+file for everything except those IDCODE values ... define the IDCODE
+in a chip-specific file, then source the common file.  (You mention
+that &quot;common file&quot; strategy later.)
+
+ 
+&gt;<i> Worse, they come with different RAM sizes and therefore possibly
+</I>&gt;<i> different work area layouts.
+</I>
+Re layout, if the RAM starts at the same location they can likely
+default to the same work area layout.  It's not like most downloaded
+algorithms need a lot of work area; even just 4K should suffice.
+
+(Though the sam7 flash driver might need minor tweaks, like those
+I committed for the Stellaris flash driver a while back, if it's
+got any tendancy towards stupidly over-allocating work area.)
+
+I thought Atmel was pretty good about exposing that sizing information
+through chip registers.  If the flash driver (the main SoC-specific code)
+can autodetect that (some DBGU-related registers?) it should be able to
+use a feature that's been discussed a bit:  automagically declaring the
+SRAM region, as well as the flash regions.  It's kind of nasty to be
+reporting un-educated guesses about SRAM for GDB's memory map...
+
+
+&gt;<i> Shall we specify all these variants (other devices may have others) in
+</I>&gt;<i> each board configuration files?
+</I>
+That can work, if no better option surfaces.
+
+
+&gt;<i> Btw. this is also true (or actually wrong) for target/at91sam7sx.cfg,
+</I>&gt;<i> which specifies 16k work area size. The AT91SAM7S32 has 8k and the
+</I>&gt;<i> AT91SAM7S16 only 4k of RAM. The at91sam7sx is not as general as it claims.
+</I>&gt;<i> 
+</I>&gt;<i> I'd prefer to create
+</I>&gt;<i> 
+</I>&gt;<i>  at91sam7se32.cfg
+</I>&gt;<i>  at91sam7se256.cfg
+</I>&gt;<i>  at91sam7se512.cfg
+</I>&gt;<i> 
+</I>&gt;<i> Possibly they may then include
+</I>&gt;<i> 
+</I>&gt;<i>  source [find target/at91sam7sex.cfg]
+</I>
+As I say, that can work.  Likely it's needed because of the IDCODE issues.
+(Bugfixes in that area would still be appropriate for the 0.4 release...)
+
+
+But shouldn't that be &quot;sam7se&quot;?  The &quot;x&quot; is significant in Atmel's naming
+scheme, and &quot;sex&quot; annoys lots of puritanical spam filters.  ;)
+
+
+By the way ... not that I'd expect Atmel to phase out their sam7 lines
+any time soon, but it's interesting that some of their new sam3s chips
+are pin-compatible with some of the sam7 chips.  As if they're getting
+ready to de-emphasize the arm7tdmi cores in favor of cortex-m3, if their
+customers start preferring those newer cores.
+
+- Dave
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="014592.html">[Openocd-development] Renaming target configs
+</A></li>
+	<LI>Next message: <A HREF="014604.html">[Openocd-development] Renaming target configs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14603">[ date ]</a>
+              <a href="thread.html#14603">[ thread ]</a>
+              <a href="subject.html#14603">[ subject ]</a>
+              <a href="author.html#14603">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

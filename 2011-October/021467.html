@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] New patch to review for openocd: 6d22305	bugfixes: tinker a bit with the targets command
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%206d22305%0A%09bugfixes%3A%20tinker%20a%20bit%20with%20the%20targets%20command&In-Reply-To=%3C20111028051304.27CC524252%40openocd.zylin.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="021466.html">
+   <LINK REL="Next"  HREF="021468.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] New patch to review for openocd: 6d22305	bugfixes: tinker a bit with the targets command</H1>
+    <B>gerrit at openocd.zylin.com</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20New%20patch%20to%20review%20for%20openocd%3A%206d22305%0A%09bugfixes%3A%20tinker%20a%20bit%20with%20the%20targets%20command&In-Reply-To=%3C20111028051304.27CC524252%40openocd.zylin.com%3E"
+       TITLE="[Openocd-development] New patch to review for openocd: 6d22305	bugfixes: tinker a bit with the targets command">gerrit at openocd.zylin.com
+       </A><BR>
+    <I>Fri Oct 28 07:13:03 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="021466.html">[Openocd-development] New patch to review for openocd: e043913 bugfixes: numerous bugs in error propagation found by clang
+</A></li>
+        <LI>Next message: <A HREF="021468.html">[Openocd-development] Gerrit mail subject
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21467">[ date ]</a>
+              <a href="thread.html#21467">[ thread ]</a>
+              <a href="subject.html#21467">[ subject ]</a>
+              <a href="author.html#21467">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from Gerrit.
+
+?yvind Harboe (<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvindharboe at gmail.com</A>) just uploaded a new patch set to Gerrit, which you can find at <A HREF="http://openocd.zylin.com/131">http://openocd.zylin.com/131</A>
+
+-- gerrit
+
+commit 6d223053e3b290678414c021b9f9da1f669d8de0
+Author: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Oct 27 23:51:50 2011 +0200
+
+    bugfixes: tinker a bit with the targets command
+    
+    return error when target can not be found instead of ERROR_OK,
+    split fn.
+    
+    Change-Id: Iba5232d3862a490d0995c3bfece23685bd6856e3
+    Signed-off-by: &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/target.c b/src/target/target.c
+index bd15620..d28a9ca 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1861,26 +1861,37 @@ int target_write_u8(struct target *target, uint32_t address, uint8_t value)
+ 	return retval;
+ }
+ 
++static int find_target(struct command_context *cmd_ctx, const char *name)
++{
++    struct target *target = get_target(name);
++    if (target == NULL) {
++	LOG_ERROR(&quot;Target: %s is unknown, try one of:\n&quot;, name);
++	return ERROR_FAIL;
++    }
++    if (!target-&gt;tap-&gt;enabled) {
++	LOG_USER(&quot;Target: TAP %s is disabled, &quot;
++		 &quot;can't be the current target\n&quot;,
++		 target-&gt;tap-&gt;dotted_name);
++	return ERROR_FAIL;
++    }
++    
++    cmd_ctx-&gt;current_target = target-&gt;target_number;
++    return ERROR_OK;
++}
++
++
+ COMMAND_HANDLER(handle_targets_command)
+ {
++	int retval = ERROR_OK;
+ 	if (CMD_ARGC == 1)
+ 	{
+-		struct target *target = get_target(CMD_ARGV[0]);
+-		if (target == NULL) {
+-			command_print(CMD_CTX,&quot;Target: %s is unknown, try one of:\n&quot;, CMD_ARGV[0]);
+-			goto DumpTargets;
+-		}
+-		if (!target-&gt;tap-&gt;enabled) {
+-			command_print(CMD_CTX,&quot;Target: TAP %s is disabled, &quot;
+-					&quot;can't be the current target\n&quot;,
+-					target-&gt;tap-&gt;dotted_name);
+-			return ERROR_FAIL;
+-		}
+-
+-		CMD_CTX-&gt;current_target = target-&gt;target_number;
+-		return ERROR_OK;
++	    retval = find_target(CMD_CTX, CMD_ARGV[0]);
++	    if (retval == ERROR_OK)
++	    {
++		/* we're done! */
++		return retval;
++	    }
+ 	}
+-DumpTargets:;
+ 
+ 	struct target *target = all_targets;
+ 	command_print(CMD_CTX, &quot;    TargetName         Type       Endian TapName            State       &quot;);
+@@ -1911,7 +1922,7 @@ DumpTargets:;
+ 		target = target-&gt;next;
+ 	}
+ 
+-	return ERROR_OK;
++	return ERROR_FAIL;
+ }
+ 
+ /* every 300ms we check for reset &amp; powerdropout and issue a &quot;reset halt&quot; if so. */
+
+-- 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="021466.html">[Openocd-development] New patch to review for openocd: e043913 bugfixes: numerous bugs in error propagation found by clang
+</A></li>
+	<LI>Next message: <A HREF="021468.html">[Openocd-development] Gerrit mail subject
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#21467">[ date ]</a>
+              <a href="thread.html#21467">[ thread ]</a>
+              <a href="subject.html#21467">[ subject ]</a>
+              <a href="author.html#21467">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

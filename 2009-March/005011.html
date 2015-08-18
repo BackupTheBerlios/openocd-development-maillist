@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] &quot;EmbeddedICE handling might be broken&quot;	with ARMUSBOCD/LPC2478
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%22EmbeddedICE%20handling%20might%20be%20broken%22%0A%09with%20ARMUSBOCD/LPC2478&In-Reply-To=%3C1236947493.49ba5225890ea%40imp.free.fr%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="005006.html">
+   <LINK REL="Next"  HREF="005007.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] &quot;EmbeddedICE handling might be broken&quot;	with ARMUSBOCD/LPC2478</H1>
+    <B>Kevin Townsend</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%22EmbeddedICE%20handling%20might%20be%20broken%22%0A%09with%20ARMUSBOCD/LPC2478&In-Reply-To=%3C1236947493.49ba5225890ea%40imp.free.fr%3E"
+       TITLE="[Openocd-development] &quot;EmbeddedICE handling might be broken&quot;	with ARMUSBOCD/LPC2478">ktownsend at free.fr
+       </A><BR>
+    <I>Fri Mar 13 13:31:33 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="005006.html">[Openocd-development] &quot;EmbeddedICE handling might be broken&quot;	with ARMUSBOCD/LPC2478
+</A></li>
+        <LI>Next message: <A HREF="005007.html">[Openocd-development] =?ISO-8859-2?Q?Re: Re: &quot;EmbeddedICE handling might be broken&quot; with A=
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5011">[ date ]</a>
+              <a href="thread.html#5011">[ thread ]</a>
+              <a href="subject.html#5011">[ subject ]</a>
+              <a href="author.html#5011">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I was able to make some progress on this, but I'm sure there are some major
+problems with the configuration (it seems a lot has changed since I made the
+previous configuration file for build 717!)
+
+I'm a bit lost, though, why the board can not reset (it times out, see below),
+and the command &quot;arm7_9 force_hw_bkpts enable&quot; is in the documentation as valid,
+so I don't really understand why it's throwing an exception.
+
+For reference sake, here is the output when I start the debugging process.  I'll
+include my config files afterwards:
+
+______________________________________________________________________
+OUTPUT
+______________________________________________________________________
+
+source .gdbinit
+target remote 127.0.0.1:3333
+Load$$ER_FLASH$$Base () at
+E:\MicroFrameworkPK_v3_0\DeviceCode\coresrm\AssemblyCoderm\GNU_S\FirstEntry.s:102
+102	    msr     cpsr_c, #PSR_MODE_SYSTEM    @ go into System mode, interrupts
+off
+Current language:  auto; currently asm
+monitor reset
+JTAG tap: lpc2478.cpu tap/device found: 0x4f1f0f0f (Manufacturer: 0x787, Part:
+0xf1f0, Version: 0x4)
+JTAG Tap/device matched
+
+monitor sleep 500
+
+monitor poll
+target state: running
+
+monitor soft_reset_halt
+requesting target halt and executing a soft reset
+Failed to halt CPU after 1 sec
+
+monitor arm7_9 force_hw_bkpts enable
+invalid command name &quot;arm7_9_force_hw_bkpts&quot;
+called at file &quot;command.c&quot;, line 456
+called at file &quot;embedded:startup.tcl&quot;, line 89
+called at file &quot;embedded:startup.tcl&quot;, line 93
+break PreStackEntry
+Breakpoint 1 at 0x4: file
+E:\MicroFrameworkPK_v3_0\DeviceCode\coresrm\AssemblyCoderm\GNU_S\FirstEntry.s,
+line 110.
+load
+Load failed
+continue
+Note: automatically using hardware breakpoints for read-only addresses.
+Warning:
+Cannot insert hardware breakpoint 1.
+Could not insert hardware breakpoints:
+You may have requested too many hardware breakpoints/watchpoints.
+
+______________________________________________________________________
+
+Config Settings
+______________________________________________________________________
+
+#ARM-USB-OCD
+
+#interface
+interface ft2232
+ft2232_device_desc &quot;Olimex OpenOCD JTAG A&quot;
+ft2232_layout olimex-jtag
+ft2232_vid_pid 0x15ba 0x0003
+
+-----------------------------------
+
+#LPC2478
+
+if { [info exists CHIPNAME] } {
+   set  _CHIPNAME $CHIPNAME
+} else {
+   set  _CHIPNAME lpc2478
+}
+
+if { [info exists ENDIAN] } {
+   set  _ENDIAN $ENDIAN
+} else {
+   set  _ENDIAN little
+}
+
+if { [info exists CPUTAPID ] } {
+   set _CPUTAPID $CPUTAPID
+} else {
+  # force an error till we get a good number
+   #set _CPUTAPID 0xffffffff
+   set _CPUTAPID 0x4f1f0f0f
+}
+
+#daemon configuration
+telnet_port 4444
+gdb_port 3333
+tcl_port 6666
+
+# GDB can also flash my flash
+gdb_memory_map enable
+gdb_flash_program enable
+
+#jtag speed (this may need to be adjusted to get openocd to work)
+jtag_speed 3
+
+#delays on reset lines
+jtag_nsrst_delay 200
+jtag_ntrst_delay 200
+
+#use combined on interfaces or targets that can't set TRST/SRST separately
+reset_config trst_and_srst srst_pulls_trst
+
+#jtag scan chain
+jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id
+$_CPUTAPID
+
+set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+target create $_TARGETNAME arm7tdmi -endian $_ENDIAN -chain-position
+$_TARGETNAME -variant arm7tdmi-s_r4
+$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x40000000
+-work-area-size 0x4000 -work-area-backup 0
+
+#flash configuration
+#flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt; &lt;variant&gt;
+flash bank lpc2000 0x0 0x4000 0 0 0 lpc2000_v2 14765 calc_checksum
+
+# For more information about the configuration files, take a look at:
+# openocd.texi
+
+______________________________________________________________________
+
+Commands Issued in Debug Configuration (Eclipse + Zylin)
+______________________________________________________________________
+
+target remote 127.0.0.1:3333
+monitor reset
+monitor sleep 500
+monitor poll
+monitor soft_reset_halt
+monitor arm7_9 force_hw_bkpts enable
+break PreStackEntry
+load
+continue
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="005006.html">[Openocd-development] &quot;EmbeddedICE handling might be broken&quot;	with ARMUSBOCD/LPC2478
+</A></li>
+	<LI>Next message: <A HREF="005007.html">[Openocd-development] =?ISO-8859-2?Q?Re: Re: &quot;EmbeddedICE handling might be broken&quot; with A=
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#5011">[ date ]</a>
+              <a href="thread.html#5011">[ thread ]</a>
+              <a href="subject.html#5011">[ subject ]</a>
+              <a href="author.html#5011">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

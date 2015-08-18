@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch] Stop ignoring most scan chain	validation errors
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Stop%20ignoring%20most%20scan%20chain%0A%09validation%20errors&In-Reply-To=%3C200910080810.06139.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="011086.html">
+   <LINK REL="Next"  HREF="011084.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch] Stop ignoring most scan chain	validation errors</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%5D%20Stop%20ignoring%20most%20scan%20chain%0A%09validation%20errors&In-Reply-To=%3C200910080810.06139.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch] Stop ignoring most scan chain	validation errors">david-b at pacbell.net
+       </A><BR>
+    <I>Thu Oct  8 17:10:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="011086.html">[Openocd-development] Eclipse git gui
+</A></li>
+        <LI>Next message: <A HREF="011084.html">[Openocd-development] [patch] prevent abort via polling during	jtag_reset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11083">[ date ]</a>
+              <a href="thread.html#11083">[ thread ]</a>
+              <a href="subject.html#11083">[ subject ]</a>
+              <a href="author.html#11083">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Among other things this causes startup errors to kick in the
+fallback &quot;reset harder&quot; logic during server startup.  Comments
+are also updated a bit, explaining what the various error paths
+signify (in at least my observation).
+
+There's one clss of validation error that we can plausibly ignore:
+when wrong IDCODE values are observed.
+
+This change seems to have helped make an OMAP5912 behave much
+more reliably.  There's still some post-reset flakiness, but
+it's unrelated to scan verification.
+---
+ src/jtag/core.c |   64 +++++++++++++++++++++++++++++++++++++++++-------------
+ src/jtag/jtag.h |    1 
+ 2 files changed, 50 insertions(+), 15 deletions(-)
+
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -892,7 +892,15 @@ static bool jtag_examine_chain_check(uin
+ 	}
+ 
+ 	/* if there wasn't a single non-zero bit or if all bits were one,
+-	 * the scan is not valid */
++	 * the scan is not valid.  We wrote a mix of both values; either
++	 *
++	 *  - There's a hardware issue (most likely):
++	 *     + all-zeroes can mean a target stuck in JTAG reset
++	 *     + all-ones tends to mean no target
++	 *  - The scan chain is WAY longer than we can handle, *AND* either
++	 *     + there are several hundreds of TAPs in bypass, or
++	 *     + at least a few dozen TAPs all have an all-ones IDCODE
++	 */
+ 	if (zero_check == 0x00 || one_check == 0xff)
+ 	{
+ 		LOG_ERROR(&quot;JTAG scan chain interrogation failed: all %s&quot;,
+@@ -988,11 +996,14 @@ static int jtag_examine_chain(void)
+ {
+ 	uint8_t idcode_buffer[JTAG_MAX_CHAIN_SIZE * 4];
+ 	unsigned bit_count;
++	int retval;
+ 
+ 	/* DR scan to collect BYPASS or IDCODE register contents.
+ 	 * Then make sure the scan data has both ones and zeroes.
+ 	 */
+-	jtag_examine_chain_execute(idcode_buffer, JTAG_MAX_CHAIN_SIZE);
++	retval = jtag_examine_chain_execute(idcode_buffer, JTAG_MAX_CHAIN_SIZE);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (!jtag_examine_chain_check(idcode_buffer, JTAG_MAX_CHAIN_SIZE))
+ 		return ERROR_JTAG_INIT_FAILED;
+ 
+@@ -1012,7 +1023,7 @@ static int jtag_examine_chain(void)
+ 
+ 		if ((idcode &amp; 1) == 0)
+ 		{
+-			/* LSB must not be 0, this indicates a device in bypass */
++			/* Zero for LSB indicates a device in bypass */
+ 			LOG_WARNING(&quot;TAP %s does not have IDCODE&quot;,
+ 					tap-&gt;dotted_name);
+ 			idcode = 0;
+@@ -1024,7 +1035,8 @@ static int jtag_examine_chain(void)
+ 		{
+ 			/* Friendly devices support IDCODE */
+ 			tap-&gt;hasidcode = true;
+-			jtag_examine_chain_display(LOG_LVL_INFO, &quot;tap/device found&quot;,
++			jtag_examine_chain_display(LOG_LVL_INFO,
++					&quot;tap/device found&quot;,
+ 					tap-&gt;dotted_name, idcode);
+ 
+ 			bit_count += 32;
+@@ -1033,7 +1045,7 @@ static int jtag_examine_chain(void)
+ 
+ 		/* ensure the TAP ID matches what was expected */
+ 		if (!jtag_examine_chain_match_tap(tap))
+-			return ERROR_JTAG_INIT_FAILED;
++			retval = ERROR_JTAG_INIT_SOFT_FAIL;
+ 	}
+ 
+ 	/* Fail if too many TAPs were enabled for us to verify them all. */
+@@ -1049,11 +1061,14 @@ static int jtag_examine_chain(void)
+ 	if (jtag_examine_chain_end(idcode_buffer, bit_count,
+ 			8 * sizeof(idcode_buffer))) {
+ 		LOG_ERROR(&quot;double-check your JTAG setup (interface, &quot;
+-				&quot;speed, TAPs, ...)&quot;);
++				&quot;speed, missing TAPs, ...)&quot;);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+-	return ERROR_OK;
++	/* Return success or, for backwards compatibility if only
++	 * some IDCODE values mismatched, a soft/continuable fault.
++	 */
++	return retval;
+ }
+ 
+ /*
+@@ -1255,18 +1270,37 @@ int jtag_init_inner(struct command_conte
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 		return retval;
+ 
+-	/* examine chain first, as this could discover the real chain layout */
+-	if (jtag_examine_chain() != ERROR_OK)
+-	{
++	/* Examine DR values first.  This discovers problems which will
++	 * prevent communication ... hardware issues like TDO stuck, or
++	 * configuring the wrong number of (enabled) TAPs.
++	 */
++	retval = jtag_examine_chain();
++	switch (retval) {
++	case ERROR_OK:
++		/* complete success */
++		break;
++	case ERROR_JTAG_INIT_SOFT_FAIL:
++		/* For backward compatibility reasons, try coping with
++		 * configuration errors involving only ID mismatches.
++		 * We might be able to talk to the devices.
++		 */
+ 		LOG_ERROR(&quot;Trying to use configured scan chain anyway...&quot;);
+ 		issue_setup = false;
++		break;
++	default:
++		/* some hard error; already issued diagnostics */
++		return retval;
+ 	}
+ 
+-	if (jtag_validate_ircapture() != ERROR_OK)
+-	{
+-		LOG_WARNING(&quot;Errors during IR capture, continuing anyway...&quot;);
+-		issue_setup = false;
+-	}
++	/* Now look at IR values.  Problems here will prevent real
++	 * communication.  They mostly mean that the IR length is
++	 * wrong ... or that the IR capture value is wrong.  (The
++	 * latter is uncommon, but easily worked around:  provide
++	 * ircapture/irmask values during TAP setup.)
++	 */
++	retval = jtag_validate_ircapture();
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (issue_setup)
+ 		jtag_notify_event(JTAG_TAP_EVENT_SETUP);
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -689,6 +689,7 @@ extern void jtag_sleep(uint32_t us);
+ #define ERROR_JTAG_DEVICE_ERROR      (-107)
+ #define ERROR_JTAG_STATE_INVALID     (-108)
+ #define ERROR_JTAG_TRANSITION_INVALID (-109)
++#define ERROR_JTAG_INIT_SOFT_FAIL    (-110)
+ 
+ /**
+  * jtag_add_dr_out() is a version of jtag_add_dr_scan() which
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="011086.html">[Openocd-development] Eclipse git gui
+</A></li>
+	<LI>Next message: <A HREF="011084.html">[Openocd-development] [patch] prevent abort via polling during	jtag_reset
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#11083">[ date ]</a>
+              <a href="thread.html#11083">[ thread ]</a>
+              <a href="subject.html#11083">[ subject ]</a>
+              <a href="author.html#11083">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3C80e74c330911200803j17a58be5q940fcfffbcdba54b%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012566.html">
+   <LINK REL="Next"  HREF="012605.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API</H1>
+    <B>Michael Bruck</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Slowly%20moving%20from%208%20to%2032%20bit%20words%20in%0A%09jtag_add_xxx%20API&In-Reply-To=%3C80e74c330911200803j17a58be5q940fcfffbcdba54b%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API">mbruck at digenius.de
+       </A><BR>
+    <I>Fri Nov 20 17:03:04 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012566.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+        <LI>Next message: <A HREF="012605.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12603">[ date ]</a>
+              <a href="thread.html#12603">[ thread ]</a>
+              <a href="subject.html#12603">[ subject ]</a>
+              <a href="author.html#12603">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>On Thu, Nov 19, 2009 at 22:01, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">david-b at pacbell.net</A>&gt; wrote:
+&gt;<i> On Wednesday 18 November 2009, Michael Bruck wrote:
+</I>&gt;&gt;<i> I would actually prefer an API that is tightly linked to an
+</I>&gt;&gt;<i> independent data structure that that builds up a jtag sequence in the
+</I>&gt;&gt;<i> target driver and then executes it. All the commands would then work
+</I>&gt;&gt;<i> on building up that structure and in the end it is handed over
+</I>&gt;&gt;<i> directly to the jtag interface driver for execution.
+</I>&gt;<i>
+</I>&gt;<i> That presumes there *is* a target. &#160;We have SVF and XSVF today,
+</I>&gt;<i> and there can be other tools that work more at the JTAG level.
+</I>&gt;<i>
+</I>&gt;<i> Plus, it's a bit awkward to be coupling address space access
+</I>&gt;<i> (memory read/write) to targets, considering that newer ARMs
+</I>&gt;<i> decouple them (via ADIv5) and so does, ISTR, Nexus.
+</I>
+This is a misunderstanding due to my imprecise choice of words. I used
+target layer to refer to anything that uses the core.c interface to
+send JTAG commands. My comment above meant exactly the same thing as
+the one you quoted at the end, which I think you understood correctly.
+
+&gt;<i> I'm not entirely sure what you mean to describe though. &#160;I'd
+</I>&gt;<i> like to see less baroque structures for the JTAG messages,
+</I>&gt;<i> and one part of that is clearly a need for more efficient
+</I>&gt;<i> bit vector handling.
+</I>&gt;<i>
+</I>&gt;<i> Along those lines, $SUBJECT is the wrong model too. &#160;When we
+</I>&gt;<i> want to work with 64 bit or 128 bit words -- or even just
+</I>&gt;<i> the 40-bit words common with older ARM stuff -- then we
+</I>&gt;<i> should be able to just pass those down. &#160;Thinking &quot;8&quot; or
+</I>&gt;<i> &quot;32&quot; focusses on the wrong stuff ... implementation details,
+</I>&gt;<i> not the concepts that will produce a better interface.
+</I>
+Yes I agree.
+
+&gt;&gt;<i> The current model does the same but essentially uses a global
+</I>&gt;&gt;<i> variable. But presumably due to ownership issues the field data is
+</I>&gt;&gt;<i> cloned for that global variable. If the jtag sequence structure is
+</I>&gt;&gt;<i> owned by the target this (second) copy operation can be avoided as
+</I>&gt;&gt;<i> well.
+</I>&gt;<i>
+</I>&gt;<i> I think I agree with what you're saying there. &#160;JTAG layer
+</I>&gt;<i> gets delivered a queue, which it processes and modifies
+</I>&gt;<i> in place (if required).
+</I>&gt;<i>
+</I>&gt;<i> For extra credit: &#160;some way to package queues with a bit
+</I>&gt;<i> of intelligence, so they could be downloaded into smarter
+</I>&gt;<i> controllers. &#160;Example, the polling loops which run in
+</I>&gt;<i> the background ... or between key steps of high level
+</I>&gt;<i> operations.
+</I>&gt;<i>
+</I>
+Just to clarify the whole issue once more, my proposal was actually
+three different things:
+
+1. Making the use of scan_field safer by providing standard handlers
+for the most common cases.
+
+This not only helps with the readability and reduces trivial
+copy&amp;paste errors. It also makes it much simpler to rewire the
+underlying scan_field in a later step.
+
+
+2. Eliminating the global variable jtag_command_queue.
+
+The existing jtag_add_... commands would remain similar but would
+operate on a local copy of the queue. jtag_execute_queue then receives
+the pointer to that local copy as parameter instead of using
+jtag_command_queue. The last user then disposes of the command queue.
+
+The advantage here is a cleaner modular approach. For example this
+makes scripting complex JTAG sequences possible without worrying about
+interference from polling. In theory this also allows for the use of
+multiple JTAG interfaces. With this approach it is also possible to
+offer an asynchronous jtag execution mode (if someone needs such a
+nightmare).
+
+
+3. Break up jtag_add_dr_scan etc.
+
+This works best in tandem with (2). The general idea is not to pass
+one array of scan fields but to pass them in separate function calls
+(which would mimic, but replace the ones in (1)). To output a 7 bit
+field the caller just hands the value to the function and doesn't
+bother about allocating space. To turn jtag_add_?r_scan inside out
+like this requires its states to be kept somewhere so that
+plausibility checks and bypassing can be done. The local copy of the
+jtag_command_queue would be ideal for that (although it would also
+work by adding even more global variables). The caller then does
+something like this:
+
+jtag_queue_t * q = jq_alloc_queue();
+
+jq_statemove(q, TAP_IDLE); /* This is just a placeholder for a good
+solution to deal with the fact that the initial TAP state is not known
+until jq_execute().  */
+
+jq_set_tap(q, my_tap); /* set the tap to be implied by the following
+functions, until the next jq_set_tap() */
+
+jq_ir_scan_start(q);
+
+jq_field_u32_out(q, 5, some_instruction);
+
+jq_dr_scan_start(q);
+
+jq_field_u32_out(q, 7, my_value);
+jq_field_u32_outin(q, 3, another_value, &amp;return_value);
+
+
+jq_execute(q); /* callee frees q and associated data */
+
+
+
+Michael
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012566.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+	<LI>Next message: <A HREF="012605.html">[Openocd-development] Slowly moving from 8 to 32 bit words in	jtag_add_xxx API
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12603">[ date ]</a>
+              <a href="thread.html#12603">[ thread ]</a>
+              <a href="subject.html#12603">[ subject ]</a>
+              <a href="author.html#12603">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

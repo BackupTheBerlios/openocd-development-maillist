@@ -1,0 +1,342 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH 4/5] stm32x: use register base instead	of register offset
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/5%5D%20stm32x%3A%20use%20register%20base%20instead%0A%09of%20register%20offset&In-Reply-To=%3C1310986922-13799-5-git-send-email-andreas.fritiofson%40gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="020314.html">
+   <LINK REL="Next"  HREF="020316.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH 4/5] stm32x: use register base instead	of register offset</H1>
+    <B>Andreas Fritiofson</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%204/5%5D%20stm32x%3A%20use%20register%20base%20instead%0A%09of%20register%20offset&In-Reply-To=%3C1310986922-13799-5-git-send-email-andreas.fritiofson%40gmail.com%3E"
+       TITLE="[Openocd-development] [PATCH 4/5] stm32x: use register base instead	of register offset">andreas.fritiofson at gmail.com
+       </A><BR>
+    <I>Mon Jul 18 13:02:01 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="020314.html">[Openocd-development] [PATCH 3/5] cortex_m3: use armv7m's async	algorithm implementation
+</A></li>
+        <LI>Next message: <A HREF="020316.html">[Openocd-development] [PATCH 5/5] stm32x: use async algorithm in	flash programming routine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20315">[ date ]</a>
+              <a href="thread.html#20315">[ thread ]</a>
+              <a href="subject.html#20315">[ subject ]</a>
+              <a href="author.html#20315">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Access the different flash banks' registers using a bank specific register
+base and a register specific offset. This is equivalent but feels more
+natural.
+
+Some accesses were discovered that maybe should not be hard coded to bank0
+registers. Add a note about that.
+
+Signed-off-by: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">andreas.fritiofson at gmail.com</A>&gt;
+---
+ src/flash/nor/stm32x.c |   95 ++++++++++++++++++++++++++----------------------
+ 1 files changed, 51 insertions(+), 44 deletions(-)
+
+diff --git a/src/flash/nor/stm32x.c b/src/flash/nor/stm32x.c
+index b4300be..ef8c2a8 100644
+--- a/src/flash/nor/stm32x.c
++++ b/src/flash/nor/stm32x.c
+@@ -31,14 +31,29 @@
+ 
+ /* stm32x register locations */
+ 
+-#define STM32_FLASH_ACR		0x40022000
+-#define STM32_FLASH_KEYR	0x40022004
+-#define STM32_FLASH_OPTKEYR	0x40022008
+-#define STM32_FLASH_SR		0x4002200C
+-#define STM32_FLASH_CR		0x40022010
+-#define STM32_FLASH_AR		0x40022014
+-#define STM32_FLASH_OBR		0x4002201C
+-#define STM32_FLASH_WRPR	0x40022020
++#define FLASH_REG_BASE_B0 0x40022000
++#define FLASH_REG_BASE_B1 0x40022040
++
++#define STM32_FLASH_ACR     0x00
++#define STM32_FLASH_KEYR    0x04
++#define STM32_FLASH_OPTKEYR 0x08
++#define STM32_FLASH_SR      0x0C
++#define STM32_FLASH_CR      0x10
++#define STM32_FLASH_AR      0x14
++#define STM32_FLASH_OBR     0x1C
++#define STM32_FLASH_WRPR    0x20
++
++/* TODO: Check if code using these really should be hard coded to bank 0.
++ * There are valid cases, on dual flash devices the protection of the
++ * second bank is done on the bank0 reg's. */
++#define STM32_FLASH_ACR_B0     0x40022000
++#define STM32_FLASH_KEYR_B0    0x40022004
++#define STM32_FLASH_OPTKEYR_B0 0x40022008
++#define STM32_FLASH_SR_B0      0x4002200C
++#define STM32_FLASH_CR_B0      0x40022010
++#define STM32_FLASH_AR_B0      0x40022014
++#define STM32_FLASH_OBR_B0     0x4002201C
++#define STM32_FLASH_WRPR_B0    0x40022020
+ 
+ /* option byte location */
+ 
+@@ -83,12 +98,6 @@
+ #define KEY1			0x45670123
+ #define KEY2			0xCDEF89AB
+ 
+-/* we use an offset to access the second bank on dual flash devices
+- * strangely the protection of the second bank is done on the bank0 reg's */
+-
+-#define FLASH_OFFSET_B0	0x00
+-#define FLASH_OFFSET_B1 0x40
+-
+ struct stm32x_options
+ {
+ 	uint16_t RDP;
+@@ -104,10 +113,8 @@ struct stm32x_flash_bank
+ 	int probed;
+ 
+ 	bool has_dual_banks;
+-	/* used to access dual flash bank stm32xl
+-	 * 0x00 will address bank 0 flash
+-	 * 0x40 will address bank 1 flash */
+-	int register_offset;
++	/* used to access dual flash bank stm32xl */
++	uint32_t register_base;
+ };
+ 
+ static int stm32x_mass_erase(struct flash_bank *bank);
+@@ -130,7 +137,7 @@ FLASH_BANK_COMMAND_HANDLER(stm32x_flash_bank_command)
+ 	stm32x_info-&gt;write_algorithm = NULL;
+ 	stm32x_info-&gt;probed = 0;
+ 	stm32x_info-&gt;has_dual_banks = false;
+-	stm32x_info-&gt;register_offset = FLASH_OFFSET_B0;
++	stm32x_info-&gt;register_base = FLASH_REG_BASE_B0;
+ 
+ 	return ERROR_OK;
+ }
+@@ -138,7 +145,7 @@ FLASH_BANK_COMMAND_HANDLER(stm32x_flash_bank_command)
+ static inline int stm32x_get_flash_reg(struct flash_bank *bank, uint32_t reg)
+ {
+ 	struct stm32x_flash_bank *stm32x_info = bank-&gt;driver_priv;
+-	return reg + stm32x_info-&gt;register_offset;
++	return reg + stm32x_info-&gt;register_base;
+ }
+ 
+ static inline int stm32x_get_flash_status(struct flash_bank *bank, uint32_t *status)
+@@ -200,7 +207,7 @@ int stm32x_check_operation_supported(struct flash_bank *bank)
+ 
+ 	/* if we have a dual flash bank device then
+ 	 * we need to perform option byte stuff on bank0 only */
+-	if (stm32x_info-&gt;register_offset != FLASH_OFFSET_B0)
++	if (stm32x_info-&gt;register_base != FLASH_REG_BASE_B0)
+ 	{
+ 		LOG_ERROR(&quot;Option Byte Operation's must use bank0&quot;);
+ 		return ERROR_FLASH_OPERATION_FAILED;
+@@ -218,7 +225,7 @@ static int stm32x_read_options(struct flash_bank *bank)
+ 	stm32x_info = bank-&gt;driver_priv;
+ 
+ 	/* read current option bytes */
+-	int retval = target_read_u32(target, STM32_FLASH_OBR, &amp;optiondata);
++	int retval = target_read_u32(target, STM32_FLASH_OBR_B0, &amp;optiondata);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -229,7 +236,7 @@ static int stm32x_read_options(struct flash_bank *bank)
+ 		LOG_INFO(&quot;Device Security Bit Set&quot;);
+ 
+ 	/* each bit refers to a 4bank protection */
+-	retval = target_read_u32(target, STM32_FLASH_WRPR, &amp;optiondata);
++	retval = target_read_u32(target, STM32_FLASH_WRPR_B0, &amp;optiondata);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -252,27 +259,27 @@ static int stm32x_erase_options(struct flash_bank *bank)
+ 	stm32x_read_options(bank);
+ 
+ 	/* unlock flash registers */
+-	int retval = target_write_u32(target, STM32_FLASH_KEYR, KEY1);
++	int retval = target_write_u32(target, STM32_FLASH_KEYR_B0, KEY1);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	retval = target_write_u32(target, STM32_FLASH_KEYR, KEY2);
++	retval = target_write_u32(target, STM32_FLASH_KEYR_B0, KEY2);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	/* unlock option flash registers */
+-	retval = target_write_u32(target, STM32_FLASH_OPTKEYR, KEY1);
++	retval = target_write_u32(target, STM32_FLASH_OPTKEYR_B0, KEY1);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-	retval = target_write_u32(target, STM32_FLASH_OPTKEYR, KEY2);
++	retval = target_write_u32(target, STM32_FLASH_OPTKEYR_B0, KEY2);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	/* erase option bytes */
+-	retval = target_write_u32(target, STM32_FLASH_CR, FLASH_OPTER | FLASH_OPTWRE);
++	retval = target_write_u32(target, STM32_FLASH_CR_B0, FLASH_OPTER | FLASH_OPTWRE);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-	retval = target_write_u32(target, STM32_FLASH_CR, FLASH_OPTER | FLASH_STRT | FLASH_OPTWRE);
++	retval = target_write_u32(target, STM32_FLASH_CR_B0, FLASH_OPTER | FLASH_STRT | FLASH_OPTWRE);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -295,23 +302,23 @@ static int stm32x_write_options(struct flash_bank *bank)
+ 	stm32x_info = bank-&gt;driver_priv;
+ 
+ 	/* unlock flash registers */
+-	int retval = target_write_u32(target, STM32_FLASH_KEYR, KEY1);
++	int retval = target_write_u32(target, STM32_FLASH_KEYR_B0, KEY1);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-	retval = target_write_u32(target, STM32_FLASH_KEYR, KEY2);
++	retval = target_write_u32(target, STM32_FLASH_KEYR_B0, KEY2);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	/* unlock option flash registers */
+-	retval = target_write_u32(target, STM32_FLASH_OPTKEYR, KEY1);
++	retval = target_write_u32(target, STM32_FLASH_OPTKEYR_B0, KEY1);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-	retval = target_write_u32(target, STM32_FLASH_OPTKEYR, KEY2);
++	retval = target_write_u32(target, STM32_FLASH_OPTKEYR_B0, KEY2);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	/* program option bytes */
+-	retval = target_write_u32(target, STM32_FLASH_CR, FLASH_OPTPG | FLASH_OPTWRE);
++	retval = target_write_u32(target, STM32_FLASH_CR_B0, FLASH_OPTPG | FLASH_OPTWRE);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -369,7 +376,7 @@ static int stm32x_write_options(struct flash_bank *bank)
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	retval = target_write_u32(target, STM32_FLASH_CR, FLASH_LOCK);
++	retval = target_write_u32(target, STM32_FLASH_CR_B0, FLASH_LOCK);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -398,7 +405,7 @@ static int stm32x_protect_check(struct flash_bank *bank)
+ 
+ 	/* medium density - each bit refers to a 4bank protection
+ 	 * high density - each bit refers to a 2bank protection */
+-	retval = target_read_u32(target, STM32_FLASH_WRPR, &amp;protection);
++	retval = target_read_u32(target, STM32_FLASH_WRPR_B0, &amp;protection);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -544,7 +551,7 @@ static int stm32x_protect(struct flash_bank *bank, int set, int first, int last)
+ 
+ 	/* medium density - each bit refers to a 4bank protection
+ 	 * high density - each bit refers to a 2bank protection */
+-	retval = target_read_u32(target, STM32_FLASH_WRPR, &amp;protection);
++	retval = target_read_u32(target, STM32_FLASH_WRPR_B0, &amp;protection);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -695,7 +702,7 @@ static int stm32x_write_block(struct flash_bank *bank, uint8_t *buffer,
+ 		buf_set_u32(reg_params[0].value, 0, 32, source-&gt;address);
+ 		buf_set_u32(reg_params[1].value, 0, 32, address);
+ 		buf_set_u32(reg_params[2].value, 0, 32, thisrun_count);
+-		buf_set_u32(reg_params[3].value, 0, 32, stm32x_info-&gt;register_offset);
++		buf_set_u32(reg_params[3].value, 0, 32, stm32x_info-&gt;register_base - FLASH_REG_BASE_B0);
+ 
+ 		if ((retval = target_run_algorithm(target, 0, NULL, 4, reg_params,
+ 				stm32x_info-&gt;write_algorithm-&gt;address,
+@@ -710,7 +717,7 @@ static int stm32x_write_block(struct flash_bank *bank, uint8_t *buffer,
+ 		{
+ 			LOG_ERROR(&quot;flash memory not erased before writing&quot;);
+ 			/* Clear but report errors */
+-			target_write_u32(target, STM32_FLASH_SR, FLASH_PGERR);
++			target_write_u32(target, STM32_FLASH_SR_B0, FLASH_PGERR);
+ 			retval = ERROR_FAIL;
+ 			break;
+ 		}
+@@ -719,7 +726,7 @@ static int stm32x_write_block(struct flash_bank *bank, uint8_t *buffer,
+ 		{
+ 			LOG_ERROR(&quot;flash memory write protected&quot;);
+ 			/* Clear but report errors */
+-			target_write_u32(target, STM32_FLASH_SR, FLASH_WRPRTERR);
++			target_write_u32(target, STM32_FLASH_SR_B0, FLASH_WRPRTERR);
+ 			retval = ERROR_FAIL;
+ 			break;
+ 		}
+@@ -832,7 +839,7 @@ static int stm32x_write(struct flash_bank *bank, uint8_t *buffer,
+ 			return retval;
+ 	}
+ 
+-	return target_write_u32(target, STM32_FLASH_CR, FLASH_LOCK);
++	return target_write_u32(target, STM32_FLASH_CR_B0, FLASH_LOCK);
+ }
+ 
+ static int stm32x_probe(struct flash_bank *bank)
+@@ -846,7 +853,7 @@ static int stm32x_probe(struct flash_bank *bank)
+ 	uint32_t base_address = 0x08000000;
+ 
+ 	stm32x_info-&gt;probed = 0;
+-	stm32x_info-&gt;register_offset = FLASH_OFFSET_B0;
++	stm32x_info-&gt;register_base = FLASH_REG_BASE_B0;
+ 
+ 	/* read stm32 device id register */
+ 	int retval = target_read_u32(target, 0xE0042000, &amp;device_id);
+@@ -964,7 +971,7 @@ static int stm32x_probe(struct flash_bank *bank)
+ 		{
+ 			num_pages -= 512;
+ 			/* bank1 also uses a register offset */
+-			stm32x_info-&gt;register_offset = FLASH_OFFSET_B1;
++			stm32x_info-&gt;register_base = FLASH_REG_BASE_B1;
+ 			base_address = 0x08080000;
+ 		}
+ 	}
+@@ -1291,7 +1298,7 @@ COMMAND_HANDLER(stm32x_handle_options_read_command)
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+-	retval = target_read_u32(target, STM32_FLASH_OBR, &amp;optionbyte);
++	retval = target_read_u32(target, STM32_FLASH_OBR_B0, &amp;optionbyte);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 	command_print(CMD_CTX, &quot;Option Byte: 0x%&quot; PRIx32 &quot;&quot;, optionbyte);
+-- 
+1.7.4.1
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="020314.html">[Openocd-development] [PATCH 3/5] cortex_m3: use armv7m's async	algorithm implementation
+</A></li>
+	<LI>Next message: <A HREF="020316.html">[Openocd-development] [PATCH 5/5] stm32x: use async algorithm in	flash programming routine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20315">[ date ]</a>
+              <a href="thread.html#20315">[ thread ]</a>
+              <a href="subject.html#20315">[ subject ]</a>
+              <a href="author.html#20315">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] new lpc2xxx cfg files layout
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C200909051047.52843.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="010391.html">
+   <LINK REL="Next"  HREF="010397.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] new lpc2xxx cfg files layout</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20new%20lpc2xxx%20cfg%20files%20layout&In-Reply-To=%3C200909051047.52843.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] new lpc2xxx cfg files layout">david-b at pacbell.net
+       </A><BR>
+    <I>Sat Sep  5 19:47:52 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="010391.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+        <LI>Next message: <A HREF="010397.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10393">[ date ]</a>
+              <a href="thread.html#10393">[ thread ]</a>
+              <a href="subject.html#10393">[ subject ]</a>
+              <a href="author.html#10393">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Avoiding a bazillion lpc config files is a Good Idea!
+I noticed that mess too.
+
+
+On Saturday 05 September 2009, Freddie Chopin wrote:
+&gt;<i> # LPC2478 - 512kB Flash (12kB occupied by bootloader) and 64kB Local On-Chip SRAM (98kB total), clocked with 4MHz internal RC oscillator
+</I>
+Please wrap lines before 80 chars.
+
+
+&gt;<i> if { $__CHIPNAME == &quot;lpc2478&quot; || $__CHIPNAME == &quot;LPC2478&quot; } {
+</I>
+And adopt _either_ uppercase or (preferred by me) lowercase
+for the CHIPNAME symbols ...
+
+
+&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _FLASH_SIZE 0x7d000
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _RAM_SIZE 0x10000
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _CRYSTAL_FREQ 4000000
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _CPUTAPID 0x4f1f0f0f
+</I>
+It'd be a bit clearer to just default _CPUTAPID everywhere,
+only overriding it for chips using older ARM7TDMI cores
+(that's for rev 4 cores, as I understand; 0x3f1f0f0f for
+the rev3 ones, etc).
+
+
+&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _VARIANT lpc2000_v2
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> # unknown LPC chip supplied to the script, use config for smallest chip available (LPC2101)
+</I>&gt;<i> if { $__CHIPNAME == &quot;lpc2xxx&quot; } {
+</I>
+Why not just error out at this point if these five
+variables (__CHIPNAME too!) aren't set?  Warn at least;
+after checking for the &quot;no _ prefix&quot; versions of the
+symbols.  (If a new LPC chip comes out tomorrow, it
+should be usable in OpenOCD without needing to update
+this config file.)
+
+
+&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _FLASH_SIZE 0x2000
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _RAM_SIZE 0x800
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _CPUTAPID 0x4f1f0f0f
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _VARIANT lpc2000_v2
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> if { [info exists FLASH_SIZE ] } {
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _FLASH_SIZE $FLASH_SIZE
+</I>&gt;<i> }
+</I>&gt;<i> if { ! [ info exists _FLASH_SIZE ] } {
+</I>&gt;<i> &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;set _FLASH_SIZE 0x2000
+</I>&gt;<i> }
+</I>&gt;<i> 
+</I>&gt;<i> set __FLASH_SIZE $_FLASH_SIZE
+</I>
+Simplify:  no double-&quot;_&quot; prefixes should be needed
+given a clean error exit earlier.  Though you might
+want to &quot;set _FLASH_SIZE ''&quot; (etc) at top of file.
+
+
+&gt;<i> 
+</I>&gt;<i> 	... deletia ...
+</I>&gt;<i> 
+</I>&gt;<i> # LPC2000 -&gt; SRST causes TRST
+</I>&gt;<i> reset_config trst_and_srst srst_pulls_trst
+</I>
+I don't like seeing &quot;trst_and_srst&quot; here since it's
+possible that boards not wire both.  The &quot;pulls&quot;
+seems to be a chip quirk though, thus belongs here
+(worth a comment about that, though).
+
+
+&gt;<i> # reset delays
+</I>&gt;<i> jtag_nsrst_delay 100
+</I>&gt;<i> jtag_ntrst_delay 100
+</I>
+Those delays also don't seem to belong here.  If all boards
+really need them because the LPC chips are odd, then add a
+comment referencing the relevant issue from the data sheet.
+Else strike them.  (There's a certain amount of &quot;cargo cult
+programming&quot; in the config files, and this looks like it's
+in that category...)
+
+ 
+&gt;<i> jtag newtap $__CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $__CPUTAPID
+</I>&gt;<i> 
+</I>&gt;<i> set __TARGETNAME $__CHIPNAME.cpu
+</I>
+That should be &quot;_TARGETNAME (one underscore) to follow
+the standard variable naming convention...
+
+&gt;<i> target create $__TARGETNAME arm7tdmi -endian little -chain-position $__TARGETNAME -variant arm7tdmi-s_r4
+</I>
+Since &quot;-endian little&quot; is not configurable, you don't need to
+specify it (the default is little endian); don't.
+
+There is no &quot;arm7tdmi-s_r4&quot; variant in the current code; don't
+specify that either.  (And if there were, I would not think
+that *every* LPC chip uses the same revision.  Hasn't LPC2xxx
+been around for a long time, predating that RTL revision?)
+
+&quot;-chain-position $__TARGETNAME&quot; is wrong.  Target names and
+TAP names should be separate namespaces; don't imply otherwise.
+Just spell out &quot;-chain-position $_CHIPNAME.cpu&quot;
+
+
+&gt;<i> 
+</I>&gt;<i> # internal SRAM
+</I>&gt;<i> $__TARGETNAME configure -work-area-virt 0 -work-area-phys 0x40000000 -work-area-size $__RAM_SIZE -work-area-backup 0
+</I>
+Don't configure &quot;-work-area-virt 0&quot; if there's no MMU support
+(and hence no virtual memory).
+
+It bothers me to specify &quot;all of SRAM&quot; for work area especially
+combined with &quot;no backup&quot;.  If that's how those chips currently
+are set up I suppose the LPC users are used to that unfriendly
+behavior ... but I'd think a max of 4K or so, at the *end* of
+SRAM, would usually suffice.
+
+
+&gt;<i> # internal Flash, core clock
+</I>&gt;<i> # flash bank lpc2000 &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt; &lt;variant&gt; &lt;clock&gt; [calc_checksum]
+</I>&gt;<i> flash bank lpc2000 0x0 $__FLASH_SIZE 0 0 0 $__VARIANT $__CRYSTAL_FREQ_KHZ calc_checksum
+</I>&gt;<i> 
+</I>&gt;<i> jtag_khz $__JTAG_KHZ
+</I>
+
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="010391.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+	<LI>Next message: <A HREF="010397.html">[Openocd-development] new lpc2xxx cfg files layout
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10393">[ date ]</a>
+              <a href="thread.html#10393">[ thread ]</a>
+              <a href="subject.html#10393">[ subject ]</a>
+              <a href="author.html#10393">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

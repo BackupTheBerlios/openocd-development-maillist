@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Multi-Interface Support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Multi-Interface%20Support&In-Reply-To=%3C63034c041003021545g5a241033w36930be951472cd7%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015104.html">
+   <LINK REL="Next"  HREF="015113.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Multi-Interface Support</H1>
+    <B>simon qian</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Multi-Interface%20Support&In-Reply-To=%3C63034c041003021545g5a241033w36930be951472cd7%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Multi-Interface Support">simonqian.openocd at gmail.com
+       </A><BR>
+    <I>Wed Mar  3 00:45:31 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015104.html">[Openocd-development] [patch/fyi] LPC1768 updates, IAR board support
+</A></li>
+        <LI>Next message: <A HREF="015113.html">[Openocd-development] Multi-Interface Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15106">[ date ]</a>
+              <a href="thread.html#15106">[ thread ]</a>
+              <a href="subject.html#15106">[ subject ]</a>
+              <a href="author.html#15106">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I think it's the time to implement this feature.
+For STM32 JTAG/SWD support, this feature is MUCH more difficult than the
+change in ADIv5 code.
+
+I demonstrate the multi-interface framework in vsprog, which is the
+programmer for Versaloon supporting
+JTAG/SWD/SPI/UART/USART/IIC/PSoC_ISSP/LPC900_ICP/C8051F_C2/STM8_SWIM and so
+on.
+
+Every interface has an ID(bit-mask):
+// interfaces
+#define USART                    (1 &lt;&lt; 0)           // UART and USART
+#define SPI                        (1 &lt;&lt; 1)
+#define I2C                        (1 &lt;&lt; 2)
+#define GPIO                    (1 &lt;&lt; 3)
+#define CAN                        (1 &lt;&lt; 4)
+#define CLOCK                    (1 &lt;&lt; 5)          // clock output control
+#define ADC                        (1 &lt;&lt; 6)           // analog to digit
+#define DAC                        (1 &lt;&lt; 7)           // digit to analog
+#define POWER                    (1 &lt;&lt; 8)         // power output control
+#define ISSP                    (1 &lt;&lt; 16)            // PSoc_ISSP
+#define JTAG_LL                    (1 &lt;&lt; 17)      // similar low level
+driver to OpenOCD JTAG drive, used in SVF Player
+#define JTAG_HL                    (1 &lt;&lt; 18)      // A high level driver
+used in MCU support
+#define MSP430_SBW                (1 &lt;&lt; 19)
+#define C2                        (1 &lt;&lt; 20)            // C8051F_C2
+#define MSP430_JTAG                (1 &lt;&lt; 21)
+#define LPC_ICP                    (1 &lt;&lt; 22)       // LPC900_ICP
+#define SWJ                        (1 &lt;&lt; 23)         // acutally it should
+be SWD
+#define SWIM                    (1 &lt;&lt; 24)           // STM8_SWIM
+#define HV                        (1 &lt;&lt; 25)           // High Voltage
+control, some targets including AVR/PIC need High Voltage support
+......
+Disadvantage is that the number of interfaces is limitted, if using 64-bit
+integer, ONLY 64 interfaces can be defined.
+
+Every target must define a interface_needed according to different
+program_mode.
+For AVR:
+const struct program_mode_t avr8_program_mode[] =
+{
+    {'i', SET_FREQUENCY, SPI | GPIO},    // ISP mode, SPI and GPIO(for reset
+control) is needed
+    {'j', SET_FREQUENCY, JTAG_HL},      // JTAG mode, JTAG_HL is needed
+    {'p', &quot;&quot;, HV | GPIO},                             // High Voltage
+Parallel Mode, HV and GPIO
+    {'s', &quot;&quot;, HV | GPIO},                             // High Voltage Serial
+Mode, HV and GPIO
+    {0, NULL, 0}
+};
+For STM32:
+const struct program_mode_t stm32_program_mode[] =
+{
+    {'j', SET_FREQUENCY, JTAG_HL},      // JTAG mode, JTAG_HL
+    {'s', &quot;&quot;, SWJ},                                      // SWD mode, SWJ
+    {'i', USE_COMM, 0},                            // ISP mode, ComPort on
+PC
+    {0, NULL, 0}
+};
+
+When initializing dongle, a interface_supported should be returned to
+indicate the supported interfaces.
+// init programmer capabilities
+cur_programmer-&gt;init_capability(cur_programmer);
+
+RESULT versaloon_init_capability(void *p)
+{
+    struct programmer_info_t *t = (struct programmer_info_t *)p;
+
+    t-&gt;init = versaloon_init;
+    t-&gt;fini = versaloon_fini;
+
+    t-&gt;interfaces = (SPI | GPIO | ISSP | JTAG_LL | JTAG_HL | SWIM
+                        | C2 | MSP430_JTAG | MSP430_SBW | LPC_ICP | SWJ);
+......
+    // SPI
+    t-&gt;spi_init = versaloon_spi_init;
+    t-&gt;spi_fini = versaloon_spi_fini;
+    t-&gt;spi_config = versaloon_spi_config;
+    t-&gt;spi_io = versaloon_spi_io;
+......
+    // GPIO
+    t-&gt;gpio_init = versaloon_gpio_init;
+    t-&gt;gpio_fini = versaloon_gpio_fini;
+    t-&gt;gpio_config = versaloon_gpio_config;
+    t-&gt;gpio_in = versaloon_gpio_in;
+    t-&gt;gpio_out = versaloon_gpio_out;
+......
+}
+
+Check whether the specified mode of the target is supported.
+// init and check programmer's ability
+i = cur_target-&gt;program_mode[program_info.mode].interface_needed;
+if ((cur_programmer-&gt;interfaces &amp; i) != i)
+{
+    LOG_ERROR(_GETTEXT(&quot;%s can not support %s in the mode defined.\n&quot;),
+              cur_programmer-&gt;name, cur_target-&gt;name);
+    free_all_and_exit(EXIT_FAILURE);
+}
+
+And then, target related code could call the specified interfaces.
+// init
+spi_init();
+reset_init();
+
+// use avr8_isp_frequency
+spi_conf(pi-&gt;frequency);
+
+// toggle reset
+reset_clr();
+reset_output();
+delay_ms(1);
+reset_input();
+delay_ms(1);
+reset_clr();
+reset_output();
+delay_ms(10);
+
+// enter into program mode command
+cmd_buf[0] = 0xAC;
+cmd_buf[1] = 0x53;
+cmd_buf[2] = 0x00;
+cmd_buf[3] = 0x00;
+poll_byte = 0;
+// ret[2] should be 0x53
+spi_io(cmd_buf, 4, &amp;poll_byte, 2, 1);      // send out 4 bytes in cmd_buf,
+receive 1 byte from the 2nd byte into poll_byte
+if ((ERROR_OK != commit()) || (poll_byte != 0x53))
+{
+    return ERRCODE_FAILURE_ENTER_PROG_MODE;
+}
+
+-- 
+Best Regards, SimonQian
+<A HREF="http://www.SimonQian.com">http://www.SimonQian.com</A>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20100303/dbbdc47a/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20100303/dbbdc47a/attachment.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015104.html">[Openocd-development] [patch/fyi] LPC1768 updates, IAR board support
+</A></li>
+	<LI>Next message: <A HREF="015113.html">[Openocd-development] Multi-Interface Support
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15106">[ date ]</a>
+              <a href="thread.html#15106">[ thread ]</a>
+              <a href="subject.html#15106">[ subject ]</a>
+              <a href="author.html#15106">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

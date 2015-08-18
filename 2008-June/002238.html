@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Flash support for ADI ADUC7xxx
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20support%20for%20ADI%20ADUC7xxx&In-Reply-To=%3C5B8683FE-85AC-4B95-8BED-1259460E9F06%40gmx.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002237.html">
+   <LINK REL="Next"  HREF="002239.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Flash support for ADI ADUC7xxx</H1>
+    <B>Tilo Lutz</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Flash%20support%20for%20ADI%20ADUC7xxx&In-Reply-To=%3C5B8683FE-85AC-4B95-8BED-1259460E9F06%40gmx.de%3E"
+       TITLE="[Openocd-development] Flash support for ADI ADUC7xxx">TiloLutz at gmx.de
+       </A><BR>
+    <I>Sat Jun  7 19:11:28 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002237.html">[Openocd-development] RESET problem with LPC2148 (part 2)
+</A></li>
+        <LI>Next message: <A HREF="002239.html">[Openocd-development] Do we really need the TRST signal to	reset the TAP controller?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2238">[ date ]</a>
+              <a href="thread.html#2238">[ thread ]</a>
+              <a href="subject.html#2238">[ subject ]</a>
+              <a href="author.html#2238">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Hi
+
+I use OpenOCD, gnuarm and Eclipse to develop code for ADI ADUC7xxx  
+mikrocontroller.
+I use a amontec jtagkey tiny. I use an OS X machine.
+
+This setup works very good. The only thing I'm missing is flash support.
+
+The desciption how to use the flash in on p. 45f of the manual rev B.
+It isn't possible to write data direct to the flash address, e.g.  
+0x00080000
+The flash ram is 16bit width.
+
+I wrote some simple code to save waveforms in flash ram. I have  
+attached it.
+The important code is this:
+
+#define FEESTA 		(*(volatile unsigned long *) 	0XFFFFF800)
+#define FEEMOD 		(*(volatile unsigned long *)	0XFFFFF804)
+#define FEECON 		(*(volatile unsigned long *) 	0XFFFFF808)
+#define FEEDAT 		(*(volatile unsigned long *) 	0XFFFFF80C)
+#define FEEADR 		(*(volatile unsigned long *) 	0XFFFFF810)
+
+To write to flash to following procedure must be used (without IRQ):
+1. Allow write to flash
+	FEEMOD = 0x08; /* Allow write into flash *
+2. Erase target flash pages. Every page has 512bytes
+	FEEADR = FLASHADDRESS - FLASHBASE; /* Flashbase is always 0x00080000.  
+*/
+	FEECON = 0x05; /* erase page command */
+3. Wait until operation is completed successful
+	short feeread = FEESTA; /* Get flash status */
+	while (feeread &amp; 0x04) { /* Controler is still busy */
+		if (feeread &amp; 0x02) { /* Command failed */
+			return; /* Abort */
+		}
+		feeread = FEESTA;
+	}
+4. Repeat step 2 and 3 until the needed flash space is erased
+5. Write page (512Bytes) into flash
+	short data[256];
+	for (int i=0; i&lt;256; i++) {
+		FEEADR = FLASHADDRESS - FLASHBASE; /* Flashbase is always  
+0x00080000. */
+		FEEDAT = data[i]; /* Copy short into register */
+		FEECON = 0x02;	/* single write command */
+		Wait (Step 3)
+	}
+6. Repeat step 5 until all data has been written
+7. Disable flash write
+	FEEMOD = 0x0;
+
+The flash can be protected with 2kb pages but I haven't used this  
+function.
+It also supports a signature
+
+
+
+I tried to add a flash driver to openocd to support this uC flash. I  
+adapted the lpc21000 driver.
+I have attached it but I wasn't very successful. Fact is I looked at  
+the openocd code and I have no
+clue about it. How can I get the example code above merged with openocd?
+
+I would be great someone of you can support me or give me some hints.
+
+Best regards,
+
+Tilo
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: flash.c
+Type: application/octet-stream
+Size: 3319 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment.obj</A>&gt;
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0001.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0001.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: flash.h
+Type: application/octet-stream
+Size: 891 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0001.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0001.obj</A>&gt;
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0002.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0002.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: aduc7000.c
+Type: application/octet-stream
+Size: 19590 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0002.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0002.obj</A>&gt;
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0003.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0003.html</A>&gt;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: aduc7000.h
+Type: application/octet-stream
+Size: 2207 bytes
+Desc: not available
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0003.obj">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0003.obj</A>&gt;
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: &lt;<A HREF="https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0004.html">https://lists.berlios.de/pipermail/openocd-development/attachments/20080607/54d6fc8c/attachment-0004.html</A>&gt;
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002237.html">[Openocd-development] RESET problem with LPC2148 (part 2)
+</A></li>
+	<LI>Next message: <A HREF="002239.html">[Openocd-development] Do we really need the TRST signal to	reset the TAP controller?
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2238">[ date ]</a>
+              <a href="thread.html#2238">[ thread ]</a>
+              <a href="subject.html#2238">[ subject ]</a>
+              <a href="author.html#2238">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

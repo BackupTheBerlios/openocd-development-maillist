@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] Resetting Cortex A8 into halted state
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Resetting%20Cortex%20A8%20into%20halted%20state&In-Reply-To=%3CAANLkTimnukixSk-JgKUJyMJYlWQdELH7aNuWGQZxp2M9%40mail.gmail.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015944.html">
+   <LINK REL="Next"  HREF="015950.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] Resetting Cortex A8 into halted state</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20Resetting%20Cortex%20A8%20into%20halted%20state&In-Reply-To=%3CAANLkTimnukixSk-JgKUJyMJYlWQdELH7aNuWGQZxp2M9%40mail.gmail.com%3E"
+       TITLE="[Openocd-development] Resetting Cortex A8 into halted state">oyvind.harboe at zylin.com
+       </A><BR>
+    <I>Wed Jun 23 09:07:05 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015944.html">[Openocd-development] Resetting Cortex A8 into halted state
+</A></li>
+        <LI>Next message: <A HREF="015950.html">[Openocd-development] Resetting Cortex A8 into halted state
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15949">[ date ]</a>
+              <a href="thread.html#15949">[ thread ]</a>
+              <a href="subject.html#15949">[ subject ]</a>
+              <a href="author.html#15949">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>I made a fleeting vain attempt setting up the vector
+catch register to halt upon reset.
+
+Attached is the code that I wrote to set up the vector
+catch register to catch reset(I gleaned at the ARM11
+code for this + read a bit in the Cortex A8 manual).
+
+No luck, at least with the TI AM3517 EVM target.
+
+I've got the probe connected to the JTAG 20, but when
+I tried with SRST reset instead of using the reset-assert
+event(see board/am3517evm.cfg), then it seemed
+like communication broke down completely with the
+target(lots of sticky errors, etc.).
+
+
+-- 
+&#216;yvind Harboe
+US toll free 1-866-980-3434 / International +47 51 63 25 00
+<A HREF="http://www.zylin.com/zy1000.html">http://www.zylin.com/zy1000.html</A>
+ARM7 ARM9 ARM11 XScale Cortex
+JTAG debugger and flash programmer
+-------------- next part --------------
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index afe5b6c..5b83a9a 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1289,10 +1289,22 @@ static int cortex_a8_remove_breakpoint(struct target *target, struct breakpoint
+ static int cortex_a8_assert_reset(struct target *target)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	int retval;
+ 	LOG_DEBUG(&quot; &quot;);
+ 
+-	/* FIXME when halt is requested, make it work somehow... */
++	/* See Cortex-A8 Technical Reference Manual 12.4.8 Vector Catch Register */
++	if (target-&gt;reset_halt)
++	{
++		uint32_t vcr;
++		retval = mem_ap_read_atomic_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_VCR, &amp;vcr);
++		if (retval != ERROR_OK)
++			return retval;
++		vcr |= 1;
++		retval = mem_ap_write_atomic_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_VCR, vcr);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 
+ 	/* Issue some kind of warm reset. */
+ 	if (target_has_event_action(target, TARGET_EVENT_RESET_ASSERT)) {
+@@ -1318,6 +1330,8 @@ static int cortex_a8_assert_reset(struct target *target)
+ static int cortex_a8_deassert_reset(struct target *target)
+ {
+ 	int retval;
++	struct armv7a_common *armv7a = target_to_armv7a(target);
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	LOG_DEBUG(&quot; &quot;);
+ 
+@@ -1329,6 +1343,16 @@ static int cortex_a8_deassert_reset(struct target *target)
+ 		return retval;
+ 
+ 	if (target-&gt;reset_halt) {
++		/* See Cortex-A8 Technical Reference Manual 12.4.8 Vector Catch Register */
++		uint32_t vcr;
++		retval = mem_ap_read_atomic_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_VCR, &amp;vcr);
++		if (retval != ERROR_OK)
++			return retval;
++		vcr &amp;= ~1;
++		retval = mem_ap_write_atomic_u32(swjdp, armv7a-&gt;debug_base + CPUDBG_VCR, vcr);
++		if (retval != ERROR_OK)
++			return retval;
++
+ 		if (target-&gt;state != TARGET_HALTED) {
+ 			LOG_WARNING(&quot;%s: ran after reset and before halt ...&quot;,
+ 					target_name(target));
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015944.html">[Openocd-development] Resetting Cortex A8 into halted state
+</A></li>
+	<LI>Next message: <A HREF="015950.html">[Openocd-development] Resetting Cortex A8 into halted state
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15949">[ date ]</a>
+              <a href="thread.html#15949">[ thread ]</a>
+              <a href="subject.html#15949">[ subject ]</a>
+              <a href="author.html#15949">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

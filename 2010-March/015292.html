@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [PATCH] fix software breakpoints on xscale
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20fix%20software%20breakpoints%20on%20xscale&In-Reply-To=%3C1269096827-6994-1-git-send-email-mikedunn%40newsguy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="015296.html">
+   <LINK REL="Next"  HREF="015293.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [PATCH] fix software breakpoints on xscale</H1>
+    <B>mikedunn at newsguy.com</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5BPATCH%5D%20fix%20software%20breakpoints%20on%20xscale&In-Reply-To=%3C1269096827-6994-1-git-send-email-mikedunn%40newsguy.com%3E"
+       TITLE="[Openocd-development] [PATCH] fix software breakpoints on xscale">mikedunn at newsguy.com
+       </A><BR>
+    <I>Sat Mar 20 15:53:47 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="015296.html">[Openocd-development] [PATCH 2/2] jtag: make out_value const
+</A></li>
+        <LI>Next message: <A HREF="015293.html">[Openocd-development] [PATCH] fix software breakpoints on xscale
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15292">[ date ]</a>
+              <a href="thread.html#15292">[ thread ]</a>
+              <a href="subject.html#15292">[ subject ]</a>
+              <a href="author.html#15292">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>From: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-development">mikedunn at newsguy.com</A>&gt;
+
+This patch fixes xscale software breakpoints by cleaning the dcache and
+invalidating the icache after the bkpt instruction is inserted or removed.  The
+icache operation is necessary in order to flush the fetch buffers, even if the
+icache is disabled (see section 4.2.7 of the xscale core developer's manual).
+The dcache is presumed to be enabled; no harm done if not.  The dcache is also
+invalidated after cleaning in order to safeguard against a future load of
+invalid data, in the event that cache_clean_address points to memory that is
+valid and in use.
+
+Also corrected a confusing typo I noticed in a comment.
+
+TODO (or not TODO...?): the xscale's 2K &quot;mini dcache&quot; is not cleaned.  This
+cache is not used unless the 'X' bit in the page table entry is set.  This is a
+proprietary xscale extension to the ARM architecture.  If a target's OS or
+executive makes use of this for memory regions holding code, the breakpoint
+problem will persist.  Flushing the mini dcache requires that 2K of valid
+cacheable memory (mapped with 'X' bit set) be designated by the user for this
+purpose.  The debug handler that gets downloaded to the target will also need to
+be extended.
+
+---
+
+One further note: ideally we would want to just evict the dcache line containing
+the bkpt instruction rather than the whole dcache, but it doesn't seem possible
+on the xscale.  The book &quot;Arm System Developer's Guide&quot; says that it is and
+shows an operation on the cp15 cache control register to do this, but it does
+not appear in Intel's manuals.
+
+ src/target/xscale.c |   14 ++++++++++++--
+ 1 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 08797f1..dfccbcc 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2130,7 +2130,7 @@ static int xscale_set_breakpoint(struct target *target,
+ 			{
+ 				return retval;
+ 			}
+-			/* write the original instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
++			/* write the bkpt instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
+ 			if ((retval = target_write_u32(target, breakpoint-&gt;address, xscale-&gt;arm_bkpt)) != ERROR_OK)
+ 			{
+ 				return retval;
+@@ -2143,13 +2143,18 @@ static int xscale_set_breakpoint(struct target *target,
+ 			{
+ 				return retval;
+ 			}
+-			/* write the original instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
++			/* write the bkpt instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
+ 			if ((retval = target_write_u32(target, breakpoint-&gt;address, xscale-&gt;thumb_bkpt)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+ 		}
+ 		breakpoint-&gt;set = 1;
++
++		xscale_send_u32(target, 0x50);   /* clean dcache */
++		xscale_send_u32(target, xscale-&gt;cache_clean_address);
++		xscale_send_u32(target, 0x51);   /* invalidate dcache */
++		xscale_send_u32(target, 0x52);   /* invalidate icache and flush fetch buffers */
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -2230,6 +2235,11 @@ static int xscale_unset_breakpoint(struct target *target,
+ 			}
+ 		}
+ 		breakpoint-&gt;set = 0;
++
++		xscale_send_u32(target, 0x50);   /* clean dcache */
++		xscale_send_u32(target, xscale-&gt;cache_clean_address);
++		xscale_send_u32(target, 0x51);   /* invalidate dcache */
++		xscale_send_u32(target, 0x52);   /* invalidate icache and flush fetch buffers */
+ 	}
+ 
+ 	return ERROR_OK;
+-- 
+1.6.4.4
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="015296.html">[Openocd-development] [PATCH 2/2] jtag: make out_value const
+</A></li>
+	<LI>Next message: <A HREF="015293.html">[Openocd-development] [PATCH] fix software breakpoints on xscale
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#15292">[ date ]</a>
+              <a href="thread.html#15292">[ thread ]</a>
+              <a href="subject.html#15292">[ subject ]</a>
+              <a href="author.html#15292">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>

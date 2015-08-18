@@ -1,0 +1,303 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-development] [patch 2/3] Cortex-A8: mode support
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-development/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20Cortex-A8%3A%20mode%20support&In-Reply-To=%3C200911191917.34559.david-b%40pacbell.net%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="012595.html">
+   <LINK REL="Next"  HREF="012596.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-development] [patch 2/3] Cortex-A8: mode support</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-development%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-development%5D%20%5Bpatch%202/3%5D%20Cortex-A8%3A%20mode%20support&In-Reply-To=%3C200911191917.34559.david-b%40pacbell.net%3E"
+       TITLE="[Openocd-development] [patch 2/3] Cortex-A8: mode support">david-b at pacbell.net
+       </A><BR>
+    <I>Fri Nov 20 04:17:34 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="012595.html">[Openocd-development] [patch 1/3] target: create/use	register_cache_invalidate()
+</A></li>
+        <LI>Next message: <A HREF="012596.html">[Openocd-development] [patch 3/3] Cortex-A8: better context restore
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12594">[ date ]</a>
+              <a href="thread.html#12594">[ thread ]</a>
+              <a href="subject.html#12594">[ subject ]</a>
+              <a href="author.html#12594">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>We *should* be able to read and write registers in any core mode,
+instead of being stuck with whatever mode the core was when we
+entered debug state.  This patch makes them work.
+
+Note that the current restore_context() only handles the current
+mode; writing to other-mode registers is a NOP without a followup
+patch fixing that.  Also, that SPSR access needed some bugfixes;
+it was confused with CPSR.
+
+Secure monitor mode also seems dubious; there's probably more to
+be done before that's sufficiently understood by the debugger.
+---
+ src/target/cortex_a8.c |  144 +++++++++++++++++++++++++++++++++++++----------
+ 1 file changed, 115 insertions(+), 29 deletions(-)
+
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -237,7 +237,7 @@ static int cortex_a8_dap_read_coreregist
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct swjdp_common *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
+-	if (reg &gt; 16)
++	if (reg &gt; 17)
+ 		return retval;
+ 
+ 	if (reg &lt; 15)
+@@ -251,10 +251,12 @@ static int cortex_a8_dap_read_coreregist
+ 		cortex_a8_exec_opcode(target, 0xE1A0000F);
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
+ 	}
+-	else if (reg == 16)
++	else
+ 	{
+-		/* &quot;MRS r0, CPSR&quot;; then move r0 to DCCTX */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, 0));
++		/* &quot;MRS r0, CPSR&quot; or &quot;MRS r0, SPSR&quot;
++		 * then move r0 to DCCTX
++		 */
++		cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, reg &amp; 1));
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
+ 	}
+ 
+@@ -268,11 +270,13 @@ static int cortex_a8_dap_read_coreregist
+ 
+ 	retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DTRTX, value);
++	LOG_DEBUG(&quot;read DCC 0x%08&quot; PRIx32, *value);
+ 
+ 	return retval;
+ }
+ 
+-static int cortex_a8_dap_write_coreregister_u32(struct target *target, uint32_t value, int regnum)
++static int cortex_a8_dap_write_coreregister_u32(struct target *target,
++		uint32_t value, int regnum)
+ {
+ 	int retval = ERROR_OK;
+ 	uint8_t Rd = regnum&amp;0xFF;
+@@ -292,29 +296,39 @@ static int cortex_a8_dap_write_coreregis
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
+ 	}
+ 
+-	if (Rd &gt; 16)
++	if (Rd &gt; 17)
+ 		return retval;
+ 
+ 	/* Write to DCCRX */
++	LOG_DEBUG(&quot;write DCC 0x%08&quot; PRIx32, value);
+ 	retval = mem_ap_write_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DTRRX, value);
+ 
+ 	if (Rd &lt; 15)
+ 	{
+-		/* DCCRX to Rd, MCR p14, 0, Rd, c0, c5, 0,  0xEE000E15 */
++		/* DCCRX to Rn, &quot;MCR p14, 0, Rn, c0, c5, 0&quot;, 0xEE00nE15 */
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, Rd, 0, 5, 0));
+ 	}
+ 	else if (Rd == 15)
+ 	{
++		/* DCCRX to R0, &quot;MCR p14, 0, R0, c0, c5, 0&quot;, 0xEE000E15
++		 * then &quot;mov r15, r0&quot;
++		 */
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
+ 		cortex_a8_exec_opcode(target, 0xE1A0F000);
+ 	}
+-	else if (Rd == 16)
++	else
+ 	{
++		/* DCCRX to R0, &quot;MCR p14, 0, R0, c0, c5, 0&quot;, 0xEE000E15
++		 * then &quot;MSR CPSR_cxsf, r0&quot; or &quot;MSR SPSR_cxsf, r0&quot; (all fields)
++		 */
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
+-		cortex_a8_exec_opcode(target, ARMV4_5_MSR_GP(0, 0xF, 0));
+-		/* Execute a PrefetchFlush instruction through the ITR. */
+-		cortex_a8_exec_opcode(target, ARMV4_5_MCR(15, 0, 0, 7, 5, 4));
++		cortex_a8_exec_opcode(target, ARMV4_5_MSR_GP(0, 0xF, Rd &amp; 1));
++
++		/* &quot;Prefetch flush&quot; after modifying execution status in CPSR */
++		if (Rd == 16)
++			cortex_a8_exec_opcode(target,
++					ARMV4_5_MCR(15, 0, 0, 7, 5, 4));
+ 	}
+ 
+ 	return retval;
+@@ -950,28 +964,64 @@ static int cortex_a8_store_core_reg_u32(
+ #endif
+ 
+ 
++static int cortex_a8_write_core_reg(struct target *target, int num,
++		enum armv4_5_mode mode, uint32_t value);
++
+ static int cortex_a8_read_core_reg(struct target *target, int num,
+ 		enum armv4_5_mode mode)
+ {
+ 	uint32_t value;
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
++	struct reg_cache *cache = armv4_5-&gt;core_cache;
++	uint32_t cpsr = 0;
++	unsigned cookie = num;
+ 
+-	/* FIXME cortex may not be in &quot;mode&quot; ... */
++	/* avoid some needless mode changes
++	 * FIXME move some of these to shared ARM code...
++	 */
++	if (mode != armv4_5-&gt;core_mode) {
++		if ((armv4_5-&gt;core_mode == ARMV4_5_MODE_SYS)
++				&amp;&amp; (mode == ARMV4_5_MODE_USR))
++			mode = ARMV4_5_MODE_ANY;
++		else if ((mode != ARMV4_5_MODE_FIQ) &amp;&amp; (num &lt;= 12))
++			mode = ARMV4_5_MODE_ANY;
+ 
+-	cortex_a8_dap_read_coreregister_u32(target, &amp;value, num);
++		if (mode != ARMV4_5_MODE_ANY) {
++			cpsr = buf_get_u32(cache -&gt;reg_list[ARMV4_5_CPSR]
++					.value, 0, 32);
++			cortex_a8_write_core_reg(target, 16,
++					ARMV4_5_MODE_ANY, mode);
++		}
++	}
+ 
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		return retval;
++	if (num == 16) {
++		switch (mode) {
++		case ARMV4_5_MODE_USR:
++		case ARMV4_5_MODE_SYS:
++		case ARMV4_5_MODE_ANY:
++			/* CPSR */
++			break;
++		default:
++			/* SPSR */
++			cookie++;
++			break;
++		}
+ 	}
+ 
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
+-	buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-			mode, num).value, 0, 32, value);
++	cortex_a8_dap_read_coreregister_u32(target, &amp;value, cookie);
++	retval = jtag_execute_queue();
++	if (retval == ERROR_OK) {
++		struct reg *r = &amp;ARMV4_5_CORE_REG_MODE(cache, mode, num);
+ 
+-	return ERROR_OK;
++		r-&gt;valid = 1;
++		r-&gt;dirty = 0;
++		buf_set_u32(r-&gt;value, 0, 32, value);
++	}
++
++	if (cpsr)
++		cortex_a8_write_core_reg(target, 16, ARMV4_5_MODE_ANY, cpsr);
++	return retval;
+ }
+ 
+ static int cortex_a8_write_core_reg(struct target *target, int num,
+@@ -979,19 +1029,55 @@ static int cortex_a8_write_core_reg(stru
+ {
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
++	struct reg_cache *cache = armv4_5-&gt;core_cache;
++	uint32_t cpsr = 0;
++	unsigned cookie = num;
+ 
+-	/* FIXME cortex may not be in &quot;mode&quot; ... */
++	/* avoid some needless mode changes
++	 * FIXME move some of these to shared ARM code...
++	 */
++	if (mode != armv4_5-&gt;core_mode) {
++		if ((armv4_5-&gt;core_mode == ARMV4_5_MODE_SYS)
++				&amp;&amp; (mode == ARMV4_5_MODE_USR))
++			mode = ARMV4_5_MODE_ANY;
++		else if ((mode != ARMV4_5_MODE_FIQ) &amp;&amp; (num &lt;= 12))
++			mode = ARMV4_5_MODE_ANY;
+ 
+-	cortex_a8_dap_write_coreregister_u32(target, value, num);
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		return retval;
++		if (mode != ARMV4_5_MODE_ANY) {
++			cpsr = buf_get_u32(cache -&gt;reg_list[ARMV4_5_CPSR]
++					.value, 0, 32);
++			cortex_a8_write_core_reg(target, 16,
++					ARMV4_5_MODE_ANY, mode);
++		}
+ 	}
+ 
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
+ 
+-	return ERROR_OK;
++	if (num == 16) {
++		switch (mode) {
++		case ARMV4_5_MODE_USR:
++		case ARMV4_5_MODE_SYS:
++		case ARMV4_5_MODE_ANY:
++			/* CPSR */
++			break;
++		default:
++			/* SPSR */
++			cookie++;
++			break;
++		}
++	}
++
++	cortex_a8_dap_write_coreregister_u32(target, value, cookie);
++	if ((retval = jtag_execute_queue()) == ERROR_OK) {
++		struct reg *r = &amp;ARMV4_5_CORE_REG_MODE(cache, mode, num);
++
++		buf_set_u32(r-&gt;value, 0, 32, value);
++		r-&gt;valid = 1;
++		r-&gt;dirty = 0;
++	}
++
++	if (cpsr)
++		cortex_a8_write_core_reg(target, 16, ARMV4_5_MODE_ANY, cpsr);
++	return retval;
+ }
+ 
+ 
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="012595.html">[Openocd-development] [patch 1/3] target: create/use	register_cache_invalidate()
+</A></li>
+	<LI>Next message: <A HREF="012596.html">[Openocd-development] [patch 3/3] Cortex-A8: better context restore
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#12594">[ date ]</a>
+              <a href="thread.html#12594">[ thread ]</a>
+              <a href="subject.html#12594">[ subject ]</a>
+              <a href="author.html#12594">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-development">More information about the Openocd-development
+mailing list</a><br>
+</body></html>
